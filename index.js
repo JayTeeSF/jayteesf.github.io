@@ -6,9 +6,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
   document.getElementById("toggle-dark-mode").addEventListener("click", toggleDarkMode);
 
-  // Initialize the projects collection
-  await restDB.initializeProjects();
-
   // Load data from collections
   loadProjects();
   loadBlogPosts();
