@@ -1,7 +1,4 @@
-const env = {
-  dbHost: "sql5.freesqldatabase.com",
-  dbName: "sql5723678",
-  dbPort: 3306,
-  dbUser: "sql5723678",
-  dbPassword: "jlq61c8F78",
+const config = {
+  apiKey: '66ad8b626c0cd4609c0190aa', // Read-only key
+  baseUrl: 'https://freesite-0383.restdb.io/rest'
 };
