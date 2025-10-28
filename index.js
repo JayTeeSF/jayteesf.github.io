@@ -1,6 +1,6 @@
 // JayTeeSF static site JS (vanilla).
 // Configure your Google Form embed URL here (ends with ?embedded=true).
-const CONTACT_FORM_URL = ""; // ← SET ME
+const CONTACT_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScRu_kpO2Ct67NqlG_cVH_VlmOg0HEi1HBkJZb7XMQc41-0BQ/viewform?embedded=true"; // ← SET ME
 
 const root = document.documentElement;
 const themeKey = "jayteesf-theme";
