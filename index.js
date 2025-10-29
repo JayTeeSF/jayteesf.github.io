@@ -33,13 +33,71 @@ menuBtn.addEventListener("click", () => {
   const expanded = nav.getAttribute("aria-expanded") === "true";
   nav.setAttribute("aria-expanded", String(!expanded));
   menuBtn.setAttribute("aria-expanded", String(!expanded));
+  updateAnchorOffset(); // header height may change when menu opens/closes
+});
+
+// --- Anchor offset: measure sticky header and expose as CSS var ---
+function updateAnchorOffset() {
+  const header = document.querySelector(".site-header");
+  const h = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+  // small extra breathing room
+  document.documentElement.style.setProperty("--anchor-offset", `${h + 8}px`);
+}
+window.addEventListener("load", () => {
+  updateAnchorOffset();
+
+  // If landing with a hash in the URL, re-scroll so the offset applies
+  if (location.hash) {
+    const target = document.querySelector(location.hash);
+    if (target) {
+      requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }
+});
+window.addEventListener("resize", updateAnchorOffset);
+
+// Collapse mobile nav helper
+function closeMenu() {
+  nav.setAttribute("aria-expanded", "false");
+  menuBtn.setAttribute("aria-expanded", "false");
+  updateAnchorOffset();
+}
+
+// Intercept in-page hash links: close menu first, then scroll with offset
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener("click", (e) => {
+    const hash = a.getAttribute("href");
+    if (!hash || hash === "#") return;
+
+    const target = document.querySelector(hash);
+    if (!target) return;
+
+    if (nav.getAttribute("aria-expanded") === "true") {
+      e.preventDefault();
+      closeMenu();
+      // After layout settles, perform the scroll and update URL
+      requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        history.pushState(null, "", hash);
+      });
+    }
+    // else: let native navigation happen; CSS offset still applies
+  });
+});
+
+// Also handle manual hash changes (e.g., back/forward)
+window.addEventListener("hashchange", () => {
+  const target = document.querySelector(location.hash);
+  if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 // Contact Form modal
-const formModal = document.getElementById("formModal");
-const formFrame = document.getElementById("formFrame");
-const formHelp  = document.getElementById("formHelp");
-const directLink = document.getElementById("formDirectLink");
+const formModal   = document.getElementById("formModal");
+const formFrame   = document.getElementById("formFrame");
+const formHelp    = document.getElementById("formHelp");
+const formDirect  = document.getElementById("formDirectLink");   // may not exist in HTML
 const modalDirect = document.getElementById("modalDirectLink");
 
 function openForm() {
@@ -47,13 +105,13 @@ function openForm() {
     formFrame.src = CONTACT_FORM_URL;
     formHelp.hidden = true;
     const normalUrl = CONTACT_FORM_URL.replace("?embedded=true", "");
-    directLink.href = normalUrl;
-    modalDirect.href = normalUrl;
+    if (formDirect)  formDirect.href  = normalUrl;
+    if (modalDirect) modalDirect.href = normalUrl;
   } else {
     formFrame.removeAttribute("src");
     formHelp.hidden = false;
-    directLink.href = "#";
-    modalDirect.href = "#";
+    if (formDirect)  formDirect.href  = "#";
+    if (modalDirect) modalDirect.href = "#";
   }
   if (typeof formModal.showModal === "function") {
     formModal.showModal();
