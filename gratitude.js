@@ -16,7 +16,7 @@
     function updateAnchorOffset() {
       const header = document.querySelector(".site-header");
       const h = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
-      document.documentElement.style.setProperty("--anchor-offset", `${h + 8}px`);
+      document.documentElement.style.setProperty("--anchor-offset", `${h + 8}px");
     }
     menuBtn.addEventListener("click", () => {
       const expanded = nav.getAttribute("aria-expanded") === "true";
@@ -96,7 +96,7 @@
 
     function loadHistory(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; } }
     function saveHistory(rows){ localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); }
-    function escapeHtml(str){ return (str || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;","&gt;": "&gt;","\"":"&quot;"}[c])); }
+    function escapeHtml(str){ return (str || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;"}[c])); }
 
     function createEntryFromForm() {
       return {
@@ -137,22 +137,22 @@
         const href = direct || fallback;
         return `<div class="inline-form-help">Scripture: <a href="${href}" target="_blank" rel="noopener">${escapeHtml(r.scripture_ref)}</a></div>`;
       })() : "";
-      return `
+      return \`
         <h4>
-          <span>${fmtDate(r.date)} ${r.email ? `<span class="pill">${escapeHtml(r.email)}</span>` : ""}</span>
+          <span>\${fmtDate(r.date)} \${r.email ? \`<span class="pill">\${escapeHtml(r.email)}</span>\` : ""}</span>
           <span>
-            <button class="icon-btn" data-edit="${r.id}" title="Edit">✎</button>
-            <button class="icon-btn" data-del="${r.id}" title="Delete">🗑</button>
+            <button class="icon-btn" data-edit="\${r.id}" title="Edit">✎</button>
+            <button class="icon-btn" data-del="\${r.id}" title="Delete">🗑</button>
           </span>
         </h4>
         <ul class="list" style="margin:.5rem 0 .7rem">
-          <li><strong>1)</strong> ${escapeHtml(r.g1)}</li>
-          <li><strong>2)</strong> ${escapeHtml(r.g2)}</li>
-          <li><strong>3)</strong> ${escapeHtml(r.g3)}</li>
-          <li><strong>Looking forward:</strong> ${escapeHtml(r.look)}</li>
+          <li><strong>1)</strong> \${escapeHtml(r.g1)}</li>
+          <li><strong>2)</strong> \${escapeHtml(r.g2)}</li>
+          <li><strong>3)</strong> \${escapeHtml(r.g3)}</li>
+          <li><strong>Looking forward:</strong> \${escapeHtml(r.look)}</li>
         </ul>
-        ${scriptureHtml}
-      `;
+        \${scriptureHtml}
+      \`;
     }
     function renderHistory() {
       const all = loadHistory().sort((a,b) => new Date(b.date) - new Date(a.date) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
@@ -304,19 +304,16 @@
     }
     topicEl.addEventListener('input', updateTopicBindings);
 
-    // This element was removed from the DOM; keep reference but guard in the updater:
     const openVerseLink = document.getElementById('openVerseLink');
     function updateOpenVerseLink() {
-      if (!openVerseLink) return;               // <-- guard so no error when link is absent
       const url = toBlbVerseUrl(sref.value || '');
-      openVerseLink.href = url || '#';
-      openVerseLink.style.pointerEvents = url ? 'auto' : 'none';
+      if (openVerseLink) { openVerseLink.href = url || '#'; openVerseLink.style.pointerEvents = url ? 'auto' : 'none'; }
     }
     sref.addEventListener('input', updateOpenVerseLink);
 
     // initial state
     updateTopicBindings();
-    updateOpenVerseLink();   // safe even if the link element is not present
+    updateOpenVerseLink();
     renderHistory();
 
     // ===== CSV (unchanged) =====
