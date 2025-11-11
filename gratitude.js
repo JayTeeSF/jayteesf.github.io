@@ -82,17 +82,17 @@
       return `https://www.blueletterbible.org/verse/${translation.toLowerCase()}/${slug}/${chap}/${verse}/`;
     }
 
-    // ===== Date helpers (NEW: local-safe parsing/formatting) =====
-    function localIsoToday() {
-      const d = new Date();
+    // ===== Date helpers (local-safe) =====
+    function localIsoFromDate(d) {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       return `${y}-${m}-${day}`; // local YYYY-MM-DD
     }
+    function localIsoToday() { return localIsoFromDate(new Date()); }
     function parseYmdLocal(s) {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
-      if (!m) return new Date(s); // fall back to native parsing for other formats
+      if (!m) return new Date(s); // fallback
       return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); // local midnight
     }
     function fmtDate(d) {
@@ -114,6 +114,23 @@
     function loadHistory(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; } }
     function saveHistory(rows){ localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); }
     function escapeHtml(str){ return (str || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;","&gt;": "&gt;","\"":"&quot;"}[c])); }
+
+    // ---- One-time migration of existing UTC-saved dates ----
+    function migrateHistoryDates(rows) {
+      let changed = false;
+      for (const r of rows) {
+        if (!r || !r.date || !r.createdAt) continue;
+        const created = new Date(r.createdAt);
+        const utcDay = created.toISOString().slice(0,10);
+        const localDay = localIsoFromDate(created);
+        if (r.date === utcDay && r.date !== localDay) {
+          r.date = localDay;
+          changed = true;
+        }
+      }
+      if (changed) saveHistory(rows);
+      return rows;
+    }
 
     function createEntryFromForm() {
       return {
@@ -173,7 +190,7 @@
       `;
     }
     function renderHistory() {
-      const all = loadHistory().sort((a,b) =>
+      const all = migrateHistoryDates(loadHistory()).sort((a,b) =>
         parseYmdLocal(b.date) - parseYmdLocal(a.date) ||
         new Date(b.createdAt||0) - new Date(a.createdAt||0)
       );
@@ -197,7 +214,12 @@
       const r = loadHistory().find(x => x.id === id);
       if (!r) return;
       emailEl.value = r.email || '';
-      dateEl.value = r.date || localIsoToday();
+
+      // Ensure the visible and underlying value both reflect the entry date
+      const d = parseYmdLocal(r.date || localIsoToday());
+      dateEl.value = localIsoFromDate(d);
+      dateEl.valueAsDate = d;
+
       g1El.value = r.g1 || '';
       g2El.value = r.g2 || '';
       g3El.value = r.g3 || '';
@@ -267,7 +289,10 @@
         const map = new Map();
         for (const r of loadHistory()) map.set(r.id, r);
         for (const r of Array.isArray(incoming) ? incoming : []) map.set(r.id || uid(), { id: r.id || uid(), ...r });
-        saveHistory(Array.from(map.values()));
+        const merged = Array.from(map.values());
+        // run migration after import so history is normalized
+        migrateHistoryDates(merged);
+        saveHistory(merged);
         renderHistory();
       } catch(_) { alert('Invalid JSON file.'); }
       e.target.value = '';
