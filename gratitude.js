@@ -82,14 +82,31 @@
       return `https://www.blueletterbible.org/verse/${translation.toLowerCase()}/${slug}/${chap}/${verse}/`;
     }
 
-    // ===== Data & renderer (unchanged) =====
+    // ===== Date helpers (NEW: local-safe parsing/formatting) =====
+    function localIsoToday() {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`; // local YYYY-MM-DD
+    }
+    function parseYmdLocal(s) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+      if (!m) return new Date(s); // fall back to native parsing for other formats
+      return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); // local midnight
+    }
+    function fmtDate(d) {
+      const dd = (typeof d === 'string') ? parseYmdLocal(d) : new Date(d);
+      return dd.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"numeric" });
+    }
+
+    // ===== Data & renderer (unchanged except date helpers used) =====
     const TOPIC_VERSES = {
       gratitude: ['Psalm 107:1','1 Thessalonians 5:18','Colossians 3:15','Psalm 103:1-5','Philippians 4:6','James 1:17','Psalm 118:24','Ephesians 5:20','Psalm 136:1','Hebrews 13:15'],
       hope: ['Jeremiah 29:11','Romans 15:13','Lamentations 3:22-24','Psalm 42:5','Hebrews 6:19'],
       peace: ['John 14:27','Philippians 4:7','Isaiah 26:3','Colossians 3:15','Psalm 29:11']
     };
     function uid() { return `g_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`; }
-    function fmtDate(d) { return new Date(d).toLocaleDateString(undefined, { year:"numeric", month:"short", day:"numeric" }); }
     const now = new Date();
     todayEl.textContent = now.toLocaleDateString(undefined, { weekday:"long", month:"short", day:"numeric" });
     dateEl.valueAsDate = now;
@@ -102,7 +119,8 @@
       return {
         id: uid(),
         email: emailEl.value.trim(),
-        date: dateEl.value || new Date().toISOString().slice(0,10),
+        // Use local YYYY-MM-DD (avoid UTC shift)
+        date: dateEl.value || localIsoToday(),
         g1: g1El.value.trim(),
         g2: g2El.value.trim(),
         g3: g3El.value.trim(),
@@ -118,13 +136,13 @@
     function applyFilters(rows) {
       const q = (qEl.value||"").toLowerCase();
       const qe = (qEmailEl.value||"").toLowerCase();
-      const from = qFromEl.value ? new Date(qFromEl.value) : null;
-      const to = qToEl.value ? new Date(qToEl.value) : null;
+      const from = qFromEl.value ? parseYmdLocal(qFromEl.value) : null;
+      const to = qToEl.value ? parseYmdLocal(qToEl.value) : null;
       return rows.filter(r => {
         const hay = [r.g1,r.g2,r.g3,r.look,r.scripture_ref].join(" · ").toLowerCase();
         if (q && !hay.includes(q)) return false;
         if (qe && !(r.email||"").toLowerCase().includes(qe)) return false;
-        const d = new Date(r.date);
+        const d = parseYmdLocal(r.date);
         if (from && d < from) return false;
         if (to) { const end = new Date(to); end.setHours(23,59,59,999); if (d > end) return false; }
         return true;
@@ -155,7 +173,10 @@
       `;
     }
     function renderHistory() {
-      const all = loadHistory().sort((a,b) => new Date(b.date) - new Date(a.date) || new Date(b.createdAt||0) - new Date(a.createdAt||0));
+      const all = loadHistory().sort((a,b) =>
+        parseYmdLocal(b.date) - parseYmdLocal(a.date) ||
+        new Date(b.createdAt||0) - new Date(a.createdAt||0)
+      );
       const rows = applyFilters(all);
       historyEl.innerHTML = "";
       if (!rows.length) { emptyHistoryEl.hidden = false; return; }
@@ -176,7 +197,7 @@
       const r = loadHistory().find(x => x.id === id);
       if (!r) return;
       emailEl.value = r.email || '';
-      dateEl.value = r.date || new Date().toISOString().slice(0,10);
+      dateEl.value = r.date || localIsoToday();
       g1El.value = r.g1 || '';
       g2El.value = r.g2 || '';
       g3El.value = r.g3 || '';
