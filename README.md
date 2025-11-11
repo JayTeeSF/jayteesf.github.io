@@ -14,3 +14,4 @@ Canva: https://www.canva.com - Offers a free tier with templates and easy access
 Adobe Spark: https://spark.adobe.com - A tool for creating social graphics, web pages, and short videos, which can help in finding suitable images and enhancing their appearance.
 These tools allow you to quickly search for images based on keywords and customize them to fit your website’s aesthetic.
 
+
