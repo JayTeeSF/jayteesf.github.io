@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>DNA→mRNA→Protein + CRISPR/TIGR matching (toy model)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; line-height: 1.35; }
+    textarea, input { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 14px; }
+    .out { white-space: pre-wrap; background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 10px; }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; background: white; cursor: pointer; }
+    button:hover { background: #f6f6f6; }
+    .small { color: #555; font-size: 13px; }
+    .ok { color: #0a7; }
+    .bad { color: #c33; }
+  </style>
+</head>
+<body>
+  <h2>1) Translation demo: DNA (coding strand) → mRNA → protein</h2>
+  <p class="small">
+    Toy assumptions: we treat your input as the <b>coding strand</b> (5’→3’). mRNA is the same sequence but T→U.
+    Translation starts at the first AUG and stops at UAA/UAG/UGA.
+  </p>
+
+  <div class="card">
+    <label><b>DNA coding strand (A/T/C/G)</b></label>
+    <textarea id="dna" rows="3">CCCATGGAA TTTGCTTAA GG</textarea>
+    <div style="margin-top:10px;">
+      <button onclick="runTranslation()">Translate</button>
+    </div>
+    <div style="margin-top:10px;" class="out" id="translationOut"></div>
+  </div>
+
+  <h2 style="margin-top:26px;">2) “Matching” demo: guide RNA binding logic (targeting, not translation)</h2>
+  <p class="small">
+    Here we model matching as complement base pairing (A↔T/U, C↔G). Real editors have more rules; this is the core idea.
+  </p>
+
+  <div class="row">
+    <div class="card">
+      <label><b>Target DNA (one strand)</b></label>
+      <textarea id="targetDna" rows="3">GACTGACCTGAACTGACCTG</textarea>
+
+      <label style="display:block; margin-top:10px;"><b>CRISPR-style guide RNA (gRNA)</b> (A/U/C/G)</label>
+      <input id="gRNA" value="CUGACUGGACUUGACUGGAC" />
+
+      <div style="margin-top:10px;">
+        <button onclick="runCrisprMatch()">Check CRISPR match</button>
+      </div>
+      <div style="margin-top:10px;" class="out" id="crisprOut"></div>
+    </div>
+
+    <div class="card">
+      <label><b>TIGR-style toy: dual spacers must match both strands</b></label>
+      <p class="small">
+        We split a tigRNA into Spacer A and Spacer B (same length). A must match one strand, B must match the other.
+        (Real TIGR-Tas is more specific; this is a conceptual visualization.) :contentReference[oaicite:13]{index=13}
+      </p>
+
+      <label><b>Spacer A (RNA)</b></label>
+      <input id="spA" value="CUGACUGGA" />
+
+      <label style="display:block; margin-top:10px;"><b>Spacer B (RNA)</b></label>
+      <input id="spB" value="CUUGACUGG" />
+
+      <div style="margin-top:10px;">
+        <button onclick="runTigrMatch()">Check TIGR match</button>
+      </div>
+      <div style="margin-top:10px;" class="out" id="tigrOut"></div>
+    </div>
+  </div>
+
+<script>
+  const codonTable = {
+    UUU:"Phe", UUC:"Phe", UUA:"Leu", UUG:"Leu",
+    UCU:"Ser", UCC:"Ser", UCA:"Ser", UCG:"Ser",
+    UAU:"Tyr", UAC:"Tyr", UAA:"Stop", UAG:"Stop",
+    UGU:"Cys", UGC:"Cys", UGA:"Stop", UGG:"Trp",
+    CUU:"Leu", CUC:"Leu", CUA:"Leu", CUG:"Leu",
+    CCU:"Pro", CCC:"Pro", CCA:"Pro", CCG:"Pro",
+    CAU:"His", CAC:"His", CAA:"Gln", CAG:"Gln",
+    CGU:"Arg", CGC:"Arg", CGA:"Arg", CGG:"Arg",
+    AUU:"Ile", AUC:"Ile", AUA:"Ile", AUG:"Met",
+    ACU:"Thr", ACC:"Thr", ACA:"Thr", ACG:"Thr",
+    AAU:"Asn", AAC:"Asn", AAA:"Lys", AAG:"Lys",
+    AGU:"Ser", AGC:"Ser", AGA:"Arg", AGG:"Arg",
+    GUU:"Val", GUC:"Val", GUA:"Val", GUG:"Val",
+    GCU:"Ala", GCC:"Ala", GCA:"Ala", GCG:"Ala",
+    GAU:"Asp", GAC:"Asp", GAA:"Glu", GAG:"Glu",
+    GGU:"Gly", GGC:"Gly", GGA:"Gly", GGG:"Gly"
+  };
+
+  function clean(seq) {
+    return seq.toUpperCase().replace(/[^ATUCG]/g, "");
+  }
+
+  function dnaToMrnaCodingStrand(dnaCoding) {
+    return dnaCoding.replace(/T/g, "U");
+  }
+
+  function translate(mrna) {
+    const start = mrna.indexOf("AUG");
+    if (start === -1) return { start:-1, codons:[], aas:[], stopped:false };
+
+    let codons = [];
+    let aas = [];
+    for (let i = start; i + 2 < mrna.length; i += 3) {
+      const codon = mrna.slice(i, i+3);
+      codons.push(codon);
+      const aa = codonTable[codon] || "?";
+      if (aa === "Stop") return { start, codons, aas, stopped:true };
+      aas.push(aa);
+    }
+    return { start, codons, aas, stopped:false };
+  }
+
+  function runTranslation() {
+    const dna = clean(document.getElementById("dna").value).replace(/U/g,"T");
+    const mrna = dnaToMrnaCodingStrand(dna);
+    const res = translate(mrna);
+
+    let out = "";
+    out += `DNA (coding): ${dna}\n`;
+    out += `mRNA:         ${mrna}\n\n`;
+    if (res.start === -1) {
+      out += "No AUG start codon found.\n";
+    } else {
+      out += `Start at mRNA index ${res.start} (AUG)\n`;
+      out += `Codons: ${res.codons.join(" ")}\n`;
+      out += `AA:     ${res.aas.join(" - ")}${res.stopped ? " - Stop" : ""}\n\n`;
+      out += `Note: Methionine is coded by AUG (mRNA). DNA coding-strand equivalent is ATG.\n`;
+    }
+    document.getElementById("translationOut").textContent = out;
+  }
+
+  function complementDnaToRna(dna) {
+    // DNA base pairs with RNA: A↔U, T↔A, C↔G, G↔C
+    return dna.split("").map(b => ({A:"U", T:"A", C:"G", G:"C"}[b] || "?")).join("");
+  }
+
+  function runCrisprMatch() {
+    const target = clean(document.getElementById("targetDna").value).replace(/U/g,"T");
+    const g = clean(document.getElementById("gRNA").value).replace(/T/g,"U");
+    // For a perfect match, gRNA should be complementary to the target DNA segment.
+    // We search for any position where complement(targetSegment) == gRNA
+    let foundAt = -1;
+    for (let i=0; i + g.length <= target.length; i++) {
+      const seg = target.slice(i, i+g.length);
+      if (complementDnaToRna(seg) === g) { foundAt = i; break; }
+    }
+
+    let out = `Target DNA: ${target}\n`;
+    out += `gRNA:       ${g}\n\n`;
+    if (foundAt === -1) {
+      out += "Match: NOT FOUND (perfect complement).\n";
+    } else {
+      out += `Match: FOUND at target index ${foundAt}\n`;
+      out += `Target segment: ${target.slice(foundAt, foundAt+g.length)}\n`;
+      out += `Complement (RNA): ${complementDnaToRna(target.slice(foundAt, foundAt+g.length))}\n\n`;
+      out += "Concept: matching is how the editor finds the address. Editing is a separate step.\n";
+    }
+    document.getElementById("crisprOut").textContent = out;
+  }
+
+  function reverseComplementDna(dna) {
+    const comp = {A:"T", T:"A", C:"G", G:"C"};
+    return dna.split("").reverse().map(b => comp[b] || "?").join("");
+  }
+
+  function runTigrMatch() {
+    const target = clean(document.getElementById("targetDna").value).replace(/U/g,"T");
+    const otherStrand = reverseComplementDna(target); // toy: treat as opposite strand
+    const a = clean(document.getElementById("spA").value).replace(/T/g,"U");
+    const b = clean(document.getElementById("spB").value).replace(/T/g,"U");
+
+    function findComplement(dnaStrand, rnaGuide) {
+      for (let i=0; i + rnaGuide.length <= dnaStrand.length; i++) {
+        const seg = dnaStrand.slice(i, i+rnaGuide.length);
+        if (complementDnaToRna(seg) === rnaGuide) return i;
+      }
+      return -1;
+    }
+
+    const aPos = findComplement(target, a);
+    const bPos = findComplement(otherStrand, b);
+
+    let out = `Strand 1 DNA: ${target}\n`;
+    out += `Strand 2 DNA (toy rev-comp): ${otherStrand}\n\n`;
+    out += `Spacer A (RNA): ${a}\n`;
+    out += `Spacer B (RNA): ${b}\n\n`;
+    out += `Spacer A match on Strand 1: ${aPos === -1 ? "NO" : "YES at " + aPos}\n`;
+    out += `Spacer B match on Strand 2: ${bPos === -1 ? "NO" : "YES at " + bPos}\n\n`;
+    out += (aPos !== -1 && bPos !== -1)
+      ? "Toy TIGR rule satisfied: both spacers match (conceptually higher specificity).\n"
+      : "Toy TIGR rule not satisfied.\n";
+
+    document.getElementById("tigrOut").textContent = out;
+  }
+
+  runTranslation();
+</script>
+</body>
+</html>
