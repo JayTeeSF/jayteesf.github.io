@@ -1292,6 +1292,7 @@
         session.note = "Try a word before submitting.";
         session.noteTone = "warning";
         renderStage();
+        focusPrimaryInput();
         return;
       }
       if (guess === round.word) {
@@ -1312,6 +1313,9 @@
       }
       saveState();
       renderAll();
+      if (guess !== round.word) {
+        focusPrimaryInput();
+      }
     }
 
     function skipAnagramRound(reason = "Skipped") {
@@ -1436,6 +1440,7 @@
         session.note = "Try a word or reveal the answer.";
         session.noteTone = "warning";
         renderStage();
+        focusPrimaryInput();
         return;
       }
       if (guess === entry.word) {
@@ -1459,6 +1464,7 @@
         session.revealed = true;
         saveState();
         renderAll();
+        focusPrimaryInput();
       }
     }
 
@@ -1561,6 +1567,7 @@
         session.note = "Type the next step.";
         session.noteTone = "warning";
         renderStage();
+        focusPrimaryInput();
         return;
       }
       if (guess.length !== current.length) {
@@ -1727,6 +1734,15 @@
           input.select?.();
         }
       });
+    }
+
+    function updateAnagramTimerUI() {
+      const session = state.anagram.current;
+      if (!session || session.finishedAt || app.activeGame !== "anagram") return;
+      const timer = document.querySelector("[data-anagram-timer='true']");
+      if (!timer) return;
+      const remaining = Math.max(0, Math.ceil((session.roundEndsAt - Date.now()) / 1000));
+      timer.textContent = `${remaining}s`;
     }
 
     function renderHeroStats() {
@@ -1957,7 +1973,7 @@
           </div>
           <form data-form="anagram-submit">
             <div class="input-row">
-              <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type the answer and press Enter" value="${escapeAttribute(session.guess || "")}" />
+              <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" placeholder="Type the answer and press Enter" value="${escapeAttribute(session.guess || "")}" />
               <button class="btn primary" type="submit">Submit</button>
               <button class="btn ghost" type="button" data-action="skip-anagram">Skip</button>
             </div>
@@ -1971,7 +1987,7 @@
         [
           { label: "Score", value: session.score },
           { label: "Streak", value: session.streak },
-          { label: complete ? "Done" : "Time", value: complete ? "✓" : `${remaining}s` }
+          { label: complete ? "Done" : "Time", value: complete ? "✓" : `<span data-anagram-timer="true">${remaining}s</span>` }
         ],
         `
           <div class="notice ${noticeTone}">${escapeHtml(session.note)}</div>
@@ -2026,7 +2042,7 @@
           ${complete ? "" : `
             <form data-form="vault-submit">
               <div class="input-row">
-                <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type the word and press Enter" value="${escapeAttribute(session.guess || "")}" />
+                <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" placeholder="Type the word and press Enter" value="${escapeAttribute(session.guess || "")}" />
                 <button class="btn primary" type="submit">Submit</button>
                 <button class="btn ghost" type="button" data-action="reveal-vault">Reveal</button>
               </div>
@@ -2132,7 +2148,7 @@
             ${!complete ? `
               <form data-form="ladder-submit">
                 <div class="input-row" style="margin-top: 18px;">
-                  <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="${session.puzzle.start.length}" placeholder="Next step" value="${escapeAttribute(session.input || "")}" />
+                  <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="done" maxlength="${session.puzzle.start.length}" placeholder="Next step" value="${escapeAttribute(session.input || "")}" />
                   <button class="btn primary" type="submit">Add step</button>
                   <button class="btn ghost" type="button" data-action="hint-ladder">Hint</button>
                   <button class="btn ghost" type="button" data-action="giveup-ladder">Give up</button>
@@ -2314,18 +2330,37 @@
       if (event.target.id === "player-name") {
         state.profile.name = event.target.value.trim() || "Player One";
         saveState();
-        renderProfilePanel();
-        renderChallengePanel();
-        renderActivityPanel();
+        return;
       }
       if (event.target.id === "google-form-url") {
         state.settings.googleFormUrl = event.target.value.trim() || APP_CONFIG.googleFormUrl;
         saveState();
-        renderFeedbackPanel();
+        return;
+      }
+      const form = event.target.closest("form");
+      if (!form) return;
+      if (form.dataset.form === "anagram-submit" && state.anagram.current) {
+        state.anagram.current.guess = event.target.value;
+      }
+      if (form.dataset.form === "vault-submit" && state.vault.current) {
+        state.vault.current.guess = event.target.value;
+      }
+      if (form.dataset.form === "ladder-submit" && state.ladder.current) {
+        state.ladder.current.input = event.target.value;
       }
     });
 
     document.addEventListener("change", (event) => {
+      if (event.target.id === "player-name") {
+        renderProfilePanel();
+        renderChallengePanel();
+        renderActivityPanel();
+        return;
+      }
+      if (event.target.id === "google-form-url") {
+        renderFeedbackPanel();
+        return;
+      }
       if (event.target.id === "restore-file") {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -2361,9 +2396,7 @@
           skipAnagramRound("Time");
           return;
         }
-        if (app.activeGame === "anagram") {
-          renderStage();
-        }
+        updateAnagramTimerUI();
       }
     }, 1000);
 
