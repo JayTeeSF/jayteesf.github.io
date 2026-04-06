@@ -1291,7 +1291,7 @@
       if (!guess) {
         session.note = "Try a word before submitting.";
         session.noteTone = "warning";
-        renderStage();
+        renderStage({ preserveInput: true });
         focusPrimaryInput();
         return;
       }
@@ -1393,6 +1393,7 @@
         note: "Type the word that fits the definition.",
         noteTone: "info",
         revealed: false,
+        awaitingRating: false,
         resultCode: ""
       };
       state.stats.sessions += 1;
@@ -1439,7 +1440,7 @@
       if (!guess) {
         session.note = "Try a word or reveal the answer.";
         session.noteTone = "warning";
-        renderStage();
+        renderStage({ preserveInput: true });
         focusPrimaryInput();
         return;
       }
@@ -1451,20 +1452,21 @@
         session.note = `Correct — ${entry.word.toUpperCase()} (+${gained})`;
         session.noteTone = "success";
         session.revealed = true;
+        session.awaitingRating = false;
         scheduleVaultWord(entry.word, "easy");
         state.vault.reviewed += 1;
         addRecent("Nailed a recall card", `${entry.word.toUpperCase()} · +${gained}`, "success");
         saveState();
         renderAll();
-        queueAdvance(() => advanceVaultCard());
+        queueAdvance(() => advanceVaultCard(), 1400);
       } else {
         session.streak = 0;
-        session.note = "Not this one. Reveal it, then rate how hard it felt.";
+        session.note = "Not this one. Reveal it, then choose how soon you want it back.";
         session.noteTone = "warning";
         session.revealed = true;
+        session.awaitingRating = true;
         saveState();
         renderAll();
-        focusPrimaryInput();
       }
     }
 
@@ -1472,7 +1474,8 @@
       const session = state.vault.current;
       if (!session) return;
       session.revealed = true;
-      session.note = "Rate it so spacing adapts locally on this device.";
+      session.awaitingRating = true;
+      session.note = "Choose when you want to see this word again.";
       session.noteTone = "warning";
       saveState();
       renderAll();
@@ -1495,11 +1498,12 @@
         session.note = `${entry.word.toUpperCase()} pushed farther out.`;
         session.noteTone = "success";
       }
+      session.awaitingRating = false;
       state.vault.reviewed += 1;
       addRecent("Rated a recall card", `${entry.word.toUpperCase()} · ${rating}`, rating === "again" ? "warning" : "info");
       saveState();
       renderAll();
-      queueAdvance(() => advanceVaultCard());
+      queueAdvance(() => advanceVaultCard(), 250);
     }
 
     function advanceVaultCard() {
@@ -1512,6 +1516,7 @@
       session.idx += 1;
       session.guess = "";
       session.revealed = false;
+      session.awaitingRating = false;
       session.note = "Next card ready.";
       session.noteTone = "info";
       saveState();
@@ -1566,7 +1571,7 @@
       if (!guess) {
         session.note = "Type the next step.";
         session.noteTone = "warning";
-        renderStage();
+        renderStage({ preserveInput: true });
         focusPrimaryInput();
         return;
       }
@@ -1726,12 +1731,63 @@
       }
     }
 
+    function getStageRenderKey() {
+      if (app.activeGame === "anagram" && state.anagram.current) {
+        const session = state.anagram.current;
+        return `anagram:${session.challenge?.id || "default"}:${session.idx}:${session.finishedAt ? "done" : "live"}`;
+      }
+      if (app.activeGame === "vault" && state.vault.current) {
+        const session = state.vault.current;
+        return `vault:${session.challenge?.id || "default"}:${session.idx}:${session.awaitingRating ? "rating" : "play"}:${session.finishedAt ? "done" : "live"}`;
+      }
+      if (app.activeGame === "ladder" && state.ladder.current) {
+        const session = state.ladder.current;
+        return `ladder:${session.challenge?.id || "default"}:${session.path.length}:${session.finishedAt ? "done" : "live"}`;
+      }
+      return `${app.activeGame}:idle`;
+    }
+
+    function getStageInputSnapshot() {
+      const active = document.activeElement;
+      if (!active || typeof active.matches !== "function") return null;
+      if (!active.matches("#stage input, #stage textarea")) return null;
+      const form = active.closest("form");
+      if (!form || !active.name) return null;
+      return {
+        stageKey: getStageRenderKey(),
+        formName: form.dataset.form || "",
+        inputName: active.name,
+        value: active.value,
+        selectionStart: typeof active.selectionStart === "number" ? active.selectionStart : active.value.length,
+        selectionEnd: typeof active.selectionEnd === "number" ? active.selectionEnd : active.value.length
+      };
+    }
+
+    function restoreStageInputSnapshot(snapshot) {
+      if (!snapshot) return;
+      if (snapshot.stageKey !== getStageRenderKey()) return;
+      window.requestAnimationFrame(() => {
+        const selector = `#stage form[data-form="${snapshot.formName}"] [name="${snapshot.inputName}"]`;
+        const input = document.querySelector(selector);
+        if (!input) return;
+        input.value = snapshot.value ?? "";
+        input.focus({ preventScroll: true });
+        if (typeof input.setSelectionRange === "function") {
+          const start = typeof snapshot.selectionStart === "number" ? snapshot.selectionStart : input.value.length;
+          const end = typeof snapshot.selectionEnd === "number" ? snapshot.selectionEnd : input.value.length;
+          input.setSelectionRange(start, end);
+        }
+      });
+    }
+
     function focusPrimaryInput() {
       window.requestAnimationFrame(() => {
         const input = document.querySelector("[data-primary-input='true']");
-        if (input) {
-          input.focus();
-          input.select?.();
+        if (!input || document.activeElement === input) return;
+        input.focus({ preventScroll: true });
+        if (typeof input.setSelectionRange === "function") {
+          const end = input.value?.length || 0;
+          input.setSelectionRange(end, end);
         }
       });
     }
@@ -1894,7 +1950,8 @@
       topLink.rel = configured ? "noopener noreferrer" : "";
     }
 
-    function renderStage() {
+    function renderStage(options = {}) {
+      const snapshot = options.preserveInput ? getStageInputSnapshot() : null;
       if (app.activeGame === "anagram") {
         renderAnagramStage();
       } else if (app.activeGame === "vault") {
@@ -1904,6 +1961,7 @@
       } else {
         renderArenaStage();
       }
+      restoreStageInputSnapshot(snapshot);
     }
 
     function stageFrame(title, subtitle, metrics, innerHtml) {
@@ -2039,7 +2097,7 @@
               <div class="subtle">${escapeHtml(entry.example)}</div>
             </div>
           ` : ""}
-          ${complete ? "" : `
+          ${complete ? "" : (!session.revealed ? `
             <form data-form="vault-submit">
               <div class="input-row">
                 <input data-primary-input="true" class="grow" type="text" name="guess" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" placeholder="Type the word and press Enter" value="${escapeAttribute(session.guess || "")}" />
@@ -2047,12 +2105,17 @@
                 <button class="btn ghost" type="button" data-action="reveal-vault">Reveal</button>
               </div>
             </form>
-          `}
-          ${session.revealed && !complete ? `
+          ` : "")}
+          ${session.awaitingRating && !complete ? `
             <div class="button-row" style="margin-top: 12px;">
-              <button class="btn ghost" data-action="rate-vault" data-rating="again">Again</button>
-              <button class="btn ghost" data-action="rate-vault" data-rating="hard">Hard</button>
-              <button class="btn secondary" data-action="rate-vault" data-rating="easy">Easy</button>
+              <button class="btn ghost" data-action="rate-vault" data-rating="again">Again + next</button>
+              <button class="btn ghost" data-action="rate-vault" data-rating="hard">Hard + next</button>
+              <button class="btn secondary" data-action="rate-vault" data-rating="easy">Easy + next</button>
+            </div>
+          ` : ""}
+          ${session.revealed && !session.awaitingRating && !complete ? `
+            <div class="button-row" style="margin-top: 12px;">
+              <button class="btn primary" data-action="next-vault">Next word</button>
             </div>
           ` : ""}
         </div>
@@ -2087,6 +2150,7 @@
         `
       );
     }
+
 
     function renderLadderStage() {
       const session = state.ladder.current;
@@ -2217,7 +2281,8 @@
       );
     }
 
-    function renderAll() {
+    function renderAll(options = {}) {
+      const snapshot = options.preserveStageInput !== false ? getStageInputSnapshot() : null;
       renderHeroStats();
       renderGameTiles();
       renderGameNav();
@@ -2225,7 +2290,8 @@
       renderChallengePanel();
       renderActivityPanel();
       renderFeedbackPanel();
-      renderStage();
+      renderStage({ preserveInput: false });
+      restoreStageInputSnapshot(snapshot);
     }
 
     function escapeHtml(value) {
@@ -2259,6 +2325,9 @@
       }
       if (action === "reveal-vault") {
         revealVaultCard();
+      }
+      if (action === "next-vault") {
+        advanceVaultCard();
       }
       if (action === "rate-vault") {
         rateVaultCard(button.dataset.rating);
@@ -2323,7 +2392,6 @@
       if (formName === "import-result") {
         importResult(data.get("resultCode"));
       }
-      form.reset?.();
     });
 
     document.addEventListener("input", (event) => {
@@ -2348,6 +2416,12 @@
       if (form.dataset.form === "ladder-submit" && state.ladder.current) {
         state.ladder.current.input = event.target.value;
       }
+    });
+
+    document.addEventListener("focusin", (event) => {
+      const input = event.target.closest?.("#stage input, #stage textarea");
+      if (!input) return;
+      app.lastFocusInputSelector = input.name || null;
     });
 
     document.addEventListener("change", (event) => {
