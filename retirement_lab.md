@@ -1,95 +1,148 @@
 # Retirement Scenario Lab
 
-Single-file HTML/CSS/JS retirement-planning sandbox inspired by the RightCapital tax-strategy workflow.
+Single-file HTML/CSS/JS retirement-planning prototype with an ERB builder.
 
-## Quick start
+## What is implemented
 
-Build the default page with the embedded Joe & Tammy sample:
+- Tax module only; unused top-nav tabs are hidden until implemented
+- Replaceable tax JSON packages
+- Default embedded sample uses Joe/Tammy demo data
+- Supports account types:
+  - `checking`
+  - `taxable`
+  - `ira`
+  - `roth`
+  - `mortgage`
+- Supports pre-retirement `incomePlans`
+- Supports mortgage amortization inputs:
+  - `annualReturn` as the mortgage rate
+  - `termRemainingYears`
+  - `scheduledAnnualPayment`
+  - `extraAnnualPrincipal`
+
+## Build
+
+Default build using the shipped Joe/Tammy demo sample:
 
 ```bash
-ruby build_retirement_lab.rb
+./build_retirement_lab.rb
 ```
 
-Equivalent explicit command:
+Explicit 2025 build:
 
 ```bash
-ruby build_retirement_lab.rb retirement_tax_tables_2025.json retirement_planner_defaults_v1.json retirement_scenario_sample_default.json retirement_scenario_lab.html
+./build_retirement_lab.rb retirement_tax_tables_2025.json retirement_planner_defaults_v1.json retirement_scenario_sample_default.json retirement_scenario_lab.html
 ```
 
-Build a 2026-preview page while still using the default Joe & Tammy sample:
+Explicit 2026-preview build:
 
 ```bash
-ruby build_retirement_lab.rb retirement_tax_tables_2026_preview.json retirement_scenario_lab_2026_preview.html
+./build_retirement_lab.rb retirement_tax_tables_2026_preview.json retirement_planner_defaults_v1.json retirement_scenario_sample_default.json retirement_scenario_lab_2026_preview.html
 ```
 
-Build with a custom scenario file:
+Custom sample build:
 
 ```bash
-ruby build_retirement_lab.rb retirement_tax_tables_2025.json retirement_planner_defaults_v1.json jay_joy_scenario.json retirement_scenario_lab.html
+./build_retirement_lab.rb retirement_tax_tables_2025.json retirement_planner_defaults_v1.json jay_joy_scenario.json retirement_scenario_lab.html
 ```
-
-## Important behavior
-
-- If you **omit the sample file**, the builder uses `retirement_scenario_sample_default.json`.
-- This makes it safe to publish the page with fake/default data and then use **Import scenario** locally in the browser for personal numbers.
-- The generated footer is populated from the embedded tax JSON metadata plus build metadata, so it updates automatically when you swap tax files and rebuild.
-
-## What the app includes
-
-- editable household and account snapshot inputs
-- Roth-conversion scenario controls
-- California / Texas / Georgia comparisons
-- year-by-year detail table
-- field-level help icons with explanations, examples, and where to get the data
-- footer showing embedded tax-package metadata
-- disclaimer stating the tool is not financial or tax advice
 
 ## Relevant files
 
 - `retirement_lab.md` — this documentation
-- `build_retirement_lab.rb` — ERB build script
-- `retirement_scenario_lab_template.html.erb` — single-file HTML template
+- `retirement_scenario_lab_template.html.erb` — ERB template to process
+- `build_retirement_lab.rb` — script to embed JSON data into the static page
+- `retirement_tax_tables_2025.json` — current tax-year package; replace as tax law changes
+- `retirement_tax_tables_2026_preview.json` — preview package for trying newer federal assumptions
 - `retirement_planner_defaults_v1.json` — planner heuristics / defaults
-- `retirement_tax_tables_2025.json` — current 2025 package
-- `retirement_tax_tables_2026_preview.json` — 2026 federal preview package with latest available CA/TX/GA handling
-- `retirement_scenario_sample_default.json` — default Joe & Tammy sample embedded when no custom sample is supplied
+- `retirement_scenario_sample_default.json` — default Joe/Tammy sample used when no sample file is supplied
 - `jay_joy_scenario.json` — fake test data
-- `jay_joy_expected_summary.json` — expected summary from fake test data
-- `retirement_scenario_lab.html` — generated output (current default build)
-- `retirement_scenario_lab_2026_preview.html` — generated output using the 2026 preview tax package
+- `jay_joy_expected_summary.json` — expected output from fake test data
+- `retirement_scenario_lab.html` — generated static output
+- `retirement_scenario_lab_2026_preview.html` — generated preview output
+- `retirement_scenario_lab_package.zip` — packaged bundle of the current software
 
-## Data notes
+## Scenario JSON shape
 
-### Social Security annual fields
+```json
+{
+  "household": { "...": "..." },
+  "accounts": [
+    {
+      "name": "Joint Taxable",
+      "owner": "joint",
+      "type": "taxable",
+      "balance": 325000,
+      "costBasis": 220000,
+      "annualReturn": 0.05,
+      "dividendYield": 0.015,
+      "notes": "Embedded gain account"
+    },
+    {
+      "name": "Home Mortgage",
+      "owner": "joint",
+      "type": "mortgage",
+      "balance": 280000,
+      "costBasis": 0,
+      "annualReturn": 0.055,
+      "termRemainingYears": 22,
+      "scheduledAnnualPayment": 22252,
+      "extraAnnualPrincipal": 0,
+      "dividendYield": 0,
+      "notes": "Outstanding principal owed"
+    }
+  ],
+  "incomePlans": [
+    {
+      "name": "Joe salary",
+      "owner": "spouse1",
+      "startYear": 2026,
+      "endYear": 0,
+      "annualIncome": 185000,
+      "growthRate": 0.03,
+      "targetAccount": "Home Mortgage",
+      "contributionMode": "amount",
+      "contributionValue": 18000,
+      "notes": "Pre-retirement principal paydown"
+    },
+    {
+      "name": "Tammy salary",
+      "owner": "spouse2",
+      "startYear": 2026,
+      "endYear": 0,
+      "annualIncome": 98000,
+      "growthRate": 0.025,
+      "targetAccount": "Joint Taxable",
+      "contributionMode": "percent",
+      "contributionValue": 0.12,
+      "notes": "Save 12% of pay"
+    }
+  ]
+}
+```
 
-`spouse<N>SocialSecurityAnnual` means the **annual retirement benefit at the claiming age entered above**.
+## Mortgage semantics
 
-Example:
-- monthly SSA estimate at age 67 = `$3,500`
-- annual value entered into the tool = `$42,000`
+- Enter mortgage balance as the principal still owed, as a positive number.
+- Mortgage balances reduce net worth.
+- `annualReturn` is interpreted as the mortgage interest rate.
+- If `scheduledAnnualPayment` is `0` and `termRemainingYears > 0`, the app estimates the annual payment from balance, rate, and term.
+- `extraAnnualPrincipal` is treated as additional yearly principal reduction beyond the scheduled payment.
+- Income plans directed to a mortgage account are also treated as extra principal payments.
 
-Best source:
-- your **my Social Security** account / statement
-- or another official SSA estimate at the selected claiming age
+## Pre-retirement income semantics
 
-### Cost basis
+- `incomePlans` run while the selected owner is still pre-retirement, unless `endYear` is set.
+- `contributionMode` may be:
+  - `none`
+  - `percent`
+  - `amount`
+- `contributionValue` is interpreted as either a decimal percent, for example `0.10`, or a dollar amount.
+- `targetAccount` must match an existing account name exactly.
 
-For taxable accounts, cost basis is critical because it determines how much gain is realized when assets are sold.
+## Notes / limitations
 
-Examples:
-- checking / cash: usually basis equals balance
-- taxable brokerage: use custodian cost-basis reporting
-- IRA / 401(k) / Roth: this prototype generally uses `0` because it models tax buckets rather than after-tax basis recovery mechanics
-
-## Caveats
-
-This is a **planning prototype**, not production tax software.
-
-It does not fully model every real-world rule, including:
-- all lot-level tax behavior
-- all Social Security spousal/survivor edge cases
-- all state residency edge cases
-- every future tax-law change
-- every timing convention used by commercial planning software
-
-Users should verify scenarios with a qualified CPA / EA / CFP before acting on them.
+- This is a planning prototype, not tax or financial advice.
+- Only the Tax module is implemented; other modules are intentionally hidden.
+- IRA / Roth contribution eligibility and annual IRS limits are not validated.
+- Mortgage modeling is annualized, not a lender-grade monthly amortization schedule with escrow.
+- Tax tables can be swapped by rebuilding with a different tax JSON or by importing a replacement tax JSON in the page UI.
