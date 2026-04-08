@@ -630,6 +630,84 @@
       min-height: 320px;
     }
 
+    .chart-hit-zone {
+      cursor: crosshair;
+    }
+
+    .chart-tooltip {
+      position: absolute;
+      z-index: 4;
+      min-width: 220px;
+      max-width: min(320px, calc(100% - 16px));
+      background: rgba(21, 28, 45, 0.96);
+      color: #fff;
+      border-radius: 14px;
+      padding: 10px 12px;
+      box-shadow: 0 18px 44px rgba(12, 22, 38, 0.28);
+      border: 1px solid rgba(255,255,255,0.09);
+      pointer-events: none;
+      font-size: 12px;
+      line-height: 1.45;
+      transform: translate(-50%, -100%);
+    }
+
+    .chart-tooltip[hidden] {
+      display: none;
+    }
+
+    .chart-tooltip-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      letter-spacing: 0.01em;
+    }
+
+    .chart-tooltip-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin: 4px 0;
+      white-space: nowrap;
+    }
+
+    .chart-tooltip-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .chart-tooltip-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+    }
+
+    .chart-tooltip-value {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      margin-left: 12px;
+    }
+
+    .chart-tooltip-meta {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.86);
+      white-space: normal;
+    }
+
+    .chart-hover-line {
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+
+    .chart-hover-line.active {
+      opacity: 1;
+    }
+
     .chart-legend {
       display: flex;
       flex-wrap: wrap;
@@ -907,7 +985,7 @@
               </table>
             </div>
             <div class="footer-note">
-              Example: two rows with source ID <code>joe-salary</code> can each direct a different slice of the same salary into separate accounts. The projection counts the salary once for taxes and cash flow, then applies the directed contributions.
+              Example: two rows with source ID <code>joe-salary</code> can each direct a different slice of the same salary into separate accounts. The projection counts the salary once for taxes and cash flow, then applies the directed contributions. Percent entries accept either <code>80</code> or <code>0.8</code> for 80%.
             </div>
           </article>
         </div>
@@ -944,6 +1022,22 @@
             <div class="chart-wrap">
               <div class="chart-host" id="taxChart"></div>
               <div class="chart-legend" id="taxLegend"></div>
+            </div>
+          </article>
+
+          <article class="chart-card">
+            <div class="section-title">
+              <div>
+                <h3>Gross earned income vs directed savings vs taxes</h3>
+                <p>Gross pre-retirement earnings are added before taxes. Directed savings show where portions of that gross income are sent. Hover any year to inspect exact amounts and account destinations.</p>
+              </div>
+            </div>
+            <div class="chart-controls">
+              <div class="pill-select" id="incomeFlowChartStatePills"></div>
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-host" id="incomeFlowChart"></div>
+              <div class="chart-legend" id="incomeFlowLegend"></div>
             </div>
           </article>
         </div>
@@ -1861,6 +1955,7 @@
     let projectionCache = {};
     let detailState = "CA";
     let taxChartState = "CA";
+    let incomeFlowChartState = "CA";
 
     function deepClone(value) {
       return JSON.parse(JSON.stringify(value));
@@ -2222,6 +2317,7 @@
         renderStateComparison();
         renderPortfolioChart();
         renderTaxChart();
+        renderIncomeFlowChart();
         renderDetailsTable();
         renderStrategyPanel();
       } catch (error) {
@@ -2345,7 +2441,8 @@
           filingStatus,
           annualExpenses,
           earnedIncome,
-          directedContributions: contributionApplied,
+          directedContributions: contributionApplied.applied,
+          directedContributionBreakdown: contributionApplied.breakdown,
           ssIncome,
           pensionIncome,
           rmd: rmdInfo.total,
@@ -2358,6 +2455,7 @@
           federalTax,
           stateTax,
           irmaa,
+          totalTaxes: federalTax + stateTax + irmaa,
           agi: finalAgi,
           taxableSS: finalTaxableSS,
           ordinaryIncome: finalOrdinaryIncome,
@@ -2407,6 +2505,23 @@
       return true;
     }
 
+    function percentFraction(value) {
+      const raw = Number(value || 0);
+      if (!Number.isFinite(raw)) return 0;
+      return Math.abs(raw) > 1 ? raw / 100 : raw;
+    }
+
+    function summarizeContributionBreakdown(contributions) {
+      const map = new Map();
+      (contributions || []).forEach(item => {
+        const key = normalizeKey(item.targetAccount || item.name || "unassigned");
+        const label = item.targetAccount || item.name || "Unassigned";
+        if (!map.has(key)) map.set(key, { label, amount: 0 });
+        map.get(key).amount += Number(item.amount || 0);
+      });
+      return [...map.values()].filter(item => item.amount > 0);
+    }
+
     function calcEarnedIncomeAndContributions(incomePlans, household, ages, year, alive1, alive2) {
       const groups = new Map();
       (incomePlans || []).forEach((plan, index) => {
@@ -2430,7 +2545,7 @@
         let remainingContributionCapacity = gross;
         group.rows.forEach(plan => {
           let amount = 0;
-          if (plan.contributionMode === "percent") amount = gross * Number(plan.contributionValue || 0);
+          if (plan.contributionMode === "percent") amount = gross * percentFraction(plan.contributionValue || 0);
           if (plan.contributionMode === "amount") amount = Number(plan.contributionValue || 0);
           amount = Math.max(0, Math.min(amount, remainingContributionCapacity));
           if (amount > 0) {
@@ -2446,19 +2561,31 @@
         });
       });
 
-      return { grossIncome, ordinaryTaxableIncome, totalDirectedContributions, contributions };
+      return {
+        grossIncome,
+        ordinaryTaxableIncome,
+        totalDirectedContributions,
+        contributions,
+        contributionBreakdown: summarizeContributionBreakdown(contributions)
+      };
     }
 
     function applyDirectedContributions(accounts, contributions) {
       let applied = 0;
+      const appliedBreakdown = [];
       (contributions || []).forEach(item => {
         const target = accounts.find(account => normalizeKey(account.name) === normalizeKey(item.targetAccount));
         if (!target || !Number.isFinite(item.amount) || item.amount <= 0) return;
-        target.balance += item.amount;
-        if (target.type === "taxable" || target.type === "checking") target.costBasis = Number(target.costBasis || 0) + item.amount;
+        if (target.type === "mortgage") {
+          target.balance = Math.max(0, Number(target.balance || 0) - item.amount);
+        } else {
+          target.balance += item.amount;
+          if (target.type === "taxable" || target.type === "checking") target.costBasis = Number(target.costBasis || 0) + item.amount;
+        }
         applied += item.amount;
+        appliedBreakdown.push({ targetAccount: target.name, amount: item.amount, sourceId: item.sourceId, name: item.name });
       });
-      return applied;
+      return { applied, breakdown: summarizeContributionBreakdown(appliedBreakdown) };
     }
 
     function calcSocialSecurityIncome(household, ages, year, alive1, alive2, startYear) {
@@ -2828,12 +2955,15 @@
       const host = document.getElementById("portfolioChart");
       const legend = document.getElementById("portfolioLegend");
       const series = Object.values(projectionCache).map(entry => ({
-        label: entry.stateCode,
+        label: taxData.states[entry.stateCode].name,
         color: STATE_COLORS[entry.stateCode],
         points: entry.history.map(row => ({ x: row.year, y: row.endingNetWorth }))
       }));
-      host.innerHTML = buildLineChart(series, { valueFormatter: value => currency(value, 0), yLabel: "Ending value" });
-      legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${taxData.states[item.label].name}</span>`).join("");
+      renderLineChart(host, series, {
+        valueFormatter: value => currency(value, 0),
+        tooltipTitleFormatter: year => `Year ${year}`
+      });
+      legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${item.label}</span>`).join("");
     }
 
     function renderTaxChart() {
@@ -2846,9 +2976,45 @@
         { label: "State tax", color: TAX_SERIES_COLORS.state, points: entry.history.map(row => ({ x: row.year, y: row.stateTax })) },
         { label: "IRMAA", color: TAX_SERIES_COLORS.irmaa, points: entry.history.map(row => ({ x: row.year, y: row.irmaa })) }
       ];
-      host.innerHTML = buildLineChart(series, { valueFormatter: value => currency(value, 0), yLabel: "Annual tax / IRMAA" });
+      renderLineChart(host, series, {
+        valueFormatter: value => currency(value, 0),
+        tooltipTitleFormatter: year => `${taxData.states[taxChartState].name} · ${year}`,
+        extraTooltipHtml: year => {
+          const row = entry.history.find(item => item.year === year);
+          if (!row) return "";
+          return `<div class="chart-tooltip-meta">Applied on projected household income for ${year}. Total tax drag this year: <strong>${currency(row.totalTaxes || (row.federalTax + row.stateTax + row.irmaa))}</strong>.</div>`;
+        }
+      });
       legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${item.label}</span>`).join("");
       renderStatePills("taxChartStatePills", taxChartState, stateCode => { taxChartState = stateCode; renderTaxChart(); });
+    }
+
+    function renderIncomeFlowChart() {
+      const host = document.getElementById("incomeFlowChart");
+      const legend = document.getElementById("incomeFlowLegend");
+      const entry = projectionCache[incomeFlowChartState];
+      if (!entry) return;
+      const series = [
+        { label: "Gross earned income", color: "#3345d5", points: entry.history.map(row => ({ x: row.year, y: row.earnedIncome || 0 })) },
+        { label: "Directed savings / paydown", color: "#1ba76f", points: entry.history.map(row => ({ x: row.year, y: row.directedContributions || 0 })) },
+        { label: "Federal + state tax + IRMAA", color: "#f3a400", points: entry.history.map(row => ({ x: row.year, y: row.totalTaxes || 0 })) }
+      ];
+      renderLineChart(host, series, {
+        valueFormatter: value => currency(value, 0),
+        tooltipTitleFormatter: year => `${taxData.states[incomeFlowChartState].name} · ${year}`,
+        extraTooltipHtml: year => {
+          const row = entry.history.find(item => item.year === year);
+          if (!row) return "";
+          const breakdown = (row.directedContributionBreakdown || []).map(item => `${escapeHtml(item.label)} ${currency(item.amount)}`).join(" · ");
+          const notes = [];
+          notes.push(`Gross earnings are modeled before taxes, then household taxes are computed using total projected income.`);
+          if (breakdown) notes.push(`Directed to accounts: ${breakdown}`);
+          if (!row.earnedIncome) notes.push(`No active pre-retirement earned income in this year.`);
+          return `<div class="chart-tooltip-meta">${notes.join(" ")}</div>`;
+        }
+      });
+      legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${item.label}</span>`).join("");
+      renderStatePills("incomeFlowChartStatePills", incomeFlowChartState, stateCode => { incomeFlowChartState = stateCode; renderIncomeFlowChart(); });
     }
 
     function renderDetailsTable() {
@@ -2863,7 +3029,7 @@
           <td>${row.filingStatus === "married_filing_jointly" ? "MFJ" : "Single"}</td>
           <td class="text-right mono">${currency(row.annualExpenses)}</td>
           <td class="text-right mono">${currency(row.earnedIncome || 0)}</td>
-          <td class="text-right mono">${currency(row.directedContributions || 0)}</td>
+          <td class="text-right mono" title="${escapeHtml(((row.directedContributionBreakdown || []).map(item => `${item.label}: ${currency(item.amount)}`).join(' • \n') || 'No directed contributions'))}">${currency(row.directedContributions || 0)}</td>
           <td class="text-right mono">${currency(row.ssIncome)}</td>
           <td class="text-right mono">${currency(row.rmd)}</td>
           <td class="text-right mono">${currency(row.rothConversion)}</td>
@@ -2924,47 +3090,60 @@
       container.querySelectorAll("button").forEach(button => button.addEventListener("click", () => onSelect(button.dataset.state)));
     }
 
-    function buildLineChart(series, { valueFormatter }) {
-      const sanitized = series.map(item => ({ ...item, points: (item.points || []).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y)) })).filter(item => item.points.length);
+    function renderLineChart(host, series, { valueFormatter, tooltipTitleFormatter, extraTooltipHtml } = {}) {
+      const sanitized = (series || []).map(item => ({
+        ...item,
+        points: (item.points || []).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+      })).filter(item => item.points.length);
+
       if (!sanitized.length) {
-        return `<div style="display:flex;align-items:center;justify-content:center;height:320px;color:#7f8a9a;font-size:14px;">No chartable data yet.</div>`;
+        host.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:320px;color:#7f8a9a;font-size:14px;">No chartable data yet.</div>`;
+        return;
       }
-      series = sanitized;
+
       const width = 920;
       const height = 320;
-      const margin = { top: 18, right: 28, bottom: 38, left: 70 };
-      const allPoints = series.flatMap(item => item.points);
-      const minX = Math.min(...allPoints.map(point => point.x));
-      const maxX = Math.max(...allPoints.map(point => point.x));
-      const maxY = Math.max(...allPoints.map(point => point.y), 1);
+      const margin = { top: 18, right: 28, bottom: 38, left: 74 };
       const innerWidth = width - margin.left - margin.right;
       const innerHeight = height - margin.top - margin.bottom;
-      const x = year => margin.left + ((year - minX) / Math.max(1, maxX - minX)) * innerWidth;
-      const y = value => margin.top + innerHeight - (value / maxY) * innerHeight;
+      const allPoints = sanitized.flatMap(item => item.points);
+      const xValues = [...new Set(allPoints.map(point => point.x))].sort((a, b) => a - b);
+      const minX = xValues[0];
+      const maxX = xValues[xValues.length - 1];
+      const maxY = Math.max(1, ...allPoints.map(point => point.y));
+      const xScale = value => margin.left + ((value - minX) / Math.max(1, maxX - minX)) * innerWidth;
+      const yScale = value => margin.top + innerHeight - ((value) / maxY) * innerHeight;
+      const xPositions = xValues.map(xScale);
+
       const gridLines = Array.from({ length: 5 }, (_, index) => index).map(index => {
         const value = maxY * (index / 4);
-        const yPos = y(value);
-        return `<g><line x1="${margin.left}" x2="${width - margin.right}" y1="${yPos}" y2="${yPos}" stroke="#e7edf7" stroke-width="1" />
-                <text x="${margin.left - 12}" y="${yPos + 4}" font-size="11" fill="#7f8a9a" text-anchor="end">${escapeHtml(valueFormatter(value))}</text></g>`;
+        const yPos = yScale(value);
+        return `<g><line x1="${margin.left}" x2="${width - margin.right}" y1="${yPos}" y2="${yPos}" stroke="#e7edf7" stroke-width="1" /><text x="${margin.left - 12}" y="${yPos + 4}" font-size="11" fill="#7f8a9a" text-anchor="end">${escapeHtml((valueFormatter || String)(value))}</text></g>`;
       }).join("");
 
-      const xLabels = Array.from({ length: Math.min(6, maxX - minX + 1) }, (_, index) => Math.round(minX + (index * (maxX - minX)) / Math.max(1, Math.min(5, maxX - minX)))).map(year => `
+      const xLabels = xValues.filter((year, index) => xValues.length <= 6 || index === 0 || index === xValues.length - 1 || index % Math.ceil(xValues.length / 6) === 0).map(year => `
         <g>
-          <line x1="${x(year)}" x2="${x(year)}" y1="${margin.top}" y2="${height - margin.bottom}" stroke="#f1f4f9" stroke-width="1" />
-          <text x="${x(year)}" y="${height - 14}" font-size="11" fill="#7f8a9a" text-anchor="middle">${year}</text>
+          <line x1="${xScale(year)}" x2="${xScale(year)}" y1="${margin.top}" y2="${height - margin.bottom}" stroke="#f1f4f9" stroke-width="1" />
+          <text x="${xScale(year)}" y="${height - 14}" font-size="11" fill="#7f8a9a" text-anchor="middle">${year}</text>
         </g>
       `).join("");
 
-      const lines = series.map(item => {
-        const path = item.points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.x)} ${y(point.y)}`).join(" ");
+      const lines = sanitized.map(item => {
+        const path = item.points.map((point, index) => `${index === 0 ? "M" : "L"}${xScale(point.x)} ${yScale(point.y)}`).join(" ");
         return `
           <path d="${path}" fill="none" stroke="${item.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
-          ${item.points.map(point => `<circle cx="${x(point.x)}" cy="${y(point.y)}" r="3.5" fill="${item.color}" />`).join("")}
+          ${item.points.map(point => `<circle cx="${xScale(point.x)}" cy="${yScale(point.y)}" r="3.5" fill="${item.color}" />`).join("")}
         `;
       }).join("");
 
-      return `
-        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Line chart">
+      const hitZones = xValues.map((value, index) => {
+        const left = index === 0 ? margin.left : (xPositions[index - 1] + xPositions[index]) / 2;
+        const right = index === xValues.length - 1 ? width - margin.right : (xPositions[index] + xPositions[index + 1]) / 2;
+        return `<rect class="chart-hit-zone" data-index="${index}" x="${left}" y="${margin.top}" width="${right - left}" height="${innerHeight}" fill="transparent"></rect>`;
+      }).join("");
+
+      host.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Interactive line chart">
           <rect width="100%" height="100%" fill="url(#panelGrad)" rx="14"></rect>
           <defs>
             <linearGradient id="panelGrad" x1="0" x2="0" y1="0" y2="1">
@@ -2975,8 +3154,63 @@
           ${gridLines}
           ${xLabels}
           ${lines}
+          <g class="chart-hover-line"><line id="chartHoverLineStroke" x1="0" x2="0" y1="${margin.top}" y2="${height - margin.bottom}" stroke="#9fb2d8" stroke-width="1.5" stroke-dasharray="4 4"></line></g>
+          <g id="chartHoverPoints"></g>
+          ${hitZones}
         </svg>
+        <div class="chart-tooltip" hidden></div>
       `;
+
+      const tooltip = host.querySelector('.chart-tooltip');
+      const hoverLineGroup = host.querySelector('.chart-hover-line');
+      const hoverLine = host.querySelector('#chartHoverLineStroke');
+      const hoverPoints = host.querySelector('#chartHoverPoints');
+      const zones = host.querySelectorAll('.chart-hit-zone');
+
+      function showIndex(index) {
+        const xValue = xValues[index];
+        const rows = sanitized.map(item => {
+          const point = item.points.find(p => p.x === xValue);
+          return point ? { label: item.label, color: item.color, value: point.y } : null;
+        }).filter(Boolean);
+        if (!rows.length) return;
+
+        hoverLineGroup.classList.add('active');
+        hoverLine.setAttribute('x1', xPositions[index]);
+        hoverLine.setAttribute('x2', xPositions[index]);
+        hoverPoints.innerHTML = rows.map(row => `<circle cx="${xPositions[index]}" cy="${yScale(row.value)}" r="6" fill="${row.color}" stroke="#fff" stroke-width="2"></circle>`).join('');
+
+        tooltip.innerHTML = `
+          <div class="chart-tooltip-title">${escapeHtml((tooltipTitleFormatter || (value => `Year ${value}`))(xValue))}</div>
+          ${rows.map(row => `<div class="chart-tooltip-row"><span class="chart-tooltip-label"><span class="chart-tooltip-swatch" style="background:${row.color}"></span>${escapeHtml(row.label)}</span><span class="chart-tooltip-value">${escapeHtml((valueFormatter || String)(row.value))}</span></div>`).join('')}
+          ${extraTooltipHtml ? extraTooltipHtml(xValue) : ''}
+        `;
+        tooltip.hidden = false;
+
+        const hostRect = host.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const hoverX = (xPositions[index] / width) * hostRect.width;
+        const rowMaxY = Math.max(...rows.map(row => row.value));
+        const hoverY = (yScale(rowMaxY) / height) * hostRect.height;
+        const left = Math.max(12 + tooltipRect.width / 2, Math.min(hostRect.width - tooltipRect.width / 2 - 12, hoverX));
+        const top = Math.max(16 + tooltipRect.height, hoverY + 8);
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+      }
+
+      function clearHover() {
+        hoverLineGroup.classList.remove('active');
+        hoverPoints.innerHTML = '';
+        tooltip.hidden = true;
+      }
+
+      zones.forEach(zone => {
+        zone.addEventListener('mouseenter', () => showIndex(Number(zone.dataset.index)));
+        zone.addEventListener('mousemove', () => showIndex(Number(zone.dataset.index)));
+        zone.addEventListener('focus', () => showIndex(Number(zone.dataset.index)));
+      });
+      host.addEventListener('mouseleave', clearHover);
+      clearHover();
     }
 
     function attachGlobalHandlers() {

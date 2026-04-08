@@ -19,7 +19,7 @@ ruby build_retirement_lab.rb retirement_tax_tables_2025.json retirement_planner_
 Build a 2026-preview page while still using the default Joe & Tammy sample:
 
 ```bash
-ruby build_retirement_lab.rb retirement_tax_tables_2026_preview.json retirement_scenario_lab_2026_preview.html
+ruby build_retirement_lab.rb retirement_tax_tables_2026_preview.json retirement_planner_defaults_v1.json retirement_scenario_sample_default.json retirement_scenario_lab_2026_preview.html
 ```
 
 Build with a custom scenario file:
@@ -41,6 +41,9 @@ ruby build_retirement_lab.rb retirement_tax_tables_2025.json retirement_planner_
 - California / Texas / Georgia comparisons
 - year-by-year detail table
 - field-level help icons with explanations, examples, and where to get the data
+- interactive chart hover tooltips showing exact year/value pairs
+- dedicated pre-retirement income chart showing gross earned income, directed savings / paydown, and taxes
+- percent-mode contributions accept either `80` or `0.8` for 80%
 - footer showing embedded tax-package metadata
 - disclaimer stating the tool is not financial or tax advice
 
@@ -105,6 +108,9 @@ Key rules:
 - gross income is counted **once per sourceId per year**
 - directed contributions from those rows are then applied to the target accounts
 - `endYear: 0` means “continue until the owner retires”
+- percent inputs for `contributionMode: "percent"` accept either `80` or `0.8` for 80%
+- if `taxTreatment` is `ordinary`, the gross income is added to household ordinary income and taxed through the normal federal/state calculations
+- the comparison tab now includes a chart for gross earned income vs directed savings vs taxes, with tooltips that show exact year-by-year values
 
 Example:
 
