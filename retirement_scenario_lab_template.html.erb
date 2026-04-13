@@ -937,8 +937,11 @@
                     <th>Type</th>
                     <th class="text-right">Balance</th>
                     <th class="text-right">Cost basis</th>
-                    <th class="text-right">Growth return</th>
+                    <th class="text-right">Growth / rate</th>
                     <th class="text-right">Dividend yield</th>
+                    <th class="text-right">Term yrs</th>
+                    <th class="text-right">Annual pay</th>
+                    <th class="text-right">Extra princ.</th>
                     <th>Notes</th>
                     <th></th>
                   </tr>
@@ -947,8 +950,8 @@
               </table>
             </div>
             <div class="footer-note">
-              Import format is simple JSON. A server-side Monarch adapter can emit the same schema by mapping accounts into
-              <code>checking</code>, <code>taxable</code>, <code>ira</code>, and <code>roth</code> buckets and carrying cost basis for taxable assets.
+              Import format is simple JSON. This template now supports <code>checking</code>, <code>taxable</code>, <code>ira</code>, <code>roth</code>, and <code>mortgage</code>.
+              When you use mortgage schedules, keep <code>annualSpending</code> focused on non-mortgage living expenses so the scheduled mortgage payment is not double counted.
             </div>
           </article>
 
@@ -973,7 +976,8 @@
                     <th class="text-right">End year</th>
                     <th class="text-right">Annual gross</th>
                     <th class="text-right">Growth</th>
-                    <th>Tax type</th>
+                    <th>Gross tax</th>
+                    <th>Flow</th>
                     <th>Contribution</th>
                     <th class="text-right">Value</th>
                     <th>Target account</th>
@@ -985,7 +989,37 @@
               </table>
             </div>
             <div class="footer-note">
-              Example: two rows with source ID <code>joe-salary</code> can each direct a different slice of the same salary into separate accounts. The projection counts the salary once for taxes and cash flow, then applies the directed contributions. Percent entries accept either <code>80</code> or <code>0.8</code> for 80%.
+              Rows sharing one source ID are treated as one paycheck. Use <code>Pretax to account</code> for 401(k)-style payroll deferrals, <code>After-tax to account</code> for normal savings or mortgage paydown, and <code>Expense</code> for salary-linked cash outflows that should not create an asset. If <code>endYear</code> is <code>0</code>, income stops when that owner reaches retirement age.
+            </div>
+          </article>
+
+          <article class="section-card">
+            <div class="section-title">
+              <div>
+                <h2>Income source audit</h2>
+                <p>Current-year grouped income, payroll deferrals, after-tax allocations, retirement cutoff, and over-allocation warnings.</p>
+              </div>
+            </div>
+            <div class="detail-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Source ID</th>
+                    <th>Name</th>
+                    <th>Owner</th>
+                    <th class="text-right">Active thru</th>
+                    <th class="text-right">Gross</th>
+                    <th class="text-right">Taxable earned</th>
+                    <th class="text-right">Pretax to acct</th>
+                    <th class="text-right">After-tax to acct</th>
+                    <th class="text-right">Expense</th>
+                    <th class="text-right">Take-home pre-tax</th>
+                    <th class="text-right">Residual cash</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="incomeAuditBody"></tbody>
+              </table>
             </div>
           </article>
         </div>
@@ -1028,8 +1062,8 @@
           <article class="chart-card">
             <div class="section-title">
               <div>
-                <h3>Gross earned income vs directed savings vs taxes</h3>
-                <p>Gross pre-retirement earnings are added before taxes. Directed savings show where portions of that gross income are sent. Hover any year to inspect exact amounts and account destinations.</p>
+                <h3>Gross earned income vs payroll flows vs taxes</h3>
+                <p>Audit how much gross pay is still active before retirement, how much is deferred pre-tax, how much is saved or used for debt paydown after tax, and how much leaves as taxes.</p>
               </div>
             </div>
             <div class="chart-controls">
@@ -1038,6 +1072,22 @@
             <div class="chart-wrap">
               <div class="chart-host" id="incomeFlowChart"></div>
               <div class="chart-legend" id="incomeFlowLegend"></div>
+            </div>
+          </article>
+
+          <article class="chart-card">
+            <div class="section-title">
+              <div>
+                <h3>Mortgage balance vs annual payment</h3>
+                <p>Scheduled mortgage payments continue after earned income ends. Hover to inspect total payment, interest, principal, and ending debt balance.</p>
+              </div>
+            </div>
+            <div class="chart-controls">
+              <div class="pill-select" id="mortgageChartStatePills"></div>
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-host" id="mortgageChart"></div>
+              <div class="chart-legend" id="mortgageLegend"></div>
             </div>
           </article>
         </div>
@@ -1060,9 +1110,15 @@
                     <th>Year</th>
                     <th>Age</th>
                     <th>Filing</th>
-                    <th class="text-right">Expenses</th>
-                    <th class="text-right">Earned income</th>
-                    <th class="text-right">Directed contrib.</th>
+                    <th class="text-right">Living exp.</th>
+                    <th class="text-right">Mortgage pay</th>
+                    <th class="text-right">Mtg interest</th>
+                    <th class="text-right">Mtg principal</th>
+                    <th class="text-right">Gross earned</th>
+                    <th class="text-right">Taxable earned</th>
+                    <th class="text-right">Pretax payroll</th>
+                    <th class="text-right">After-tax directed</th>
+                    <th class="text-right">Payroll expense</th>
                     <th class="text-right">SS income</th>
                     <th class="text-right">RMD</th>
                     <th class="text-right">Roth conv.</th>
@@ -1177,9 +1233,19 @@
     let detailState = "CA";
     let taxChartState = "CA";
     let incomeFlowChartState = "CA";
+    let mortgageChartState = "CA";
 
     function deepClone(value) {
       return JSON.parse(JSON.stringify(value));
+    }
+
+    function makeAccountId(label, index) {
+      const base = String(label || `account-${index + 1}`)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || `account-${index + 1}`;
+      return `${base}-${index + 1}`;
     }
 
     function normalizeScenario(state) {
@@ -1187,21 +1253,51 @@
       scenario.household = scenario.household || {};
       scenario.household.residenceStates = Array.isArray(scenario.household.residenceStates) && scenario.household.residenceStates.length ? scenario.household.residenceStates : ["CA", "TX", "GA"];
       scenario.accounts = Array.isArray(scenario.accounts) ? scenario.accounts : [];
+      scenario.accounts = scenario.accounts.map((account, index) => {
+        const type = String(account.type || "taxable");
+        const accountId = String(account.id || makeAccountId(account.name || `account-${index + 1}`, index));
+        const balance = Number(account.balance || 0);
+        return {
+          id: accountId,
+          name: String(account.name || `Account ${index + 1}`),
+          owner: account.owner || "joint",
+          type,
+          balance,
+          costBasis: Number(account.costBasis || (type === "checking" ? balance : 0)),
+          annualReturn: Number.isFinite(Number(account.annualReturn)) ? Number(account.annualReturn) : (
+            type === "checking" ? Number(scenario.household.cashReturn || 0) :
+            type === "taxable" ? Number(scenario.household.taxableReturn || 0) :
+            type === "mortgage" ? Number(account.annualReturn || 0) :
+            Number(scenario.household.retirementReturn || 0)
+          ),
+          dividendYield: Number(account.dividendYield || 0),
+          termRemainingYears: Number(account.termRemainingYears || 0),
+          scheduledAnnualPayment: Number(account.scheduledAnnualPayment || 0),
+          extraAnnualPrincipal: Number(account.extraAnnualPrincipal || 0),
+          notes: String(account.notes || "")
+        };
+      });
+      const accountNameMap = new Map(scenario.accounts.map(account => [normalizeKey(account.name), account]));
       scenario.incomePlans = Array.isArray(scenario.incomePlans) ? scenario.incomePlans : [];
-      scenario.incomePlans = scenario.incomePlans.map((plan, index) => ({
-        sourceId: String(plan.sourceId || plan.name || `income-${index + 1}`),
-        name: String(plan.name || `Income ${index + 1}`),
-        owner: plan.owner || "spouse1",
-        startYear: Number(plan.startYear || scenario.household.currentYear || new Date().getFullYear()),
-        endYear: Number(plan.endYear || 0),
-        annualIncome: Number(plan.annualIncome || 0),
-        growthRate: Number(plan.growthRate || 0),
-        taxTreatment: plan.taxTreatment || "ordinary",
-        contributionMode: plan.contributionMode || "none",
-        contributionValue: Number(plan.contributionValue || 0),
-        targetAccount: String(plan.targetAccount || ""),
-        notes: String(plan.notes || "")
-      }));
+      scenario.incomePlans = scenario.incomePlans.map((plan, index) => {
+        const matchedTarget = plan.targetAccountId ? scenario.accounts.find(account => String(account.id) === String(plan.targetAccountId)) : accountNameMap.get(normalizeKey(plan.targetAccount));
+        return {
+          sourceId: String(plan.sourceId || plan.name || `income-${index + 1}`),
+          name: String(plan.name || `Income ${index + 1}`),
+          owner: plan.owner || "spouse1",
+          startYear: Number(plan.startYear || scenario.household.currentYear || new Date().getFullYear()),
+          endYear: Number(plan.endYear || 0),
+          annualIncome: Number(plan.annualIncome || 0),
+          growthRate: Number(plan.growthRate || 0),
+          taxTreatment: plan.taxTreatment || "ordinary",
+          allocationTreatment: String(plan.allocationTreatment || (matchedTarget ? "after_tax_to_account" : "expense")),
+          contributionMode: plan.contributionMode || "none",
+          contributionValue: Number(plan.contributionValue || 0),
+          targetAccountId: String(plan.targetAccountId || matchedTarget?.id || ""),
+          targetAccount: String(plan.targetAccount || matchedTarget?.name || ""),
+          notes: String(plan.notes || "")
+        };
+      });
       return scenario;
     }
 
@@ -1346,7 +1442,8 @@
                 ["checking", "Checking / cash"],
                 ["taxable", "Taxable"],
                 ["ira", "Traditional IRA / 401k"],
-                ["roth", "Roth"]
+                ["roth", "Roth"],
+                ["mortgage", "Mortgage debt"]
               ])}
             </select>
           </td>
@@ -1354,6 +1451,9 @@
           <td><input class="text-right" data-index="${index}" data-field="costBasis" type="number" step="0.01" value="${account.costBasis}" /></td>
           <td><input class="text-right" data-index="${index}" data-field="annualReturn" type="number" step="0.001" value="${account.annualReturn}" /></td>
           <td><input class="text-right" data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${account.dividendYield}" /></td>
+          <td><input class="text-right" data-index="${index}" data-field="termRemainingYears" type="number" step="1" value="${Number(account.termRemainingYears || 0)}" /></td>
+          <td><input class="text-right" data-index="${index}" data-field="scheduledAnnualPayment" type="number" step="0.01" value="${Number(account.scheduledAnnualPayment || 0)}" /></td>
+          <td><input class="text-right" data-index="${index}" data-field="extraAnnualPrincipal" type="number" step="0.01" value="${Number(account.extraAnnualPrincipal || 0)}" /></td>
           <td><input data-index="${index}" data-field="notes" value="${escapeHtml(account.notes || "")}" /></td>
           <td><button class="btn btn-danger btn-sm" data-remove="${index}">Delete</button></td>
         `;
@@ -1365,8 +1465,14 @@
           const index = Number(event.target.dataset.index);
           const field = event.target.dataset.field;
           let value = event.target.value;
-          if (["balance", "costBasis", "annualReturn", "dividendYield"].includes(field)) value = Number(value || 0);
+          if (["balance", "costBasis", "annualReturn", "dividendYield", "termRemainingYears", "scheduledAnnualPayment", "extraAnnualPrincipal"].includes(field)) value = Number(value || 0);
           appState.accounts[index][field] = value;
+          if (field === "type" && value !== "mortgage") {
+            appState.accounts[index].termRemainingYears = Number(appState.accounts[index].termRemainingYears || 0);
+            appState.accounts[index].scheduledAnnualPayment = Number(appState.accounts[index].scheduledAnnualPayment || 0);
+            appState.accounts[index].extraAnnualPrincipal = Number(appState.accounts[index].extraAnnualPrincipal || 0);
+          }
+          syncIncomePlanTargets();
           renderIncomePlansTable();
           renderSummarySidebar();
           computeAndRender();
@@ -1377,6 +1483,7 @@
         btn.addEventListener("click", () => {
           const index = Number(btn.dataset.remove);
           appState.accounts.splice(index, 1);
+          syncIncomePlanTargets();
           renderAccountsTable();
           renderIncomePlansTable();
           renderSummarySidebar();
@@ -1406,7 +1513,12 @@
           <td><input class="text-right" data-plan-index="${index}" data-plan-field="growthRate" type="number" step="0.001" value="${Number(plan.growthRate || 0)}" /></td>
           <td>
             <select data-plan-index="${index}" data-plan-field="taxTreatment">
-              ${optionHtml(plan.taxTreatment || "ordinary", [["ordinary", "Ordinary income"],["non_taxable", "Non-taxable" ]])}
+              ${optionHtml(plan.taxTreatment || "ordinary", [["ordinary", "Ordinary income"],["non_taxable", "Non-taxable"]])}
+            </select>
+          </td>
+          <td>
+            <select data-plan-index="${index}" data-plan-field="allocationTreatment">
+              ${optionHtml(plan.allocationTreatment || "after_tax_to_account", [["pretax_to_account", "Pretax to account"],["after_tax_to_account", "After-tax to account"],["expense", "Expense"]])}
             </select>
           </td>
           <td>
@@ -1416,8 +1528,8 @@
           </td>
           <td><input class="text-right" data-plan-index="${index}" data-plan-field="contributionValue" type="number" step="0.001" value="${Number(plan.contributionValue || 0)}" /></td>
           <td>
-            <select data-plan-index="${index}" data-plan-field="targetAccount">
-              ${optionHtml(plan.targetAccount || "", [["", "—"]].concat(appState.accounts.map(account => [account.name, account.name])))}
+            <select data-plan-index="${index}" data-plan-field="targetAccountId">
+              ${optionHtml(plan.targetAccountId || "", [["", "— expense / none —"]].concat(appState.accounts.map(account => [account.id, account.name]))) }
             </select>
           </td>
           <td><input data-plan-index="${index}" data-plan-field="notes" value="${escapeHtml(plan.notes || "")}" /></td>
@@ -1433,6 +1545,11 @@
           let value = event.target.value;
           if (["startYear", "endYear", "annualIncome", "growthRate", "contributionValue"].includes(field)) value = Number(value || 0);
           appState.incomePlans[index][field] = value;
+          if (field === "targetAccountId") {
+            const target = appState.accounts.find(account => String(account.id) === String(value));
+            appState.incomePlans[index].targetAccount = target ? target.name : "";
+          }
+          syncIncomePlanTargets();
           computeAndRender();
         });
       });
@@ -1468,15 +1585,17 @@
         ${bucketRowHtml("Taxable", totals.taxable, totals.counts.taxable)}
         ${bucketRowHtml("Tax deferred", totals.ira, totals.counts.ira)}
         ${bucketRowHtml("Roth", totals.roth, totals.counts.roth)}
+        ${bucketRowHtml("Debt / mortgages", -totals.mortgageDebt, totals.counts.mortgage)}
       `;
       document.getElementById("accountMiniList").innerHTML = appState.accounts.map(account => `
         <div class="account-mini">
-          <div class="title"><span>${escapeHtml(account.name)}</span><span class="mono">${currency(account.balance)}</span></div>
+          <div class="title"><span>${escapeHtml(account.name)}</span><span class="mono">${currency(account.type === "mortgage" ? -Number(account.balance || 0) : Number(account.balance || 0))}</span></div>
           <div class="meta">
             <span>${account.owner === "joint" ? "Joint" : account.owner === "spouse1" ? appState.household.spouse1Name : appState.household.spouse2Name}</span>
             <span>•</span>
             <span>${labelForAccountType(account.type)}</span>
             ${account.type === "taxable" ? `<span>• Basis ${currency(account.costBasis)}</span>` : ""}
+            ${account.type === "mortgage" ? `<span>• Pay ${currency(account.scheduledAnnualPayment || 0)}</span><span>• Rate ${percent(account.annualReturn || 0, 2)}</span>` : ""}
           </div>
         </div>
       `).join("");
@@ -1498,6 +1617,7 @@
         case "taxable": return "Taxable";
         case "ira": return "Traditional IRA / 401k";
         case "roth": return "Roth";
+        case "mortgage": return "Mortgage debt";
         default: return type;
       }
     }
@@ -1509,16 +1629,32 @@
         taxable: 0,
         ira: 0,
         roth: 0,
-        counts: { checking: 0, taxable: 0, ira: 0, roth: 0 }
+        mortgageDebt: 0,
+        counts: { checking: 0, taxable: 0, ira: 0, roth: 0, mortgage: 0 }
       };
       accounts.forEach(account => {
-        summary.total += Number(account.balance || 0);
+        const balance = Number(account.balance || 0);
+        if (account.type === "mortgage") {
+          summary.mortgageDebt += balance;
+          summary.total -= balance;
+          summary.counts.mortgage += 1;
+          return;
+        }
+        summary.total += balance;
         if (Object.prototype.hasOwnProperty.call(summary, account.type)) {
-          summary[account.type] += Number(account.balance || 0);
+          summary[account.type] += balance;
           summary.counts[account.type] += 1;
         }
       });
       return summary;
+    }
+
+    function syncIncomePlanTargets() {
+      (appState.incomePlans || []).forEach(plan => {
+        const target = resolvePlanTargetAccount(appState.accounts, plan);
+        plan.targetAccountId = target ? target.id : "";
+        plan.targetAccount = target ? target.name : "";
+      });
     }
 
     function updateBrand() {
@@ -1534,11 +1670,13 @@
         states.forEach(stateCode => {
           projectionCache[stateCode] = projectScenario(appState, stateCode);
         });
+        renderIncomeSourceAudit();
         renderHeadlineMetrics();
         renderStateComparison();
         renderPortfolioChart();
         renderTaxChart();
         renderIncomeFlowChart();
+        renderMortgageChart();
         renderDetailsTable();
         renderStrategyPanel();
       } catch (error) {
@@ -1571,9 +1709,15 @@
         const survivorRatio = firstDeathOccurred ? household.survivorSpendingRatio : 1;
         const annualExpenses = household.annualSpending * inflationFactor * survivorRatio;
 
-        const earnedIncomeInfo = calcEarnedIncomeAndContributions(incomePlans, household, ages, year, alive1, alive2);
-        const earnedIncome = earnedIncomeInfo.grossIncome;
-        const directedContributionTotal = earnedIncomeInfo.totalDirectedContributions;
+        const earnedIncomeInfo = calcEarnedIncomeAndContributions(incomePlans, household, accounts, ages, year, alive1, alive2);
+        const mortgagePreview = previewMortgageActivity(accounts);
+
+        const grossEarnedIncome = earnedIncomeInfo.grossIncome;
+        const taxableEarnedIncome = earnedIncomeInfo.ordinaryTaxableIncome;
+        const takeHomeEarnedIncome = earnedIncomeInfo.takeHomeIncome;
+        const pretaxContributions = earnedIncomeInfo.pretaxContributionTotal;
+        const afterTaxDirected = earnedIncomeInfo.afterTaxContributionTotal;
+        const payrollExpenses = earnedIncomeInfo.payrollExpenseTotal;
 
         const ssIncome = calcSocialSecurityIncome(household, ages, year, alive1, alive2, startYear);
         const pensionIncome = calcPensionIncome(household, year, alive1 || alive2, startYear);
@@ -1587,7 +1731,7 @@
         const rmdInfo = calcRmds(accounts, household, ages, year);
         applyRmds(accounts, rmdInfo.byAccount);
 
-        const ordinaryBeforeConversion = earnedIncomeInfo.ordinaryTaxableIncome + pensionIncome + ordinaryInvestmentIncome + rmdInfo.total;
+        const ordinaryBeforeConversion = taxableEarnedIncome + pensionIncome + ordinaryInvestmentIncome + rmdInfo.total;
         const taxableSSBefore = calcTaxableSocialSecurity(ssIncome, ordinaryBeforeConversion, qualifiedDividends, filingStatus);
         const agiBeforeConversion = ordinaryBeforeConversion + taxableSSBefore + qualifiedDividends;
 
@@ -1605,6 +1749,9 @@
         });
         applyConversion(accounts, conversion.byAccount);
 
+        const recurringOutflowsBeforeTax = annualExpenses + afterTaxDirected + payrollExpenses + mortgagePreview.totalPayment;
+        const recurringInflowsBeforeTax = takeHomeEarnedIncome + ssIncome + pensionIncome + taxableDividendCash + cashInterest + rmdInfo.total;
+
         let estimate = {
           taxableSales: 0,
           taxableRealizedGains: 0,
@@ -1618,11 +1765,11 @@
         };
 
         for (let pass = 0; pass < 4; pass += 1) {
-          const spendNeed = Math.max(0, annualExpenses + directedContributionTotal + estimate.federalTax + estimate.stateTax + estimate.irmaa - (earnedIncome + ssIncome + pensionIncome + taxableDividendCash + cashInterest + rmdInfo.total));
+          const spendNeed = Math.max(0, recurringOutflowsBeforeTax + estimate.federalTax + estimate.stateTax + estimate.irmaa - recurringInflowsBeforeTax);
           const workingAccounts = deepClone(accounts);
           const withdrawal = fundSpendingNeed(workingAccounts, spendNeed, household, ages, year);
 
-          const ordinaryIncome = earnedIncomeInfo.ordinaryTaxableIncome + pensionIncome + ordinaryInvestmentIncome + rmdInfo.total + conversion.total + withdrawal.iraSpending;
+          const ordinaryIncome = taxableEarnedIncome + pensionIncome + ordinaryInvestmentIncome + rmdInfo.total + conversion.total + withdrawal.iraSpending;
           const taxableSS = calcTaxableSocialSecurity(ssIncome, ordinaryIncome, qualifiedDividends + withdrawal.taxableRealizedGains, filingStatus);
           const agi = ordinaryIncome + taxableSS + qualifiedDividends + withdrawal.taxableRealizedGains;
           const federalTax = calcFederalTax(filingStatus, ordinaryIncome + taxableSS, qualifiedDividends + withdrawal.taxableRealizedGains, agi);
@@ -1640,16 +1787,17 @@
           };
         }
 
-        const finalNeed = Math.max(0, annualExpenses + directedContributionTotal + estimate.federalTax + estimate.stateTax + estimate.irmaa - (earnedIncome + ssIncome + pensionIncome + taxableDividendCash + cashInterest + rmdInfo.total));
+        const finalNeed = Math.max(0, recurringOutflowsBeforeTax + estimate.federalTax + estimate.stateTax + estimate.irmaa - recurringInflowsBeforeTax);
         const finalWithdrawal = fundSpendingNeed(accounts, finalNeed, household, ages, year);
 
-        const finalOrdinaryIncome = earnedIncomeInfo.ordinaryTaxableIncome + pensionIncome + ordinaryInvestmentIncome + rmdInfo.total + conversion.total + finalWithdrawal.iraSpending;
+        const finalOrdinaryIncome = taxableEarnedIncome + pensionIncome + ordinaryInvestmentIncome + rmdInfo.total + conversion.total + finalWithdrawal.iraSpending;
         const finalTaxableSS = calcTaxableSocialSecurity(ssIncome, finalOrdinaryIncome, qualifiedDividends + finalWithdrawal.taxableRealizedGains, filingStatus);
         const finalAgi = finalOrdinaryIncome + finalTaxableSS + qualifiedDividends + finalWithdrawal.taxableRealizedGains;
         const federalTax = calcFederalTax(filingStatus, finalOrdinaryIncome + finalTaxableSS, qualifiedDividends + finalWithdrawal.taxableRealizedGains, finalAgi);
         const stateTax = calcStateTax(stateCode, filingStatus, finalOrdinaryIncome, qualifiedDividends + finalWithdrawal.taxableRealizedGains, ssIncome, ages, household);
         const irmaa = calcIrmaaForYear(magiHistory, history, household, ages, year);
 
+        const mortgageApplied = applyMortgageActivity(accounts);
         const contributionApplied = applyDirectedContributions(accounts, earnedIncomeInfo.contributions);
         applyGrowth(accounts, household);
 
@@ -1661,9 +1809,23 @@
           ages: `${alive1 ? ages.spouse1 : "-"}/${alive2 ? ages.spouse2 : "-"}`,
           filingStatus,
           annualExpenses,
-          earnedIncome,
-          directedContributions: contributionApplied.applied,
-          directedContributionBreakdown: contributionApplied.breakdown,
+          mortgagePayment: mortgageApplied.totalPayment,
+          mortgageInterest: mortgageApplied.totalInterest,
+          mortgagePrincipalPaid: mortgageApplied.totalPrincipal,
+          mortgageBalance: ending.mortgageDebt,
+          earnedIncome: grossEarnedIncome,
+          taxableEarnedIncome,
+          takeHomeEarnedIncome,
+          pretaxContributions,
+          pretaxContributionApplied: contributionApplied.pretaxApplied,
+          pretaxContributionBreakdown: contributionApplied.pretaxBreakdown,
+          directedContributions: contributionApplied.afterTaxApplied,
+          afterTaxDirectedContributions: contributionApplied.afterTaxApplied,
+          directedContributionBreakdown: contributionApplied.afterTaxBreakdown,
+          payrollExpenses,
+          payrollExpenseBreakdown: earnedIncomeInfo.payrollExpenseBreakdown,
+          incomeSourceSummary: earnedIncomeInfo.sourceSummaries,
+          mortgagePaydownFromContributions: contributionApplied.mortgagePaydownApplied,
           ssIncome,
           pensionIncome,
           rmd: rmdInfo.total,
@@ -1693,9 +1855,13 @@
         acc.conversions += row.rothConversion;
         acc.rmd += row.rmd;
         acc.earnedIncome += row.earnedIncome || 0;
-        acc.directedContributions += row.directedContributions || 0;
+        acc.taxableEarnedIncome += row.taxableEarnedIncome || 0;
+        acc.pretaxContributions += row.pretaxContributions || 0;
+        acc.afterTaxDirected += row.afterTaxDirectedContributions || 0;
+        acc.payrollExpenses += row.payrollExpenses || 0;
+        acc.mortgagePayments += row.mortgagePayment || 0;
         return acc;
-      }, { federalTax: 0, stateTax: 0, irmaa: 0, conversions: 0, rmd: 0, earnedIncome: 0, directedContributions: 0 });
+      }, { federalTax: 0, stateTax: 0, irmaa: 0, conversions: 0, rmd: 0, earnedIncome: 0, taxableEarnedIncome: 0, pretaxContributions: 0, afterTaxDirected: 0, payrollExpenses: 0, mortgagePayments: 0 });
 
       const alerts = findAlerts(history, household, stateCode);
       return { stateCode, history, totals, alerts, endingNetWorth: history.at(-1)?.endingNetWorth || 0 };
@@ -1735,15 +1901,30 @@
     function summarizeContributionBreakdown(contributions) {
       const map = new Map();
       (contributions || []).forEach(item => {
-        const key = normalizeKey(item.targetAccount || item.name || "unassigned");
-        const label = item.targetAccount || item.name || "Unassigned";
+        const key = normalizeKey(item.label || item.targetAccount || item.name || "unassigned");
+        const label = item.label || item.targetAccount || item.name || "Unassigned";
         if (!map.has(key)) map.set(key, { label, amount: 0 });
         map.get(key).amount += Number(item.amount || 0);
       });
       return [...map.values()].filter(item => item.amount > 0);
     }
 
-    function calcEarnedIncomeAndContributions(incomePlans, household, ages, year, alive1, alive2) {
+    function resolvePlanTargetAccount(accounts, plan) {
+      if (plan?.targetAccountId) {
+        const byId = (accounts || []).find(account => String(account.id) === String(plan.targetAccountId));
+        if (byId) return byId;
+      }
+      if (plan?.targetAccount) return (accounts || []).find(account => normalizeKey(account.name) === normalizeKey(plan.targetAccount));
+      return null;
+    }
+
+    function requestedContributionAmount(plan, gross) {
+      if (plan.contributionMode === "percent") return gross * percentFraction(plan.contributionValue || 0);
+      if (plan.contributionMode === "amount") return Number(plan.contributionValue || 0);
+      return 0;
+    }
+
+    function calcEarnedIncomeAndContributions(incomePlans, household, accounts, ages, year, alive1, alive2) {
       const groups = new Map();
       (incomePlans || []).forEach((plan, index) => {
         if (!isIncomePlanActive(plan, household, ages, year, alive1, alive2)) return;
@@ -1754,59 +1935,178 @@
 
       let grossIncome = 0;
       let ordinaryTaxableIncome = 0;
-      let totalDirectedContributions = 0;
+      let takeHomeIncome = 0;
+      let pretaxContributionTotal = 0;
+      let afterTaxContributionTotal = 0;
+      let payrollExpenseTotal = 0;
       const contributions = [];
+      const payrollExpenses = [];
+      const sourceSummaries = [];
 
       groups.forEach(group => {
         const base = group.base;
         const growthYears = Math.max(0, year - Number(base.startYear || household.currentYear));
         const gross = Math.max(0, Number(base.annualIncome || 0) * Math.pow(1 + Number(base.growthRate || 0), growthYears));
         grossIncome += gross;
-        if ((base.taxTreatment || "ordinary") === "ordinary") ordinaryTaxableIncome += gross;
         let remainingContributionCapacity = gross;
+        let pretaxThisSource = 0;
+        let afterTaxThisSource = 0;
+        let payrollExpenseThisSource = 0;
+        let requestedTotal = 0;
+        const rowBreakdown = [];
+
         group.rows.forEach(plan => {
-          let amount = 0;
-          if (plan.contributionMode === "percent") amount = gross * percentFraction(plan.contributionValue || 0);
-          if (plan.contributionMode === "amount") amount = Number(plan.contributionValue || 0);
-          amount = Math.max(0, Math.min(amount, remainingContributionCapacity));
-          if (amount > 0) {
-            totalDirectedContributions += amount;
-            remainingContributionCapacity -= amount;
+          const requested = Math.max(0, requestedContributionAmount(plan, gross));
+          requestedTotal += requested;
+          const amount = Math.max(0, Math.min(requested, remainingContributionCapacity));
+          const allocationTreatment = String(plan.allocationTreatment || (plan.targetAccountId || plan.targetAccount ? "after_tax_to_account" : "expense"));
+          const target = resolvePlanTargetAccount(accounts, plan);
+          const label = target ? target.name : (plan.name || base.name || "Expense");
+          if (amount <= 0) return;
+          remainingContributionCapacity -= amount;
+          rowBreakdown.push({ label, amount, allocationTreatment });
+          if (allocationTreatment === "pretax_to_account") {
+            pretaxThisSource += amount;
+            pretaxContributionTotal += amount;
             contributions.push({
               sourceId: base.sourceId || base.name,
               name: base.name,
-              targetAccount: plan.targetAccount,
-              amount
+              label,
+              targetAccount: target ? target.name : "",
+              targetAccountId: target ? target.id : String(plan.targetAccountId || ""),
+              amount,
+              allocationTreatment
             });
+            return;
           }
+          if (allocationTreatment === "after_tax_to_account") {
+            afterTaxThisSource += amount;
+            afterTaxContributionTotal += amount;
+            contributions.push({
+              sourceId: base.sourceId || base.name,
+              name: base.name,
+              label,
+              targetAccount: target ? target.name : "",
+              targetAccountId: target ? target.id : String(plan.targetAccountId || ""),
+              amount,
+              allocationTreatment
+            });
+            return;
+          }
+          payrollExpenseThisSource += amount;
+          payrollExpenseTotal += amount;
+          payrollExpenses.push({ label, amount, sourceId: base.sourceId || base.name, name: base.name });
+        });
+
+        const sourceTaxableEarned = (base.taxTreatment || "ordinary") === "ordinary" ? Math.max(0, gross - pretaxThisSource) : 0;
+        ordinaryTaxableIncome += sourceTaxableEarned;
+        takeHomeIncome += Math.max(0, gross - pretaxThisSource);
+        sourceSummaries.push({
+          sourceId: base.sourceId || base.name,
+          name: base.name,
+          owner: base.owner,
+          endYear: getIncomePlanEndYear(base, household),
+          gross,
+          taxableEarnedIncome: sourceTaxableEarned,
+          pretaxContributions: pretaxThisSource,
+          afterTaxDirected: afterTaxThisSource,
+          payrollExpenses: payrollExpenseThisSource,
+          takeHomeBeforeTax: Math.max(0, gross - pretaxThisSource),
+          residualCashBeforeTax: Math.max(0, gross - pretaxThisSource - afterTaxThisSource - payrollExpenseThisSource),
+          requestedTotal,
+          cappedAmount: Math.max(0, requestedTotal - gross),
+          rowBreakdown
         });
       });
 
       return {
         grossIncome,
         ordinaryTaxableIncome,
-        totalDirectedContributions,
+        takeHomeIncome,
+        pretaxContributionTotal,
+        pretaxContributionBreakdown: summarizeContributionBreakdown(contributions.filter(item => item.allocationTreatment === "pretax_to_account")),
+        afterTaxContributionTotal,
+        contributionBreakdown: summarizeContributionBreakdown(contributions.filter(item => item.allocationTreatment === "after_tax_to_account")),
+        payrollExpenseTotal,
+        payrollExpenseBreakdown: summarizeContributionBreakdown(payrollExpenses),
         contributions,
-        contributionBreakdown: summarizeContributionBreakdown(contributions)
+        sourceSummaries
       };
     }
 
     function applyDirectedContributions(accounts, contributions) {
       let applied = 0;
-      const appliedBreakdown = [];
+      let pretaxApplied = 0;
+      let afterTaxApplied = 0;
+      let mortgagePaydownApplied = 0;
+      const pretaxItems = [];
+      const afterTaxItems = [];
       (contributions || []).forEach(item => {
-        const target = accounts.find(account => normalizeKey(account.name) === normalizeKey(item.targetAccount));
+        const target = resolvePlanTargetAccount(accounts, item);
         if (!target || !Number.isFinite(item.amount) || item.amount <= 0) return;
         if (target.type === "mortgage") {
           target.balance = Math.max(0, Number(target.balance || 0) - item.amount);
+          mortgagePaydownApplied += item.amount;
         } else {
           target.balance += item.amount;
           if (target.type === "taxable" || target.type === "checking") target.costBasis = Number(target.costBasis || 0) + item.amount;
         }
         applied += item.amount;
-        appliedBreakdown.push({ targetAccount: target.name, amount: item.amount, sourceId: item.sourceId, name: item.name });
+        const entry = { label: target.name, amount: item.amount, sourceId: item.sourceId, name: item.name };
+        if (item.allocationTreatment === "pretax_to_account") {
+          pretaxApplied += item.amount;
+          pretaxItems.push(entry);
+        } else {
+          afterTaxApplied += item.amount;
+          afterTaxItems.push(entry);
+        }
       });
-      return { applied, breakdown: summarizeContributionBreakdown(appliedBreakdown) };
+      return {
+        applied,
+        pretaxApplied,
+        afterTaxApplied,
+        mortgagePaydownApplied,
+        pretaxBreakdown: summarizeContributionBreakdown(pretaxItems),
+        afterTaxBreakdown: summarizeContributionBreakdown(afterTaxItems)
+      };
+    }
+
+    function mortgageActivityForAccount(account) {
+      const balance = Math.max(0, Number(account.balance || 0));
+      if (account.type !== "mortgage" || balance <= 0) return { interest: 0, payment: 0, principal: 0, endingBalance: balance, endingTermRemainingYears: Number(account.termRemainingYears || 0) };
+      const scheduled = Math.max(0, Number(account.scheduledAnnualPayment || 0));
+      const extra = Math.max(0, Number(account.extraAnnualPrincipal || 0));
+      if (scheduled <= 0 && extra <= 0) return { interest: 0, payment: 0, principal: 0, endingBalance: balance, endingTermRemainingYears: Number(account.termRemainingYears || 0) };
+      const interest = balance * Math.max(0, Number(account.annualReturn || 0));
+      const accrued = balance + interest;
+      const payment = Math.min(accrued, scheduled + extra);
+      const principal = Math.max(0, payment - interest);
+      const endingBalance = Math.max(0, accrued - payment);
+      const endingTermRemainingYears = Number(account.termRemainingYears || 0) > 0 ? Math.max(0, Number(account.termRemainingYears || 0) - 1) : Number(account.termRemainingYears || 0);
+      return { interest, payment, principal, endingBalance, endingTermRemainingYears };
+    }
+
+    function previewMortgageActivity(accounts) {
+      const summary = { totalPayment: 0, totalInterest: 0, totalPrincipal: 0, endingBalanceTotal: 0, byAccount: {} };
+      (accounts || []).forEach((account, index) => {
+        if (account.type !== "mortgage") return;
+        const activity = mortgageActivityForAccount(account);
+        summary.byAccount[index] = activity;
+        summary.totalPayment += activity.payment;
+        summary.totalInterest += activity.interest;
+        summary.totalPrincipal += activity.principal;
+        summary.endingBalanceTotal += activity.endingBalance;
+      });
+      return summary;
+    }
+
+    function applyMortgageActivity(accounts) {
+      const preview = previewMortgageActivity(accounts);
+      Object.entries(preview.byAccount).forEach(([index, activity]) => {
+        accounts[index].balance = activity.endingBalance;
+        accounts[index].termRemainingYears = activity.endingTermRemainingYears;
+      });
+      return preview;
     }
 
     function calcSocialSecurityIncome(household, ages, year, alive1, alive2, startYear) {
@@ -1981,6 +2281,7 @@
 
     function applyGrowth(accounts, household) {
       accounts.forEach(account => {
+        if (account.type === "mortgage") return;
         const rate = Number.isFinite(account.annualReturn) ? account.annualReturn : (
           account.type === "checking" ? household.cashReturn : account.type === "taxable" ? household.taxableReturn : household.retirementReturn
         );
@@ -2108,6 +2409,10 @@
       if (bestConversion) {
         alerts.push({ type: "good", title: `Conversions active`, text: `${stateCode}: Roth conversions total ${currency(history.reduce((sum, row) => sum + row.rothConversion, 0))}.` });
       }
+      const lastRow = history.at(-1);
+      if ((lastRow?.mortgageBalance || 0) > 0) {
+        alerts.push({ type: "warn", title: `Mortgage still outstanding`, text: `${stateCode}: ending mortgage balance ${currency(lastRow.mortgageBalance)} remains after the projection horizon.` });
+      }
       return alerts;
     }
 
@@ -2203,11 +2508,46 @@
         extraTooltipHtml: year => {
           const row = entry.history.find(item => item.year === year);
           if (!row) return "";
-          return `<div class="chart-tooltip-meta">Applied on projected household income for ${year}. Total tax drag this year: <strong>${currency(row.totalTaxes || (row.federalTax + row.stateTax + row.irmaa))}</strong>.</div>`;
+          return `<div class="chart-tooltip-meta">AGI ${currency(row.agi)} · Ordinary income ${currency(row.ordinaryIncome)} · Marginal federal bracket ${percent(row.marginalRate || 0, 1)} · Total tax drag <strong>${currency(row.totalTaxes || (row.federalTax + row.stateTax + row.irmaa))}</strong>.</div>`;
         }
       });
       legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${item.label}</span>`).join("");
       renderStatePills("taxChartStatePills", taxChartState, stateCode => { taxChartState = stateCode; renderTaxChart(); });
+    }
+
+    function renderIncomeSourceAudit() {
+      const body = document.getElementById("incomeAuditBody");
+      if (!body) return;
+      const year = Number(appState.household.currentYear || new Date().getFullYear());
+      const ages = getAges(appState.household, year);
+      const alive1 = ages.spouse1 <= appState.household.spouse1DeathAge;
+      const alive2 = ages.spouse2 <= appState.household.spouse2DeathAge;
+      const audit = calcEarnedIncomeAndContributions(appState.incomePlans || [], appState.household, appState.accounts || [], ages, year, alive1, alive2);
+      if (!audit.sourceSummaries.length) {
+        body.innerHTML = `<tr><td colspan="12" class="muted">No active income sources in ${year}. Earned income is cut off at retirement when <code>endYear</code> is 0.</td></tr>`;
+        return;
+      }
+      body.innerHTML = audit.sourceSummaries.map(row => {
+        const warnings = [];
+        if (row.cappedAmount > 0) warnings.push(`Requested allocations exceed gross by ${currency(row.cappedAmount)}`);
+        if (row.endYear < year) warnings.push(`Inactive in ${year}`);
+        return `
+          <tr>
+            <td>${escapeHtml(row.sourceId)}</td>
+            <td>${escapeHtml(row.name)}</td>
+            <td>${escapeHtml(row.owner === "spouse1" ? appState.household.spouse1Name : row.owner === "spouse2" ? appState.household.spouse2Name : "Joint")}</td>
+            <td class="text-right mono">${numberFormat(row.endYear)}</td>
+            <td class="text-right mono">${currency(row.gross)}</td>
+            <td class="text-right mono">${currency(row.taxableEarnedIncome)}</td>
+            <td class="text-right mono" title="${escapeHtml((row.rowBreakdown || []).filter(item => item.allocationTreatment === "pretax_to_account").map(item => `${item.label}: ${currency(item.amount)}`).join(' • ') || 'No pretax allocations')}">${currency(row.pretaxContributions)}</td>
+            <td class="text-right mono" title="${escapeHtml((row.rowBreakdown || []).filter(item => item.allocationTreatment === "after_tax_to_account").map(item => `${item.label}: ${currency(item.amount)}`).join(' • ') || 'No after-tax account allocations')}">${currency(row.afterTaxDirected)}</td>
+            <td class="text-right mono" title="${escapeHtml((row.rowBreakdown || []).filter(item => item.allocationTreatment === "expense").map(item => `${item.label}: ${currency(item.amount)}`).join(' • ') || 'No expense allocations')}">${currency(row.payrollExpenses)}</td>
+            <td class="text-right mono">${currency(row.takeHomeBeforeTax)}</td>
+            <td class="text-right mono">${currency(row.residualCashBeforeTax)}</td>
+            <td>${warnings.length ? warnings.map(item => `<span class="warning-chip warn">${escapeHtml(item)}</span>`).join(' ') : `<span class="warning-chip good">OK</span>`}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     function renderIncomeFlowChart() {
@@ -2217,25 +2557,69 @@
       if (!entry) return;
       const series = [
         { label: "Gross earned income", color: "#3345d5", points: entry.history.map(row => ({ x: row.year, y: row.earnedIncome || 0 })) },
-        { label: "Directed savings / paydown", color: "#1ba76f", points: entry.history.map(row => ({ x: row.year, y: row.directedContributions || 0 })) },
+        { label: "Taxable earned income", color: "#5872ff", points: entry.history.map(row => ({ x: row.year, y: row.taxableEarnedIncome || 0 })) },
+        { label: "Pretax payroll deferrals", color: "#6f42c1", points: entry.history.map(row => ({ x: row.year, y: row.pretaxContributions || 0 })) },
+        { label: "After-tax savings / paydown", color: "#1ba76f", points: entry.history.map(row => ({ x: row.year, y: row.afterTaxDirectedContributions || 0 })) },
+        { label: "Payroll / salary expenses", color: "#c04b37", points: entry.history.map(row => ({ x: row.year, y: row.payrollExpenses || 0 })) },
         { label: "Federal + state tax + IRMAA", color: "#f3a400", points: entry.history.map(row => ({ x: row.year, y: row.totalTaxes || 0 })) }
       ];
+      if (entry.history.some(row => (row.mortgagePayment || 0) > 0)) {
+        series.push({ label: "Scheduled mortgage payment", color: "#8b5cf6", points: entry.history.map(row => ({ x: row.year, y: row.mortgagePayment || 0 })) });
+      }
       renderLineChart(host, series, {
         valueFormatter: value => currency(value, 0),
         tooltipTitleFormatter: year => `${taxData.states[incomeFlowChartState].name} · ${year}`,
         extraTooltipHtml: year => {
           const row = entry.history.find(item => item.year === year);
           if (!row) return "";
-          const breakdown = (row.directedContributionBreakdown || []).map(item => `${escapeHtml(item.label)} ${currency(item.amount)}`).join(" · ");
-          const notes = [];
-          notes.push(`Gross earnings are modeled before taxes, then household taxes are computed using total projected income.`);
-          if (breakdown) notes.push(`Directed to accounts: ${breakdown}`);
-          if (!row.earnedIncome) notes.push(`No active pre-retirement earned income in this year.`);
+          const pretax = (row.pretaxContributionBreakdown || []).map(item => `${escapeHtml(item.label)} ${currency(item.amount)}`).join(" · ");
+          const aftertax = (row.directedContributionBreakdown || []).map(item => `${escapeHtml(item.label)} ${currency(item.amount)}`).join(" · ");
+          const expenses = (row.payrollExpenseBreakdown || []).map(item => `${escapeHtml(item.label)} ${currency(item.amount)}`).join(" · ");
+          const notes = [
+            `Take-home before taxes ${currency(row.takeHomeEarnedIncome || 0)}.`
+          ];
+          if (pretax) notes.push(`Pretax to accounts: ${pretax}`);
+          if (aftertax) notes.push(`After-tax to accounts / debt: ${aftertax}`);
+          if (expenses) notes.push(`Salary-linked expenses: ${expenses}`);
+          if (row.mortgagePayment) notes.push(`Scheduled mortgage payment ${currency(row.mortgagePayment)} (${currency(row.mortgageInterest || 0)} interest / ${currency(row.mortgagePrincipalPaid || 0)} principal).`);
+          if (!row.earnedIncome) notes.push(`No active earned income in this year.`);
           return `<div class="chart-tooltip-meta">${notes.join(" ")}</div>`;
         }
       });
       legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${item.label}</span>`).join("");
       renderStatePills("incomeFlowChartStatePills", incomeFlowChartState, stateCode => { incomeFlowChartState = stateCode; renderIncomeFlowChart(); });
+    }
+
+    function renderMortgageChart() {
+      const host = document.getElementById("mortgageChart");
+      const legend = document.getElementById("mortgageLegend");
+      const entry = projectionCache[mortgageChartState];
+      if (!host || !legend || !entry) return;
+      const hasMortgage = entry.history.some(row => (row.mortgageBalance || 0) > 0 || (row.mortgagePayment || 0) > 0);
+      if (!hasMortgage) {
+        host.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:320px;color:#7f8a9a;font-size:14px;">No mortgage schedule active in this scenario.</div>`;
+        legend.innerHTML = "";
+        renderStatePills("mortgageChartStatePills", mortgageChartState, stateCode => { mortgageChartState = stateCode; renderMortgageChart(); });
+        return;
+      }
+      const series = [
+        { label: "Ending mortgage balance", color: "#be3945", points: entry.history.map(row => ({ x: row.year, y: row.mortgageBalance || 0 })) },
+        { label: "Scheduled payment", color: "#8b5cf6", points: entry.history.map(row => ({ x: row.year, y: row.mortgagePayment || 0 })) },
+        { label: "Interest", color: "#f3a400", points: entry.history.map(row => ({ x: row.year, y: row.mortgageInterest || 0 })) },
+        { label: "Principal", color: "#1ba76f", points: entry.history.map(row => ({ x: row.year, y: row.mortgagePrincipalPaid || 0 })) }
+      ];
+      renderLineChart(host, series, {
+        valueFormatter: value => currency(value, 0),
+        tooltipTitleFormatter: year => `${taxData.states[mortgageChartState].name} · ${year}`,
+        extraTooltipHtml: year => {
+          const row = entry.history.find(item => item.year === year);
+          if (!row) return "";
+          const extraPaydown = row.mortgagePaydownFromContributions ? ` Extra salary-directed mortgage paydown ${currency(row.mortgagePaydownFromContributions)}.` : "";
+          return `<div class="chart-tooltip-meta">Ending mortgage debt ${currency(row.mortgageBalance || 0)}. Scheduled payment ${currency(row.mortgagePayment || 0)} with ${currency(row.mortgageInterest || 0)} interest and ${currency(row.mortgagePrincipalPaid || 0)} principal.${extraPaydown}</div>`;
+        }
+      });
+      legend.innerHTML = series.map(item => `<span class="legend-item"><span class="legend-swatch" style="background:${item.color}"></span>${item.label}</span>`).join("");
+      renderStatePills("mortgageChartStatePills", mortgageChartState, stateCode => { mortgageChartState = stateCode; renderMortgageChart(); });
     }
 
     function renderDetailsTable() {
@@ -2249,8 +2633,14 @@
           <td>${row.ages}</td>
           <td>${row.filingStatus === "married_filing_jointly" ? "MFJ" : "Single"}</td>
           <td class="text-right mono">${currency(row.annualExpenses)}</td>
+          <td class="text-right mono">${currency(row.mortgagePayment || 0)}</td>
+          <td class="text-right mono">${currency(row.mortgageInterest || 0)}</td>
+          <td class="text-right mono">${currency(row.mortgagePrincipalPaid || 0)}</td>
           <td class="text-right mono">${currency(row.earnedIncome || 0)}</td>
-          <td class="text-right mono" title="${escapeHtml(((row.directedContributionBreakdown || []).map(item => `${item.label}: ${currency(item.amount)}`).join(' • \n') || 'No directed contributions'))}">${currency(row.directedContributions || 0)}</td>
+          <td class="text-right mono">${currency(row.taxableEarnedIncome || 0)}</td>
+          <td class="text-right mono" title="${escapeHtml(((row.pretaxContributionBreakdown || []).map(item => `${item.label}: ${currency(item.amount)}`).join(' • ') || 'No pretax payroll deferrals'))}">${currency(row.pretaxContributions || 0)}</td>
+          <td class="text-right mono" title="${escapeHtml(((row.directedContributionBreakdown || []).map(item => `${item.label}: ${currency(item.amount)}`).join(' • ') || 'No after-tax directed contributions'))}">${currency(row.afterTaxDirectedContributions || 0)}</td>
+          <td class="text-right mono" title="${escapeHtml(((row.payrollExpenseBreakdown || []).map(item => `${item.label}: ${currency(item.amount)}`).join(' • ') || 'No payroll-linked expenses'))}">${currency(row.payrollExpenses || 0)}</td>
           <td class="text-right mono">${currency(row.ssIncome)}</td>
           <td class="text-right mono">${currency(row.rmd)}</td>
           <td class="text-right mono">${currency(row.rothConversion)}</td>
@@ -2450,7 +2840,9 @@
         bootstrap();
       });
       document.getElementById("addAccountBtn").addEventListener("click", () => {
+        const index = appState.accounts.length;
         appState.accounts.push({
+          id: makeAccountId("new-account", index),
           name: "New account",
           owner: "joint",
           type: "taxable",
@@ -2458,10 +2850,35 @@
           costBasis: 0,
           annualReturn: appState.household.taxableReturn,
           dividendYield: 0.015,
+          termRemainingYears: 0,
+          scheduledAnnualPayment: 0,
+          extraAnnualPrincipal: 0,
           notes: ""
         });
         renderAccountsTable();
+        renderIncomePlansTable();
         renderSummarySidebar();
+        computeAndRender();
+      });
+      document.getElementById("addIncomePlanBtn").addEventListener("click", () => {
+        const firstTarget = appState.accounts.find(account => account.type !== "mortgage") || appState.accounts[0];
+        appState.incomePlans.push({
+          sourceId: `income-${appState.incomePlans.length + 1}`,
+          name: "New income source",
+          owner: "spouse1",
+          startYear: Number(appState.household.currentYear || new Date().getFullYear()),
+          endYear: 0,
+          annualIncome: 0,
+          growthRate: 0,
+          taxTreatment: "ordinary",
+          allocationTreatment: firstTarget ? "after_tax_to_account" : "expense",
+          contributionMode: "none",
+          contributionValue: 0,
+          targetAccountId: firstTarget ? firstTarget.id : "",
+          targetAccount: firstTarget ? firstTarget.name : "",
+          notes: ""
+        });
+        renderIncomePlansTable();
         computeAndRender();
       });
       document.getElementById("exportJsonBtn").addEventListener("click", exportScenarioJson);
@@ -2534,12 +2951,15 @@
       updateBrand();
       refreshTaxBasisLabel();
       appState = normalizeScenario(appState);
+      syncIncomePlanTargets();
       setupFields();
       renderAccountsTable();
       renderIncomePlansTable();
       renderSummarySidebar();
       detailState = appState.household.residenceStates?.[0] || "CA";
       taxChartState = detailState;
+      incomeFlowChartState = detailState;
+      mortgageChartState = detailState;
       computeAndRender();
     }
 
@@ -2550,3 +2970,4 @@
   </script>
 </body>
 </html>
+

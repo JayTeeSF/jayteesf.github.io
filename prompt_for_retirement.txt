@@ -1,0 +1,169 @@
+You are continuing work on a local prototype called “Retirement Scenario Lab.”
+
+High-level goal:
+Build and refine a RightCapital Tax-module-inspired retirement-planning prototype, but as a static / local app generated from ERB + JSON. It is not meant to be an exact clone of RightCapital, and it must clearly disclaim that it is not financial advice. The user wants it to model household retirement scenarios across California, Texas, and Georgia, including Roth conversion strategy, RMDs, widow’s-trap effects, state-tax differences, debt/mortgages, and pre-retirement earnings/savings flows.
+
+Architecture / packaging:
+- Main generated file: `retirement_scenario_lab.html`
+- Alternate generated file: `retirement_scenario_lab_2026_preview.html`
+- Template: `retirement_scenario_lab_template.html.erb`
+- Builder: `build_retirement_lab.rb`
+- Tax data JSONs:
+  - `retirement_tax_tables_2025.json`
+  - `retirement_tax_tables_2026_preview.json`
+- Defaults / heuristics JSON:
+  - `retirement_planner_defaults_v1.json`
+- Default embedded sample:
+  - `retirement_scenario_sample_default.json`
+- Docs:
+  - `retirement_lab.md`
+
+What the user wanted overall:
+- A single-file HTML/CSS/JS prototype with a polished UI inspired by RightCapital’s Tax module
+- State comparisons: CA vs TX vs GA
+- Scenario modeling for:
+  - taxable / IRA / Roth / checking / mortgage accounts
+  - Roth conversions
+  - RMDs
+  - widow’s trap / survivor filing status transition
+  - pre-retirement income
+  - mortgage amortization
+- Import/export JSON for scenario data
+- Import/export / replace tax JSON separately, so tax law can be updated annually or sooner
+- A builder that can regenerate the static app from JSON + ERB
+- Default build should embed Joe/Tammy fake sample data, not the user’s real data
+- Real personal data should be tested locally by Import Scenario, not hardcoded into the published file
+
+Major features already implemented or attempted:
+1. Tax-only shell
+- The app visually mimicked a full RightCapital-style shell at first, but only Tax worked.
+- Unused tabs were later hidden so only “Tax” remains visible.
+
+2. Tax engine / state comparison
+- Built around frozen tax tables JSON.
+- Supports CA, TX, GA comparison.
+- 2026 preview JSON was created for testing; federal 2026 data was updated based on official sources, TX remains no income tax, GA uses current flat-tax regime and retirement exclusions, CA 2026 was not fully official so latest available CA values were retained as noted in metadata/footer.
+
+3. Disclaimer / metadata / UX
+- Added footer showing embedded tax package / basis-year metadata.
+- Added non-advice / “entertainment purposes only” disclaimer telling users to verify with a CPA / qualified advisor.
+- Added info icons next to field labels to explain what fields mean, with examples and “where to get the info” guidance.
+
+4. Account support
+- Supports checking, taxable, IRA, Roth, and mortgage.
+- Mortgage balances reduce net worth.
+- Mortgage initially was simple debt accretion, then upgraded to annualized amortization.
+- Mortgage-related fields include:
+  - balance = principal still owed
+  - annualReturn = mortgage rate
+  - termRemainingYears
+  - scheduledAnnualPayment
+  - extraAnnualPrincipal
+- This is still annualized, not a lender-grade monthly amortization / escrow model.
+
+5. Pre-retirement income support
+- Added `incomePlans` to model earnings before retirement, with directed savings to accounts.
+- A bug / incomplete implementation caused absurd growth and duplicated income treatment.
+- The intended fix was:
+  - add explicit `sourceId`
+  - group repeated rows by `sourceId`
+  - count gross income once per `sourceId` per year
+  - allow multiple rows with same `sourceId` to split that one gross income source across several destinations
+  - allow contributions by percent or fixed amount
+  - treat `taxTreatment: "ordinary"` as ordinary income flowing into household taxes automatically
+  - `endYear: 0` should mean continue until owner retires
+  - percent values should accept either `80` or `0.8` for 80%
+
+Important semantics for `incomePlans`:
+- `name` is only a label
+- `sourceId` is the grouping key
+- repeated rows with the same `sourceId` represent one paycheck / income source being split
+- repeated rows with different `sourceId`s are separate gross income streams
+- `targetAccount` currently matches account name strings (fragile)
+- a future improvement that was suggested but not yet confirmed is switching to stable `accountId` instead of matching by name
+
+Example intended shape:
+{
+  "incomePlans": [
+    {
+      "sourceId": "s1-salary",
+      "name": "S1 salary to checking",
+      "owner": "spouse1",
+      "startYear": 2026,
+      "endYear": 0,
+      "annualIncome": 100000,
+      "growthRate": 0.03,
+      "taxTreatment": "ordinary",
+      "contributionMode": "percent",
+      "contributionValue": 80,
+      "targetAccount": "Joint Checking"
+    },
+    {
+      "sourceId": "s1-salary",
+      "name": "S1 salary to etrade",
+      "owner": "spouse1",
+      "startYear": 2026,
+      "endYear": 0,
+      "annualIncome": 100000,
+      "growthRate": 0.03,
+      "taxTreatment": "ordinary",
+      "contributionMode": "percent",
+      "contributionValue": 10,
+      "targetAccount": "Etrade"
+    }
+  ]
+}
+
+6. Charts
+- Earlier charts were hard to interpret; hovering didn’t clearly show exact x/y values.
+- A later update attempted to improve this by:
+  - showing exact year + value(s) in hover
+  - adding a new chart for gross earned income vs directed savings / mortgage paydown vs taxes
+  - showing destination breakdown in tooltips
+- This latest charting change needs verification. The user’s last complaint before compression was that income behavior was wrong and charts were not sufficiently clear.
+
+User’s concrete pain points / latest context:
+- The thread got long; this handoff is to preserve context.
+- The user believes the income feature is / was overcounting and creating unrealistically large growth.
+- They used repeated income rows to show percentages of the same salary going to different accounts.
+- They expected those rows to be interpreted as splits of one source, not as multiple separate gross salaries.
+- They also wanted it to be visually obvious in the charts where pre-retirement gross income is added and where taxes are applied.
+- Screenshots were uploaded showing:
+  - large ending wealth numbers (~$118M) that looked obviously wrong
+  - multiple taxable / retirement accounts
+  - a mortgage
+  - a pre-retirement income table with repeated rows and percentage splits
+- The assistant’s last fix claimed to solve this by implementing `sourceId` grouping and clearer charts, but that fix has not yet been fully validated by the user after the screenshots.
+
+Current likely priorities for continuation:
+1. Verify the latest generated HTML actually contains the claimed `incomePlans` logic and chart improvements.
+2. Reproduce the user’s scenario and confirm whether:
+   - gross income is counted once per `sourceId`
+   - contributions are split correctly across accounts
+   - ordinary income taxes are applied correctly
+   - charts clearly show:
+     - gross earned income
+     - directed contributions / mortgage paydown
+     - taxes
+3. If still broken, fix the implementation in the ERB template and rebuild.
+4. Consider adding:
+   - stable `accountId` support for `targetAccount`
+   - an “income source summary” panel before recalculation
+   - chart legends / crosshairs / point labels that make debugging easier
+   - stronger validation when contribution percentages exceed 100% for a sourceId
+5. Keep builder behavior such that:
+   - running with no sample argument embeds the Joe/Tammy default sample
+   - personal scenarios stay out of the published default page
+
+Builder behavior desired:
+- Default:
+  `./build_retirement_lab.rb`
+  should build using:
+  - template
+  - latest default tax JSON
+  - planner defaults JSON
+  - Joe/Tammy default sample
+- Custom sample should be optional, not required.
+
+Please inspect the actual files, because several earlier assistant claims about features being “fixed” may not have been fully reflected in the shipped HTML at that moment.
+In particular, the mortgage account seems to be getting _added_ to the "Scenario net worth" (vs. subtracted!!)
