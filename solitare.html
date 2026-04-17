@@ -699,6 +699,7 @@
         toastTimer: null,
         confettiTimer: null,
         autoSaveTimer: null,
+        tickTimer: null,
         lastSavedAt: null
       };
 
@@ -799,12 +800,14 @@
         if (!data || typeof data !== "object") return false;
         if (!Array.isArray(data.stock) || !Array.isArray(data.waste) || !Array.isArray(data.tableau) || data.tableau.length !== 7) return false;
         if (!data.foundations || typeof data.foundations !== "object") return false;
+
         const allCards = [
           ...data.stock,
           ...data.waste,
           ...data.tableau.flat(),
           ...SUIT_ORDER.flatMap((suit) => data.foundations[suit] || [])
         ];
+
         if (allCards.length !== 52) return false;
         const ids = new Set();
         for (const card of allCards) {
@@ -830,6 +833,7 @@
       function restoreFromSnapshot(payload, { silent = false } = {}) {
         const data = payload.state || payload;
         if (!validateSnapshot(payload)) throw new Error("Invalid save data");
+
         state.stock = structuredClone(data.stock);
         state.waste = structuredClone(data.waste);
         state.foundations = structuredClone(data.foundations);
@@ -874,16 +878,36 @@
         const blob = new Blob([json], { type: "application/json" });
 
         try {
+          if ("showSaveFilePicker" in window) {
+            const handle = await window.showSaveFilePicker({
+              suggestedName: filename,
+              types: [{
+                description: "JSON save file",
+                accept: { "application/json": [".json"] }
+              }]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            touchSaveInfo(`Exported file: ${filename}`);
+            showToast("Progress exported to a local file");
+            return;
+          }
+        } catch (error) {
+          if (error && error.name === "AbortError") return;
+        }
+
+        try {
           if (typeof File !== "undefined" && navigator.share && navigator.canShare) {
             const file = new File([blob], filename, { type: "application/json" });
             if (navigator.canShare({ files: [file] })) {
               await navigator.share({
                 title: "JayTeeSF Solitaire Progress",
-                text: "Save or share your JayTeeSF Solitaire progress file.",
+                text: "Choose Save to Files to keep a local copy of this progress file.",
                 files: [file]
               });
-              showToast("Progress exported from this device");
-              persistState(false);
+              touchSaveInfo(`Shared export: ${filename}`);
+              showToast("Choose Save to Files in the share sheet");
               return;
             }
           }
@@ -895,12 +919,14 @@
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = filename;
+        anchor.rel = "noopener";
+        anchor.style.display = "none";
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
-        URL.revokeObjectURL(url);
-        showToast("Progress saved as a file on this device");
-        persistState(false);
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        touchSaveInfo(`Download requested: ${filename}`);
+        showToast("Browser download requested for the export file");
       }
 
       function schedulePeriodicAutosave() {
@@ -909,6 +935,11 @@
           persistState(false);
           updateStatus();
         }, 10000);
+      }
+
+      function startTickingClock() {
+        clearInterval(state.tickTimer);
+        state.tickTimer = setInterval(updateStatus, 1000);
       }
 
       function prepareGameState() {
@@ -1683,7 +1714,7 @@
         els.drawToggleBtn.addEventListener("click", toggleDrawMode);
         els.saveBtn.addEventListener("click", () => {
           persistState(true);
-          showToast("Progress saved in this browser on this device");
+          showToast("Progress saved in local storage on this device");
         });
         els.exportBtn.addEventListener("click", downloadExport);
         els.importBtn.addEventListener("click", () => els.importFileInput.click());
@@ -1720,6 +1751,7 @@
         buildStaticPiles();
         attachEvents();
         schedulePeriodicAutosave();
+        startTickingClock();
         if (!loadLocalSave()) {
           prepareGameState();
           animateDeal();
@@ -1727,7 +1759,6 @@
           render();
           showToast("Saved game restored");
         }
-        setInterval(updateStatus, 1000);
       }
 
       init();
