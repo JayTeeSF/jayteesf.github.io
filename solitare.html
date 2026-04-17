@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Velvet Solitaire</title>
+  <style>
+    :root {
+      --bg-1: #0b3d31;
+      --bg-2: #0f5d4b;
+      --bg-3: #07261d;
+      --gold: #f6d88f;
+      --gold-soft: rgba(246, 216, 143, 0.28);
+      --glass: rgba(255, 255, 255, 0.08);
+      --glass-strong: rgba(255, 255, 255, 0.14);
+      --text: #f6f4ee;
+      --muted: rgba(246, 244, 238, 0.72);
+      --shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+      --shadow-soft: 0 10px 20px rgba(0, 0, 0, 0.18);
+      --radius: 18px;
+      --top-card-w: clamp(68px, 13vw, 116px);
+      --top-card-h: calc(var(--top-card-w) * 1.42);
+      --card-ratio: 1.42;
+      --fan-down: clamp(12px, 1.8vw, 20px);
+      --fan-up: clamp(20px, 2.8vw, 30px);
+      --tableau-gap: clamp(6px, 1vw, 12px);
+      --press-shift: 0px;
+      --select-glow: 0 0 0 3px rgba(255, 233, 163, 0.68), 0 18px 28px rgba(0, 0, 0, 0.24);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.12), transparent 28%),
+        radial-gradient(circle at 100% 0%, rgba(246, 216, 143, 0.14), transparent 24%),
+        linear-gradient(180deg, var(--bg-2), var(--bg-1) 30%, var(--bg-3));
+      overflow-x: hidden;
+    }
+
+    body {
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,0.08), transparent 44%),
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 10px);
+      mix-blend-mode: soft-light;
+      opacity: 0.8;
+    }
+
+    .app {
+      position: relative;
+      min-height: 100svh;
+      padding: max(14px, env(safe-area-inset-top)) clamp(12px, 2.2vw, 26px) max(18px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px clamp(14px, 2vw, 22px);
+      background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 24px;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px) saturate(130%);
+      -webkit-backdrop-filter: blur(18px) saturate(130%);
+      z-index: 2;
+    }
+
+    .title-wrap {
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.6vw, 2.2rem);
+      letter-spacing: 0.02em;
+      font-weight: 800;
+    }
+
+    .subtitle {
+      margin: 4px 0 0;
+      font-size: 0.94rem;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text);
+      font-size: 0.92rem;
+      white-space: nowrap;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    .button {
+      appearance: none;
+      border: 0;
+      color: #10251e;
+      background: linear-gradient(180deg, #fff4cc, #efd286);
+      padding: 11px 15px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: 0 10px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.45);
+      transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+      touch-action: manipulation;
+    }
+
+    .button.secondary {
+      color: var(--text);
+      background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.08));
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    .button:hover { transform: translateY(-1px); }
+    .button:active { transform: translateY(1px) scale(0.985); filter: brightness(0.98); }
+
+    .board-shell {
+      position: relative;
+      flex: 1;
+      padding: clamp(10px, 1.5vw, 18px);
+      background:
+        radial-gradient(circle at top, rgba(255,255,255,0.09), transparent 36%),
+        linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 30px;
+      backdrop-filter: blur(16px) saturate(115%);
+      -webkit-backdrop-filter: blur(16px) saturate(115%);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .board-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 10% 10%, rgba(255,255,255,0.07), transparent 30%),
+        radial-gradient(circle at 90% 0%, rgba(246,216,143,0.09), transparent 24%);
+    }
+
+    .board {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(12px, 1.6vw, 18px);
+      min-height: calc(100svh - 170px);
+    }
+
+    .top-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .left-zone,
+    .right-zone {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+
+    .pile {
+      position: relative;
+      border-radius: 18px;
+      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+      touch-action: none;
+    }
+
+    .top-pile {
+      width: var(--top-card-w);
+      height: var(--top-card-h);
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+      border: 1px dashed rgba(255,255,255,0.18);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+      overflow: visible;
+    }
+
+    .top-pile::before {
+      content: attr(data-label);
+      position: absolute;
+      inset: auto 0 8px 0;
+      text-align: center;
+      font-size: 0.76rem;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .top-pile.empty-stock::after {
+      content: "↺";
+      position: absolute;
+      inset: 8px 0 auto 0;
+      text-align: center;
+      font-size: 1.2rem;
+      color: rgba(255,255,255,0.45);
+      pointer-events: none;
+    }
+
+    .tableau {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: var(--tableau-gap);
+      align-items: start;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .tableau-pile {
+      position: relative;
+      min-height: 180px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px dashed rgba(255,255,255,0.13);
+      border-radius: 18px;
+      overflow: visible;
+    }
+
+    .tableau-pile::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent 28%);
+      pointer-events: none;
+    }
+
+    .pile.valid-target {
+      background: linear-gradient(180deg, rgba(255, 246, 206, 0.12), rgba(255,255,255,0.04));
+      box-shadow: 0 0 0 2px rgba(255, 233, 163, 0.35), 0 18px 36px rgba(0,0,0,0.16);
+      transform: translateY(-2px);
+    }
+
+    .pile.drop-pulse {
+      animation: pile-pulse 420ms ease;
+    }
+
+    @keyframes pile-pulse {
+      0% { transform: scale(0.98); }
+      55% { transform: scale(1.03); }
+      100% { transform: scale(1); }
+    }
+
+    .card {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      aspect-ratio: 5 / 7;
+      border-radius: 16px;
+      border: 1px solid rgba(0,0,0,0.12);
+      box-shadow: 0 10px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.18);
+      overflow: hidden;
+      cursor: grab;
+      transform: translateY(var(--press-shift));
+      transition: transform 120ms ease, box-shadow 140ms ease, filter 140ms ease;
+      will-change: transform;
+      touch-action: none;
+    }
+
+    .card.face-up {
+      color: #171717;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,0.98), rgba(245,242,236,0.95) 46%, rgba(233,229,222,0.96));
+    }
+
+    .card.face-down {
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), transparent 20%),
+        linear-gradient(135deg, #2858b8, #1b356d 48%, #132145 100%);
+      border-color: rgba(255,255,255,0.1);
+    }
+
+    .card.face-down::before,
+    .card.face-down::after {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: 11px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .card.face-down::after {
+      inset: 14px;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 35%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 6px, transparent 6px 12px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px);
+      border: 0;
+      opacity: 0.92;
+    }
+
+    .card.red { color: #c53333; }
+    .card.black { color: #1d1e22; }
+
+    .card.movable:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 20px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22);
+    }
+
+    .card.pressed,
+    .card.touching {
+      --press-shift: 2px;
+      filter: brightness(0.99);
+      box-shadow: 0 6px 10px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.12);
+    }
+
+    .card.selected {
+      box-shadow: var(--select-glow);
+    }
+
+    .card.source-hidden {
+      opacity: 0.05;
+      filter: blur(0.6px);
+    }
+
+    .card.unmovable { cursor: default; }
+
+    .corner {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      font-weight: 800;
+      line-height: 0.9;
+      font-size: clamp(0.72rem, 1.3vw, 0.95rem);
+      letter-spacing: -0.03em;
+      z-index: 3;
+    }
+
+    .corner.top {
+      top: 7px;
+      left: 8px;
+    }
+
+    .corner.bottom {
+      right: 8px;
+      bottom: 7px;
+      transform: rotate(180deg);
+    }
+
+    .corner .suit {
+      font-size: 0.95em;
+      margin-top: 2px;
+    }
+
+    .card-gloss {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(145deg, rgba(255,255,255,0.28), transparent 20%, transparent 72%, rgba(0,0,0,0.04));
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .pip-field,
+    .face-field,
+    .ace-field {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+
+    .pip {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      font-size: clamp(1rem, 2vw, 1.6rem);
+      line-height: 1;
+    }
+
+    .pip.flip { transform: translate(-50%, -50%) rotate(180deg); }
+    .pip.small { font-size: clamp(0.92rem, 1.7vw, 1.25rem); }
+
+    .ace-field {
+      display: grid;
+      place-items: center;
+      font-size: clamp(2.1rem, 4vw, 3.4rem);
+      font-weight: 700;
+      opacity: 0.95;
+    }
+
+    .ace-field .suit-core {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 52%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: radial-gradient(circle at top, rgba(255,255,255,0.55), rgba(255,255,255,0.06));
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+    }
+
+    .face-field {
+      display: grid;
+      place-items: center;
+    }
+
+    .face-badge {
+      width: 60%;
+      aspect-ratio: 0.9;
+      display: grid;
+      place-items: center;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top, rgba(255,255,255,0.66), rgba(255,255,255,0.18) 45%, rgba(255,255,255,0.06));
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08), 0 12px 18px rgba(0,0,0,0.08);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .face-badge::before,
+    .face-badge::after {
+      content: attr(data-suit);
+      position: absolute;
+      font-size: 1.4rem;
+      opacity: 0.14;
+    }
+
+    .face-badge::before { top: 10px; left: 12px; }
+    .face-badge::after { right: 12px; bottom: 10px; transform: rotate(180deg); }
+
+    .face-rank {
+      font-size: clamp(2.2rem, 4vw, 3.4rem);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      text-shadow: 0 3px 8px rgba(255,255,255,0.4);
+    }
+
+    .face-suit {
+      font-size: clamp(1rem, 2vw, 1.5rem);
+      margin-top: 4px;
+      opacity: 0.88;
+    }
+
+    #drag-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .drag-group {
+      position: fixed;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      will-change: transform;
+      filter: drop-shadow(0 24px 28px rgba(0,0,0,0.28));
+    }
+
+    .drag-group .card { width: 100%; }
+
+    .deal-card,
+    .shuffle-card {
+      position: fixed;
+      width: var(--top-card-w);
+      aspect-ratio: 5 / 7;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), transparent 20%),
+        linear-gradient(135deg, #2858b8, #1b356d 48%, #132145 100%);
+      box-shadow: 0 14px 20px rgba(0,0,0,0.24);
+      border: 1px solid rgba(255,255,255,0.12);
+      z-index: 650;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .deal-card::before,
+    .shuffle-card::before,
+    .deal-card::after,
+    .shuffle-card::after {
+      content: "";
+      position: absolute;
+      border-radius: 12px;
+    }
+
+    .deal-card::before,
+    .shuffle-card::before {
+      inset: 8px;
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+
+    .deal-card::after,
+    .shuffle-card::after {
+      inset: 14px;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,0.1), transparent 35%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 6px, transparent 6px 12px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px);
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      transform: translate(-50%, 18px);
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: rgba(11, 19, 16, 0.78);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: var(--shadow-soft);
+      opacity: 0;
+      transition: opacity 220ms ease, transform 220ms ease;
+      pointer-events: none;
+      z-index: 1200;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    .win-overlay {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(5, 10, 8, 0.44);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 260ms ease;
+      z-index: 1300;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .win-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .win-card {
+      width: min(92vw, 460px);
+      padding: 24px;
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.07));
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+      text-align: center;
+    }
+
+    .win-card h2 {
+      margin: 0 0 8px;
+      font-size: clamp(1.65rem, 3vw, 2.2rem);
+    }
+
+    .win-card p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .confetti {
+      position: absolute;
+      width: 10px;
+      height: 18px;
+      border-radius: 999px;
+      opacity: 0.9;
+      animation: confetti-fall linear forwards;
+    }
+
+    @keyframes confetti-fall {
+      0% { transform: translateY(-10vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 0.9; }
+      100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+
+    @media (max-width: 880px) {
+      .hero {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .controls {
+        justify-content: stretch;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .top-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .right-zone {
+        justify-content: space-between;
+      }
+
+      .pill { font-size: 0.86rem; }
+    }
+
+    @media (max-width: 520px) {
+      :root {
+        --tableau-gap: 5px;
+        --fan-down: 10px;
+        --fan-up: 18px;
+      }
+
+      .app {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+
+      .board-shell {
+        border-radius: 24px;
+        padding: 10px;
+      }
+
+      .hero {
+        padding: 12px;
+        border-radius: 20px;
+      }
+
+      .button,
+      .pill {
+        min-height: 42px;
+      }
+
+      .corner {
+        font-size: 0.7rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div class="title-wrap">
+        <h1>Velvet Solitaire</h1>
+        <p class="subtitle">No accounts, no tracking, just a tactile, polished game of Klondike.</p>
+      </div>
+      <div class="controls">
+        <div class="pill" id="statusPill">Moves 0 · Stock 24 · Draw 1</div>
+        <button class="button secondary" id="drawToggleBtn">Draw 1</button>
+        <button class="button secondary" id="shuffleBtn">Shuffle Show</button>
+        <button class="button" id="newGameBtn">New Deal</button>
+      </div>
+    </header>
+
+    <section class="board-shell">
+      <div class="board" id="board">
+        <div class="top-row">
+          <div class="left-zone">
+            <div class="pile top-pile stock-pile" id="stockPile" data-pile-type="stock" data-label="Stock"></div>
+            <div class="pile top-pile waste-pile" id="wastePile" data-pile-type="waste" data-label="Waste"></div>
+          </div>
+          <div class="right-zone" id="foundationRow"></div>
+        </div>
+        <div class="tableau" id="tableau"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="drag-layer"></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="win-overlay" id="winOverlay">
+    <div class="win-card">
+      <h2>You won ✨</h2>
+      <p>The deck is sorted, the felt is glowing, and not a single tracker knows about it.</p>
+      <button class="button" id="playAgainBtn">Play Again</button>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const SUIT_ORDER = ["S", "H", "D", "C"];
+      const SUIT_SYMBOL = { S: "♠", H: "♥", D: "♦", C: "♣" };
+      const SUIT_NAME = { S: "Spades", H: "Hearts", D: "Diamonds", C: "Clubs" };
+      const PIP_POSITIONS = {
+        2: ["top-center", "bottom-center"],
+        3: ["top-center", "center", "bottom-center"],
+        4: ["top-left", "top-right", "bottom-left", "bottom-right"],
+        5: ["top-left", "top-right", "center", "bottom-left", "bottom-right"],
+        6: ["top-left", "top-right", "mid-left", "mid-right", "bottom-left", "bottom-right"],
+        7: ["top-left", "top-right", "mid-left", "mid-right", "bottom-left", "bottom-right", "top-center-small"],
+        8: ["top-left", "top-right", "mid-left", "mid-right", "bottom-left", "bottom-right", "top-center-small", "bottom-center-small"],
+        9: ["top-left", "top-right", "mid-left", "mid-right", "bottom-left", "bottom-right", "top-center-small", "center", "bottom-center-small"],
+        10: ["top-left", "top-right", "upper-mid-left", "upper-mid-right", "mid-left", "mid-right", "bottom-left", "bottom-right", "top-center-small", "bottom-center-small"]
+      };
+      const PIP_STYLE = {
+        "top-left": { x: 30, y: 22 },
+        "top-right": { x: 70, y: 22 },
+        "top-center": { x: 50, y: 20 },
+        "top-center-small": { x: 50, y: 18, small: true },
+        "upper-mid-left": { x: 30, y: 34 },
+        "upper-mid-right": { x: 70, y: 34 },
+        "mid-left": { x: 30, y: 50 },
+        "mid-right": { x: 70, y: 50 },
+        "center": { x: 50, y: 50 },
+        "bottom-left": { x: 30, y: 78, flip: true },
+        "bottom-right": { x: 70, y: 78, flip: true },
+        "bottom-center": { x: 50, y: 80, flip: true },
+        "bottom-center-small": { x: 50, y: 82, flip: true, small: true }
+      };
+
+      const els = {
+        board: document.getElementById("board"),
+        stock: document.getElementById("stockPile"),
+        waste: document.getElementById("wastePile"),
+        foundationRow: document.getElementById("foundationRow"),
+        tableau: document.getElementById("tableau"),
+        dragLayer: document.getElementById("drag-layer"),
+        toast: document.getElementById("toast"),
+        statusPill: document.getElementById("statusPill"),
+        newGameBtn: document.getElementById("newGameBtn"),
+        drawToggleBtn: document.getElementById("drawToggleBtn"),
+        shuffleBtn: document.getElementById("shuffleBtn"),
+        winOverlay: document.getElementById("winOverlay"),
+        playAgainBtn: document.getElementById("playAgainBtn")
+      };
+
+      const state = {
+        stock: [],
+        waste: [],
+        foundations: { S: [], H: [], D: [], C: [] },
+        tableau: Array.from({ length: 7 }, () => []),
+        drawCount: 1,
+        moveCount: 0,
+        selected: null,
+        validTargets: new Set(),
+        drag: null,
+        animating: false,
+        dropPulse: null,
+        justFlippedCardId: null,
+        pointerState: null,
+        toastTimer: null,
+        confettiTimer: null
+      };
+
+      function buildStaticPiles() {
+        els.foundationRow.innerHTML = "";
+        SUIT_ORDER.forEach((suit) => {
+          const pile = document.createElement("div");
+          pile.className = "pile top-pile foundation-pile";
+          pile.dataset.pileType = "foundation";
+          pile.dataset.pileSuit = suit;
+          pile.dataset.label = SUIT_NAME[suit];
+          els.foundationRow.appendChild(pile);
+        });
+
+        els.tableau.innerHTML = "";
+        for (let i = 0; i < 7; i += 1) {
+          const pile = document.createElement("div");
+          pile.className = "pile tableau-pile";
+          pile.dataset.pileType = "tableau";
+          pile.dataset.pileIndex = String(i);
+          els.tableau.appendChild(pile);
+        }
+      }
+
+      function rankLabel(rank) {
+        return ({ 1: "A", 11: "J", 12: "Q", 13: "K" }[rank] || String(rank));
+      }
+
+      function cardColor(suit) {
+        return suit === "H" || suit === "D" ? "red" : "black";
+      }
+
+      function createDeck() {
+        let id = 0;
+        const deck = [];
+        for (const suit of SUIT_ORDER) {
+          for (let rank = 1; rank <= 13; rank += 1) {
+            deck.push({
+              id: `card-${id++}`,
+              suit,
+              rank,
+              color: cardColor(suit),
+              faceUp: false
+            });
+          }
+        }
+        return deck;
+      }
+
+      function shuffleArray(array) {
+        const deck = [...array];
+        for (let i = deck.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+        return deck;
+      }
+
+      function prepareGameState() {
+        state.stock = [];
+        state.waste = [];
+        state.foundations = { S: [], H: [], D: [], C: [] };
+        state.tableau = Array.from({ length: 7 }, () => []);
+        state.moveCount = 0;
+        state.selected = null;
+        state.validTargets = new Set();
+        state.drag = null;
+        state.justFlippedCardId = null;
+        state.dropPulse = null;
+        hideWinOverlay();
+
+        const deck = shuffleArray(createDeck());
+        for (let col = 0; col < 7; col += 1) {
+          for (let row = 0; row <= col; row += 1) {
+            const card = deck.pop();
+            card.faceUp = row === col;
+            state.tableau[col].push(card);
+          }
+        }
+
+        state.stock = deck.map((card) => ({ ...card, faceUp: false }));
+      }
+
+      function vibrate(pattern = 12) {
+        if (navigator.vibrate) navigator.vibrate(pattern);
+      }
+
+      function showToast(message) {
+        clearTimeout(state.toastTimer);
+        els.toast.textContent = message;
+        els.toast.classList.add("show");
+        state.toastTimer = setTimeout(() => {
+          els.toast.classList.remove("show");
+        }, 1400);
+      }
+
+      function sourceKey(source) {
+        if (!source) return "";
+        if (source.type === "tableau") return `tableau-${source.index}-${source.cardIndex}`;
+        if (source.type === "foundation") return `foundation-${source.suit}`;
+        return source.type;
+      }
+
+      function pileKey(dest) {
+        if (!dest) return "";
+        if (dest.type === "tableau") return `tableau-${dest.index}`;
+        if (dest.type === "foundation") return `foundation-${dest.suit}`;
+        return dest.type;
+      }
+
+      function sameMoveSource(a, b) {
+        return sourceKey(a) === sourceKey(b);
+      }
+
+      function pileFromElement(element) {
+        if (!element) return null;
+        const pileEl = element.classList.contains("pile") ? element : element.closest(".pile");
+        if (!pileEl) return null;
+        const type = pileEl.dataset.pileType;
+        if (type === "tableau") return { type, index: Number(pileEl.dataset.pileIndex) };
+        if (type === "foundation") return { type, suit: pileEl.dataset.pileSuit };
+        return { type };
+      }
+
+      function sourceFromCard(cardEl) {
+        const type = cardEl.dataset.sourceType;
+        if (type === "tableau") {
+          return {
+            type,
+            index: Number(cardEl.dataset.sourceIndex),
+            cardIndex: Number(cardEl.dataset.cardIndex)
+          };
+        }
+        if (type === "foundation") {
+          return { type, suit: cardEl.dataset.sourceSuit };
+        }
+        return { type };
+      }
+
+      function getCardsForSource(source) {
+        if (!source) return [];
+        if (source.type === "waste") {
+          return state.waste.length ? [state.waste[state.waste.length - 1]] : [];
+        }
+        if (source.type === "foundation") {
+          const pile = state.foundations[source.suit];
+          return pile.length ? [pile[pile.length - 1]] : [];
+        }
+        if (source.type === "tableau") {
+          const pile = state.tableau[source.index] || [];
+          return pile.slice(source.cardIndex);
+        }
+        return [];
+      }
+
+      function isMovableSource(source) {
+        if (!source) return false;
+        if (source.type === "waste") return state.waste.length > 0;
+        if (source.type === "foundation") return state.foundations[source.suit].length > 0;
+        if (source.type === "tableau") {
+          const pile = state.tableau[source.index] || [];
+          const card = pile[source.cardIndex];
+          return !!card && card.faceUp;
+        }
+        return false;
+      }
+
+      function canPlaceOnFoundation(card, suit) {
+        const pile = state.foundations[suit];
+        if (card.suit !== suit) return false;
+        if (!pile.length) return card.rank === 1;
+        return pile[pile.length - 1].rank === card.rank - 1;
+      }
+
+      function canPlaceOnTableau(cards, index) {
+        if (!cards.length) return false;
+        const pile = state.tableau[index];
+        const first = cards[0];
+        if (!pile.length) return first.rank === 13;
+        const topCard = pile[pile.length - 1];
+        if (!topCard.faceUp) return false;
+        return topCard.color !== first.color && topCard.rank === first.rank + 1;
+      }
+
+      function canMoveToDestination(source, destination) {
+        if (!source || !destination) return false;
+        const cards = getCardsForSource(source);
+        if (!cards.length) return false;
+        if (destination.type === "foundation") {
+          return cards.length === 1 && canPlaceOnFoundation(cards[0], destination.suit);
+        }
+        if (destination.type === "tableau") {
+          return canPlaceOnTableau(cards, destination.index);
+        }
+        return false;
+      }
+
+      function computeValidTargets(source) {
+        const targets = new Set();
+        if (!source) return targets;
+
+        for (let i = 0; i < 7; i += 1) {
+          const dest = { type: "tableau", index: i };
+          if (canMoveToDestination(source, dest) && pileKey(dest) !== pileKey(source)) {
+            targets.add(pileKey(dest));
+          }
+        }
+
+        for (const suit of SUIT_ORDER) {
+          const dest = { type: "foundation", suit };
+          if (canMoveToDestination(source, dest) && pileKey(dest) !== pileKey(source)) {
+            targets.add(pileKey(dest));
+          }
+        }
+
+        return targets;
+      }
+
+      function clearSelection() {
+        state.selected = null;
+        state.validTargets = new Set();
+      }
+
+      function setSelection(source) {
+        if (!isMovableSource(source)) return;
+        state.selected = { ...source };
+        state.validTargets = computeValidTargets(state.selected);
+        vibrate(10);
+        render();
+      }
+
+      function autoTargetFor(source) {
+        const cards = getCardsForSource(source);
+        if (cards.length !== 1) return null;
+        const card = cards[0];
+
+        const foundationDest = { type: "foundation", suit: card.suit };
+        if (canMoveToDestination(source, foundationDest)) return foundationDest;
+
+        let candidate = null;
+        for (let i = 0; i < 7; i += 1) {
+          const dest = { type: "tableau", index: i };
+          if (!canMoveToDestination(source, dest)) continue;
+          const pile = state.tableau[i];
+          if (!candidate || (pile.length && state.tableau[candidate.index].length === 0)) {
+            candidate = dest;
+          }
+        }
+        return candidate;
+      }
+
+      function revealTableauTop(index) {
+        const pile = state.tableau[index];
+        if (!pile.length) return;
+        const top = pile[pile.length - 1];
+        if (!top.faceUp) {
+          top.faceUp = true;
+          state.justFlippedCardId = top.id;
+          vibrate(8);
+        }
+      }
+
+      function pulsePile(key) {
+        state.dropPulse = key;
+        setTimeout(() => {
+          if (state.dropPulse === key) state.dropPulse = null;
+          render();
+        }, 430);
+      }
+
+      function moveSelectedTo(destination) {
+        if (!state.selected || !canMoveToDestination(state.selected, destination)) return false;
+        const source = { ...state.selected };
+        const cards = getCardsForSource(source);
+        if (!cards.length) return false;
+
+        if (source.type === "waste") {
+          state.waste.pop();
+        } else if (source.type === "foundation") {
+          state.foundations[source.suit].pop();
+        } else if (source.type === "tableau") {
+          state.tableau[source.index].splice(source.cardIndex);
+          revealTableauTop(source.index);
+        }
+
+        if (destination.type === "foundation") {
+          state.foundations[destination.suit].push(...cards);
+        } else if (destination.type === "tableau") {
+          state.tableau[destination.index].push(...cards);
+        }
+
+        state.moveCount += 1;
+        clearSelection();
+        vibrate([12, 20]);
+        pulsePile(pileKey(destination));
+        render();
+        checkWin();
+        return true;
+      }
+
+      function tryAutoMove(source) {
+        clearSelection();
+        state.selected = { ...source };
+        const destination = autoTargetFor(source);
+        if (!destination) {
+          clearSelection();
+          render();
+          return false;
+        }
+        return moveSelectedTo(destination);
+      }
+
+      function drawFromStock() {
+        if (state.animating) return;
+        clearSelection();
+        state.justFlippedCardId = null;
+
+        if (state.stock.length) {
+          const count = Math.min(state.drawCount, state.stock.length);
+          for (let i = 0; i < count; i += 1) {
+            const card = state.stock.pop();
+            card.faceUp = true;
+            state.waste.push(card);
+          }
+          vibrate(12);
+        } else if (state.waste.length) {
+          state.stock = state.waste.reverse().map((card) => ({ ...card, faceUp: false }));
+          state.waste = [];
+          vibrate([8, 8, 12]);
+          showToast("Waste recycled back into the stock");
+        }
+
+        render();
+      }
+
+      function updateStatus() {
+        els.statusPill.textContent = `Moves ${state.moveCount} · Stock ${state.stock.length} · Draw ${state.drawCount}`;
+        els.drawToggleBtn.textContent = `Draw ${state.drawCount}`;
+      }
+
+      function createPipMarkup(card) {
+        const positions = PIP_POSITIONS[card.rank] || [];
+        const pips = positions.map((name) => {
+          const style = PIP_STYLE[name];
+          const classes = ["pip"];
+          if (style.flip) classes.push("flip");
+          if (style.small) classes.push("small");
+          return `<span class="${classes.join(" ")}" style="left:${style.x}%; top:${style.y}%">${SUIT_SYMBOL[card.suit]}</span>`;
+        }).join("");
+        return `<div class="pip-field">${pips}</div>`;
+      }
+
+      function createFaceMarkup(card) {
+        if (card.rank === 1) {
+          return `
+            <div class="ace-field">
+              <div class="suit-core">${SUIT_SYMBOL[card.suit]}</div>
+            </div>
+          `;
+        }
+        if (card.rank > 10) {
+          return `
+            <div class="face-field">
+              <div class="face-badge" data-suit="${SUIT_SYMBOL[card.suit]}">
+                <div>
+                  <div class="face-rank">${rankLabel(card.rank)}</div>
+                  <div class="face-suit">${SUIT_SYMBOL[card.suit]}</div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        return createPipMarkup(card);
+      }
+
+      function createCardElement(card, options = {}) {
+        const { sourceType = "", sourceIndex = "", sourceSuit = "", cardIndex = "", movable = false, hidden = false, width = "100%" } = options;
+        const el = document.createElement("div");
+        el.className = `card ${card.faceUp ? "face-up" : "face-down"} ${card.color} ${movable ? "movable" : "unmovable"}`;
+        if (hidden) el.classList.add("source-hidden");
+        el.dataset.cardId = card.id;
+        el.dataset.sourceType = sourceType;
+        if (sourceIndex !== "") el.dataset.sourceIndex = String(sourceIndex);
+        if (sourceSuit) el.dataset.sourceSuit = sourceSuit;
+        if (cardIndex !== "") el.dataset.cardIndex = String(cardIndex);
+        el.dataset.faceUp = String(card.faceUp);
+        el.style.width = width;
+        el.setAttribute("aria-label", `${rankLabel(card.rank)} of ${SUIT_NAME[card.suit]}`);
+
+        if (card.faceUp) {
+          el.innerHTML = `
+            <div class="corner top">
+              <span>${rankLabel(card.rank)}</span>
+              <span class="suit">${SUIT_SYMBOL[card.suit]}</span>
+            </div>
+            ${createFaceMarkup(card)}
+            <div class="corner bottom">
+              <span>${rankLabel(card.rank)}</span>
+              <span class="suit">${SUIT_SYMBOL[card.suit]}</span>
+            </div>
+            <div class="card-gloss"></div>
+          `;
+        }
+
+        return el;
+      }
+
+      function createGhostCard(card, width, topOffset) {
+        const el = createCardElement(card, { width: `${width}px`, movable: false });
+        el.style.position = "absolute";
+        el.style.left = "0px";
+        el.style.top = `${topOffset}px`;
+        return el;
+      }
+
+      function renderStock() {
+        els.stock.innerHTML = "";
+        els.stock.classList.toggle("empty-stock", state.stock.length === 0 && state.waste.length > 0);
+        const visible = state.stock.slice(-3);
+        visible.forEach((card, idx) => {
+          const back = createCardElement(card, { sourceType: "stock", movable: false });
+          back.style.left = `${idx * 2}px`;
+          back.style.top = `${-idx * 1}px`;
+          back.style.width = "100%";
+          els.stock.appendChild(back);
+        });
+      }
+
+      function renderWaste() {
+        els.waste.innerHTML = "";
+        const visible = state.waste.slice(-3);
+        visible.forEach((card, idx) => {
+          const absoluteIndex = state.waste.length - visible.length + idx;
+          const movable = absoluteIndex === state.waste.length - 1;
+          const hidden = state.drag && state.drag.hiddenIds.has(card.id);
+          const el = createCardElement(card, {
+            sourceType: "waste",
+            cardIndex: 0,
+            movable,
+            hidden
+          });
+          el.style.left = `${idx * 16}px`;
+          el.style.top = "0px";
+          if (state.selected && sameMoveSource(state.selected, { type: "waste" }) && movable) {
+            el.classList.add("selected");
+          }
+          els.waste.appendChild(el);
+        });
+      }
+
+      function renderFoundations() {
+        [...els.foundationRow.children].forEach((pileEl) => {
+          const suit = pileEl.dataset.pileSuit;
+          pileEl.innerHTML = "";
+          pileEl.classList.toggle("valid-target", state.validTargets.has(`foundation-${suit}`));
+          pileEl.classList.toggle("drop-pulse", state.dropPulse === `foundation-${suit}`);
+          const pile = state.foundations[suit];
+          if (!pile.length) return;
+          const card = pile[pile.length - 1];
+          const hidden = state.drag && state.drag.hiddenIds.has(card.id);
+          const el = createCardElement(card, {
+            sourceType: "foundation",
+            sourceSuit: suit,
+            movable: true,
+            hidden
+          });
+          if (state.selected && sameMoveSource(state.selected, { type: "foundation", suit })) {
+            el.classList.add("selected");
+          }
+          pileEl.appendChild(el);
+        });
+      }
+
+      function renderTableau() {
+        [...els.tableau.children].forEach((pileEl, index) => {
+          pileEl.innerHTML = "";
+          pileEl.classList.toggle("valid-target", state.validTargets.has(`tableau-${index}`));
+          pileEl.classList.toggle("drop-pulse", state.dropPulse === `tableau-${index}`);
+          const pile = state.tableau[index];
+          let offset = 0;
+          const pileWidth = Math.max(pileEl.getBoundingClientRect().width || 60, 44);
+          const cardHeight = pileWidth * 1.42;
+
+          pile.forEach((card, cardIndex) => {
+            const movable = card.faceUp;
+            const hidden = state.drag && state.drag.hiddenIds.has(card.id);
+            const el = createCardElement(card, {
+              sourceType: "tableau",
+              sourceIndex: index,
+              cardIndex,
+              movable,
+              hidden
+            });
+            el.style.top = `${offset}px`;
+            el.style.zIndex = String(cardIndex + 1);
+            if (state.selected && sameMoveSource(state.selected, { type: "tableau", index, cardIndex })) {
+              el.classList.add("selected");
+            }
+            if (state.justFlippedCardId === card.id) {
+              el.animate(
+                [
+                  { transform: "rotateY(90deg) scale(0.98)", opacity: 0.6 },
+                  { transform: "rotateY(0deg) scale(1)", opacity: 1 }
+                ],
+                { duration: 260, easing: "cubic-bezier(.2,.7,.2,1)" }
+              );
+            }
+            pileEl.appendChild(el);
+            offset += card.faceUp ? getFanUp() : getFanDown();
+          });
+
+          pileEl.style.height = `${Math.max(cardHeight + 10, offset + cardHeight + 6)}px`;
+        });
+      }
+
+      function getFanDown() {
+        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fan-down")) || 16;
+      }
+
+      function getFanUp() {
+        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fan-up")) || 24;
+      }
+
+      function render() {
+        updateStatus();
+        renderStock();
+        renderWaste();
+        renderFoundations();
+        renderTableau();
+      }
+
+      function boardCardAtPoint(x, y) {
+        const element = document.elementFromPoint(x, y);
+        return element ? element.closest(".card") : null;
+      }
+
+      function boardPileAtPoint(x, y) {
+        const element = document.elementFromPoint(x, y);
+        return element ? element.closest(".pile") : null;
+      }
+
+      function startPointerTracking(event) {
+        const cardEl = event.target.closest(".card");
+        const pileEl = event.target.closest(".pile");
+        if (!cardEl && !pileEl) return;
+        if (state.animating) return;
+
+        const pointerState = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          lastX: event.clientX,
+          lastY: event.clientY,
+          moved: false,
+          dragged: false,
+          cardEl,
+          pileEl,
+          pressCleanup: null
+        };
+
+        if (cardEl) {
+          cardEl.classList.add("pressed");
+          pointerState.pressCleanup = () => cardEl.classList.remove("pressed");
+        }
+
+        state.pointerState = pointerState;
+      }
+
+      function beginDrag(pointerState) {
+        const { cardEl } = pointerState;
+        if (!cardEl) return;
+        const source = sourceFromCard(cardEl);
+        if (!isMovableSource(source)) return;
+
+        const cards = getCardsForSource(source);
+        const sourcePile = cardEl.closest(".pile");
+        const sourceRect = cardEl.getBoundingClientRect();
+        const cardRects = cards.map((card) => document.querySelector(`[data-card-id="${card.id}"]`)?.getBoundingClientRect() || sourceRect);
+        const firstRect = cardRects[0] || sourceRect;
+        const hiddenIds = new Set(cards.map((card) => card.id));
+        const offsetX = pointerState.startX - firstRect.left;
+        const offsetY = pointerState.startY - firstRect.top;
+
+        const ghost = document.createElement("div");
+        ghost.className = "drag-group";
+        ghost.style.width = `${sourceRect.width}px`;
+        ghost.style.height = `${cardRects[cardRects.length - 1].bottom - firstRect.top}px`;
+
+        cardRects.forEach((rect, idx) => {
+          ghost.appendChild(createGhostCard(cards[idx], sourceRect.width, rect.top - firstRect.top));
+        });
+
+        els.dragLayer.innerHTML = "";
+        els.dragLayer.appendChild(ghost);
+
+        state.drag = {
+          source,
+          cards,
+          ghost,
+          hiddenIds,
+          offsetX,
+          offsetY,
+          validTargets: computeValidTargets(source)
+        };
+
+        state.selected = { ...source };
+        state.validTargets = new Set(state.drag.validTargets);
+        pointerState.dragged = true;
+        render();
+        updateGhost(pointerState.lastX, pointerState.lastY);
+        vibrate(8);
+      }
+
+      function updateGhost(x, y) {
+        if (!state.drag) return;
+        state.drag.ghost.style.transform = `translate(${x - state.drag.offsetX}px, ${y - state.drag.offsetY}px)`;
+      }
+
+      function finishDrag(clientX, clientY) {
+        if (!state.drag) return false;
+        const pileEl = boardPileAtPoint(clientX, clientY);
+        const destination = pileFromElement(pileEl);
+        const didMove = destination ? moveSelectedTo(destination) : false;
+        els.dragLayer.innerHTML = "";
+        state.drag = null;
+        if (!didMove) {
+          clearSelection();
+          render();
+        }
+        return didMove;
+      }
+
+      function handleCardTap(cardEl) {
+        if (!cardEl || cardEl.dataset.faceUp !== "true") return;
+        const source = sourceFromCard(cardEl);
+        if (!isMovableSource(source)) return;
+
+        if (state.selected) {
+          if (sameMoveSource(state.selected, source)) {
+            if (!tryAutoMove(source)) {
+              clearSelection();
+              render();
+            }
+            return;
+          }
+          const destination = pileFromElement(cardEl);
+          if (destination && moveSelectedTo(destination)) return;
+          setSelection(source);
+          return;
+        }
+
+        const cards = getCardsForSource(source);
+        if (cards.length === 1 && tryAutoMove(source)) return;
+        setSelection(source);
+      }
+
+      function handlePileTap(pileEl) {
+        const destination = pileFromElement(pileEl);
+        if (!destination) return;
+
+        if (destination.type === "stock") {
+          drawFromStock();
+          return;
+        }
+
+        if (state.selected) {
+          if (!moveSelectedTo(destination)) {
+            clearSelection();
+            render();
+          }
+          return;
+        }
+
+        if (destination.type === "waste" && state.waste.length) {
+          handleCardTap(els.waste.querySelector('.card:last-child'));
+          return;
+        }
+
+        if (destination.type === "foundation") {
+          const pile = state.foundations[destination.suit];
+          if (pile.length) setSelection({ type: "foundation", suit: destination.suit });
+        }
+      }
+
+      function endPointerTracking(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+
+        if (pointerState.pressCleanup) pointerState.pressCleanup();
+        const wasDragged = pointerState.dragged;
+        const cardEl = boardCardAtPoint(event.clientX, event.clientY) || pointerState.cardEl;
+        const pileEl = boardPileAtPoint(event.clientX, event.clientY) || pointerState.pileEl;
+
+        if (wasDragged) {
+          finishDrag(event.clientX, event.clientY);
+        } else if (cardEl) {
+          handleCardTap(cardEl);
+        } else if (pileEl) {
+          handlePileTap(pileEl);
+        } else {
+          clearSelection();
+          render();
+        }
+
+        state.pointerState = null;
+      }
+
+      function animateDeal() {
+        state.animating = true;
+        clearSelection();
+        render();
+        els.dragLayer.innerHTML = "";
+
+        const originRect = els.stock.getBoundingClientRect();
+        const jobs = [];
+        const fanDown = getFanDown();
+        const fanUp = getFanUp();
+
+        let sequence = 0;
+        for (let col = 0; col < 7; col += 1) {
+          let offset = 0;
+          const pileRect = els.tableau.children[col].getBoundingClientRect();
+          for (let row = 0; row <= col; row += 1) {
+            const finalX = pileRect.left;
+            const finalY = pileRect.top + offset;
+            jobs.push({
+              delay: sequence * 44,
+              finalX,
+              finalY,
+              rotate: (Math.random() - 0.5) * 10
+            });
+            offset += row === col ? fanUp : fanDown;
+            sequence += 1;
+          }
+        }
+
+        jobs.forEach((job) => {
+          const temp = document.createElement("div");
+          temp.className = "deal-card";
+          temp.style.left = `${originRect.left}px`;
+          temp.style.top = `${originRect.top}px`;
+          temp.style.transform = `translate(0,0) rotate(0deg)`;
+          temp.style.opacity = "0";
+          temp.style.transition = "transform 420ms cubic-bezier(.2,.78,.2,1), opacity 220ms ease";
+          els.dragLayer.appendChild(temp);
+
+          setTimeout(() => {
+            temp.style.opacity = "1";
+            temp.style.transform = `translate(${job.finalX - originRect.left}px, ${job.finalY - originRect.top}px) rotate(${job.rotate}deg)`;
+          }, job.delay + 20);
+
+          setTimeout(() => {
+            temp.style.opacity = "0";
+          }, job.delay + 420);
+
+          setTimeout(() => temp.remove(), job.delay + 620);
+        });
+
+        setTimeout(() => {
+          state.animating = false;
+          render();
+        }, jobs[jobs.length - 1].delay + 520);
+      }
+
+      function animateShuffleThenDeal() {
+        if (state.animating) return;
+        state.animating = true;
+        clearSelection();
+        render();
+        hideWinOverlay();
+        els.dragLayer.innerHTML = "";
+
+        const boardRect = els.board.getBoundingClientRect();
+        const stockRect = els.stock.getBoundingClientRect();
+        const centerX = boardRect.left + (boardRect.width / 2) - (stockRect.width / 2);
+        const centerY = boardRect.top + Math.min(120, boardRect.height * 0.28);
+        const cards = [];
+
+        for (let i = 0; i < 18; i += 1) {
+          const card = document.createElement("div");
+          card.className = "shuffle-card";
+          card.style.left = `${centerX}px`;
+          card.style.top = `${centerY}px`;
+          card.style.opacity = "0";
+          card.style.transform = `translate(0,0) rotate(${(Math.random() - 0.5) * 16}deg)`;
+          card.style.transition = "transform 560ms cubic-bezier(.2,.8,.2,1), opacity 200ms ease";
+          els.dragLayer.appendChild(card);
+          cards.push(card);
+        }
+
+        requestAnimationFrame(() => {
+          cards.forEach((card, index) => {
+            const spreadX = (Math.random() - 0.5) * Math.min(260, boardRect.width * 0.46);
+            const spreadY = (Math.random() - 0.5) * 80;
+            const rotate = (Math.random() - 0.5) * 80;
+            setTimeout(() => {
+              card.style.opacity = "1";
+              card.style.transform = `translate(${spreadX}px, ${spreadY}px) rotate(${rotate}deg)`;
+            }, index * 18);
+          });
+        });
+
+        setTimeout(() => {
+          cards.forEach((card, index) => {
+            const stackOffset = Math.min(index, 4) * 2;
+            card.style.transform = `translate(${stockRect.left - centerX + stackOffset}px, ${stockRect.top - centerY - stackOffset}px) rotate(${(Math.random() - 0.5) * 10}deg)`;
+            card.style.opacity = "1";
+          });
+        }, 520);
+
+        setTimeout(() => {
+          cards.forEach((card) => card.remove());
+          prepareGameState();
+          animateDeal();
+          showToast("Fresh shuffle, fresh felt");
+        }, 1180);
+      }
+
+      function spawnConfetti() {
+        clearInterval(state.confettiTimer);
+        state.confettiTimer = setInterval(() => {
+          const piece = document.createElement("div");
+          piece.className = "confetti";
+          piece.style.left = `${Math.random() * 100}vw`;
+          piece.style.background = ["#f6d88f", "#ff6b6b", "#4ecdc4", "#ffffff", "#4d96ff"][Math.floor(Math.random() * 5)];
+          piece.style.animationDuration = `${3 + Math.random() * 2.8}s`;
+          piece.style.transform = `translateY(-10vh) rotate(${Math.random() * 360}deg)`;
+          document.body.appendChild(piece);
+          setTimeout(() => piece.remove(), 6000);
+        }, 110);
+        setTimeout(() => clearInterval(state.confettiTimer), 2600);
+      }
+
+      function showWinOverlay() {
+        els.winOverlay.classList.add("show");
+        spawnConfetti();
+        vibrate([24, 50, 24]);
+      }
+
+      function hideWinOverlay() {
+        els.winOverlay.classList.remove("show");
+      }
+
+      function checkWin() {
+        const total = SUIT_ORDER.reduce((sum, suit) => sum + state.foundations[suit].length, 0);
+        if (total === 52) {
+          showWinOverlay();
+        }
+      }
+
+      function handlePointerMove(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        pointerState.lastX = event.clientX;
+        pointerState.lastY = event.clientY;
+
+        const movedEnough = Math.hypot(event.clientX - pointerState.startX, event.clientY - pointerState.startY) > 8;
+        if (!pointerState.moved && movedEnough) pointerState.moved = true;
+
+        if (pointerState.cardEl && pointerState.moved && !pointerState.dragged) {
+          const source = sourceFromCard(pointerState.cardEl);
+          if (isMovableSource(source)) {
+            beginDrag(pointerState);
+          }
+        }
+
+        if (pointerState.dragged) {
+          updateGhost(event.clientX, event.clientY);
+        }
+      }
+
+      function handlePointerCancel(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        if (pointerState.pressCleanup) pointerState.pressCleanup();
+        els.dragLayer.innerHTML = "";
+        state.drag = null;
+        clearSelection();
+        state.pointerState = null;
+        render();
+      }
+
+      function newDeal() {
+        if (state.animating) return;
+        prepareGameState();
+        animateDeal();
+      }
+
+      function toggleDrawMode() {
+        state.drawCount = state.drawCount === 1 ? 3 : 1;
+        updateStatus();
+        showToast(`Draw mode: ${state.drawCount}`);
+      }
+
+      function attachEvents() {
+        els.board.addEventListener("pointerdown", (event) => {
+          if (event.target.closest("button")) return;
+          startPointerTracking(event);
+        });
+
+        window.addEventListener("pointermove", handlePointerMove, { passive: true });
+        window.addEventListener("pointerup", endPointerTracking);
+        window.addEventListener("pointercancel", handlePointerCancel);
+        window.addEventListener("resize", () => {
+          if (!state.animating && !state.drag) render();
+        });
+
+        els.newGameBtn.addEventListener("click", newDeal);
+        els.shuffleBtn.addEventListener("click", animateShuffleThenDeal);
+        els.drawToggleBtn.addEventListener("click", toggleDrawMode);
+        els.playAgainBtn.addEventListener("click", () => {
+          hideWinOverlay();
+          animateShuffleThenDeal();
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key.toLowerCase() === "n") newDeal();
+          if (event.key.toLowerCase() === "s") animateShuffleThenDeal();
+          if (event.key.toLowerCase() === "d") drawFromStock();
+          if (event.key === "Escape") {
+            clearSelection();
+            render();
+          }
+        });
+      }
+
+      function init() {
+        buildStaticPiles();
+        attachEvents();
+        prepareGameState();
+        animateDeal();
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
