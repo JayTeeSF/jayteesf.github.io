@@ -84,10 +84,12 @@
       backdrop-filter: blur(18px) saturate(130%);
       -webkit-backdrop-filter: blur(18px) saturate(130%);
       z-index: 2;
+      flex-wrap: wrap;
     }
 
     .title-wrap {
       min-width: 0;
+      flex: 1 1 260px;
     }
 
     h1 {
@@ -109,6 +111,7 @@
       gap: 10px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      flex: 1 1 340px;
     }
 
     .pill {
@@ -181,7 +184,7 @@
       display: flex;
       flex-direction: column;
       gap: clamp(12px, 1.6vw, 18px);
-      min-height: calc(100svh - 170px);
+      min-height: calc(100svh - 210px);
     }
 
     .top-row {
@@ -603,6 +606,24 @@
       animation: confetti-fall linear forwards;
     }
 
+    .meta-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: -2px;
+    }
+
+    .save-info {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .hidden-input {
+      display: none;
+    }
+
     @keyframes confetti-fall {
       0% { transform: translateY(-10vh) rotate(0deg); opacity: 0; }
       10% { opacity: 0.9; }
@@ -610,13 +631,8 @@
     }
 
     @media (max-width: 880px) {
-      .hero {
-        flex-direction: column;
-        align-items: stretch;
-      }
-
       .controls {
-        justify-content: stretch;
+        justify-content: flex-start;
       }
     }
 
@@ -674,10 +690,17 @@
         <p class="subtitle">No accounts, no tracking, just a tactile, polished game of Klondike.</p>
       </div>
       <div class="controls">
-        <div class="pill" id="statusPill">Moves 0 · Stock 24 · Draw 1</div>
+        <div class="pill" id="statusPill">Moves 0 · Score 0 · Stock 24 · Draw 1</div>
+        <div class="pill" id="timePill">00:00</div>
         <button class="button secondary" id="drawToggleBtn">Draw 1</button>
+        <button class="button secondary" id="saveBtn">Save</button>
+        <button class="button secondary" id="exportBtn">Export</button>
+        <button class="button secondary" id="importBtn">Import</button>
         <button class="button secondary" id="shuffleBtn">Shuffle Show</button>
         <button class="button" id="newGameBtn">New Deal</button>
+      </div>
+      <div class="meta-bar">
+        <div class="save-info" id="saveInfo">Autosave ready.</div>
       </div>
     </header>
 
@@ -697,6 +720,7 @@
 
   <div id="drag-layer"></div>
   <div class="toast" id="toast"></div>
+  <input class="hidden-input" type="file" id="importFileInput" accept="application/json,.json" />
 
   <div class="win-overlay" id="winOverlay">
     <div class="win-card">
@@ -708,6 +732,8 @@
 
   <script>
     (() => {
+      const STORAGE_KEY = "velvet-solitaire-save-v2";
+      const SAVE_VERSION = 2;
       const SUIT_ORDER = ["S", "H", "D", "C"];
       const SUIT_SYMBOL = { S: "♠", H: "♥", D: "♦", C: "♣" };
       const SUIT_NAME = { S: "Spades", H: "Hearts", D: "Diamonds", C: "Clubs" };
@@ -747,9 +773,15 @@
         dragLayer: document.getElementById("drag-layer"),
         toast: document.getElementById("toast"),
         statusPill: document.getElementById("statusPill"),
+        timePill: document.getElementById("timePill"),
+        saveInfo: document.getElementById("saveInfo"),
         newGameBtn: document.getElementById("newGameBtn"),
         drawToggleBtn: document.getElementById("drawToggleBtn"),
         shuffleBtn: document.getElementById("shuffleBtn"),
+        saveBtn: document.getElementById("saveBtn"),
+        exportBtn: document.getElementById("exportBtn"),
+        importBtn: document.getElementById("importBtn"),
+        importFileInput: document.getElementById("importFileInput"),
         winOverlay: document.getElementById("winOverlay"),
         playAgainBtn: document.getElementById("playAgainBtn")
       };
@@ -761,6 +793,9 @@
         tableau: Array.from({ length: 7 }, () => []),
         drawCount: 1,
         moveCount: 0,
+        score: 0,
+        startedAt: Date.now(),
+        elapsedBeforeResumeMs: 0,
         selected: null,
         validTargets: new Set(),
         drag: null,
@@ -769,7 +804,10 @@
         justFlippedCardId: null,
         pointerState: null,
         toastTimer: null,
-        confettiTimer: null
+        confettiTimer: null,
+        autoSaveTimer: null,
+        lastSavedAt: null,
+        loadedFromSave: false
       };
 
       function buildStaticPiles() {
@@ -827,17 +865,162 @@
         return deck;
       }
 
+      function nowElapsedMs() {
+        return state.elapsedBeforeResumeMs + Math.max(0, Date.now() - state.startedAt);
+      }
+
+      function formatTime(totalMs) {
+        const totalSeconds = Math.floor(totalMs / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+      }
+
+      function touchSaveInfo(message) {
+        els.saveInfo.textContent = message;
+      }
+
+      function schedulePeriodicAutosave() {
+        clearInterval(state.autoSaveTimer);
+        state.autoSaveTimer = setInterval(() => {
+          persistState(false);
+          updateStatus();
+        }, 10000);
+      }
+
+      function exportableSnapshot(reason = "manual") {
+        return {
+          app: "Velvet Solitaire",
+          version: SAVE_VERSION,
+          reason,
+          savedAt: new Date().toISOString(),
+          state: {
+            stock: state.stock,
+            waste: state.waste,
+            foundations: state.foundations,
+            tableau: state.tableau,
+            drawCount: state.drawCount,
+            moveCount: state.moveCount,
+            score: state.score,
+            elapsedMs: nowElapsedMs(),
+            won: foundationCount() === 52
+          }
+        };
+      }
+
+      function foundationCount() {
+        return SUIT_ORDER.reduce((sum, suit) => sum + state.foundations[suit].length, 0);
+      }
+
+      function validateCard(card) {
+        return card && typeof card.id === "string" && SUIT_ORDER.includes(card.suit) && Number.isInteger(card.rank) && card.rank >= 1 && card.rank <= 13 && typeof card.faceUp === "boolean";
+      }
+
+      function validateSnapshot(payload) {
+        if (!payload || typeof payload !== "object") return false;
+        const data = payload.state || payload;
+        if (!data || typeof data !== "object") return false;
+        const foundations = data.foundations;
+        const tableau = data.tableau;
+        const stock = data.stock;
+        const waste = data.waste;
+        if (!Array.isArray(stock) || !Array.isArray(waste) || !Array.isArray(tableau)) return false;
+        if (tableau.length !== 7) return false;
+        if (!foundations || typeof foundations !== "object") return false;
+        const allCards = [...stock, ...waste, ...tableau.flat(), ...SUIT_ORDER.flatMap((suit) => foundations[suit] || [])];
+        if (allCards.length !== 52) return false;
+        const ids = new Set();
+        for (const card of allCards) {
+          if (!validateCard(card) || ids.has(card.id)) return false;
+          ids.add(card.id);
+        }
+        return true;
+      }
+
+      function restoreFromSnapshot(payload, { silent = false } = {}) {
+        const data = payload.state || payload;
+        if (!validateSnapshot(payload)) throw new Error("Invalid save data");
+        state.stock = structuredClone(data.stock);
+        state.waste = structuredClone(data.waste);
+        state.foundations = structuredClone(data.foundations);
+        state.tableau = structuredClone(data.tableau);
+        state.drawCount = data.drawCount === 3 ? 3 : 1;
+        state.moveCount = Number.isFinite(data.moveCount) ? data.moveCount : 0;
+        state.score = Number.isFinite(data.score) ? data.score : 0;
+        state.elapsedBeforeResumeMs = Number.isFinite(data.elapsedMs) ? data.elapsedMs : 0;
+        state.startedAt = Date.now();
+        state.selected = null;
+        state.validTargets = new Set();
+        state.drag = null;
+        state.animating = false;
+        state.dropPulse = null;
+        state.justFlippedCardId = null;
+        state.pointerState = null;
+        state.loadedFromSave = true;
+        hideWinOverlay();
+        render();
+        persistState(false);
+        if (!silent) showToast("Progress restored");
+      }
+
+      function persistState(manual = false) {
+        try {
+          const payload = exportableSnapshot(manual ? "manual" : "autosave");
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+          state.lastSavedAt = payload.savedAt;
+          touchSaveInfo(`Saved ${new Date(payload.savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${manual ? " · manual" : " · autosave"}`);
+          return true;
+        } catch (error) {
+          touchSaveInfo("Save failed in this browser session");
+          return false;
+        }
+      }
+
+      function loadLocalSave() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return false;
+          const payload = JSON.parse(raw);
+          if (!validateSnapshot(payload)) return false;
+          restoreFromSnapshot(payload, { silent: true });
+          touchSaveInfo(`Restored from this device · ${new Date(payload.savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
+          return true;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function downloadExport() {
+        const payload = exportableSnapshot("export");
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        anchor.href = url;
+        anchor.download = `velvet-solitaire-progress-${stamp}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        showToast("Progress exported");
+        persistState(false);
+      }
+
       function prepareGameState() {
         state.stock = [];
         state.waste = [];
         state.foundations = { S: [], H: [], D: [], C: [] };
         state.tableau = Array.from({ length: 7 }, () => []);
         state.moveCount = 0;
+        state.score = 0;
+        state.startedAt = Date.now();
+        state.elapsedBeforeResumeMs = 0;
         state.selected = null;
         state.validTargets = new Set();
         state.drag = null;
         state.justFlippedCardId = null;
         state.dropPulse = null;
+        state.loadedFromSave = false;
         hideWinOverlay();
 
         const deck = shuffleArray(createDeck());
@@ -850,6 +1033,11 @@
         }
 
         state.stock = deck.map((card) => ({ ...card, faceUp: false }));
+        persistState(false);
+      }
+
+      function adjustScore(delta) {
+        state.score = Math.max(0, state.score + delta);
       }
 
       function vibrate(pattern = 12) {
@@ -1027,6 +1215,7 @@
         if (!top.faceUp) {
           top.faceUp = true;
           state.justFlippedCardId = top.id;
+          adjustScore(5);
           vibrate(8);
         }
       }
@@ -1049,6 +1238,7 @@
           state.waste.pop();
         } else if (source.type === "foundation") {
           state.foundations[source.suit].pop();
+          if (destination.type === "tableau") adjustScore(-15);
         } else if (source.type === "tableau") {
           state.tableau[source.index].splice(source.cardIndex);
           revealTableauTop(source.index);
@@ -1056,8 +1246,10 @@
 
         if (destination.type === "foundation") {
           state.foundations[destination.suit].push(...cards);
+          adjustScore(source.type === "waste" ? 10 : 10);
         } else if (destination.type === "tableau") {
           state.tableau[destination.index].push(...cards);
+          if (source.type === "waste") adjustScore(5);
         }
 
         state.moveCount += 1;
@@ -1065,6 +1257,7 @@
         vibrate([12, 20]);
         pulsePile(pileKey(destination));
         render();
+        persistState(false);
         checkWin();
         return true;
       }
@@ -1097,16 +1290,19 @@
         } else if (state.waste.length) {
           state.stock = state.waste.reverse().map((card) => ({ ...card, faceUp: false }));
           state.waste = [];
+          adjustScore(-20);
           vibrate([8, 8, 12]);
           showToast("Waste recycled back into the stock");
         }
 
         render();
+        persistState(false);
       }
 
       function updateStatus() {
-        els.statusPill.textContent = `Moves ${state.moveCount} · Stock ${state.stock.length} · Draw ${state.drawCount}`;
+        els.statusPill.textContent = `Moves ${state.moveCount} · Score ${state.score} · Stock ${state.stock.length} · Draw ${state.drawCount}`;
         els.drawToggleBtn.textContent = `Draw ${state.drawCount}`;
+        els.timePill.textContent = formatTime(nowElapsedMs());
       }
 
       function createPipMarkup(card) {
@@ -1344,7 +1540,6 @@
         if (!isMovableSource(source)) return;
 
         const cards = getCardsForSource(source);
-        const sourcePile = cardEl.closest(".pile");
         const sourceRect = cardEl.getBoundingClientRect();
         const cardRects = cards.map((card) => document.querySelector(`[data-card-id="${card.id}"]`)?.getBoundingClientRect() || sourceRect);
         const firstRect = cardRects[0] || sourceRect;
@@ -1530,6 +1725,7 @@
         setTimeout(() => {
           state.animating = false;
           render();
+          persistState(false);
         }, jobs[jobs.length - 1].delay + 520);
       }
 
@@ -1613,8 +1809,10 @@
       }
 
       function checkWin() {
-        const total = SUIT_ORDER.reduce((sum, suit) => sum + state.foundations[suit].length, 0);
+        const total = foundationCount();
         if (total === 52) {
+          adjustScore(100);
+          persistState(false);
           showWinOverlay();
         }
       }
@@ -1660,6 +1858,7 @@
       function toggleDrawMode() {
         state.drawCount = state.drawCount === 1 ? 3 : 1;
         updateStatus();
+        persistState(false);
         showToast(`Draw mode: ${state.drawCount}`);
       }
 
@@ -1675,10 +1874,29 @@
         window.addEventListener("resize", () => {
           if (!state.animating && !state.drag) render();
         });
+        window.addEventListener("beforeunload", () => persistState(false));
 
         els.newGameBtn.addEventListener("click", newDeal);
         els.shuffleBtn.addEventListener("click", animateShuffleThenDeal);
         els.drawToggleBtn.addEventListener("click", toggleDrawMode);
+        els.saveBtn.addEventListener("click", () => {
+          persistState(true);
+          showToast("Progress saved on this device");
+        });
+        els.exportBtn.addEventListener("click", downloadExport);
+        els.importBtn.addEventListener("click", () => els.importFileInput.click());
+        els.importFileInput.addEventListener("change", async (event) => {
+          const [file] = event.target.files || [];
+          if (!file) return;
+          try {
+            const text = await file.text();
+            restoreFromSnapshot(JSON.parse(text));
+          } catch (error) {
+            showToast("That save file could not be restored");
+          } finally {
+            event.target.value = "";
+          }
+        });
         els.playAgainBtn.addEventListener("click", () => {
           hideWinOverlay();
           animateShuffleThenDeal();
@@ -1688,6 +1906,7 @@
           if (event.key.toLowerCase() === "n") newDeal();
           if (event.key.toLowerCase() === "s") animateShuffleThenDeal();
           if (event.key.toLowerCase() === "d") drawFromStock();
+          if (event.key.toLowerCase() === "e") downloadExport();
           if (event.key === "Escape") {
             clearSelection();
             render();
@@ -1698,8 +1917,15 @@
       function init() {
         buildStaticPiles();
         attachEvents();
-        prepareGameState();
-        animateDeal();
+        schedulePeriodicAutosave();
+        if (!loadLocalSave()) {
+          prepareGameState();
+          animateDeal();
+        } else {
+          render();
+          showToast("Saved game restored");
+        }
+        setInterval(updateStatus, 1000);
       }
 
       init();
