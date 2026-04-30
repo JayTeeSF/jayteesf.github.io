@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>JayTeeSF Solitaire</title>
   <style>
     :root {
@@ -58,6 +58,7 @@
 
     .app {
       position: relative;
+      touch-action: manipulation;
       min-height: 100svh;
       padding: max(12px, env(safe-area-inset-top)) clamp(10px, 2vw, 22px) max(16px, env(safe-area-inset-bottom));
       display: flex;
@@ -200,6 +201,7 @@
 
     .board-shell {
       position: relative;
+      touch-action: manipulation;
       flex: 1;
       padding: clamp(10px, 1.4vw, 18px);
       background:
@@ -612,6 +614,29 @@
       margin-top: 12px;
     }
 
+    .settings-group {
+      margin-top: 14px;
+    }
+
+    .settings-label {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(246, 244, 238, 0.72);
+      margin-bottom: 8px;
+    }
+
+    .size-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .size-option.is-active {
+      box-shadow: 0 0 0 2px rgba(255, 233, 163, 0.45), inset 0 1px 0 rgba(255,255,255,0.12);
+      border-color: rgba(255, 233, 163, 0.55);
+    }
+
     .feedback-frame-wrap {
       margin-top: 14px;
       border-radius: 18px;
@@ -905,6 +930,7 @@
         <div class="save-info" id="saveInfo">Autosaves in this browser on this device.</div>
         <div class="save-info timer-info" id="timeText">Time 00:00</div>
         <div class="mini-actions">
+          <button class="mini-button" id="settingsBtn" type="button">⚙︎ Settings</button>
           <button class="mini-button" id="helpBtn" type="button">Help</button>
           <button class="mini-button" id="installBtn" type="button">Install</button>
           <button class="mini-button" id="feedbackBtn" type="button">Feedback</button>
@@ -929,6 +955,30 @@
   <div id="drag-layer"></div>
   <div class="toast" id="toast"></div>
   <input class="hidden-input" type="file" id="importFileInput" accept="application/json,.json" />
+
+  <div class="modal-shell" id="settingsModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Settings</h2>
+        <button class="modal-close" data-close-modal="settingsModal" aria-label="Close settings">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Browser zoom is locked during play so taps do not resize the page. Use card size controls here instead.</p>
+        <div class="settings-group">
+          <div class="settings-label">Card size</div>
+          <div class="size-controls">
+            <button class="button secondary size-option" id="sizeCompactBtn" type="button">Compact</button>
+            <button class="button secondary size-option" id="sizeStandardBtn" type="button">Standard</button>
+            <button class="button secondary size-option" id="sizeLargeBtn" type="button">Large</button>
+          </div>
+        </div>
+        <p>The selected size is saved on this device and stays stable in portrait and landscape until you change it here.</p>
+        <div class="modal-actions">
+          <button class="button secondary" data-close-modal="settingsModal" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="modal-shell" id="helpModal" aria-hidden="true">
     <div class="modal-card">
@@ -1023,6 +1073,7 @@
   <script>
     (() => {
       const STORAGE_KEY = "jayteesf-solitaire-save-v1";
+      const CARD_SIZE_STORAGE_KEY = "jayteesf-solitaire-card-size-v1";
       const SAVE_VERSION = 1;
       const FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScd3aaFsS48ntmoU2CGuv1VzyTKGaUj5XATQqIHYwZpSFCqzA/viewform?embedded=true"; // Paste your Google Form embed URL here, ending with ?embedded=true
       const SUIT_ORDER = ["S", "H", "D", "C"];
@@ -1068,6 +1119,11 @@
         winScore: document.getElementById("winScore"),
         winMeta: document.getElementById("winMeta"),
         winDoneBtn: document.getElementById("winDoneBtn"),
+        settingsBtn: document.getElementById("settingsBtn"),
+        settingsModal: document.getElementById("settingsModal"),
+        sizeCompactBtn: document.getElementById("sizeCompactBtn"),
+        sizeStandardBtn: document.getElementById("sizeStandardBtn"),
+        sizeLargeBtn: document.getElementById("sizeLargeBtn"),
         playAgainBtn: document.getElementById("playAgainBtn")
       };
 
@@ -1094,7 +1150,8 @@
         tickTimer: null,
         lastSavedAt: null,
         history: [],
-        tourIndex: -1
+        tourIndex: -1,
+        cardSizePreset: "standard"
       };
 
       function buildStaticPiles() {
@@ -1416,6 +1473,71 @@
         state.toastTimer = setTimeout(() => els.toast.classList.remove("show"), 1400);
       }
 
+      function cardSizePresets() {
+        return {
+          compact: {
+            portrait: { topCardW: 54, fanDown: 7, fanUp: 24, wasteSpread: 22 },
+            landscape: { topCardW: 58, fanDown: 7, fanUp: 22, wasteSpread: 22 }
+          },
+          standard: {
+            portrait: { topCardW: 58, fanDown: 8, fanUp: 27, wasteSpread: 24 },
+            landscape: { topCardW: 64, fanDown: 8, fanUp: 24, wasteSpread: 24 }
+          },
+          large: {
+            portrait: { topCardW: 62, fanDown: 9, fanUp: 30, wasteSpread: 26 },
+            landscape: { topCardW: 70, fanDown: 9, fanUp: 27, wasteSpread: 26 }
+          }
+        };
+      }
+
+      function updateCardSizeButtons() {
+        const pairs = [
+          [els.sizeCompactBtn, "compact"],
+          [els.sizeStandardBtn, "standard"],
+          [els.sizeLargeBtn, "large"]
+        ];
+        pairs.forEach(([button, preset]) => {
+          button.classList.toggle("is-active", state.cardSizePreset === preset);
+        });
+      }
+
+      function applyCardSizePreset() {
+        const root = document.documentElement;
+        ["--top-card-w", "--fan-down", "--fan-up", "--waste-spread"].forEach((prop) => root.style.removeProperty(prop));
+
+        if (window.innerWidth > 900) {
+          updateCardSizeButtons();
+          return;
+        }
+
+        const presets = cardSizePresets();
+        const preset = presets[state.cardSizePreset] || presets.standard;
+        const mode = window.matchMedia("(orientation: landscape)").matches ? preset.landscape : preset.portrait;
+        root.style.setProperty("--top-card-w", `${mode.topCardW}px`);
+        root.style.setProperty("--fan-down", `${mode.fanDown}px`);
+        root.style.setProperty("--fan-up", `${mode.fanUp}px`);
+        root.style.setProperty("--waste-spread", `${mode.wasteSpread}px`);
+        updateCardSizeButtons();
+      }
+
+      function setCardSizePreset(preset, { silent = false } = {}) {
+        const presets = cardSizePresets();
+        state.cardSizePreset = presets[preset] ? preset : "standard";
+        localStorage.setItem(CARD_SIZE_STORAGE_KEY, state.cardSizePreset);
+        applyCardSizePreset();
+        render();
+        if (!silent) {
+          vibrate(10);
+          showToast(`Card size: ${state.cardSizePreset}`);
+        }
+      }
+
+      function loadCardSizePreset() {
+        const saved = localStorage.getItem(CARD_SIZE_STORAGE_KEY);
+        state.cardSizePreset = saved && cardSizePresets()[saved] ? saved : "standard";
+        applyCardSizePreset();
+      }
+
       function openModal(modal) {
         closeAllModals();
         if (!modal) return;
@@ -1430,7 +1552,7 @@
       }
 
       function closeAllModals() {
-        [els.helpModal, els.installModal, els.feedbackModal].forEach(closeModal);
+        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal].forEach(closeModal);
       }
 
       function setupFeedbackModal() {
@@ -2246,12 +2368,20 @@
         window.addEventListener("pointerup", endPointerTracking);
         window.addEventListener("pointercancel", handlePointerCancel);
         window.addEventListener("resize", () => {
+          applyCardSizePreset();
           if (!state.animating && !state.drag) render();
           if (state.tourIndex >= 0) positionTourStep();
         });
+        window.addEventListener("orientationchange", () => {
+          applyCardSizePreset();
+          if (!state.animating && !state.drag) render();
+        });
+        ["gesturestart", "gesturechange", "gestureend"].forEach((eventName) => {
+          document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+        });
         window.addEventListener("beforeunload", () => persistState(false));
 
-        [els.helpModal, els.installModal, els.feedbackModal].forEach((modal) => {
+        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal].forEach((modal) => {
           modal.addEventListener("click", (event) => {
             if (event.target === modal) closeModal(modal);
           });
@@ -2262,6 +2392,10 @@
         });
 
         els.newGameBtn.addEventListener("click", newDeal);
+        els.settingsBtn.addEventListener("click", () => openModal(els.settingsModal));
+        els.sizeCompactBtn.addEventListener("click", () => setCardSizePreset("compact"));
+        els.sizeStandardBtn.addEventListener("click", () => setCardSizePreset("standard"));
+        els.sizeLargeBtn.addEventListener("click", () => setCardSizePreset("large"));
         els.drawToggleBtn.addEventListener("click", toggleDrawMode);
         els.saveBtn.addEventListener("click", () => {
           persistState(true);
@@ -2317,8 +2451,10 @@
 
       function init() {
         buildStaticPiles();
+        loadCardSizePreset();
         attachEvents();
         setupFeedbackModal();
+        updateCardSizeButtons();
         schedulePeriodicAutosave();
         startTickingClock();
         if (!loadLocalSave()) {
