@@ -28,6 +28,8 @@
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --board-scale: 1;
+      --vvw: 100vw;
+      --vvh: 100svh;
       --label-font-size: 0.66rem;
       --status-value-size: 0.88rem;
       --control-font-size: 0.98rem;
@@ -35,17 +37,17 @@
     }
 
     * { box-sizing: border-box; }
-    html { height: 100%; width: 100%; overflow: hidden; overscroll-behavior: none; }
+    html { height: var(--vvh); width: var(--vvw); overflow: hidden; overscroll-behavior: none; }
     body {
       position: fixed;
       inset: 0;
-      width: 100%;
-      height: 100svh;
-      max-height: 100svh;
+      width: var(--vvw);
+      height: var(--vvh);
+      max-height: var(--vvh);
       margin: 0;
       font-family: var(--font);
       color: var(--text);
-      min-height: 100svh;
+      min-height: var(--vvh);
       background:
         radial-gradient(circle at 16% 14%, rgba(125,99,255,0.28), transparent 26%),
         radial-gradient(circle at 84% 12%, rgba(49,217,255,0.16), transparent 22%),
@@ -106,9 +108,10 @@
     .app {
       position: relative;
       z-index: 1;
-      height: 100svh;
-      min-height: 100svh;
-      max-height: 100svh;
+      width: var(--vvw);
+      height: var(--vvh);
+      min-height: var(--vvh);
+      max-height: var(--vvh);
       padding: calc(6px + var(--safe-top)) 8px max(10px, var(--safe-bottom));
       display: grid;
       grid-template-rows: auto auto minmax(0, 1fr);
@@ -124,6 +127,8 @@
       min-height: 42px;
       padding: 6px 8px;
       border-radius: var(--radius-lg);
+      min-width: 0;
+      overflow: hidden;
     }
 
     .brand {
@@ -131,6 +136,8 @@
       align-items: center;
       gap: 10px;
       min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
     }
 
     .brand-mark {
@@ -163,6 +170,9 @@
       font-size: clamp(0.92rem, 2vw, 1.22rem);
       letter-spacing: -0.05em;
       line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .brand p {
@@ -177,6 +187,7 @@
       align-items: center;
       gap: 8px;
       flex: 0 0 auto;
+      min-width: 0;
     }
 
     button,
@@ -999,15 +1010,15 @@
       }
       .brand { gap: 5px; }
       .brand-mark { width: 24px; height: 24px; border-radius: 8px; }
-      .brand h1 { font-size: 0.76rem; }
+      .brand h1 { font-size: 0.76rem; max-width: 4.6rem; }
       .top-actions { gap: 3px; }
-      .icon-btn { min-width: 30px; height: 30px; padding: 0 6px; font-size: 0.70rem; border-radius: 10px; }
+      .icon-btn { min-width: 28px; height: 30px; padding: 0 5px; font-size: 0.68rem; border-radius: 10px; }
       #settingsBtn { font-size: 1.05rem; }
       .status-strip { min-height: 22px; gap: 4px; padding: 1px 5px; border-radius: 10px; }
       .chip { gap: 2px; }
       .chip + .chip::before { margin-right: 0; font-size: 0.58rem; }
       .play-area { gap: 3px; }
-      .stage-layout { grid-template-columns: minmax(0, 1fr) 48px; gap: 3px; }
+      .stage-layout { grid-template-columns: minmax(0, 1fr) 44px; gap: 3px; }
       .board-wrap { padding: 2px; border-radius: 10px; }
       .preview-stack { gap: 3px; }
       .preview-card { padding: 3px; border-radius: 10px; gap: 3px; }
@@ -1743,11 +1754,50 @@
         return Math.min(max, Math.max(min, value));
       }
 
-      function currentOrientation() {
+      function setViewportVars() {
         const view = window.visualViewport || window;
-        const width = view.width || window.innerWidth;
-        const height = view.height || window.innerHeight;
+        const width = Math.floor(view.width || window.innerWidth || document.documentElement.clientWidth);
+        const height = Math.floor(view.height || window.innerHeight || document.documentElement.clientHeight);
+        if (!width || !height) return;
+        const root = document.documentElement;
+        root.style.setProperty('--vvw', `${width}px`);
+        root.style.setProperty('--vvh', `${height}px`);
+        document.body.style.width = `${width}px`;
+        document.body.style.height = `${height}px`;
+      }
+
+      function viewportSize() {
+        const view = window.visualViewport || window;
+        return {
+          width: Math.floor(view.width || window.innerWidth || document.documentElement.clientWidth),
+          height: Math.floor(view.height || window.innerHeight || document.documentElement.clientHeight)
+        };
+      }
+
+      function currentOrientation() {
+        const { width, height } = viewportSize();
         return width > height ? 'landscape' : 'portrait';
+      }
+
+      function isTinyPortrait() {
+        const { width, height } = viewportSize();
+        return currentOrientation() === 'portrait' && (width <= 380 || height <= 700);
+      }
+
+      function recommendedAutoTextScale() {
+        const { width, height } = viewportSize();
+        if (currentOrientation() === 'landscape') return width <= 760 ? 0.9 : 1;
+        if (width <= 350 || height <= 620) return 0.88;
+        if (width <= 380 || height <= 700) return 0.92;
+        return 1;
+      }
+
+      function updateCompactChrome() {
+        const compact = isTinyPortrait();
+        const title = document.querySelector('.brand h1');
+        const newGame = document.getElementById('newGameBtn');
+        if (title) title.textContent = compact ? 'Tetris' : APP_NAME;
+        if (newGame) newGame.textContent = compact ? 'New' : 'New game';
       }
 
       function boardScaleKey() {
@@ -1760,7 +1810,9 @@
       }
 
       function getTextScale() {
-        return clamp(Number(settings.textScale || 1), MIN_TEXT_SCALE, MAX_TEXT_SCALE);
+        const explicit = Number(settings.textScale);
+        if (Number.isFinite(explicit) && explicit > 0) return clamp(explicit, MIN_TEXT_SCALE, MAX_TEXT_SCALE);
+        return recommendedAutoTextScale();
       }
 
       function applyTextScale() {
@@ -1775,7 +1827,8 @@
         if (!ui.displaySizeLabel) return;
         const orientation = currentOrientation();
         const label = orientation.charAt(0).toUpperCase() + orientation.slice(1);
-        ui.displaySizeLabel.textContent = `${label} · Board ${Math.round(getBoardScale() * 100)}% · Text ${Math.round(getTextScale() * 100)}%`;
+        const textMode = Number.isFinite(Number(settings.textScale)) ? 'Text' : 'Auto text';
+        ui.displaySizeLabel.textContent = `${label} · Board ${Math.round(getBoardScale() * 100)}% · ${textMode} ${Math.round(getTextScale() * 100)}%`;
       }
 
       function setBoardScale(nextScale) {
@@ -1801,13 +1854,30 @@
         settings.boardScaleLandscape = 1;
         settings.textScale = 1;
         saveSettings();
+        setViewportVars();
+        updateCompactChrome();
         applyTextScale();
         fitBoardToViewport();
         updateBoardSizeLabel();
-        showToast('Display reset to auto-fit defaults.');
+        showToast('Display reset.');
+      }
+
+      function autoFitDisplaySizing() {
+        settings.boardScalePortrait = 1;
+        settings.boardScaleLandscape = 1;
+        delete settings.textScale;
+        saveSettings();
+        setViewportVars();
+        updateCompactChrome();
+        applyTextScale();
+        fitBoardToViewport();
+        updateBoardSizeLabel();
+        showToast('Auto-fit applied for this screen.');
       }
 
       function fitBoardToViewport() {
+        setViewportVars();
+        updateCompactChrome();
         applyTextScale();
         const frame = document.getElementById('playfieldFrame');
         const boardWrap = document.querySelector('.board-wrap');
@@ -2312,7 +2382,7 @@
         document.getElementById('boardShrinkBtn').addEventListener('click', () => setBoardScale(getBoardScale() - BOARD_SCALE_STEP));
         document.getElementById('boardGrowBtn').addEventListener('click', () => setBoardScale(getBoardScale() + BOARD_SCALE_STEP));
         document.getElementById('displayResetBtn').addEventListener('click', resetDisplaySizing);
-        document.getElementById('displayAutoBtn').addEventListener('click', resetDisplaySizing);
+        document.getElementById('displayAutoBtn').addEventListener('click', autoFitDisplaySizing);
 
         document.getElementById('restoreInput').addEventListener('change', (e) => {
           const file = e.target.files && e.target.files[0];
@@ -2409,11 +2479,14 @@
         });
 
         document.addEventListener('touchmove', (e) => {
-          if (e.touches && e.touches.length > 1) e.preventDefault();
+          if (e.target.closest('.settings-panel, .modal, .modal-card, .modal-shell')) return;
+          e.preventDefault();
         }, { passive: false });
 
         const refit = () => {
           requestAnimationFrame(() => {
+            setViewportVars();
+            updateCompactChrome();
             applyTextScale();
             fitBoardToViewport();
             updateBoardSizeLabel();
@@ -2431,6 +2504,8 @@
         document.getElementById('soundBtn').innerHTML = `<span><strong>Haptics</strong>Haptics: ${settings.haptics ? 'On' : 'Off'}</span><span>•</span>`;
         setupFeedbackModal();
         bindEvents();
+        setViewportVars();
+        updateCompactChrome();
         applyTextScale();
         updateBoardSizeLabel();
         restoreLocalSave(false);
