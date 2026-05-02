@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>JayTeeSF Category Solitaire</title>
+  <style>
+    :root {
+      --bg-1: #0d4a37;
+      --bg-2: #2f8f5e;
+      --bg-3: #0a2f25;
+      --text: #f8f7f2;
+      --muted: rgba(248, 247, 242, 0.76);
+      --shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+      --shadow-soft: 0 10px 22px rgba(0, 0, 0, 0.16);
+      --card-w: clamp(70px, 12vw, 108px);
+      --card-h: calc(var(--card-w) * 1.42);
+      --fan-down: 14px;
+      --fan-up: 28px;
+      --tableau-gap: clamp(6px, 0.85vw, 10px);
+      --selected-ring: 0 0 0 3px rgba(255, 245, 182, 0.7), 0 16px 28px rgba(0, 0, 0, 0.18);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(255,255,255,0.12), transparent 24%),
+        radial-gradient(circle at 100% 0%, rgba(255, 236, 151, 0.16), transparent 18%),
+        linear-gradient(180deg, var(--bg-2), var(--bg-1) 28%, var(--bg-3));
+      overflow: hidden;
+    }
+
+    body {
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,0.07), transparent 40%),
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 12px);
+      mix-blend-mode: soft-light;
+      opacity: 0.75;
+    }
+
+    .app {
+      min-height: 100svh;
+      padding: max(12px, env(safe-area-inset-top)) clamp(10px, 1.8vw, 22px) max(12px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      touch-action: manipulation;
+    }
+
+    .hero {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.13), rgba(255,255,255,0.06));
+      border: 1px solid rgba(255,255,255,0.13);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(16px) saturate(130%);
+      -webkit-backdrop-filter: blur(16px) saturate(130%);
+    }
+
+    .title-wrap {
+      flex: 1 1 260px;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.7vw, 2.2rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 0.93rem;
+      max-width: 54ch;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      flex: 1 1 320px;
+    }
+
+    .pill {
+      padding: 10px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.08);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
+      box-shadow: 0 10px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.22);
+      touch-action: manipulation;
+    }
+
+    .button:active { transform: translateY(1px) scale(0.985); }
+    .button:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+    .button.primary {
+      background: linear-gradient(180deg, #fff2c0, #f1d37e);
+      color: #173428;
+    }
+
+    .button.secondary {
+      color: var(--text);
+      background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.08));
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .board-shell {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      padding: clamp(10px, 1.2vw, 16px);
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 34%),
+        linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px) saturate(120%);
+      -webkit-backdrop-filter: blur(16px) saturate(120%);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .board {
+      position: relative;
+      z-index: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .top-row {
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .top-left,
+    .top-right {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .pile {
+      position: relative;
+      border-radius: 18px;
+      touch-action: manipulation;
+    }
+
+    .stock-pile,
+    .waste-pile,
+    .category-pile {
+      width: var(--card-w);
+      height: var(--card-h);
+      border-radius: 20px;
+    }
+
+    .stock-pile,
+    .waste-pile {
+      border: 1px dashed rgba(255,255,255,0.18);
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    }
+
+    .stock-pile::before,
+    .waste-pile::before {
+      content: attr(data-label);
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 8px;
+      text-align: center;
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.45);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      pointer-events: none;
+    }
+
+    .stock-count {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 4;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.32);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .category-pile {
+      padding: 8px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.05));
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    .category-pile::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 24%);
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .category-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .category-title {
+      font-size: 0.8rem;
+      line-height: 1.1;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .category-icon {
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+
+    .category-progress {
+      position: relative;
+      z-index: 1;
+      font-size: 0.82rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      opacity: 0.95;
+    }
+
+    .category-countbar {
+      position: relative;
+      z-index: 1;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.18);
+      overflow: hidden;
+    }
+
+    .category-countbar > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: rgba(255,255,255,0.85);
+      width: 0%;
+      transition: width 180ms ease;
+    }
+
+    .category-pile.valid-target {
+      box-shadow: 0 0 0 3px rgba(255,245,182,0.65), 0 18px 32px rgba(0,0,0,0.16);
+      transform: translateY(-2px);
+    }
+
+    .category-pile.completed {
+      box-shadow: 0 0 0 2px rgba(171, 255, 167, 0.42), 0 0 36px rgba(171, 255, 167, 0.22);
+      filter: saturate(1.05) brightness(1.04);
+    }
+
+    .tableau {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: var(--tableau-gap);
+      align-items: start;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .column {
+      position: relative;
+      min-height: 180px;
+      border-radius: 18px;
+      border: 1px dashed rgba(255,255,255,0.12);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+      overflow: visible;
+    }
+
+    .column.valid-target {
+      background: linear-gradient(180deg, rgba(255, 245, 182, 0.12), rgba(255,255,255,0.03));
+      box-shadow: 0 0 0 2px rgba(255,245,182,0.32), 0 14px 28px rgba(0,0,0,0.14);
+    }
+
+    .card {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: var(--card-h);
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.12);
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(245,244,238,0.97));
+      box-shadow: 0 10px 16px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.24);
+      transition: transform 120ms ease, box-shadow 140ms ease, opacity 140ms ease;
+      touch-action: manipulation;
+    }
+
+    .card.face-down {
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.1), transparent 20%),
+        linear-gradient(135deg, #3085f7, #2566bb 48%, #183b7f 100%);
+      border-color: rgba(255,255,255,0.12);
+    }
+
+    .card.face-down::before,
+    .card.face-down::after {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .card.face-down::after {
+      inset: 14px;
+      border: 0;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,0.1), transparent 35%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 8px, transparent 8px 16px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.06) 0 8px, transparent 8px 16px);
+    }
+
+    .card.selected {
+      box-shadow: var(--selected-ring);
+      z-index: 30 !important;
+    }
+
+    .card.hidden-source {
+      opacity: 0.05;
+      filter: blur(0.5px);
+    }
+
+    .card-topbar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 8px;
+      opacity: 0.92;
+    }
+
+    .card-body {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 10px 10px;
+    }
+
+    .card-chip {
+      align-self: flex-start;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.05);
+      font-size: 0.66rem;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-emoji {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 1.9em;
+      font-size: clamp(1.45rem, 3vw, 2.15rem);
+      line-height: 1;
+      text-shadow: 0 5px 10px rgba(0,0,0,0.08);
+    }
+
+    .card-label {
+      font-size: clamp(0.92rem, 1.4vw, 1.08rem);
+      font-weight: 800;
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      color: #4a3d3a;
+      text-align: center;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .empty-banner {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: rgba(255,255,255,0.32);
+      font-size: 0.78rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: max(16px, env(safe-area-inset-bottom));
+      transform: translate(-50%, 18px);
+      border-radius: 999px;
+      padding: 12px 16px;
+      background: rgba(10,16,14,0.8);
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: var(--shadow-soft);
+      opacity: 0;
+      transition: opacity 220ms ease, transform 220ms ease;
+      pointer-events: none;
+      z-index: 1200;
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(5, 10, 8, 0.55);
+      z-index: 1300;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .modal.show { display: flex; }
+
+    .modal-card {
+      width: min(92vw, 640px);
+      max-height: min(86svh, 760px);
+      overflow: auto;
+      border-radius: 26px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+      padding: 18px;
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .modal h2 {
+      margin: 0;
+      font-size: 1.25rem;
+    }
+
+    .modal-close {
+      appearance: none;
+      border: 0;
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      color: var(--text);
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    .modal p, .modal li {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .modal ul {
+      margin: 0 0 14px 18px;
+      padding: 0;
+    }
+
+    .tip-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .tip-card {
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .tip-card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .footer-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: rgba(248,247,242,0.74);
+      font-size: 0.84rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 980px) {
+      .tableau { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .board-shell { overflow: auto; }
+    }
+
+    @media (max-width: 720px) {
+      :root {
+        --card-w: 82px;
+        --fan-down: 11px;
+        --fan-up: 24px;
+      }
+
+      .app {
+        padding-left: 8px;
+        padding-right: 8px;
+        gap: 10px;
+      }
+
+      .hero {
+        padding: 10px 12px;
+        border-radius: 20px;
+      }
+
+      .subtitle { display: none; }
+      .controls { justify-content: flex-start; }
+      .pill, .button { min-height: 40px; }
+      .footer-note { font-size: 0.74rem; }
+    }
+
+    @media (max-width: 520px) {
+      :root {
+        --card-w: 74px;
+        --card-h: calc(var(--card-w) * 1.4);
+        --fan-down: 10px;
+        --fan-up: 22px;
+      }
+
+      .app { padding-left: 4px; padding-right: 4px; }
+      .hero { gap: 8px; }
+      h1 { font-size: 1.18rem; }
+      .pill { font-size: 0.76rem; padding: 8px 10px; }
+      .button { padding: 8px 11px; font-size: 0.74rem; }
+      .stock-pile, .waste-pile, .category-pile { border-radius: 16px; }
+      .category-title { font-size: 0.7rem; }
+      .category-progress { font-size: 0.74rem; }
+      .card-body { padding: 10px 8px 8px; }
+      .card-chip { font-size: 0.6rem; padding: 4px 7px; }
+      .card-emoji { font-size: 1.55rem; }
+      .card-label { font-size: 0.92rem; }
+      .tip-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div class="title-wrap">
+        <h1>JayTeeSF Category Solitaire</h1>
+        <p class="subtitle">A colorful solitaire spin built from unexpected topics, icon cards, word cards, and category matching.</p>
+      </div>
+      <div class="controls">
+        <div class="pill" id="statusPill">Moves 0 • Score 0 • Collected 0/28</div>
+        <div class="pill" id="mixPill">Mix —</div>
+        <button class="button secondary" id="undoBtn" type="button">Undo</button>
+        <button class="button secondary" id="helpBtn" type="button">Help</button>
+        <button class="button primary" id="newGameBtn" type="button">New Game</button>
+      </div>
+    </header>
+
+    <section class="board-shell">
+      <div class="board" id="board">
+        <div class="top-row">
+          <div class="top-left">
+            <div class="pile stock-pile" id="stockPile" data-label="Stock">
+              <div class="stock-count" id="stockCount">0</div>
+            </div>
+            <div class="pile waste-pile" id="wastePile" data-label="Waste"></div>
+          </div>
+          <div class="top-right" id="foundationRow"></div>
+        </div>
+        <div class="tableau" id="tableau"></div>
+      </div>
+      <div class="footer-note">
+        <div id="footerHint">Tap a visible card to select it. Double-tap to auto-place when possible.</div>
+        <div id="timerText">Time 00:00</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="modal" id="helpModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>How to play</h2>
+        <button class="modal-close" id="closeHelpBtn" type="button" aria-label="Close help">✕</button>
+      </div>
+      <p>Collect every visible topic card into the correct category targets across the top.</p>
+      <ul>
+        <li>Tap the stock to draw one card into the waste.</li>
+        <li>Tap a visible card to select it, then tap a valid target.</li>
+        <li>You can move a same-category run onto an empty tableau column or onto another top card of the same category.</li>
+        <li>Double-tap a card to auto-place it onto its category when that move is legal.</li>
+        <li>When a full category is complete, it glows and locks in.</li>
+      </ul>
+      <div class="tip-grid">
+        <div class="tip-card">
+          <strong>Unexpected mixes</strong>
+          Every game pulls from a large category library, so you may see planets next to breakfast, retro tech, mythology, gems, or circus props.
+        </div>
+        <div class="tip-card">
+          <strong>Visual + word cards</strong>
+          Some cards are mostly text, some lean visual, and many use both so the board stays lively and surprising.
+        </div>
+      </div>
+      <p>Progress is autosaved in this browser so you can leave and come back later.</p>
+      <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="button secondary" id="closeHelpBtn2" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const STORAGE_KEY = "jayteesf-category-solitaire-save-v1";
+      const CARDS_PER_CATEGORY = 7;
+      const ACTIVE_CATEGORY_COUNT = 4;
+      const TABLEAU_COLUMNS = 6;
+      const HISTORY_LIMIT = 40;
+      const TOAST_MS = 1400;
+
+      const MASTER_CATEGORIES = [
+        { id: "colors", title: "Colors", color: "#4fc3f7", icon: "🎨", items: [
+          { label: "Azure", emoji: "🔵" }, { label: "Crimson", emoji: "🔴" }, { label: "Emerald", emoji: "🟢" }, { label: "Gold", emoji: "🟡" },
+          { label: "Violet", emoji: "🟣" }, { label: "Cyan", emoji: "💧" }, { label: "Coral", emoji: "🪸" }, { label: "Ivory", emoji: "🤍" }
+        ] },
+        { id: "planets", title: "Planets", color: "#ffd54f", icon: "🪐", items: [
+          { label: "Mercury", emoji: "☿️" }, { label: "Venus", emoji: "♀️" }, { label: "Earth", emoji: "🌍" }, { label: "Mars", emoji: "🔴" },
+          { label: "Jupiter", emoji: "🟠" }, { label: "Saturn", emoji: "🪐" }, { label: "Uranus", emoji: "🧊" }, { label: "Neptune", emoji: "🌊" }
+        ] },
+        { id: "breakfast", title: "Breakfast", color: "#ffb74d", icon: "🍳", items: [
+          { label: "Toast", emoji: "🍞" }, { label: "Bacon", emoji: "🥓" }, { label: "Cereal", emoji: "🥣" }, { label: "Bagel", emoji: "🥯" },
+          { label: "Pancakes", emoji: "🥞" }, { label: "Waffles", emoji: "🧇" }, { label: "Omelet", emoji: "🍳" }, { label: "Coffee", emoji: "☕" }
+        ] },
+        { id: "transport", title: "Transport", color: "#4dd0e1", icon: "🚁", items: [
+          { label: "Helicopter", emoji: "🚁" }, { label: "Airplane", emoji: "✈️" }, { label: "Bicycle", emoji: "🚲" }, { label: "Scooter", emoji: "🛴" },
+          { label: "Train", emoji: "🚆" }, { label: "Submarine", emoji: "🚤" }, { label: "Rocket", emoji: "🚀" }, { label: "Sailboat", emoji: "⛵" }
+        ] },
+        { id: "geometry", title: "Geometry", color: "#ba68c8", icon: "🔶", items: [
+          { label: "Circle", emoji: "⚪" }, { label: "Triangle", emoji: "🔺" }, { label: "Square", emoji: "🟥" }, { label: "Hexagon", emoji: "⬡" },
+          { label: "Oval", emoji: "🥚" }, { label: "Cube", emoji: "🧊" }, { label: "Sphere", emoji: "🔮" }, { label: "Diamond", emoji: "💎" }
+        ] },
+        { id: "retro-tech", title: "Retro Tech", color: "#90a4ae", icon: "📼", items: [
+          { label: "Cassette", emoji: "📼" }, { label: "Floppy Disk", emoji: "💾" }, { label: "Pager", emoji: "📟" }, { label: "Walkman", emoji: "🎧" },
+          { label: "Polaroid", emoji: "📷" }, { label: "CRT", emoji: "📺" }, { label: "Fax Machine", emoji: "📠" }, { label: "Game Boy", emoji: "🕹️" }
+        ] },
+        { id: "mythology", title: "Mythology", color: "#9575cd", icon: "⚡", items: [
+          { label: "Zeus", emoji: "⚡" }, { label: "Athena", emoji: "🦉" }, { label: "Thor", emoji: "🔨" }, { label: "Loki", emoji: "🃏" },
+          { label: "Medusa", emoji: "🐍" }, { label: "Pegasus", emoji: "🪽" }, { label: "Kraken", emoji: "🐙" }, { label: "Minotaur", emoji: "🐂" }
+        ] },
+        { id: "gems", title: "Gems", color: "#f06292", icon: "💎", items: [
+          { label: "Ruby", emoji: "♦️" }, { label: "Emerald", emoji: "💚" }, { label: "Sapphire", emoji: "💙" }, { label: "Diamond", emoji: "💎" },
+          { label: "Opal", emoji: "✨" }, { label: "Amethyst", emoji: "🔮" }, { label: "Topaz", emoji: "🟡" }, { label: "Quartz", emoji: "🪨" }
+        ] },
+        { id: "weather", title: "Weather", color: "#81d4fa", icon: "⛅", items: [
+          { label: "Clouds", emoji: "☁️" }, { label: "Thunder", emoji: "⛈️" }, { label: "Snow", emoji: "❄️" }, { label: "Rainbow", emoji: "🌈" },
+          { label: "Fog", emoji: "🌫️" }, { label: "Wind", emoji: "💨" }, { label: "Rain", emoji: "🌧️" }, { label: "Sunshine", emoji: "☀️" }
+        ] },
+        { id: "flowers", title: "Flowers", color: "#f48fb1", icon: "🌸", items: [
+          { label: "Rose", emoji: "🌹" }, { label: "Tulip", emoji: "🌷" }, { label: "Sunflower", emoji: "🌻" }, { label: "Lotus", emoji: "🪷" },
+          { label: "Daisy", emoji: "🌼" }, { label: "Lily", emoji: "🌺" }, { label: "Orchid", emoji: "🪻" }, { label: "Lavender", emoji: "🪻" }
+        ] },
+        { id: "ocean", title: "Ocean", color: "#4fc3f7", icon: "🌊", items: [
+          { label: "Coral", emoji: "🪸" }, { label: "Shark", emoji: "🦈" }, { label: "Jellyfish", emoji: "🎐" }, { label: "Crab", emoji: "🦀" },
+          { label: "Octopus", emoji: "🐙" }, { label: "Seahorse", emoji: "🐚" }, { label: "Lighthouse", emoji: "🗼" }, { label: "Wave", emoji: "🌊" }
+        ] },
+        { id: "body", title: "Face", color: "#ffcc80", icon: "🙂", items: [
+          { label: "Eyes", emoji: "👀" }, { label: "Nose", emoji: "👃" }, { label: "Mouth", emoji: "👄" }, { label: "Chin", emoji: "🙂" },
+          { label: "Brows", emoji: "🤨" }, { label: "Cheeks", emoji: "😊" }, { label: "Lips", emoji: "💋" }, { label: "Eyelashes", emoji: "✨" }
+        ] },
+        { id: "actors", title: "Actors", color: "#ce93d8", icon: "🎬", items: [
+          { label: "DiCaprio", emoji: "🎭" }, { label: "Streep", emoji: "🎭" }, { label: "Davis", emoji: "🎭" }, { label: "Yeoh", emoji: "🎭" },
+          { label: "Elba", emoji: "🎭" }, { label: "Blanchett", emoji: "🎭" }, { label: "Washington", emoji: "🎭" }, { label: "Hepburn", emoji: "🎭" }
+        ] },
+        { id: "math", title: "Math", color: "#a5d6a7", icon: "➗", items: [
+          { label: "Algebra", emoji: "📐" }, { label: "Calculus", emoji: "📘" }, { label: "Fraction", emoji: "➗" }, { label: "Equation", emoji: "🟰" },
+          { label: "Graph", emoji: "📈" }, { label: "Angle", emoji: "📐" }, { label: "Number Line", emoji: "↔️" }, { label: "Geometry", emoji: "🔷" }
+        ] },
+        { id: "desserts", title: "Desserts", color: "#ffab91", icon: "🍰", items: [
+          { label: "Cake", emoji: "🍰" }, { label: "Donut", emoji: "🍩" }, { label: "Cookie", emoji: "🍪" }, { label: "Brownie", emoji: "🟫" },
+          { label: "Pie", emoji: "🥧" }, { label: "Ice Cream", emoji: "🍨" }, { label: "Cupcake", emoji: "🧁" }, { label: "Macaron", emoji: "🍬" }
+        ] },
+        { id: "circus", title: "Circus", color: "#ff8a65", icon: "🎪", items: [
+          { label: "Clown", emoji: "🤡" }, { label: "Ringmaster", emoji: "🎩" }, { label: "Juggler", emoji: "🤹" }, { label: "Unicycle", emoji: "🚲" },
+          { label: "Tent", emoji: "🎪" }, { label: "Trapeze", emoji: "🎈" }, { label: "Cannonball", emoji: "💥" }, { label: "Tiger", emoji: "🐯" }
+        ] },
+        { id: "famous-scientists", title: "Scientists", color: "#80cbc4", icon: "🔬", items: [
+          { label: "Einstein", emoji: "🧠" }, { label: "Curie", emoji: "⚛️" }, { label: "Tesla", emoji: "⚡" }, { label: "Darwin", emoji: "🧬" },
+          { label: "Galileo", emoji: "🔭" }, { label: "Newton", emoji: "🍎" }, { label: "Hopper", emoji: "💻" }, { label: "Turing", emoji: "🔐" }
+        ] },
+        { id: "books", title: "Books", color: "#bcaaa4", icon: "📚", items: [
+          { label: "Novel", emoji: "📖" }, { label: "Poem", emoji: "📝" }, { label: "Atlas", emoji: "🗺️" }, { label: "Dictionary", emoji: "📘" },
+          { label: "Bookmark", emoji: "🔖" }, { label: "Library", emoji: "🏛️" }, { label: "Hardcover", emoji: "📕" }, { label: "Paperback", emoji: "📗" }
+        ] },
+        { id: "magic", title: "Magic", color: "#b39ddb", icon: "✨", items: [
+          { label: "Rabbit", emoji: "🐇" }, { label: "Top Hat", emoji: "🎩" }, { label: "Coin Vanish", emoji: "🪙" }, { label: "Levitation", emoji: "🪄" },
+          { label: "Silk Scarf", emoji: "🧣" }, { label: "Deck of Cards", emoji: "🃏" }, { label: "Assistant", emoji: "🎭" }, { label: "Wand", emoji: "🪄" }
+        ] },
+        { id: "trees", title: "Trees", color: "#81c784", icon: "🌳", items: [
+          { label: "Oak", emoji: "🌳" }, { label: "Pine", emoji: "🌲" }, { label: "Maple", emoji: "🍁" }, { label: "Palm", emoji: "🌴" },
+          { label: "Willow", emoji: "🌿" }, { label: "Birch", emoji: "🌱" }, { label: "Cedar", emoji: "🌲" }, { label: "Redwood", emoji: "🌳" }
+        ] },
+        { id: "fruits", title: "Fruits", color: "#aed581", icon: "🍓", items: [
+          { label: "Apple", emoji: "🍎" }, { label: "Banana", emoji: "🍌" }, { label: "Peach", emoji: "🍑" }, { label: "Lemon", emoji: "🍋" },
+          { label: "Kiwi", emoji: "🥝" }, { label: "Orange", emoji: "🍊" }, { label: "Mango", emoji: "🥭" }, { label: "Grapes", emoji: "🍇" }
+        ] },
+        { id: "music", title: "Music", color: "#7986cb", icon: "🎵", items: [
+          { label: "Piano", emoji: "🎹" }, { label: "Guitar", emoji: "🎸" }, { label: "Violin", emoji: "🎻" }, { label: "Trumpet", emoji: "🎺" },
+          { label: "Drums", emoji: "🥁" }, { label: "Flute", emoji: "🪈" }, { label: "Saxophone", emoji: "🎷" }, { label: "Microphone", emoji: "🎤" }
+        ] },
+        { id: "landmarks", title: "Landmarks", color: "#ffcc80", icon: "🗺️", items: [
+          { label: "Eiffel Tower", emoji: "🗼" }, { label: "Pyramids", emoji: "🛕" }, { label: "Colosseum", emoji: "🏟️" }, { label: "Taj Mahal", emoji: "🕌" },
+          { label: "Big Ben", emoji: "🕰️" }, { label: "Machu Picchu", emoji: "⛰️" }, { label: "Golden Gate", emoji: "🌉" }, { label: "Liberty", emoji: "🗽" }
+        ] },
+        { id: "birds", title: "Birds", color: "#90caf9", icon: "🪶", items: [
+          { label: "Owl", emoji: "🦉" }, { label: "Penguin", emoji: "🐧" }, { label: "Parrot", emoji: "🦜" }, { label: "Peacock", emoji: "🦚" },
+          { label: "Eagle", emoji: "🦅" }, { label: "Flamingo", emoji: "🦩" }, { label: "Robin", emoji: "🐦" }, { label: "Swan", emoji: "🦢" }
+        ] },
+        { id: "blue-things", title: "Blue", color: "#4fc3f7", icon: "🟦", items: [
+          { label: "Cyan", emoji: "🟦" }, { label: "Blueberry", emoji: "🫐" }, { label: "Navy", emoji: "🌌" }, { label: "Whale", emoji: "🐋" },
+          { label: "Blue Jay", emoji: "🐦" }, { label: "Sapphire", emoji: "💙" }, { label: "Ocean", emoji: "🌊" }, { label: "Ink", emoji: "🖋️" }
+        ] }
+      ];
+
+      const els = {
+        stockPile: document.getElementById("stockPile"),
+        wastePile: document.getElementById("wastePile"),
+        stockCount: document.getElementById("stockCount"),
+        foundationRow: document.getElementById("foundationRow"),
+        tableau: document.getElementById("tableau"),
+        statusPill: document.getElementById("statusPill"),
+        mixPill: document.getElementById("mixPill"),
+        timerText: document.getElementById("timerText"),
+        footerHint: document.getElementById("footerHint"),
+        undoBtn: document.getElementById("undoBtn"),
+        helpBtn: document.getElementById("helpBtn"),
+        newGameBtn: document.getElementById("newGameBtn"),
+        toast: document.getElementById("toast"),
+        helpModal: document.getElementById("helpModal"),
+        closeHelpBtn: document.getElementById("closeHelpBtn"),
+        closeHelpBtn2: document.getElementById("closeHelpBtn2")
+      };
+
+      const state = {
+        activeCategoryIds: [],
+        stock: [],
+        waste: [],
+        foundations: {},
+        tableau: Array.from({ length: TABLEAU_COLUMNS }, () => []),
+        selected: null,
+        validTargets: new Set(),
+        moveCount: 0,
+        score: 0,
+        startedAt: Date.now(),
+        elapsedBeforeResumeMs: 0,
+        history: [],
+        lastTap: null,
+        toastTimer: null,
+        tickTimer: null
+      };
+
+      function categoryById(id) {
+        return MASTER_CATEGORIES.find((cat) => cat.id === id);
+      }
+
+      function shuffle(array) {
+        const clone = [...array];
+        for (let i = clone.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [clone[i], clone[j]] = [clone[j], clone[i]];
+        }
+        return clone;
+      }
+
+      function pickCategories() {
+        return shuffle(MASTER_CATEGORIES).slice(0, ACTIVE_CATEGORY_COUNT).map((cat) => cat.id);
+      }
+
+      function makeCard(categoryId, item, index) {
+        const category = categoryById(categoryId);
+        return {
+          id: `${categoryId}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+          categoryId,
+          categoryTitle: category.title,
+          categoryColor: category.color,
+          label: item.label,
+          emoji: item.emoji || "",
+          faceUp: false
+        };
+      }
+
+      function createRunDeck(categoryIds) {
+        const cards = [];
+        categoryIds.forEach((categoryId) => {
+          const category = categoryById(categoryId);
+          shuffle(category.items).slice(0, CARDS_PER_CATEGORY).forEach((item, idx) => {
+            cards.push(makeCard(categoryId, item, idx));
+          });
+        });
+        return shuffle(cards);
+      }
+
+      function nowElapsedMs() {
+        return state.elapsedBeforeResumeMs + Math.max(0, Date.now() - state.startedAt);
+      }
+
+      function formatTime(ms) {
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+      }
+
+      function showToast(message) {
+        clearTimeout(state.toastTimer);
+        els.toast.textContent = message;
+        els.toast.classList.add("show");
+        state.toastTimer = setTimeout(() => els.toast.classList.remove("show"), TOAST_MS);
+      }
+
+      function vibrate(pattern = 12) {
+        if (navigator.vibrate) navigator.vibrate(pattern);
+      }
+
+      function totalCollected() {
+        return state.activeCategoryIds.reduce((sum, id) => sum + (state.foundations[id]?.length || 0), 0);
+      }
+
+      function mixLabel() {
+        return state.activeCategoryIds.map((id) => categoryById(id)?.title).join(" • ");
+      }
+
+      function makeSnapshot() {
+        return {
+          activeCategoryIds: structuredClone(state.activeCategoryIds),
+          stock: structuredClone(state.stock),
+          waste: structuredClone(state.waste),
+          foundations: structuredClone(state.foundations),
+          tableau: structuredClone(state.tableau),
+          moveCount: state.moveCount,
+          score: state.score,
+          elapsedMs: nowElapsedMs()
+        };
+      }
+
+      function applySnapshot(snapshot, preserveHistory = false) {
+        state.activeCategoryIds = structuredClone(snapshot.activeCategoryIds);
+        state.stock = structuredClone(snapshot.stock);
+        state.waste = structuredClone(snapshot.waste);
+        state.foundations = structuredClone(snapshot.foundations);
+        state.tableau = structuredClone(snapshot.tableau);
+        state.moveCount = snapshot.moveCount || 0;
+        state.score = snapshot.score || 0;
+        state.elapsedBeforeResumeMs = snapshot.elapsedMs || 0;
+        state.startedAt = Date.now();
+        state.selected = null;
+        state.validTargets = new Set();
+        if (!preserveHistory) state.history = [];
+      }
+
+      function pushHistory() {
+        state.history.push(makeSnapshot());
+        if (state.history.length > HISTORY_LIMIT) state.history.shift();
+      }
+
+      function saveGame() {
+        const payload = { version: 1, savedAt: new Date().toISOString(), state: { ...makeSnapshot(), history: structuredClone(state.history) } };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      }
+
+      function loadGame() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return false;
+          const payload = JSON.parse(raw);
+          if (!payload?.state?.activeCategoryIds?.length) return false;
+          applySnapshot(payload.state, true);
+          state.history = Array.isArray(payload.state.history) ? payload.state.history.slice(-HISTORY_LIMIT) : [];
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function clearSelection() {
+        state.selected = null;
+        state.validTargets = new Set();
+      }
+
+      function foundationKey(categoryId) {
+        return `foundation:${categoryId}`;
+      }
+
+      function columnKey(index) {
+        return `column:${index}`;
+      }
+
+      function selectedRun(source = state.selected) {
+        if (!source) return [];
+        if (source.type === "waste") {
+          const card = state.waste[state.waste.length - 1];
+          return card ? [card] : [];
+        }
+        const column = state.tableau[source.column] || [];
+        const run = column.slice(source.index);
+        if (!run.length || run.some((card) => !card.faceUp)) return [];
+        const categoryId = run[0].categoryId;
+        if (!run.every((card) => card.categoryId === categoryId)) return [];
+        return run;
+      }
+
+      function topCardOfColumn(index) {
+        const column = state.tableau[index];
+        return column[column.length - 1] || null;
+      }
+
+      function canMoveRunToFoundation(run, categoryId) {
+        return run.length > 0 && run.every((card) => card.categoryId === categoryId);
+      }
+
+      function canMoveRunToColumn(run, destIndex) {
+        if (!run.length) return false;
+        const destinationTop = topCardOfColumn(destIndex);
+        if (!destinationTop) return true;
+        return destinationTop.faceUp && destinationTop.categoryId === run[0].categoryId;
+      }
+
+      function computeValidTargets(source) {
+        const run = selectedRun(source);
+        const valid = new Set();
+        if (!run.length) return valid;
+
+        state.activeCategoryIds.forEach((categoryId) => {
+          if (canMoveRunToFoundation(run, categoryId)) valid.add(foundationKey(categoryId));
+        });
+
+        state.tableau.forEach((_, index) => {
+          if (source.type === "tableau" && source.column === index) return;
+          if (canMoveRunToColumn(run, index)) valid.add(columnKey(index));
+        });
+        return valid;
+      }
+
+      function revealColumnTop(index) {
+        const column = state.tableau[index];
+        if (!column.length) return;
+        const top = column[column.length - 1];
+        if (!top.faceUp) top.faceUp = true;
+      }
+
+      function checkWin() {
+        if (totalCollected() !== ACTIVE_CATEGORY_COUNT * CARDS_PER_CATEGORY) return;
+        vibrate([18, 30, 18, 30, 24]);
+        showToast("Everything sorted. You win ✨");
+      }
+
+      function moveRunToFoundation(categoryId) {
+        const run = selectedRun();
+        if (!run.length || !canMoveRunToFoundation(run, categoryId)) return false;
+        pushHistory();
+
+        if (state.selected.type === "waste") {
+          state.waste.pop();
+        } else {
+          state.tableau[state.selected.column].splice(state.selected.index, run.length);
+          revealColumnTop(state.selected.column);
+        }
+
+        state.foundations[categoryId].push(...run);
+        state.moveCount += 1;
+        state.score += run.length * 10;
+        clearSelection();
+        vibrate([10, 18]);
+        render();
+        saveGame();
+        checkWin();
+        return true;
+      }
+
+      function moveRunToColumn(destIndex) {
+        const run = selectedRun();
+        if (!run.length || !canMoveRunToColumn(run, destIndex)) return false;
+        pushHistory();
+
+        if (state.selected.type === "waste") {
+          state.waste.pop();
+        } else {
+          state.tableau[state.selected.column].splice(state.selected.index, run.length);
+          revealColumnTop(state.selected.column);
+        }
+
+        state.tableau[destIndex].push(...run);
+        state.moveCount += 1;
+        clearSelection();
+        vibrate(10);
+        render();
+        saveGame();
+        return true;
+      }
+
+      function autoPlace(source) {
+        const run = selectedRun(source);
+        if (!run.length) return false;
+        const categoryId = run[0].categoryId;
+        if (!state.activeCategoryIds.includes(categoryId)) return false;
+        state.selected = source;
+        state.validTargets = computeValidTargets(source);
+        if (!state.validTargets.has(foundationKey(categoryId))) {
+          clearSelection();
+          return false;
+        }
+        return moveRunToFoundation(categoryId);
+      }
+
+      function selectSource(source) {
+        const run = selectedRun(source);
+        if (!run.length) return false;
+        state.selected = source;
+        state.validTargets = computeValidTargets(source);
+        vibrate(8);
+        render();
+        return true;
+      }
+
+      function handleCardTap(source) {
+        const now = Date.now();
+        const run = selectedRun(source);
+        if (!run.length) return;
+        const tapId = run[0].id;
+
+        if (state.lastTap && state.lastTap.id === tapId && now - state.lastTap.at < 280) {
+          state.lastTap = null;
+          if (autoPlace(source)) return;
+        } else {
+          state.lastTap = { id: tapId, at: now };
+        }
+
+        if (state.selected && state.selected.type === source.type && state.selected.column === source.column && state.selected.index === source.index) {
+          clearSelection();
+          render();
+          return;
+        }
+        selectSource(source);
+      }
+
+      function drawFromStock() {
+        pushHistory();
+        clearSelection();
+        if (state.stock.length) {
+          const card = state.stock.pop();
+          card.faceUp = true;
+          state.waste.push(card);
+          vibrate([10, 16, 8]);
+        } else if (state.waste.length) {
+          state.stock = state.waste.reverse().map((card) => ({ ...card, faceUp: false }));
+          state.waste = [];
+          state.score = Math.max(0, state.score - 5);
+          vibrate([8, 8, 12]);
+          showToast("Waste recycled into the stock");
+        } else {
+          showToast("Nothing left to draw");
+          state.history.pop();
+          return;
+        }
+        render();
+        saveGame();
+      }
+
+      function newGame() {
+        const categoryIds = pickCategories();
+        const deck = createRunDeck(categoryIds);
+        state.activeCategoryIds = categoryIds;
+        state.foundations = Object.fromEntries(categoryIds.map((id) => [id, []]));
+        state.tableau = Array.from({ length: TABLEAU_COLUMNS }, () => []);
+        state.stock = [];
+        state.waste = [];
+        state.moveCount = 0;
+        state.score = 0;
+        state.startedAt = Date.now();
+        state.elapsedBeforeResumeMs = 0;
+        state.history = [];
+        clearSelection();
+
+        for (let col = 0; col < TABLEAU_COLUMNS; col += 1) {
+          for (let depth = 0; depth < 3; depth += 1) {
+            const card = deck.pop();
+            card.faceUp = depth === 2;
+            state.tableau[col].push(card);
+          }
+        }
+
+        state.stock = deck.map((card) => ({ ...card, faceUp: false }));
+        render();
+        saveGame();
+        showToast("Fresh category mix dealt");
+      }
+
+      function undo() {
+        if (!state.history.length) {
+          showToast("Nothing to undo");
+          return;
+        }
+        const snapshot = state.history.pop();
+        applySnapshot(snapshot, true);
+        render();
+        saveGame();
+        vibrate([12, 22, 10]);
+      }
+
+      function renderStock() {
+        els.stockPile.querySelectorAll(".card").forEach((node) => node.remove());
+        els.stockCount.textContent = state.stock.length;
+        const visible = state.stock.slice(-3);
+        visible.forEach((card, idx) => {
+          const node = createCardNode(card, true);
+          node.style.left = `${idx * 2}px`;
+          node.style.top = `${-idx}px`;
+          els.stockPile.appendChild(node);
+        });
+      }
+
+      function renderWaste() {
+        els.wastePile.innerHTML = "";
+        const visible = state.waste.slice(-3);
+        visible.forEach((card, idx) => {
+          const absoluteIndex = state.waste.length - visible.length + idx;
+          const isTop = absoluteIndex === state.waste.length - 1;
+          const node = createCardNode(card, false);
+          node.dataset.sourceType = "waste";
+          node.style.left = `${idx * 24}px`;
+          node.style.top = "0px";
+          if (isTop) node.addEventListener("click", () => handleCardTap({ type: "waste" }));
+          if (!isTop) node.style.pointerEvents = "none";
+          if (state.selected?.type === "waste" && isTop) node.classList.add("selected");
+          els.wastePile.appendChild(node);
+        });
+      }
+
+      function renderFoundations() {
+        els.foundationRow.innerHTML = "";
+        state.activeCategoryIds.forEach((categoryId) => {
+          const category = categoryById(categoryId);
+          const count = state.foundations[categoryId].length;
+          const pile = document.createElement("button");
+          pile.className = "pile category-pile";
+          pile.type = "button";
+          pile.style.background = `linear-gradient(180deg, ${hexToRgba(category.color, 0.34)}, ${hexToRgba(category.color, 0.18)})`;
+          if (state.validTargets.has(foundationKey(categoryId))) pile.classList.add("valid-target");
+          if (count === CARDS_PER_CATEGORY) pile.classList.add("completed");
+          pile.innerHTML = `
+            <div class="category-top">
+              <div class="category-title">${category.title}</div>
+              <div class="category-icon">${category.icon}</div>
+            </div>
+            <div class="category-progress">${count}/${CARDS_PER_CATEGORY}</div>
+            <div class="category-countbar"><span style="width:${(count / CARDS_PER_CATEGORY) * 100}%"></span></div>
+          `;
+          pile.addEventListener("click", () => {
+            if (!state.selected) return;
+            moveRunToFoundation(categoryId);
+          });
+          els.foundationRow.appendChild(pile);
+        });
+      }
+
+      function renderTableau() {
+        els.tableau.innerHTML = "";
+        state.tableau.forEach((columnCards, colIndex) => {
+          const column = document.createElement("div");
+          column.className = "pile column";
+          if (state.validTargets.has(columnKey(colIndex))) column.classList.add("valid-target");
+          if (!columnCards.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty-banner";
+            empty.textContent = "Open";
+            column.appendChild(empty);
+          }
+          let offset = 0;
+          const cardHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--card-h")) || 100;
+          columnCards.forEach((card, cardIndex) => {
+            const node = createCardNode(card, false);
+            node.style.top = `${offset}px`;
+            node.style.zIndex = String(cardIndex + 1);
+            if (card.faceUp) {
+              node.addEventListener("click", () => handleCardTap({ type: "tableau", column: colIndex, index: cardIndex }));
+            }
+            if (state.selected?.type === "tableau" && state.selected.column === colIndex && state.selected.index === cardIndex) {
+              node.classList.add("selected");
+            }
+            column.appendChild(node);
+            const next = columnCards[cardIndex + 1];
+            if (next) offset += card.faceUp ? 28 : 14;
+          });
+          column.style.height = `${Math.max(170, offset + cardHeight + 6)}px`;
+          column.addEventListener("click", (event) => {
+            if (event.target !== column && !event.target.classList.contains("empty-banner")) return;
+            if (!state.selected) return;
+            moveRunToColumn(colIndex);
+          });
+          els.tableau.appendChild(column);
+        });
+      }
+
+      function createCardNode(card, faceDownOnly = false) {
+        const node = document.createElement("div");
+        node.className = `card ${faceDownOnly || !card.faceUp ? "face-down" : "face-up"}`;
+        if (faceDownOnly || !card.faceUp) return node;
+        const category = categoryById(card.categoryId);
+        node.innerHTML = `
+          <div class="card-topbar" style="background:${category.color}"></div>
+          <div class="card-body">
+            <div class="card-chip">${category.icon} ${category.title}</div>
+            <div class="card-emoji">${card.emoji || ""}</div>
+            <div class="card-label">${card.label}</div>
+          </div>
+        `;
+        return node;
+      }
+
+      function updateStatus() {
+        els.statusPill.textContent = `Moves ${state.moveCount} • Score ${state.score} • Collected ${totalCollected()}/${ACTIVE_CATEGORY_COUNT * CARDS_PER_CATEGORY}`;
+        els.mixPill.textContent = `Mix — ${mixLabel()}`;
+        els.timerText.textContent = `Time ${formatTime(nowElapsedMs())}`;
+        els.undoBtn.disabled = state.history.length === 0;
+      }
+
+      function render() {
+        updateStatus();
+        renderStock();
+        renderWaste();
+        renderFoundations();
+        renderTableau();
+      }
+
+      function hexToRgba(hex, alpha) {
+        const normalized = hex.replace("#", "");
+        const value = normalized.length === 3
+          ? normalized.split("").map((ch) => ch + ch).join("")
+          : normalized;
+        const number = parseInt(value, 16);
+        const r = (number >> 16) & 255;
+        const g = (number >> 8) & 255;
+        const b = number & 255;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+
+      function attachEvents() {
+        els.stockPile.addEventListener("click", drawFromStock);
+        els.undoBtn.addEventListener("click", undo);
+        els.newGameBtn.addEventListener("click", newGame);
+        els.helpBtn.addEventListener("click", () => els.helpModal.classList.add("show"));
+        els.closeHelpBtn.addEventListener("click", () => els.helpModal.classList.remove("show"));
+        els.closeHelpBtn2.addEventListener("click", () => els.helpModal.classList.remove("show"));
+        els.helpModal.addEventListener("click", (event) => {
+          if (event.target === els.helpModal) els.helpModal.classList.remove("show");
+        });
+        document.addEventListener("keydown", (event) => {
+          const key = event.key.toLowerCase();
+          if (key === "escape") {
+            els.helpModal.classList.remove("show");
+            clearSelection();
+            render();
+          }
+          if (key === "n") newGame();
+          if (key === "u") undo();
+          if (key === "d") drawFromStock();
+        });
+        window.addEventListener("beforeunload", saveGame);
+      }
+
+      function startTimer() {
+        clearInterval(state.tickTimer);
+        state.tickTimer = setInterval(updateStatus, 1000);
+      }
+
+      function init() {
+        attachEvents();
+        startTimer();
+        if (!loadGame()) {
+          newGame();
+        } else {
+          render();
+          showToast("Saved run restored");
+        }
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
