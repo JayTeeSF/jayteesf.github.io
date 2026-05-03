@@ -629,9 +629,19 @@
             <div class="field">
               <label>Tempo</label>
               <div class="bpm-row">
-                <input id="bpm" type="range" min="45" max="140" value="82" />
+                <input id="bpm" type="range" min="20" max="140" value="82" />
                 <div class="bpm-badge"><span id="bpmText">82</span></div>
               </div>
+            </div>
+            <div class="field">
+              <label for="speedSelect">Speed</label>
+              <select id="speedSelect">
+                <option value="0.25">25%</option>
+                <option value="0.5">50%</option>
+                <option value="0.75">75%</option>
+                <option value="1" selected>100%</option>
+                <option value="1.25">125%</option>
+              </select>
             </div>
           </div>
 
@@ -742,6 +752,7 @@
       const STORE_KEY = "jayteesf:piano-riffs:v2";
 
       const sections = [
+        sec("anton-jazzy-chromatic", "Jazzy Chromatic Harmony Exercise", "Anton Manuel screenshot", "C", 88, "C°7 E7(#9)/B | Bb°7 D7(#9)/A | Ab°7 C7(#9)/G | Gb°7 Bb7(#9)/F | E°7 Ab7(#9)/Eb | D°7 Gb7(#9)/Db | C°7 E7(#9)/B", "Chromatically descending bass with alternating diminished-seventh and dominant-sharp-nine colors. Slow it way down and watch the lit keys/finger numbers.", ["Cdim7", "E7#9/B", "Bbdim7", "D7#9/A", "Abdim7", "C7#9/G", "Gbdim7", "Bb7#9/F", "Edim7", "Ab7#9/Eb", "Ddim7", "Gb7#9/Db", "Cdim7", "E7#9/B"]),
         sec("allme-verse", "All of Me — verse/intro", "John Legend", "Ab", 64, "Fm Dbmaj7 Ab Eb | Fm Db Ab Eb", "A close, minor-first ballad loop. Use it to practice soft left-hand bass plus right-hand seventh/add9 colors.", ["Fm", "Dbmaj7", "Ab", "Eb", "Fm", "Db", "Ab", "Eb"]),
         sec("allme-chorus", "All of Me — chorus", "John Legend", "Ab", 64, "Ab Fm Db6 Eb9sus4 Eb", "The big lift: same vocabulary, more settled home-chord feeling.", ["Ab", "Fm", "Db6", "Eb9sus4", "Eb", "Ab", "Fm", "Db6", "Eb9sus4", "Eb"]),
         sec("letitbe-verse", "Let It Be — verse", "The Beatles", "C", 72, "C G Am F | C G F C", "One of the cleanest beginner-pop progressions ever. Practice simple block chords first, then add rhythm.", ["C", "G", "Am", "F", "C", "G", "F", "C"]),
@@ -763,7 +774,7 @@
 
       const els = {
         learnTab: byId("learnTab"), recordTab: byId("recordTab"), learnControls: byId("learnControls"), recordControls: byId("recordControls"),
-        riffSelect: byId("riffSelect"), keySelect: byId("keySelect"), rangeSelect: byId("rangeSelect"), bpm: byId("bpm"), bpmText: byId("bpmText"),
+        riffSelect: byId("riffSelect"), keySelect: byId("keySelect"), rangeSelect: byId("rangeSelect"), bpm: byId("bpm"), bpmText: byId("bpmText"), speedSelect: byId("speedSelect"),
         playBtn: byId("playBtn"), prevBtn: byId("prevBtn"), nextBtn: byId("nextBtn"), loopBtn: byId("loopBtn"), stopBtn: byId("stopBtn"),
         songList: byId("songList"), hapticToggle: byId("hapticToggle"), riffTitle: byId("riffTitle"), riffDesc: byId("riffDesc"), chordBig: byId("chordBig"), keysNow: byId("keysNow"),
         progress: byId("progress"), steps: byId("steps"), whiteKeys: byId("whiteKeys"), blackKeys: byId("blackKeys"), rangeText: byId("rangeText"),
@@ -785,6 +796,7 @@
         audio: null,
         songStartedAt: 0,
         lastEventIndex: -1,
+        beatLengthMs: 60000 / 82,
         pointerNotes: new Map(),
         activeNotes: new Set(),
         record: {
@@ -811,7 +823,7 @@
         renderSelect();
         renderSongCards();
         renderKeyboard();
-        renderAll();
+        chooseSection(state.sectionId);
         bindEvents();
       }
 
@@ -821,7 +833,11 @@
         els.riffSelect.addEventListener("change", () => chooseSection(els.riffSelect.value));
         els.keySelect.addEventListener("change", () => { stop(); state.targetRoot = Number(els.keySelect.value); renderTimeline(); showStep(Math.min(state.step, currentEvents().length - 1), false); tap(8); });
         els.rangeSelect.addEventListener("change", () => { stop(); state.keyStart = Number(els.rangeSelect.value); renderKeyboard(); renderTimeline(); showStep(Math.min(state.step, currentEvents().length - 1), false); });
-        els.bpm.addEventListener("input", () => els.bpmText.textContent = els.bpm.value);
+        els.bpm.addEventListener("input", () => {
+          els.bpmText.textContent = els.bpm.value;
+          resyncPlaybackSpeed();
+        });
+        els.speedSelect.addEventListener("change", resyncPlaybackSpeed);
         els.recBpm.addEventListener("input", () => els.recBpmText.textContent = els.recBpm.value);
         els.playBtn.addEventListener("click", play);
         els.stopBtn.addEventListener("click", () => stop());
@@ -880,8 +896,19 @@
       }
 
       function currentSection() { return state.allSections.find(s => s.id === state.sectionId) || state.allSections[0]; }
-      function getBpm() { return Number(state.mode === "record" ? els.recBpm.value : els.bpm.value); }
+      function getBpm() {
+        if (state.mode === "record") return Number(els.recBpm.value);
+        return Math.max(1, Number(els.bpm.value) * Number(els.speedSelect.value || 1));
+      }
       function beatMs() { return 60000 / getBpm(); }
+
+      function resyncPlaybackSpeed() {
+        if (!state.playing) return;
+        const now = performance.now();
+        const elapsedBeats = (now - state.songStartedAt) / state.beatLengthMs;
+        state.beatLengthMs = beatMs();
+        state.songStartedAt = now - elapsedBeats * state.beatLengthMs;
+      }
       function totalBeats(events = currentEvents()) { return Math.max(1, ...events.map(e => e.start + e.dur)); }
 
       function currentEvents() {
@@ -919,6 +946,7 @@
         if (q === "sus4") return "sus4";
         if (q === "7sus4") return "7sus4";
         if (q === "9sus4") return "9sus4";
+        if (q === "7#9" || q === "7(#9)") return "7#9";
         if (q === "add9") return "add9";
         if (q === "madd9" || q === "madd9") return "madd9";
         if (q === "6") return "6";
@@ -929,7 +957,7 @@
       function intervalsFor(q) {
         return {
           "": [0,4,7], m: [0,3,7], maj7: [0,4,7,11], m7: [0,3,7,10], dim: [0,3,6], dim7: [0,3,6,9],
-          "7": [0,4,7,10], sus4: [0,5,7], "7sus4": [0,5,7,10], "9sus4": [0,2,5,7,10], add9: [0,2,4,7], madd9: [0,2,3,7], "6": [0,4,7,9], maj9: [0,2,4,7,11]
+          "7": [0,4,7,10], "7#9": [0,3,4,7,10], sus4: [0,5,7], "7sus4": [0,5,7,10], "9sus4": [0,2,5,7,10], add9: [0,2,4,7], madd9: [0,2,3,7], "6": [0,4,7,9], maj9: [0,2,4,7,11]
         }[q] || [0,4,7];
       }
 
@@ -948,7 +976,7 @@
       function displayChord(root, q, bass) {
         const names = FLAT_KEYS.has(state.targetRoot) ? NOTE_FLAT : NOTE_SHARP;
         const rootName = names[root];
-        const qual = q === "" ? "" : q;
+        const qual = ({ dim: "°", dim7: "°7", "7#9": "7(#9)" }[q] || (q === "" ? "" : q));
         const slash = bass == null ? "" : `/${names[bass]}`;
         return `${rootName}${qual}${slash}`;
       }
@@ -993,7 +1021,7 @@
           div.innerHTML = `
             <div class="beat">Beat ${formatBeat(event.start + 1)}</div>
             <div class="step-chord">${escapeHtml(event.chord)}</div>
-            <div class="step-keys">LH: ${event.left.map(midiName).join(" ") || "—"}<br>RH: ${event.right.map(midiName).join(" ") || "—"}</div>
+            <div class="step-keys">LH: ${formatHand(event.left, "LH") || "—"}<br>RH: ${formatHand(event.right, "RH") || "—"}</div>
           `;
           div.addEventListener("click", () => { stop(); showStep(index, true); tap(8); });
           return div;
@@ -1014,8 +1042,8 @@
         const event = events[state.step];
         els.chordBig.textContent = event.chord;
         els.keysNow.replaceChildren(...[
-          ...event.left.map(m => chip(`LH ${midiName(m)}`)),
-          ...event.right.map(m => chip(`RH ${midiName(m)}`))
+          ...event.left.map((m, i) => chip(`LH${fingerFor("LH", i, event.left.length)} ${midiName(m)}`)),
+          ...event.right.map((m, i) => chip(`RH${fingerFor("RH", i, event.right.length)} ${midiName(m)}`))
         ]);
         [...els.steps.children].forEach((node, i) => node.classList.toggle("active", i === state.step));
         lightKeys(event.left, event.right, event.dur * beatMs() * .9);
@@ -1027,6 +1055,17 @@
         span.className = "key-chip";
         span.textContent = text;
         return span;
+      }
+
+      function fingerFor(hand, index, len) {
+        const lh = { 1: [5], 2: [5,1], 3: [5,3,1], 4: [5,3,2,1], 5: [5,4,3,2,1] };
+        const rh = { 1: [1], 2: [1,5], 3: [1,3,5], 4: [1,2,3,5], 5: [1,2,3,4,5] };
+        const map = hand === "LH" ? lh : rh;
+        return (map[Math.min(len, 5)] || map[5])[Math.min(index, 4)];
+      }
+
+      function formatHand(notes, hand) {
+        return notes.map((m, i) => `${hand}${fingerFor(hand, i, notes.length)} ${midiName(m)}`).join(" ");
       }
 
       function renderKeyboard() {
@@ -1115,7 +1154,8 @@
         els.playBtn.textContent = "Playing…";
         els.playBtn.disabled = true;
         const current = events[state.step] || events[0];
-        state.songStartedAt = performance.now() - current.start * beatMs();
+        state.beatLengthMs = beatMs();
+        state.songStartedAt = performance.now() - current.start * state.beatLengthMs;
         state.lastEventIndex = -1;
         tick();
         state.timer = setInterval(tick, 24);
@@ -1123,7 +1163,7 @@
 
       function tick() {
         const events = currentEvents();
-        const elapsedBeats = (performance.now() - state.songStartedAt) / beatMs();
+        const elapsedBeats = (performance.now() - state.songStartedAt) / state.beatLengthMs;
         const total = totalBeats(events);
         let active = events.findIndex((event, i) => {
           const next = events[i + 1];
@@ -1333,7 +1373,7 @@
           div.innerHTML = `
             <div class="beat">Beat ${formatBeat(event.start + 1)}</div>
             <div class="step-chord">${escapeHtml(event.chord)}</div>
-            <div class="step-keys">LH: ${event.left.map(midiName).join(" ") || "—"}<br>RH: ${event.right.map(midiName).join(" ") || "—"}</div>
+            <div class="step-keys">LH: ${formatHand(event.left, "LH") || "—"}<br>RH: ${formatHand(event.right, "RH") || "—"}</div>
           `;
           div.addEventListener("click", () => { showTakeStep(index); playEvent(event); });
           return div;
