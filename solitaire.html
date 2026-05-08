@@ -390,8 +390,25 @@
     }
 
     .card.selected { box-shadow: var(--select-glow); }
+    .card.hint-source {
+      animation: hint-pulse 1.15s ease-in-out infinite;
+      box-shadow: 0 0 0 3px rgba(111, 220, 255, 0.68), 0 18px 30px rgba(0,0,0,0.24);
+    }
+    .pile.hint-source,
+    .pile.hint-target {
+      animation: hint-pulse 1.15s ease-in-out infinite;
+      box-shadow: 0 0 0 3px rgba(111, 220, 255, 0.56), 0 18px 36px rgba(0,0,0,0.18);
+    }
+    .pile.hint-target {
+      background: linear-gradient(180deg, rgba(111, 220, 255, 0.16), rgba(255,255,255,0.04));
+    }
     .card.source-hidden { opacity: 0.05; filter: blur(0.6px); }
     .card.unmovable { cursor: default; }
+
+    @keyframes hint-pulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.12); }
+    }
 
     .card-face-minimal {
       position: absolute;
@@ -534,6 +551,9 @@
       z-index: 1200;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
+      max-width: min(92vw, 620px);
+      line-height: 1.35;
+      text-align: center;
     }
 
     .toast.show {
@@ -930,6 +950,7 @@
         <div class="save-info" id="saveInfo">Autosaves in this browser on this device.</div>
         <div class="save-info timer-info" id="timeText">Time 00:00</div>
         <div class="mini-actions">
+          <button class="mini-button" id="hintBtn" type="button">Hint</button>
           <button class="mini-button" id="settingsBtn" type="button">⚙︎ Settings</button>
           <button class="mini-button" id="helpBtn" type="button">Help</button>
           <button class="mini-button" id="installBtn" type="button">Install</button>
@@ -973,6 +994,14 @@
           </div>
         </div>
         <p>The selected size is saved on this device and stays stable in portrait and landscape until you change it here.</p>
+        <div class="settings-group">
+          <div class="settings-label">Board tools</div>
+          <div class="size-controls">
+            <button class="button secondary" id="refreshLayoutBtn" type="button">Refresh Layout</button>
+            <button class="button secondary" id="settingsHintBtn" type="button">Find a Hint</button>
+          </div>
+        </div>
+        <p>Refresh Layout safely rebuilds the visible board if Safari ever leaves a card visually stuck, without changing your game, score, timer, save, or undo history.</p>
         <div class="modal-actions">
           <button class="button secondary" data-close-modal="settingsModal" type="button">Done</button>
         </div>
@@ -1057,6 +1086,38 @@
     </div>
   </div>
 
+  <div class="modal-shell" id="confirmNewGameModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Start a new game?</h2>
+        <button class="modal-close" data-close-modal="confirmNewGameModal" aria-label="Cancel new game">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Your current game will be replaced.</p>
+        <div class="modal-actions">
+          <button class="button secondary" id="newGameCancelBtn" type="button">Cancel</button>
+          <button class="button" id="newGameConfirmBtn" type="button">New Game</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="autoCompleteModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">All cards are revealed</h2>
+        <button class="modal-close" data-close-modal="autoCompleteModal" aria-label="Not yet">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Auto-complete the game?</p>
+        <div class="modal-actions">
+          <button class="button secondary" id="autoCompleteNotYetBtn" type="button">Not Yet</button>
+          <button class="button" id="autoCompleteYesBtn" type="button">Auto-Complete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="win-overlay" id="winOverlay">
     <div class="win-card">
       <h2>You won ✨</h2>
@@ -1097,6 +1158,7 @@
         exportBtn: document.getElementById("exportBtn"),
         importBtn: document.getElementById("importBtn"),
         undoBtn: document.getElementById("undoBtn"),
+        hintBtn: document.getElementById("hintBtn"),
         helpBtn: document.getElementById("helpBtn"),
         installBtn: document.getElementById("installBtn"),
         feedbackBtn: document.getElementById("feedbackBtn"),
@@ -1124,6 +1186,14 @@
         sizeCompactBtn: document.getElementById("sizeCompactBtn"),
         sizeStandardBtn: document.getElementById("sizeStandardBtn"),
         sizeLargeBtn: document.getElementById("sizeLargeBtn"),
+        refreshLayoutBtn: document.getElementById("refreshLayoutBtn"),
+        settingsHintBtn: document.getElementById("settingsHintBtn"),
+        confirmNewGameModal: document.getElementById("confirmNewGameModal"),
+        newGameCancelBtn: document.getElementById("newGameCancelBtn"),
+        newGameConfirmBtn: document.getElementById("newGameConfirmBtn"),
+        autoCompleteModal: document.getElementById("autoCompleteModal"),
+        autoCompleteNotYetBtn: document.getElementById("autoCompleteNotYetBtn"),
+        autoCompleteYesBtn: document.getElementById("autoCompleteYesBtn"),
         playAgainBtn: document.getElementById("playAgainBtn")
       };
 
@@ -1148,10 +1218,18 @@
         confettiTimer: null,
         autoSaveTimer: null,
         tickTimer: null,
+        layoutRefreshTimer: null,
+        hint: null,
+        hintTimer: null,
         lastSavedAt: null,
         history: [],
         tourIndex: -1,
-        cardSizePreset: "standard"
+        cardSizePreset: "standard",
+        autoCompletePrompted: false,
+        autoCompleting: false,
+        gameWon: false,
+        winShownAt: 0,
+        ignoreWinClicksUntil: 0
       };
 
       function buildStaticPiles() {
@@ -1231,7 +1309,8 @@
           drawCount: state.drawCount,
           moveCount: state.moveCount,
           score: state.score,
-          elapsedMs: nowElapsedMs()
+          elapsedMs: nowElapsedMs(),
+          gameWon: state.gameWon
         };
       }
 
@@ -1314,6 +1393,13 @@
         state.dropPulse = null;
         state.justFlippedCardId = null;
         state.pointerState = null;
+        state.hint = null;
+        state.autoCompletePrompted = false;
+        state.autoCompleting = false;
+        state.gameWon = data.gameWon === true || foundationCount() === 52;
+        state.winShownAt = 0;
+        state.ignoreWinClicksUntil = 0;
+        els.dragLayer.innerHTML = "";
         if (!preserveHistory) {
           state.history = Array.isArray(data.history) ? structuredClone(data.history).slice(-3) : [];
         }
@@ -1359,6 +1445,7 @@
         persistState(false);
         vibrate([14, 24, 10]);
         showToast("Undid last action");
+        checkAutoCompletePrompt();
       }
 
       async function downloadExport() {
@@ -1442,8 +1529,17 @@
         state.selected = null;
         state.validTargets = new Set();
         state.drag = null;
+        state.pointerState = null;
         state.dropPulse = null;
         state.justFlippedCardId = null;
+        state.hint = null;
+        state.autoCompletePrompted = false;
+        state.autoCompleting = false;
+        state.gameWon = false;
+        state.winShownAt = 0;
+        state.ignoreWinClicksUntil = 0;
+        state.history = [];
+        els.dragLayer.innerHTML = "";
         hideWinOverlay();
 
         const deck = shuffleArray(createDeck());
@@ -1466,11 +1562,42 @@
         if (navigator.vibrate) navigator.vibrate(pattern);
       }
 
-      function showToast(message) {
+      function showToast(message, duration = 1400) {
         clearTimeout(state.toastTimer);
         els.toast.textContent = message;
         els.toast.classList.add("show");
-        state.toastTimer = setTimeout(() => els.toast.classList.remove("show"), 1400);
+        state.toastTimer = setTimeout(() => els.toast.classList.remove("show"), duration);
+      }
+
+      function clearPressedCards() {
+        document.querySelectorAll(".card.pressed").forEach((card) => card.classList.remove("pressed"));
+      }
+
+      function cleanupInteractionState({ clearSelected = true } = {}) {
+        clearPressedCards();
+        els.dragLayer.innerHTML = "";
+        state.drag = null;
+        state.pointerState = null;
+        if (clearSelected) clearSelection();
+      }
+
+      function refreshLayout({ silent = false } = {}) {
+        cleanupInteractionState({ clearSelected: false });
+        state.dropPulse = null;
+        state.justFlippedCardId = null;
+        applyCardSizePreset();
+        buildStaticPiles();
+        render();
+        requestAnimationFrame(() => render());
+        if (!silent) {
+          vibrate([8, 18, 8]);
+          showToast("Layout refreshed without changing your game", 2200);
+        }
+      }
+
+      function scheduleSafeLayoutRefresh() {
+        clearTimeout(state.layoutRefreshTimer);
+        state.layoutRefreshTimer = setTimeout(() => refreshLayout({ silent: true }), 80);
       }
 
       function cardSizePresets() {
@@ -1552,7 +1679,7 @@
       }
 
       function closeAllModals() {
-        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal].forEach(closeModal);
+        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal, els.confirmNewGameModal, els.autoCompleteModal].forEach(closeModal);
       }
 
       function setupFeedbackModal() {
@@ -1768,6 +1895,212 @@
         return candidate;
       }
 
+      function cardLabel(card) {
+        return `${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`;
+      }
+
+      function destinationLabel(destination) {
+        if (!destination) return "";
+        if (destination.type === "foundation") return `${SUIT_NAME[destination.suit]} foundation`;
+        if (destination.type === "tableau") {
+          const pile = state.tableau[destination.index] || [];
+          const top = pile[pile.length - 1];
+          return top ? `${cardLabel(top)} in column ${destination.index + 1}` : `empty column ${destination.index + 1}`;
+        }
+        if (destination.type === "waste") return "waste";
+        if (destination.type === "stock") return "stock";
+        return destination.type;
+      }
+
+      function sourceLabel(source) {
+        if (!source) return "";
+        if (source.type === "waste") return "waste";
+        if (source.type === "foundation") return `${SUIT_NAME[source.suit]} foundation`;
+        if (source.type === "tableau") return `column ${source.index + 1}`;
+        if (source.type === "stock") return "stock";
+        return source.type;
+      }
+
+      function moveRevealsHiddenCard(move) {
+        if (!move || move.source.type !== "tableau") return false;
+        if (move.source.cardIndex <= 0) return false;
+        const below = state.tableau[move.source.index][move.source.cardIndex - 1];
+        return !!below && !below.faceUp;
+      }
+
+      function moveMessage(move, reason = "") {
+        const lead = move.cards.length > 1 ? `${cardLabel(move.cards[0])} stack` : cardLabel(move.cards[0]);
+        const suffix = reason ? ` ${reason}` : ".";
+        return `Hint: move ${lead} from ${sourceLabel(move.source)} to ${destinationLabel(move.destination)}${suffix}`;
+      }
+
+      function allLegalMoves({ includeFoundationSources = true } = {}) {
+        const moves = [];
+        const addMoves = (source) => {
+          if (!isMovableSource(source)) return;
+          const cards = getCardsForSource(source);
+          if (!cards.length) return;
+          for (const suit of SUIT_ORDER) {
+            const destination = { type: "foundation", suit };
+            if (pileKey(destination) !== pileKey(source) && canMoveToDestination(source, destination)) {
+              moves.push({ source, destination, cards, sourceCardId: cards[0].id, sourcePileKey: pileKey(source), targetPileKey: pileKey(destination) });
+            }
+          }
+          for (let index = 0; index < 7; index += 1) {
+            const destination = { type: "tableau", index };
+            if (pileKey(destination) !== pileKey(source) && canMoveToDestination(source, destination)) {
+              moves.push({ source, destination, cards, sourceCardId: cards[0].id, sourcePileKey: pileKey(source), targetPileKey: pileKey(destination) });
+            }
+          }
+        };
+
+        if (state.waste.length) addMoves({ type: "waste" });
+        state.tableau.forEach((pile, index) => {
+          pile.forEach((card, cardIndex) => {
+            if (card.faceUp) addMoves({ type: "tableau", index, cardIndex });
+          });
+        });
+        if (includeFoundationSources) {
+          SUIT_ORDER.forEach((suit) => addMoves({ type: "foundation", suit }));
+        }
+        return moves;
+      }
+
+      function findBestHint() {
+        if (state.gameWon || foundationCount() === 52) {
+          return { message: "This game is already complete. Choose Play Again when you want a fresh deal." };
+        }
+
+        const primaryMoves = allLegalMoves({ includeFoundationSources: false });
+        const foundationMove = primaryMoves.find((move) => move.destination.type === "foundation");
+        if (foundationMove) return { ...foundationMove, message: moveMessage(foundationMove, "to build the foundation.") };
+
+        const revealMove = primaryMoves.find((move) => move.destination.type === "tableau" && moveRevealsHiddenCard(move));
+        if (revealMove) return { ...revealMove, message: moveMessage(revealMove, "to reveal a hidden card.") };
+
+        const wasteMove = primaryMoves.find((move) => move.source.type === "waste");
+        if (wasteMove) return { ...wasteMove, message: moveMessage(wasteMove, "to free the waste pile.") };
+
+        const tableauMove = primaryMoves.find((move) => move.destination.type === "tableau");
+        if (tableauMove) return { ...tableauMove, message: moveMessage(tableauMove, "to improve the tableau.") };
+
+        const fallbackMove = allLegalMoves({ includeFoundationSources: true }).find((move) => move.destination.type === "tableau");
+        if (fallbackMove) return { ...fallbackMove, message: moveMessage(fallbackMove, "as a legal fallback move.") };
+
+        if (state.stock.length) {
+          return { sourcePileKey: "stock", targetPileKey: "waste", message: "Hint: draw from the stock to look for a playable card." };
+        }
+        if (!state.stock.length && state.waste.length) {
+          return { sourcePileKey: "stock", targetPileKey: "waste", message: "Hint: recycle the waste back into the stock to keep searching." };
+        }
+        return { message: "No legal moves are visible. This deal may be stuck unless an undo reveals another path." };
+      }
+
+      function showHint() {
+        if (state.animating && !state.autoCompleting) return;
+        closeAllModals();
+        cleanupInteractionState({ clearSelected: true });
+        const hint = findBestHint();
+        state.hint = hint;
+        render();
+        clearTimeout(state.hintTimer);
+        state.hintTimer = setTimeout(() => {
+          state.hint = null;
+          render();
+        }, 3600);
+        showToast(hint.message, 3400);
+        vibrate([8, 20, 8]);
+      }
+
+      function allTableauCardsFaceUp() {
+        return state.tableau.every((pile) => pile.every((card) => card.faceUp));
+      }
+
+      function canAutoCompleteNow() {
+        if (state.gameWon || foundationCount() === 52) return false;
+        if (!allTableauCardsFaceUp()) return false;
+        if (state.stock.length || state.waste.length) return false;
+
+        const foundationRanks = {};
+        SUIT_ORDER.forEach((suit) => {
+          const pile = state.foundations[suit];
+          foundationRanks[suit] = pile.length ? pile[pile.length - 1].rank : 0;
+        });
+        const tableau = state.tableau.map((pile) => pile.map((card) => ({ ...card })));
+        let moved = true;
+        let guard = 0;
+        while (moved && guard < 80) {
+          moved = false;
+          guard += 1;
+          for (const pile of tableau) {
+            const top = pile[pile.length - 1];
+            if (top && foundationRanks[top.suit] === top.rank - 1) {
+              foundationRanks[top.suit] = top.rank;
+              pile.pop();
+              moved = true;
+            }
+          }
+        }
+        return tableau.every((pile) => pile.length === 0);
+      }
+
+      function checkAutoCompletePrompt() {
+        if (state.autoCompleting || state.autoCompletePrompted || state.gameWon || state.animating) return;
+        if (document.querySelector(".modal-shell.show")) return;
+        if (!canAutoCompleteNow()) return;
+        state.autoCompletePrompted = true;
+        openModal(els.autoCompleteModal);
+        vibrate([10, 24, 10]);
+      }
+
+      function nextAutoCompleteMove() {
+        for (let index = 0; index < 7; index += 1) {
+          const pile = state.tableau[index];
+          const card = pile[pile.length - 1];
+          if (card && canPlaceOnFoundation(card, card.suit)) {
+            return { source: { type: "tableau", index, cardIndex: pile.length - 1 }, destination: { type: "foundation", suit: card.suit }, card };
+          }
+        }
+        return null;
+      }
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function runAutoComplete() {
+        closeModal(els.autoCompleteModal);
+        if (!canAutoCompleteNow()) {
+          showToast("Auto-complete is not safe yet", 2200);
+          return;
+        }
+
+        pushHistoryEntry();
+        cleanupInteractionState({ clearSelected: true });
+        state.autoCompleting = true;
+        state.animating = true;
+        showToast("Auto-completing the finish...", 1800);
+
+        while (canAutoCompleteNow()) {
+          const move = nextAutoCompleteMove();
+          if (!move) break;
+          state.tableau[move.source.index].pop();
+          state.foundations[move.destination.suit].push(move.card);
+          state.moveCount += 1;
+          adjustScore(10);
+          pulsePile(pileKey(move.destination));
+          render();
+          await wait(95);
+        }
+
+        state.animating = false;
+        state.autoCompleting = false;
+        render();
+        persistState(false);
+        checkWin();
+        if (!state.gameWon) showToast("Auto-complete paused because a card is blocked", 2600);
+      }
+
       function revealTableauTop(index) {
         const pile = state.tableau[index];
         if (!pile.length) return;
@@ -1790,10 +2123,10 @@
 
       function moveSelectedTo(destination) {
         if (!state.selected || !canMoveToDestination(state.selected, destination)) return false;
-        pushHistoryEntry();
         const source = { ...state.selected };
         const cards = getCardsForSource(source);
         if (!cards.length) return false;
+        pushHistoryEntry();
 
         if (source.type === "waste") {
           state.waste.pop();
@@ -1820,6 +2153,7 @@
         render();
         persistState(false);
         checkWin();
+        checkAutoCompletePrompt();
         return true;
       }
 
@@ -1865,6 +2199,7 @@
 
         render();
         persistState(false);
+        checkAutoCompletePrompt();
       }
 
       function updateStatus() {
@@ -1928,6 +2263,8 @@
         els.stock.innerHTML = "";
         els.stock.classList.toggle("empty-stock", state.stock.length === 0 && state.waste.length > 0);
         els.stock.classList.toggle("drop-pulse", state.dropPulse === "stock");
+        els.stock.classList.toggle("hint-source", state.hint?.sourcePileKey === "stock");
+        els.stock.classList.toggle("hint-target", state.hint?.targetPileKey === "stock");
         const visible = state.stock.slice(-3);
         visible.forEach((card, idx) => {
           const back = createCardElement(card, { sourceType: "stock", movable: false });
@@ -1940,6 +2277,8 @@
       function renderWaste() {
         els.waste.innerHTML = "";
         els.waste.classList.toggle("drop-pulse", state.dropPulse === "waste");
+        els.waste.classList.toggle("hint-source", state.hint?.sourcePileKey === "waste");
+        els.waste.classList.toggle("hint-target", state.hint?.targetPileKey === "waste");
         const visible = state.waste.slice(-3);
         visible.forEach((card, idx) => {
           const absoluteIndex = state.waste.length - visible.length + idx;
@@ -1949,6 +2288,7 @@
           el.style.left = `${idx * getWasteSpread()}px`;
           el.style.top = "0px";
           if (state.selected && sameMoveSource(state.selected, { type: "waste" }) && movable) el.classList.add("selected");
+          if (state.hint?.sourceCardId === card.id) el.classList.add("hint-source");
           els.waste.appendChild(el);
         });
       }
@@ -1959,12 +2299,15 @@
           pileEl.innerHTML = "";
           pileEl.classList.toggle("valid-target", state.validTargets.has(`foundation-${suit}`));
           pileEl.classList.toggle("drop-pulse", state.dropPulse === `foundation-${suit}`);
+          pileEl.classList.toggle("hint-source", state.hint?.sourcePileKey === `foundation-${suit}`);
+          pileEl.classList.toggle("hint-target", state.hint?.targetPileKey === `foundation-${suit}`);
           const pile = state.foundations[suit];
           if (!pile.length) return;
           const card = pile[pile.length - 1];
           const hidden = !!(state.drag && state.drag.hiddenIds.has(card.id));
           const el = createCardElement(card, { sourceType: "foundation", sourceSuit: suit, movable: true, hidden });
           if (state.selected && sameMoveSource(state.selected, { type: "foundation", suit })) el.classList.add("selected");
+          if (state.hint?.sourceCardId === card.id) el.classList.add("hint-source");
           pileEl.appendChild(el);
         });
       }
@@ -1974,6 +2317,8 @@
           pileEl.innerHTML = "";
           pileEl.classList.toggle("valid-target", state.validTargets.has(`tableau-${index}`));
           pileEl.classList.toggle("drop-pulse", state.dropPulse === `tableau-${index}`);
+          pileEl.classList.toggle("hint-source", state.hint?.sourcePileKey === `tableau-${index}`);
+          pileEl.classList.toggle("hint-target", state.hint?.targetPileKey === `tableau-${index}`);
           const pile = state.tableau[index];
           let offset = 0;
           const pileWidth = Math.max(pileEl.getBoundingClientRect().width || 60, 42);
@@ -1991,6 +2336,7 @@
             el.style.top = `${offset}px`;
             el.style.zIndex = String(cardIndex + 1);
             if (state.selected && sameMoveSource(state.selected, { type: "tableau", index, cardIndex })) el.classList.add("selected");
+            if (state.hint?.sourceCardId === card.id) el.classList.add("hint-source");
             if (state.justFlippedCardId === card.id) {
               el.animate(
                 [{ transform: "rotateY(90deg) scale(0.98)", opacity: 0.6 }, { transform: "rotateY(0deg) scale(1)", opacity: 1 }],
@@ -2049,6 +2395,7 @@
           cardEl.classList.add("pressed");
           pointerState.pressCleanup = () => cardEl.classList.remove("pressed");
         }
+        try { event.target.setPointerCapture?.(event.pointerId); } catch (error) {}
         state.pointerState = pointerState;
       }
 
@@ -2093,12 +2440,20 @@
       }
 
       function finishDrag(clientX, clientY) {
-        if (!state.drag) return false;
+        const drag = state.drag;
+        if (!drag) return false;
         const pileEl = boardPileAtPoint(clientX, clientY);
         const destination = pileFromElement(pileEl);
-        const didMove = destination ? moveSelectedTo(destination) : false;
+
+        // Clear the transient drag layer before mutating/rendering the board. Rendering
+        // with state.drag still active can leave source-hidden cards or floating ghosts
+        // on mobile Safari until a resize forces a repaint.
         els.dragLayer.innerHTML = "";
         state.drag = null;
+        state.selected = { ...drag.source };
+        state.validTargets = new Set(drag.validTargets || computeValidTargets(drag.source));
+
+        const didMove = destination ? moveSelectedTo(destination) : false;
         if (!didMove) {
           clearSelection();
           render();
@@ -2200,10 +2555,7 @@
         const pointerState = state.pointerState;
         if (!pointerState || pointerState.pointerId !== event.pointerId) return;
         if (pointerState.pressCleanup) pointerState.pressCleanup();
-        els.dragLayer.innerHTML = "";
-        state.drag = null;
-        clearSelection();
-        state.pointerState = null;
+        cleanupInteractionState({ clearSelected: true });
         render();
       }
 
@@ -2324,8 +2676,14 @@
       }
 
       function showWinOverlay() {
+        state.winShownAt = Date.now();
+        state.ignoreWinClicksUntil = state.winShownAt + 700;
         updateWinOverlaySummary();
+        els.playAgainBtn.disabled = true;
         els.winOverlay.classList.add("show");
+        setTimeout(() => {
+          if (els.winOverlay.classList.contains("show")) els.playAgainBtn.disabled = false;
+        }, 700);
         spawnConfetti();
         vibrate([24, 50, 24]);
       }
@@ -2335,18 +2693,41 @@
       }
 
       function checkWin() {
-        if (foundationCount() === 52 && !els.winOverlay.classList.contains("show")) {
+        if (foundationCount() === 52 && !state.gameWon) {
+          state.gameWon = true;
+          state.autoCompletePrompted = true;
+          closeModal(els.autoCompleteModal);
+          cleanupInteractionState({ clearSelected: true });
           adjustScore(100);
           render();
           persistState(false);
-          showWinOverlay();
+          requestAnimationFrame(showWinOverlay);
         }
+      }
+
+      function hasMeaningfulProgress() {
+        if (state.gameWon || foundationCount() === 52) return false;
+        if (state.moveCount > 0 || state.waste.length > 0 || foundationCount() > 0) return true;
+        if (state.stock.length !== 24) return true;
+        const faceUpCount = state.tableau.flat().filter((card) => card.faceUp).length;
+        if (faceUpCount > 7) return true;
+        return state.tableau.some((pile, index) => pile.length !== index + 1);
+      }
+
+      function startFreshDeal() {
+        if (state.animating) return;
+        closeAllModals();
+        hideWinOverlay();
+        animateShuffleThenDeal();
       }
 
       function newDeal() {
         if (state.animating) return;
-        pushHistoryEntry();
-        animateShuffleThenDeal();
+        if (hasMeaningfulProgress()) {
+          openModal(els.confirmNewGameModal);
+          return;
+        }
+        startFreshDeal();
       }
 
       function toggleDrawMode() {
@@ -2369,19 +2750,27 @@
         window.addEventListener("pointercancel", handlePointerCancel);
         window.addEventListener("resize", () => {
           applyCardSizePreset();
-          if (!state.animating && !state.drag) render();
+          if (state.drag || state.pointerState) cleanupInteractionState({ clearSelected: true });
+          if (!state.animating) scheduleSafeLayoutRefresh();
           if (state.tourIndex >= 0) positionTourStep();
         });
         window.addEventListener("orientationchange", () => {
           applyCardSizePreset();
-          if (!state.animating && !state.drag) render();
+          if (state.drag || state.pointerState) cleanupInteractionState({ clearSelected: true });
+          if (!state.animating) scheduleSafeLayoutRefresh();
+        });
+        window.addEventListener("blur", () => {
+          if (state.drag || state.pointerState) {
+            cleanupInteractionState({ clearSelected: true });
+            render();
+          }
         });
         ["gesturestart", "gesturechange", "gestureend"].forEach((eventName) => {
           document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
         });
         window.addEventListener("beforeunload", () => persistState(false));
 
-        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal].forEach((modal) => {
+        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal, els.confirmNewGameModal, els.autoCompleteModal].forEach((modal) => {
           modal.addEventListener("click", (event) => {
             if (event.target === modal) closeModal(modal);
           });
@@ -2392,7 +2781,10 @@
         });
 
         els.newGameBtn.addEventListener("click", newDeal);
+        els.hintBtn.addEventListener("click", showHint);
         els.settingsBtn.addEventListener("click", () => openModal(els.settingsModal));
+        els.refreshLayoutBtn.addEventListener("click", () => refreshLayout());
+        els.settingsHintBtn.addEventListener("click", showHint);
         els.sizeCompactBtn.addEventListener("click", () => setCardSizePreset("compact"));
         els.sizeStandardBtn.addEventListener("click", () => setCardSizePreset("standard"));
         els.sizeLargeBtn.addEventListener("click", () => setCardSizePreset("large"));
@@ -2413,6 +2805,10 @@
         els.startTourBtn.addEventListener("click", startTour);
         els.tourSkipBtn.addEventListener("click", endTour);
         els.tourNextBtn.addEventListener("click", nextTourStep);
+        els.newGameCancelBtn.addEventListener("click", () => closeModal(els.confirmNewGameModal));
+        els.newGameConfirmBtn.addEventListener("click", startFreshDeal);
+        els.autoCompleteNotYetBtn.addEventListener("click", () => closeModal(els.autoCompleteModal));
+        els.autoCompleteYesBtn.addEventListener("click", runAutoComplete);
 
         els.importFileInput.addEventListener("change", async (event) => {
           const [file] = event.target.files || [];
@@ -2430,8 +2826,9 @@
         els.winDoneBtn.addEventListener("click", hideWinOverlay);
 
         els.playAgainBtn.addEventListener("click", () => {
+          if (Date.now() < state.ignoreWinClicksUntil) return;
           hideWinOverlay();
-          animateShuffleThenDeal();
+          startFreshDeal();
         });
 
         document.addEventListener("keydown", (event) => {
@@ -2439,6 +2836,7 @@
           if (key === "n") newDeal();
           if (key === "d") drawFromStock();
           if (key === "e") downloadExport();
+          if (key === "h") showHint();
           if (key === "escape") {
             closeAllModals();
             endTour();
