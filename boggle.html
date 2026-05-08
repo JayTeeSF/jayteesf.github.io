@@ -1,0 +1,1461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Private Pocket Boggle</title>
+<style>
+  :root{
+    --bg0:#070914;
+    --bg1:#111632;
+    --ink:#f6f7ff;
+    --muted:#aeb6dc;
+    --soft:#dfe5ff;
+    --panel:rgba(255,255,255,.105);
+    --panel2:rgba(255,255,255,.075);
+    --stroke:rgba(255,255,255,.18);
+    --glow:rgba(112,155,255,.46);
+    --hot:#ffda6b;
+    --good:#74f5c6;
+    --bad:#ff7a9e;
+    --tile:#eef2ff;
+    --tileInk:#162044;
+    --tile2:#d8e2ff;
+    --shadow:0 24px 80px rgba(0,0,0,.45);
+    --radius:28px;
+    --ease:cubic-bezier(.2,.8,.2,1);
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    min-height:100%;
+    font-family: ui-rounded, "SF Pro Rounded", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(circle at 18% 10%, rgba(129, 92, 255,.42), transparent 32rem),
+      radial-gradient(circle at 88% 14%, rgba(64, 206, 255,.30), transparent 30rem),
+      radial-gradient(circle at 45% 88%, rgba(255, 215, 97,.22), transparent 28rem),
+      linear-gradient(135deg, var(--bg0), var(--bg1));
+    overflow-x:hidden;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+  }
+
+  body::before, body::after{
+    content:"";
+    position:fixed;
+    inset:-30vmax;
+    pointer-events:none;
+    z-index:-1;
+    background:
+      conic-gradient(from 0deg at 50% 50%, transparent 0 24%, rgba(255,255,255,.10) 27%, transparent 30% 57%, rgba(116,245,198,.10) 60%, transparent 64% 100%);
+    filter:blur(34px);
+    animation:aurora 22s linear infinite;
+    opacity:.62;
+  }
+  body::after{
+    animation-duration:34s;
+    animation-direction:reverse;
+    opacity:.42;
+    transform:scale(.75);
+  }
+
+  @keyframes aurora{to{transform:rotate(360deg)}}
+
+  .app{
+    width:min(1180px, calc(100% - 28px));
+    margin:0 auto;
+    padding:24px 0 max(32px, env(safe-area-inset-bottom));
+  }
+
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    margin-bottom:18px;
+  }
+
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    min-width:0;
+  }
+
+  .logo{
+    width:54px;
+    height:54px;
+    border-radius:18px;
+    display:grid;
+    place-items:center;
+    font-size:27px;
+    font-weight:1000;
+    color:#10172f;
+    background:
+      radial-gradient(circle at 30% 22%, white 0 14%, transparent 15%),
+      linear-gradient(135deg, #ffe58f, #7cf5cc 45%, #91adff);
+    box-shadow:0 16px 38px rgba(0,0,0,.28), inset 0 -10px 24px rgba(0,0,0,.14);
+    transform:rotate(-8deg);
+  }
+
+  h1{
+    margin:0;
+    font-size:clamp(1.55rem, 2.6vw, 2.7rem);
+    letter-spacing:-.05em;
+    line-height:.95;
+  }
+
+  .tagline{
+    margin:.35rem 0 0;
+    color:var(--muted);
+    font-size:.95rem;
+  }
+
+  .privacy{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    gap:8px;
+  }
+
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    border:1px solid var(--stroke);
+    background:rgba(255,255,255,.08);
+    color:var(--soft);
+    padding:9px 12px;
+    border-radius:999px;
+    font-size:.84rem;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.13);
+    backdrop-filter:blur(18px);
+    white-space:nowrap;
+  }
+
+  .shell{
+    display:grid;
+    grid-template-columns:minmax(0, 1.25fr) minmax(300px, .75fr);
+    gap:18px;
+    align-items:start;
+  }
+
+  .card{
+    border:1px solid var(--stroke);
+    background:linear-gradient(180deg, var(--panel), rgba(255,255,255,.055));
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    backdrop-filter:blur(24px);
+    overflow:hidden;
+    position:relative;
+  }
+
+  .card::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background:linear-gradient(135deg, rgba(255,255,255,.18), transparent 28%, transparent 70%, rgba(255,255,255,.08));
+    opacity:.8;
+  }
+
+  .game{
+    padding:16px;
+  }
+
+  .toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    position:relative;
+    z-index:2;
+    margin-bottom:14px;
+  }
+
+  .stats{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .stat{
+    min-width:91px;
+    padding:11px 12px;
+    border-radius:20px;
+    background:rgba(0,0,0,.18);
+    border:1px solid rgba(255,255,255,.13);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.09);
+  }
+  .stat b{
+    display:block;
+    font-size:1.25rem;
+    line-height:1;
+    letter-spacing:-.035em;
+  }
+  .stat span{
+    display:block;
+    color:var(--muted);
+    font-size:.74rem;
+    margin-top:5px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+  }
+
+  .controls{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+
+  button, select, input{
+    font:inherit;
+  }
+
+  button, .select-wrap{
+    border:1px solid rgba(255,255,255,.18);
+    color:var(--ink);
+    background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.07));
+    border-radius:16px;
+    min-height:44px;
+    padding:0 14px;
+    box-shadow:0 12px 28px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.16);
+    backdrop-filter:blur(14px);
+  }
+
+  button{
+    cursor:pointer;
+    user-select:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    transition:transform .16s var(--ease), background .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease);
+  }
+
+  button:hover{transform:translateY(-1px); border-color:rgba(255,255,255,.32)}
+  button:active{transform:translateY(1px) scale(.985)}
+  button.primary{
+    background:linear-gradient(135deg, rgba(255,218,107,.95), rgba(116,245,198,.85));
+    color:#121936;
+    font-weight:900;
+    border-color:rgba(255,255,255,.28);
+  }
+  button.ghost{background:rgba(255,255,255,.07)}
+  button.badge-on{outline:2px solid rgba(116,245,198,.35)}
+
+  .select-wrap{
+    position:relative;
+    padding:0;
+    overflow:hidden;
+  }
+  select{
+    appearance:none;
+    border:0;
+    color:var(--ink);
+    background:transparent;
+    min-height:44px;
+    padding:0 36px 0 13px;
+    outline:0;
+    cursor:pointer;
+  }
+  .select-wrap::after{
+    content:"⌄";
+    position:absolute;
+    right:12px;
+    top:8px;
+    color:var(--muted);
+    pointer-events:none;
+    font-weight:900;
+  }
+
+  .timerbar{
+    height:11px;
+    width:100%;
+    border-radius:999px;
+    background:rgba(0,0,0,.25);
+    overflow:hidden;
+    border:1px solid rgba(255,255,255,.12);
+    margin:2px 0 16px;
+    position:relative;
+    z-index:2;
+  }
+  .timerbar span{
+    display:block;
+    height:100%;
+    width:100%;
+    border-radius:999px;
+    transform-origin:left center;
+    background:linear-gradient(90deg, #74f5c6, #ffda6b, #ff7a9e);
+    box-shadow:0 0 26px rgba(255,218,107,.35);
+    transition:transform .25s linear;
+  }
+
+  .board-wrap{
+    position:relative;
+    z-index:1;
+    display:grid;
+    place-items:center;
+    padding:clamp(8px, 2.5vw, 28px);
+    border-radius:26px;
+    background:
+      radial-gradient(circle at 50% 30%, rgba(255,255,255,.13), transparent 36%),
+      linear-gradient(135deg, rgba(255,255,255,.05), rgba(0,0,0,.20));
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:inset 0 0 60px rgba(255,255,255,.04);
+    overflow:hidden;
+  }
+
+  .board-wrap::before{
+    content:"";
+    position:absolute;
+    width:38rem;
+    height:38rem;
+    border-radius:40%;
+    background:conic-gradient(from 120deg, rgba(116,245,198,.0), rgba(116,245,198,.16), rgba(145,173,255,.18), rgba(255,218,107,.12), rgba(116,245,198,.0));
+    filter:blur(22px);
+    animation:boardGlow 12s linear infinite;
+    opacity:.8;
+  }
+
+  @keyframes boardGlow{to{transform:rotate(360deg)}}
+
+  .board{
+    --size:4;
+    display:grid;
+    grid-template-columns:repeat(var(--size), minmax(54px, 1fr));
+    gap:clamp(8px, 1.6vw, 14px);
+    width:min(100%, 640px);
+    aspect-ratio:1/1;
+    position:relative;
+    user-select:none;
+    touch-action:none;
+    padding:clamp(8px, 2vw, 14px);
+  }
+
+  .lines{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    overflow:visible;
+    pointer-events:none;
+    z-index:2;
+  }
+  .lines path{
+    fill:none;
+    stroke:rgba(255,218,107,.86);
+    stroke-width:9;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+    filter:drop-shadow(0 0 13px rgba(255,218,107,.72));
+    animation:draw .18s var(--ease);
+  }
+  @keyframes draw{from{stroke-dasharray:1 30; opacity:.2}to{stroke-dasharray:30 0; opacity:1}}
+
+  .tile{
+    border:0;
+    min-height:0;
+    padding:0;
+    aspect-ratio:1/1;
+    border-radius:clamp(16px, 3vw, 26px);
+    background:
+      radial-gradient(circle at 30% 20%, #fff 0 12%, transparent 13%),
+      linear-gradient(145deg, var(--tile), var(--tile2));
+    color:var(--tileInk);
+    font-weight:1000;
+    font-size:clamp(1.35rem, 7.7vw, 4.2rem);
+    letter-spacing:-.08em;
+    box-shadow:
+      0 18px 26px rgba(0,0,0,.24),
+      inset 0 2px 1px rgba(255,255,255,.9),
+      inset 0 -10px 16px rgba(72,91,158,.18);
+    position:relative;
+    z-index:3;
+    will-change:transform;
+    transform:translateZ(0) rotate(var(--rot, 0deg));
+    animation:pop .48s var(--ease) both;
+  }
+
+  .tile small{
+    font-size:.48em;
+    letter-spacing:-.08em;
+  }
+
+  .tile::after{
+    content:"";
+    position:absolute;
+    inset:9%;
+    border-radius:inherit;
+    border:1px solid rgba(255,255,255,.62);
+    pointer-events:none;
+    mix-blend-mode:screen;
+  }
+
+  .tile:hover{transform:translateY(-3px) rotate(var(--rot, 0deg)) scale(1.02)}
+  .tile.selected{
+    background:
+      radial-gradient(circle at 30% 20%, #fff 0 10%, transparent 11%),
+      linear-gradient(145deg, #ffefb3, #7cf5cc 72%, #9fb3ff);
+    color:#101735;
+    box-shadow:
+      0 0 0 5px rgba(255,218,107,.22),
+      0 24px 36px rgba(0,0,0,.28),
+      0 0 36px rgba(116,245,198,.34),
+      inset 0 2px 1px rgba(255,255,255,.9);
+    transform:translateY(-7px) rotate(var(--rot, 0deg)) scale(1.075);
+  }
+  .tile.pulse{
+    animation:pulse .38s var(--ease);
+  }
+  .tile.shake{
+    animation:shake .34s linear;
+  }
+
+  @keyframes pop{
+    from{opacity:0; transform:translateY(22px) scale(.72) rotate(var(--rot, 0deg))}
+    to{opacity:1; transform:translateY(0) scale(1) rotate(var(--rot, 0deg))}
+  }
+  @keyframes pulse{
+    50%{transform:translateY(-10px) rotate(var(--rot, 0deg)) scale(1.16)}
+  }
+  @keyframes shake{
+    0%,100%{transform:translateX(0) rotate(var(--rot, 0deg))}
+    25%{transform:translateX(-5px) rotate(calc(var(--rot, 0deg) - 3deg))}
+    75%{transform:translateX(5px) rotate(calc(var(--rot, 0deg) + 3deg))}
+  }
+
+  .board.diamond .tile{
+    border-radius:22px;
+    transform:rotate(45deg) scale(.92);
+  }
+  .board.diamond .tile span{
+    display:inline-block;
+    transform:rotate(-45deg);
+  }
+  .board.diamond .tile:hover{transform:translateY(-3px) rotate(45deg) scale(.96)}
+  .board.diamond .tile.selected{transform:translateY(-7px) rotate(45deg) scale(1.03)}
+
+  .board.drift .tile:nth-child(3n){--rot:3deg}
+  .board.drift .tile:nth-child(3n+1){--rot:-3deg}
+  .board.drift .tile:nth-child(5n){--rot:5deg}
+  .board.drift .tile:nth-child(7n){--rot:-5deg}
+
+  .current{
+    margin-top:14px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    position:relative;
+    z-index:2;
+    flex-wrap:wrap;
+  }
+
+  .wordbox{
+    min-height:62px;
+    flex:1 1 250px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 14px;
+    border-radius:20px;
+    background:rgba(0,0,0,.22);
+    border:1px solid rgba(255,255,255,.12);
+    overflow:hidden;
+  }
+
+  .label{
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.09em;
+    font-size:.72rem;
+    flex:0 0 auto;
+  }
+  .word{
+    font-size:clamp(1.35rem, 4vw, 2.1rem);
+    font-weight:1000;
+    letter-spacing:.04em;
+    min-width:4ch;
+  }
+
+  .typing{
+    display:flex;
+    gap:8px;
+    width:100%;
+    margin-top:12px;
+    position:relative;
+    z-index:2;
+  }
+  .typing input{
+    min-height:48px;
+    min-width:0;
+    flex:1;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(0,0,0,.24);
+    color:var(--ink);
+    border-radius:16px;
+    padding:0 14px;
+    outline:0;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+  }
+  .typing input:focus{
+    border-color:rgba(116,245,198,.55);
+    box-shadow:0 0 0 4px rgba(116,245,198,.12);
+  }
+
+  aside{
+    padding:18px;
+  }
+
+  .section{
+    position:relative;
+    z-index:2;
+    margin-bottom:18px;
+  }
+  .section:last-child{margin-bottom:0}
+  .section h2{
+    margin:0 0 10px;
+    font-size:1rem;
+    letter-spacing:-.02em;
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    align-items:center;
+  }
+
+  .switches{
+    display:grid;
+    gap:10px;
+  }
+  .switch{
+    min-height:48px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:18px;
+    background:rgba(0,0,0,.16);
+    padding:10px 12px;
+    color:var(--soft);
+  }
+  .switch span{
+    color:var(--muted);
+    font-size:.82rem;
+  }
+  .switch input{
+    inline-size:44px;
+    block-size:26px;
+    appearance:none;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.22);
+    background:rgba(255,255,255,.12);
+    position:relative;
+    flex:0 0 auto;
+    cursor:pointer;
+    transition:.2s var(--ease);
+  }
+  .switch input::after{
+    content:"";
+    position:absolute;
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    background:white;
+    top:2px;
+    left:2px;
+    transition:.2s var(--ease);
+  }
+  .switch input:checked{
+    background:rgba(116,245,198,.42);
+  }
+  .switch input:checked::after{
+    transform:translateX(18px);
+  }
+
+  .found-list{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    min-height:116px;
+    max-height:238px;
+    overflow:auto;
+    padding:2px;
+    scrollbar-width:thin;
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 10px;
+    border-radius:999px;
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.13);
+    color:var(--soft);
+    font-weight:800;
+    animation:chipIn .32s var(--ease) both;
+  }
+  .chip b{
+    color:var(--hot);
+    font-size:.8em;
+  }
+  @keyframes chipIn{from{opacity:0; transform:translateY(8px) scale(.9)}}
+
+  .empty{
+    color:var(--muted);
+    line-height:1.55;
+    padding:8px 0;
+  }
+
+  .toast{
+    position:fixed;
+    left:50%;
+    bottom:calc(18px + env(safe-area-inset-bottom));
+    transform:translateX(-50%) translateY(24px);
+    opacity:0;
+    color:#111832;
+    background:linear-gradient(135deg, #ffffff, #dfe7ff);
+    border:1px solid rgba(255,255,255,.8);
+    border-radius:999px;
+    padding:12px 16px;
+    font-weight:900;
+    box-shadow:0 18px 55px rgba(0,0,0,.38);
+    pointer-events:none;
+    z-index:40;
+    transition:.26s var(--ease);
+    text-align:center;
+    width:max-content;
+    max-width:calc(100% - 28px);
+  }
+  .toast.show{
+    opacity:1;
+    transform:translateX(-50%) translateY(0);
+  }
+
+  .burst{
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    overflow:hidden;
+    z-index:30;
+  }
+  .spark{
+    position:absolute;
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    background:var(--hot);
+    box-shadow:0 0 16px var(--hot);
+    animation:spark .72s var(--ease) forwards;
+  }
+  @keyframes spark{
+    to{
+      opacity:0;
+      transform:translate(var(--x), var(--y)) scale(.1);
+    }
+  }
+
+  .meter{
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:7px;
+    margin-top:12px;
+  }
+  .meter i{
+    height:8px;
+    border-radius:999px;
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .meter i.on{
+    background:linear-gradient(90deg, #74f5c6, #ffda6b);
+    box-shadow:0 0 16px rgba(116,245,198,.3);
+  }
+
+  .help{
+    color:var(--muted);
+    line-height:1.55;
+    margin:0;
+    font-size:.92rem;
+  }
+  .help strong{color:var(--soft)}
+
+  dialog{
+    width:min(620px, calc(100% - 28px));
+    border:1px solid rgba(255,255,255,.18);
+    background:linear-gradient(180deg, rgba(22,28,58,.98), rgba(12,15,31,.98));
+    color:var(--ink);
+    border-radius:28px;
+    box-shadow:0 40px 100px rgba(0,0,0,.62);
+    padding:0;
+  }
+  dialog::backdrop{background:rgba(0,0,0,.55); backdrop-filter:blur(8px)}
+  .modal{
+    padding:22px;
+  }
+  .modal h2{
+    margin:.2rem 0 .6rem;
+    letter-spacing:-.04em;
+  }
+  .modal p{color:var(--muted); line-height:1.6}
+  .modal .row{
+    display:flex;
+    gap:10px;
+    justify-content:flex-end;
+    margin-top:18px;
+    flex-wrap:wrap;
+  }
+
+  @media (max-width:880px){
+    .shell{grid-template-columns:1fr}
+    aside{order:-1}
+    .section.collapsible{display:none}
+  }
+
+  @media (max-width:620px){
+    .app{width:min(100% - 18px, 1180px); padding-top:14px}
+    header{align-items:flex-start; flex-direction:column}
+    .privacy{justify-content:flex-start}
+    .logo{width:46px;height:46px;border-radius:15px}
+    .game, aside{padding:12px}
+    .toolbar{align-items:stretch}
+    .stats{width:100%; display:grid; grid-template-columns:repeat(3,1fr)}
+    .stat{min-width:0}
+    .controls{justify-content:flex-start}
+    .board{gap:8px; padding:7px}
+    .tile{border-radius:16px}
+    .current{align-items:stretch}
+    .wordbox{width:100%; flex-basis:100%}
+    .current button{flex:1}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{
+      animation-duration:.001ms !important;
+      animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;
+      scroll-behavior:auto !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true">B</div>
+        <div>
+          <h1>Private Pocket Boggle</h1>
+          <p class="tagline">Fast, tactile word-hunting. No accounts. No tracking. No network calls.</p>
+        </div>
+      </div>
+      <div class="privacy" aria-label="Privacy features">
+        <span class="pill">🔒 local only</span>
+        <span class="pill">📡 zero requests</span>
+        <span class="pill">🧠 no storage</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="card game" aria-label="Game board">
+        <div class="toolbar">
+          <div class="stats" aria-label="Game stats">
+            <div class="stat"><b id="score">0</b><span>score</span></div>
+            <div class="stat"><b id="timer">3:00</b><span>time</span></div>
+            <div class="stat"><b id="wordCount">0</b><span>words</span></div>
+          </div>
+          <div class="controls">
+            <button class="primary" id="startBtn" type="button">▶ Start</button>
+            <button class="ghost" id="newBtn" type="button">↻ New</button>
+            <span class="select-wrap">
+              <select id="sizeSelect" aria-label="Board size">
+                <option value="4">4×4 classic</option>
+                <option value="5">5×5 monster</option>
+              </select>
+            </span>
+            <span class="select-wrap">
+              <select id="layoutSelect" aria-label="Board style">
+                <option value="drift">drift</option>
+                <option value="clean">clean</option>
+                <option value="diamond">diamond</option>
+              </select>
+            </span>
+          </div>
+        </div>
+
+        <div class="timerbar" aria-hidden="true"><span id="timerFill"></span></div>
+
+        <div class="board-wrap">
+          <div id="board" class="board drift" aria-label="Letter board">
+            <svg id="lines" class="lines" aria-hidden="true"></svg>
+          </div>
+        </div>
+
+        <div class="current">
+          <div class="wordbox" aria-live="polite">
+            <span class="label">current</span>
+            <span class="word" id="currentWord">—</span>
+          </div>
+          <button id="submitBtn" type="button">✓ Submit</button>
+          <button id="clearBtn" type="button">✕ Clear</button>
+        </div>
+
+        <form class="typing" id="typeForm">
+          <input id="typedWord" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Or type a word and press Enter" aria-label="Type a word" />
+          <button class="primary" type="submit">Add</button>
+        </form>
+      </section>
+
+      <aside class="card" aria-label="Game side panel">
+        <div class="section">
+          <h2>Found <span id="bestBadge" class="pill">streak 0</span></h2>
+          <div id="foundList" class="found-list">
+            <div class="empty">Drag through adjacent tiles, release, and score. Try longer words for bonus points.</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Options</h2>
+          <div class="switches">
+            <label class="switch">
+              <div><strong>Haptics</strong><br><span>Vibration on supported devices</span></div>
+              <input id="hapticsToggle" type="checkbox" checked>
+            </label>
+            <label class="switch">
+              <div><strong>Strict dictionary</strong><br><span>Uses an embedded local word list</span></div>
+              <input id="strictToggle" type="checkbox">
+            </label>
+            <label class="switch">
+              <div><strong>Soundless mode</strong><br><span>No audio, just motion and touch feedback</span></div>
+              <input type="checkbox" checked disabled>
+            </label>
+          </div>
+        </div>
+
+        <div class="section collapsible">
+          <h2>Word power</h2>
+          <div class="meter" id="meter" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <p class="help" style="margin-top:12px">
+            Scoring: <strong>3–4 letters = 1</strong>, <strong>5 = 2</strong>, <strong>6 = 3</strong>, <strong>7 = 5</strong>, <strong>8+ = 11</strong>.
+            “Qu” is one tile, like tabletop Boggle.
+          </p>
+        </div>
+
+        <div class="section">
+          <h2>Privacy note</h2>
+          <p class="help">This page does not send requests, save data, load third-party code, use cookies, or touch localStorage.</p>
+          <button id="hintBtn" type="button" style="margin-top:12px;width:100%">✨ Local hint</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="endDialog">
+    <div class="modal">
+      <h2>Round complete</h2>
+      <p id="summary"></p>
+      <div class="row">
+        <button id="copyBtn" type="button">Copy results</button>
+        <button class="primary" id="playAgainBtn" type="button">Play again</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="burst" class="burst" aria-hidden="true"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const DICE_4 = [
+    "AAEEGN","ABBJOO","ACHOPS","AFFKPS",
+    "AOOTTW","CIMOTU","DEILRX","DELRVY",
+    "DISTTY","EEGHNW","EEINSU","EHRTVW",
+    "EIOSST","ELRTTY","HIMNUQ","HLNNRZ"
+  ];
+
+  const DICE_5 = [
+    "AAAFRS","AAEEEE","AAFIRS","ADENNN","AEEEEM",
+    "AEEGMU","AEGMNN","AFIRSY","BJKQXZ","CCENST",
+    "CEIILT","CEILPT","CEIPST","DDHNOT","DHHLOR",
+    "DHLNOR","DHLNOR","EIIITT","EMOTTT","ENSSSU",
+    "FIPRSY","GORRVW","HIPRRY","NOOTUW","OOOTTU"
+  ];
+
+  // Compact local dictionary for optional strict mode and hints. It is intentionally
+  // embedded, offline, and modest rather than downloaded from a server.
+  const WORDS = `
+  ace ache acid acorn acre act actor acts add adore adult age aged agent agile ago agree aid aim air airy aisle alarm album alert alien align alike alive alley alloy alone along aloud alter amber amend among angel anger angle angry animal ankle ant ante antler ape apex apple apply apron arc area argue arm army aroma art ash aside ask atom attic aunt auto awake awful awoke
+  baby back bacon badge bag bake baker ball band bank bark barn base basic basil basket bath baton bead beak beam bean bear beard beast beat beauty bed bee beef been beer beet beg begin bell belt bend bent berry best bet beyond bias bid bike bill bind bird birth bite bitter black blade blank blast blaze blend bless blind blink block bloom blue bluff blunt board boast boat body bolt bone bonus book boom boost boot border bore born borrow boss bottle bound bow bowl box boy brace brain brake branch brand brave bread break brick bride bridge brief bright bring brisk broad broke broken broom brother brown brush bubble buck build built bulb bulk bull bunch burn burst bus bush busy butter buyer
+  cab cabin cable cafe cage cake calm came camel camp can canal candy cane cap cape card care cargo carol carry cart case cash cast castle cat cave cedar cell chain chair chalk champ chant chaos charm chart chase chat cheap cheat check cheek cheer cheese chef cherry chess chest chew chief child chill chip choir chord chore chose civil claim clap clash class clean clear clerk clever click cliff climb clip clock clone close cloud club clue coach coal coast coat code coil coin cold collar comb come comet comic common cone cook cool coop copper copy coral core cork corn cost couch cough could count court cover cow cozy crab crack craft crane crash crate crave crawl crazy cream creek crest crib cried crime crisp crop cross crowd crown crude cruel crumb crush cube cuff cup cure curl curve cut cute cycle
+  dad daily dairy dance danger dare dark dart dash data date dawn day deal dear debate debt deck deep deer delay deli denim dense dent deny desk dial dice did die diet dig dime dinner dip dirt dish disk ditch dive dizzy dock doctor dog doll dome done donor door dose dot doubt dove down dozen draft drag drain drama drank draw dream dress dried drift drill drink drip drive drop drove drum dry duck due dug dull dune dust duty
+  each eager eagle ear early earn earth ease east easy echo edge edit eel egg eight either elbow elder elect elk elm else email empty end enemy enjoy enter entry equal era erase error essay even event ever every evil exact exam exit extra eye
+  face fact fade fail faint fair fairy faith fake fall fame fan fancy fang far farm fast fate fault favor fear feast fed feed feel feet fell felt fence fern ferry few fiber field fierce fifth fight file fill film final find fine finger finish fire firm first fish fist fit five fix flame flash flat flavor flea fled fleet flesh flew flick flight flip float flock floor flour flow flower fluent fluid flush fly foam focus fog foil fold folk food fool foot force ford forest forge forgot fork form fort forty forum found four fox frame fraud free fresh fried friend frog from front frost froze fruit fuel full fun funny fur fury fuse future
+  gain game gap garden gas gate gave gear gem gentle get ghost giant gift girl give glad glare glass glide globe glory glove glow glue goal goat gold golf gone good goose got grace grade grain grand grape graph grass grave gravy gray great green greet grew grid grief grin grip grit gross ground group grow guard guess guest guide guilt gum gust
+  habit hair half hall halo hand hang happy hard hare harm harp hash haste hat hatch hate have hawk hay haze head heal heap hear heard heart heat heavy hedge heel height held hello help hen herb herd here hero hide high hill hint hip hire hit hive hoard hobby hold hole home honest honey hoof hook hope horn horse host hot hotel hour house hover huge human humid hunt hurry hurt hush
+  ice idea idle inch index ink inlet inner input iron island issue item ivy
+  jacket jail jam jar jazz jeans jelly jet jewel job join joke joy judge juice jump jury just
+  keen keep kettle key kick kid kind king kiss kite knee knife knight knit knob knot know known
+  label labor lace lack ladder lady lake lamb lamp land lane large laser last late laugh lava law lawn layer lazy lead leaf league lean leap learn least leave led left legal lemon lend length lens less level liar library lid lie life lift light like limb lime limit line link lion list live load loaf loan lobby local lock lodge loft logic lonely long look loop loose lord lose lost loud love lower loyal luck lucky lunar lunch lung lush
+  machine mad made magic mail main major make maker male mall mango many maple marble march mark market marry mask mass master match mate math matter may maze meal mean meant meat medal meet melon melt memo memory mend menu mercy mere merge merit mess metal meter middle might mild mile milk mill mind mine minor mint minute mirror miss mist mix mixed model moist mole money month mood moon moose moral more morning moss most mother motion motor mound mouse mouth move movie much mud mule muscle music must mute myth
+  nail name narrow nasty native near neat neck need needle nerve nest net never new next nice nickel night nine noble node noise none noodle noon north nose note novel now number nurse nut
+  oak oasis oat obey object ocean odd offer often oil old olive once one onion only open opera orbit order organ other otter ounce outer oval oven over owl own owner
+  pace pack page paid paint pair pale palm panel panic paper parade park part party pass past paste path pause peace peach peak pearl pebble peel peer pencil pepper perfect person pet phase phone photo piano pick piece pig pile pilot pine pink pipe pitch place plain plane plant plate play plaza plea please plot plum plus pocket poem poet point polar pole pond pony pool poor porch pork port pose post potato pound power press price pride priest prime print prize probe profit proof proud prove public pulse pump punch pupil pure purple purse push puzzle
+  quack quake quart queen query quest queue quick quiet quilt quirk quite quiz quota quote
+  rabbit race rack radar radio raft rage rail rain raise ranch range rapid rare rate raven raw reach read ready realm reap rear reason rebel recipe record red reef reel refer relax relay relic rent repair reply rescue rest result retail ribbon rice rich ride ridge rifle right ring riot rise risk river road roam roar roast robe robin robot rock rocket rode role roll roof room root rope rose rough round route royal rubber rude rule rumor run rural rush rust
+  safe sail salad sale salt same sand sane sang sank satin save scale scan scare scarf scene scent school science scoop score scout scrap screen screw script sea seal seam search seat second secret seed seek seem seen self sell send sense sent serve seven shade shadow shake shallow shame shape share shark sharp shave shed sheep sheet shelf shell shine ship shirt shock shoe shook shoot shop shore short shout show shrug shut sick side siege sight sign silk silly silver since sing sink sister site six size skate skill skin skip skirt sky slab slam slate slave sleep slept slice slick slide slight slim slip slope slow slug small smart smell smile smoke smooth snack snail snake snap snow soap social sock soda soil solar sold solid solve song soon sort soul sound soup south space span spare spark speak spear spend spent spider spike spill spin spine spirit split spoil spoke spoon sport spot spray spread spring spy squad square squeeze stack stage stain stair stale stamp stand star start state stay steal steam steel steep stem step stick stiff still sting stir stock stone stood stool stop store storm story stove strap straw stream street strict strike string strip strong struck study stuff style such sugar suit summer sun sunny sunset super sure surf swear sweet swift swim swing sword system
+  table tail take tale talk tall tame tank tap tape task taste tax tea teach team tear tease teeth tell ten tend tent term test text than thank that thaw them then there they thick thief thin thing think third this thorn those though three threw throw thumb tide tidy tie tiger tight tile time tiny tip tire tissue toast today toe together told tone tongue tonight took tool tooth top topic torch total touch tough tour towel tower town trace track trade trail train trap travel tray treat tree tribe trick tried trip trophy trouble truck true trunk trust truth try tube tune tunnel turkey turn turtle twelve twice twin twist two type
+  ugly uncle under undo unfair unit until upper upset urban urge use user usual
+  valid valley value valve van vapor vast vault velvet vendor verb very vessel video view vine visit voice vote vowel
+  wage wagon wait wake walk wall wander want warm warn warp wash waste watch water wave way weak wealth wear weave web wedge weed week weird well west whale what wheat wheel when where which while whip white who whole wide widow width wife wild will wind window wine wing wink winner winter wire wise wish witch with wolf woman wonder wood wool word wore work world worm worry worth would wrap wreck write wrong wrote
+  yard yarn year yell yes yield yoga yoke young your youth zebra zero zest zone zoo zoom
+  airbag aircraft airport artwork backlog backpack ballroom barefoot baseball bathtub beeline birthday bookshelf brainstorm breakfast daylight deadline desktop doorstep download downtime driveway eardrum evergreen farmland feedback firefly flagship grandstand greenhouse handoff headline highlight homework honeybee keyboard keynote landmark lifespan lifestyle mailbox moonlight newsletter notebook offshore outpost password popcorn rainstorm roadmap sandbox screenshot shortlist sidewalk snowfall software spotlight starfish starlight sunflower tabletop timeline toolbox underdog upstream weekday workshop
+  `.trim().toLowerCase().split(/\s+/);
+
+  const dict = new Set(WORDS);
+
+  const $ = (id) => document.getElementById(id);
+
+  const els = {
+    board: $("board"),
+    lines: $("lines"),
+    score: $("score"),
+    timer: $("timer"),
+    timerFill: $("timerFill"),
+    wordCount: $("wordCount"),
+    currentWord: $("currentWord"),
+    foundList: $("foundList"),
+    startBtn: $("startBtn"),
+    newBtn: $("newBtn"),
+    submitBtn: $("submitBtn"),
+    clearBtn: $("clearBtn"),
+    sizeSelect: $("sizeSelect"),
+    layoutSelect: $("layoutSelect"),
+    hapticsToggle: $("hapticsToggle"),
+    strictToggle: $("strictToggle"),
+    hintBtn: $("hintBtn"),
+    typedWord: $("typedWord"),
+    typeForm: $("typeForm"),
+    toast: $("toast"),
+    burst: $("burst"),
+    bestBadge: $("bestBadge"),
+    meter: $("meter"),
+    endDialog: $("endDialog"),
+    summary: $("summary"),
+    copyBtn: $("copyBtn"),
+    playAgainBtn: $("playAgainBtn")
+  };
+
+  const state = {
+    size: 4,
+    board: [],
+    selected: [],
+    found: new Set(),
+    score: 0,
+    streak: 0,
+    bestStreak: 0,
+    seconds: 180,
+    totalSeconds: 180,
+    running: false,
+    timerId: null,
+    selecting: false,
+    lastTile: null,
+    strict: false,
+    haptics: true
+  };
+
+  function shuffle(arr){
+    const a = arr.slice();
+    for(let i=a.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]] = [a[j],a[i]];
+    }
+    return a;
+  }
+
+  function rollBoard(size){
+    const dice = shuffle(size === 4 ? DICE_4 : DICE_5);
+    return dice.map(die => {
+      const ch = die[Math.floor(Math.random() * die.length)];
+      return ch === "Q" ? "QU" : ch;
+    });
+  }
+
+  function indexToRC(i){
+    return { r: Math.floor(i / state.size), c: i % state.size };
+  }
+
+  function isAdjacent(a, b){
+    if(a === b) return false;
+    const A = indexToRC(a);
+    const B = indexToRC(b);
+    return Math.abs(A.r - B.r) <= 1 && Math.abs(A.c - B.c) <= 1;
+  }
+
+  function selectedWord(){
+    return state.selected.map(i => state.board[i]).join("");
+  }
+
+  function displayWord(word){
+    return word || "—";
+  }
+
+  function wordScore(word){
+    const len = word.replace(/QU/g, "Q").length;
+    if(len < 3) return 0;
+    if(len <= 4) return 1;
+    if(len === 5) return 2;
+    if(len === 6) return 3;
+    if(len === 7) return 5;
+    return 11;
+  }
+
+  function cleanWord(word){
+    return word.toUpperCase().replace(/[^A-Z]/g, "");
+  }
+
+  function toast(message, kind = "ok"){
+    els.toast.textContent = message;
+    els.toast.style.background = kind === "bad"
+      ? "linear-gradient(135deg, #fff, #ffd7e2)"
+      : kind === "hint"
+        ? "linear-gradient(135deg, #fff7cf, #dcfff2)"
+        : "linear-gradient(135deg, #ffffff, #dfe7ff)";
+    els.toast.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => els.toast.classList.remove("show"), 1600);
+  }
+
+  function haptic(pattern){
+    if(state.haptics && "vibrate" in navigator) navigator.vibrate(pattern);
+  }
+
+  function setTime(seconds){
+    state.seconds = Math.max(0, seconds);
+    const m = Math.floor(state.seconds / 60);
+    const s = String(state.seconds % 60).padStart(2, "0");
+    els.timer.textContent = `${m}:${s}`;
+    els.timerFill.style.transform = `scaleX(${state.seconds / state.totalSeconds})`;
+  }
+
+  function startTimer(){
+    if(state.running) return;
+    state.running = true;
+    els.startBtn.textContent = "⏸ Pause";
+    clearInterval(state.timerId);
+    state.timerId = setInterval(() => {
+      setTime(state.seconds - 1);
+      if(state.seconds <= 0) endRound();
+    }, 1000);
+  }
+
+  function pauseTimer(){
+    state.running = false;
+    els.startBtn.textContent = "▶ Start";
+    clearInterval(state.timerId);
+  }
+
+  function endRound(){
+    pauseTimer();
+    clearSelection();
+    haptic([40, 40, 80]);
+    const words = [...state.found].sort((a,b) => b.length - a.length || a.localeCompare(b));
+    const longest = words[0] || "none";
+    els.summary.innerHTML = `You found <strong>${words.length}</strong> words for <strong>${state.score}</strong> points. Longest word: <strong>${longest}</strong>.`;
+    if(typeof els.endDialog.showModal === "function") els.endDialog.showModal();
+    else toast(`Round complete: ${state.score} points`);
+  }
+
+  function renderBoard(){
+    els.board.innerHTML = "";
+    els.board.appendChild(els.lines);
+    els.board.style.setProperty("--size", state.size);
+    els.board.className = `board ${els.layoutSelect.value}`;
+    state.board.forEach((letter, index) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tile";
+      btn.dataset.index = index;
+      btn.style.animationDelay = `${index * 18}ms`;
+      btn.innerHTML = `<span>${letter === "QU" ? "<small>Qu</small>" : letter}</span>`;
+      btn.addEventListener("pointerdown", onPointerDown);
+      btn.addEventListener("pointerenter", onPointerEnter);
+      btn.addEventListener("click", onTileClick);
+      els.board.appendChild(btn);
+    });
+    updateLines();
+  }
+
+  function updateUI(){
+    els.score.textContent = state.score;
+    els.wordCount.textContent = state.found.size;
+    els.currentWord.textContent = displayWord(selectedWord());
+    els.bestBadge.textContent = `streak ${state.streak}`;
+    els.foundList.innerHTML = "";
+    if(state.found.size === 0){
+      els.foundList.innerHTML = `<div class="empty">Drag through adjacent tiles, release, and score. Try longer words for bonus points.</div>`;
+    } else {
+      [...state.found]
+        .sort((a,b) => b.length - a.length || a.localeCompare(b))
+        .forEach(word => {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.innerHTML = `${word} <b>+${wordScore(word)}</b>`;
+          els.foundList.appendChild(chip);
+        });
+    }
+    const power = Math.min(5, Math.max(0, Math.ceil(selectedWord().replace(/QU/g, "Q").length / 2)));
+    [...els.meter.children].forEach((bar, i) => bar.classList.toggle("on", i < power));
+  }
+
+  function clearSelection(){
+    state.selected = [];
+    state.lastTile = null;
+    document.querySelectorAll(".tile.selected").forEach(t => t.classList.remove("selected"));
+    els.currentWord.textContent = "—";
+    updateLines();
+    updateUI();
+  }
+
+  function addTile(index){
+    if(state.selected.includes(index)) return false;
+    const last = state.selected[state.selected.length - 1];
+    if(last !== undefined && !isAdjacent(last, index)) return false;
+    state.selected.push(index);
+    const tile = tileFor(index);
+    tile.classList.add("selected", "pulse");
+    setTimeout(() => tile.classList.remove("pulse"), 360);
+    haptic(8);
+    updateLines();
+    updateUI();
+    return true;
+  }
+
+  function removeBackTo(index){
+    const pos = state.selected.indexOf(index);
+    if(pos >= 0 && pos === state.selected.length - 2){
+      const removed = state.selected.pop();
+      tileFor(removed).classList.remove("selected");
+      haptic(4);
+      updateLines();
+      updateUI();
+      return true;
+    }
+    return false;
+  }
+
+  function tileFor(index){
+    return els.board.querySelector(`.tile[data-index="${index}"]`);
+  }
+
+  function tileFromEvent(e){
+    return e.target.closest?.(".tile");
+  }
+
+  function tileFromPoint(x, y){
+    return document.elementFromPoint(x, y)?.closest?.(".tile");
+  }
+
+  function onPointerDown(e){
+    e.preventDefault();
+    const tile = tileFromEvent(e);
+    if(!tile) return;
+    if(!state.running) startTimer();
+    state.selecting = true;
+    state.selected = [];
+    document.querySelectorAll(".tile.selected").forEach(t => t.classList.remove("selected"));
+    addTile(Number(tile.dataset.index));
+    state.lastTile = tile;
+    tile.setPointerCapture?.(e.pointerId);
+    window.addEventListener("pointermove", onPointerMove, {passive:false});
+    window.addEventListener("pointerup", onPointerUp, {once:true});
+  }
+
+  function onPointerMove(e){
+    if(!state.selecting) return;
+    e.preventDefault();
+    const tile = tileFromPoint(e.clientX, e.clientY);
+    if(!tile || tile === state.lastTile) return;
+    const index = Number(tile.dataset.index);
+    if(removeBackTo(index) || addTile(index)) state.lastTile = tile;
+  }
+
+  function onPointerEnter(e){
+    if(!state.selecting) return;
+    const tile = tileFromEvent(e);
+    if(!tile) return;
+    const index = Number(tile.dataset.index);
+    if(removeBackTo(index) || addTile(index)) state.lastTile = tile;
+  }
+
+  function onPointerUp(){
+    if(!state.selecting) return;
+    state.selecting = false;
+    window.removeEventListener("pointermove", onPointerMove);
+    if(selectedWord().replace(/QU/g, "Q").length >= 3) submitSelected();
+  }
+
+  function onTileClick(e){
+    if(state.selecting) return;
+    const index = Number(tileFromEvent(e).dataset.index);
+    if(state.selected.includes(index)){
+      clearSelection();
+      return;
+    }
+    if(state.selected.length === 0 || isAdjacent(state.selected[state.selected.length - 1], index)){
+      if(!state.running) startTimer();
+      addTile(index);
+    } else {
+      badTiles([index]);
+      toast("Pick adjacent tiles", "bad");
+      haptic([15, 25, 15]);
+    }
+  }
+
+  function validateWord(word){
+    if(word.length < 3) return {ok:false, reason:"Too short"};
+    if(state.found.has(word)) return {ok:false, reason:"Already found"};
+    if(state.strict && !dict.has(word.toLowerCase())) return {ok:false, reason:"Not in local dictionary"};
+    return {ok:true};
+  }
+
+  function submitSelected(){
+    const word = selectedWord();
+    submitWord(word, {fromSelection:true});
+  }
+
+  function submitWord(rawWord, opts = {}){
+    const word = cleanWord(rawWord);
+    const exists = opts.fromSelection || findPath(word).length > 0;
+    if(!exists){
+      state.streak = 0;
+      toast("That word is not on the board", "bad");
+      haptic([18, 24, 18]);
+      updateUI();
+      return false;
+    }
+    const valid = validateWord(word);
+    if(!valid.ok){
+      state.streak = 0;
+      if(opts.fromSelection) badTiles(state.selected);
+      toast(valid.reason, "bad");
+      haptic([18, 24, 18]);
+      updateUI();
+      return false;
+    }
+    const points = wordScore(word);
+    state.found.add(word);
+    state.score += points;
+    state.streak += 1;
+    state.bestStreak = Math.max(state.bestStreak, state.streak);
+    toast(`+${points} ${word}`, points >= 5 ? "hint" : "ok");
+    haptic(points >= 5 ? [12, 35, 65] : [12, 24]);
+    popBurst();
+    clearSelection();
+    els.typedWord.value = "";
+    updateUI();
+    return true;
+  }
+
+  function badTiles(indices){
+    indices.forEach(i => {
+      const tile = tileFor(i);
+      tile.classList.add("shake");
+      setTimeout(() => tile.classList.remove("shake"), 360);
+    });
+  }
+
+  function updateLines(){
+    const selected = state.selected.map(tileFor).filter(Boolean);
+    if(selected.length < 2){
+      els.lines.innerHTML = "";
+      return;
+    }
+    const boardRect = els.board.getBoundingClientRect();
+    const points = selected.map(tile => {
+      const r = tile.getBoundingClientRect();
+      return [
+        r.left + r.width / 2 - boardRect.left,
+        r.top + r.height / 2 - boardRect.top
+      ];
+    });
+    const d = points.map((p, i) => `${i ? "L" : "M"} ${p[0]} ${p[1]}`).join(" ");
+    els.lines.setAttribute("viewBox", `0 0 ${boardRect.width} ${boardRect.height}`);
+    els.lines.innerHTML = `<path d="${d}"></path>`;
+  }
+
+  function tokenise(word){
+    const tokens = [];
+    for(let i=0;i<word.length;i++){
+      if(word.slice(i, i+2) === "QU"){
+        tokens.push("QU");
+        i++;
+      } else {
+        tokens.push(word[i]);
+      }
+    }
+    return tokens;
+  }
+
+  function findPath(word){
+    const tokens = tokenise(cleanWord(word));
+    if(!tokens.length) return [];
+    const used = new Set();
+
+    function dfs(index, tokenIndex, path){
+      if(state.board[index] !== tokens[tokenIndex]) return null;
+      if(tokenIndex === tokens.length - 1) return path.concat(index);
+      used.add(index);
+      const {r,c} = indexToRC(index);
+      for(let dr=-1; dr<=1; dr++){
+        for(let dc=-1; dc<=1; dc++){
+          if(dr === 0 && dc === 0) continue;
+          const nr = r + dr, nc = c + dc;
+          if(nr < 0 || nc < 0 || nr >= state.size || nc >= state.size) continue;
+          const ni = nr * state.size + nc;
+          if(used.has(ni)) continue;
+          const result = dfs(ni, tokenIndex + 1, path.concat(index));
+          if(result) return result;
+        }
+      }
+      used.delete(index);
+      return null;
+    }
+
+    for(let i=0;i<state.board.length;i++){
+      used.clear();
+      const result = dfs(i, 0, []);
+      if(result) return result;
+    }
+    return [];
+  }
+
+  function animatePath(path){
+    clearSelection();
+    path.forEach((i, step) => {
+      setTimeout(() => addTile(i), step * 55);
+    });
+    setTimeout(clearSelection, Math.max(700, path.length * 75));
+  }
+
+  function availableWords(){
+    return WORDS
+      .map(w => w.toUpperCase())
+      .filter(w => w.length >= 3 && !state.found.has(w) && findPath(w).length)
+      .sort((a,b) => wordScore(b) - wordScore(a) || b.length - a.length || a.localeCompare(b));
+  }
+
+  function showHint(){
+    const words = availableWords();
+    if(words.length === 0){
+      toast("No local hints found. Casual words may still exist.", "hint");
+      return;
+    }
+    const word = words[Math.min(words.length - 1, Math.floor(Math.random() * Math.min(8, words.length)))];
+    const path = findPath(word);
+    const mask = word.length <= 4 ? `${word[0]}••${word[word.length-1]}` : `${word.slice(0,2)}•••${word[word.length-1]}`;
+    animatePath(path);
+    toast(`Hint: ${mask} (${word.length} letters)`, "hint");
+    haptic([8, 18, 8]);
+  }
+
+  function popBurst(){
+    const rect = els.board.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    for(let i=0;i<18;i++){
+      const spark = document.createElement("i");
+      spark.className = "spark";
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 50 + Math.random() * 120;
+      spark.style.left = `${cx}px`;
+      spark.style.top = `${cy}px`;
+      spark.style.setProperty("--x", `${Math.cos(angle) * dist}px`);
+      spark.style.setProperty("--y", `${Math.sin(angle) * dist}px`);
+      spark.style.background = i % 3 === 0 ? "#74f5c6" : i % 3 === 1 ? "#ffda6b" : "#9fb3ff";
+      els.burst.appendChild(spark);
+      setTimeout(() => spark.remove(), 800);
+    }
+  }
+
+  function newGame(){
+    pauseTimer();
+    state.size = Number(els.sizeSelect.value);
+    state.board = rollBoard(state.size);
+    state.selected = [];
+    state.found = new Set();
+    state.score = 0;
+    state.streak = 0;
+    state.bestStreak = 0;
+    state.totalSeconds = state.size === 4 ? 180 : 240;
+    setTime(state.totalSeconds);
+    renderBoard();
+    updateUI();
+    toast("Fresh board, zero tracking");
+  }
+
+  function copyResults(){
+    const words = [...state.found].sort().join(", ") || "none";
+    const text = `Private Pocket Boggle — ${state.score} points, ${state.found.size} words: ${words}`;
+    navigator.clipboard?.writeText(text)
+      .then(() => toast("Copied"))
+      .catch(() => toast(text, "hint"));
+  }
+
+  els.startBtn.addEventListener("click", () => state.running ? pauseTimer() : startTimer());
+  els.newBtn.addEventListener("click", newGame);
+  els.submitBtn.addEventListener("click", submitSelected);
+  els.clearBtn.addEventListener("click", clearSelection);
+  els.sizeSelect.addEventListener("change", newGame);
+  els.layoutSelect.addEventListener("change", () => {
+    els.board.className = `board ${els.layoutSelect.value}`;
+    haptic(8);
+    updateLines();
+  });
+  els.hapticsToggle.addEventListener("change", e => {
+    state.haptics = e.target.checked;
+    haptic(10);
+  });
+  els.strictToggle.addEventListener("change", e => {
+    state.strict = e.target.checked;
+    toast(state.strict ? "Strict local dictionary on" : "Casual validation on");
+  });
+  els.hintBtn.addEventListener("click", showHint);
+  els.typeForm.addEventListener("submit", e => {
+    e.preventDefault();
+    if(!state.running) startTimer();
+    submitWord(els.typedWord.value);
+  });
+  els.playAgainBtn.addEventListener("click", () => {
+    els.endDialog.close();
+    newGame();
+    startTimer();
+  });
+  els.copyBtn.addEventListener("click", copyResults);
+  window.addEventListener("resize", updateLines, {passive:true});
+
+  document.addEventListener("keydown", e => {
+    if(e.key === "Escape") clearSelection();
+    if(e.key === "Enter" && state.selected.length) submitSelected();
+    if(e.key === " " && document.activeElement !== els.typedWord){
+      e.preventDefault();
+      state.running ? pauseTimer() : startTimer();
+    }
+  });
+
+  newGame();
+})();
+</script>
+</body>
+</html>
