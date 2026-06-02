@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>JayTeeSF Solitaire</title>
+  <!-- JayTeeSF Solitaire replacement iteration: pull-refresh + drag-cleanup fix -->
   <style>
     :root {
       --bg-1: #0b3d31;
@@ -27,6 +28,8 @@
 
     html, body {
       margin: 0;
+      width: 100%;
+      height: 100%;
       min-height: 100%;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
@@ -34,14 +37,18 @@
         radial-gradient(circle at 20% 0%, rgba(255,255,255,0.12), transparent 28%),
         radial-gradient(circle at 100% 0%, rgba(246,216,143,0.14), transparent 24%),
         linear-gradient(180deg, var(--bg-2), var(--bg-1) 30%, var(--bg-3));
-      overflow-x: hidden;
+      overflow: hidden;
+      overscroll-behavior: none;
     }
 
     body {
+      position: fixed;
+      inset: 0;
       -webkit-font-smoothing: antialiased;
       user-select: none;
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
     }
 
     body::before {
@@ -59,7 +66,11 @@
     .app {
       position: relative;
       touch-action: manipulation;
+      height: 100svh;
       min-height: 100svh;
+      max-height: 100svh;
+      overflow: hidden;
+      overscroll-behavior: none;
       padding: max(12px, env(safe-area-inset-top)) clamp(10px, 2vw, 22px) max(16px, env(safe-area-inset-bottom));
       display: flex;
       flex-direction: column;
@@ -201,8 +212,9 @@
 
     .board-shell {
       position: relative;
-      touch-action: manipulation;
+      touch-action: pan-y;
       flex: 1;
+      min-height: 0;
       padding: clamp(10px, 1.4vw, 18px);
       background:
         radial-gradient(circle at top, rgba(255,255,255,0.09), transparent 36%),
@@ -212,7 +224,10 @@
       backdrop-filter: blur(16px) saturate(115%);
       -webkit-backdrop-filter: blur(16px) saturate(115%);
       box-shadow: var(--shadow);
-      overflow: hidden;
+      overflow: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
     }
 
     .board-shell::before {
@@ -1573,8 +1588,53 @@
         document.querySelectorAll(".card.pressed").forEach((card) => card.classList.remove("pressed"));
       }
 
+      function clearDragVisualState() {
+        document.querySelectorAll(".drag-source-hidden").forEach((card) => {
+          card.classList.remove("drag-source-hidden", "source-hidden");
+        });
+        document.querySelectorAll(".drag-valid-target").forEach((pile) => {
+          pile.classList.remove("drag-valid-target", "valid-target");
+        });
+        document.querySelectorAll(".drag-selected").forEach((card) => {
+          card.classList.remove("drag-selected", "selected");
+        });
+      }
+
+      function pileElementForKey(key) {
+        if (key === "stock") return els.stock;
+        if (key === "waste") return els.waste;
+        if (key.startsWith("foundation-")) {
+          const suit = key.slice("foundation-".length);
+          return els.foundationRow.querySelector(`[data-pile-suit="${suit}"]`);
+        }
+        if (key.startsWith("tableau-")) {
+          const index = key.slice("tableau-".length);
+          return els.tableau.querySelector(`[data-pile-index="${index}"]`);
+        }
+        return null;
+      }
+
+      function applyDragVisualState() {
+        clearDragVisualState();
+        if (!state.drag) return;
+
+        state.drag.hiddenIds.forEach((id) => {
+          const card = document.querySelector(`[data-card-id="${id}"]`);
+          if (card) card.classList.add("source-hidden", "drag-source-hidden");
+        });
+
+        state.drag.validTargets.forEach((key) => {
+          const pile = pileElementForKey(key);
+          if (pile) pile.classList.add("valid-target", "drag-valid-target");
+        });
+
+        const sourceCard = document.querySelector(`[data-card-id="${state.drag.cards[0]?.id}"]`);
+        if (sourceCard) sourceCard.classList.add("selected", "drag-selected");
+      }
+
       function cleanupInteractionState({ clearSelected = true } = {}) {
         clearPressedCards();
+        clearDragVisualState();
         els.dragLayer.innerHTML = "";
         state.drag = null;
         state.pointerState = null;
@@ -2429,7 +2489,7 @@
         state.selected = { ...source };
         state.validTargets = new Set(state.drag.validTargets);
         pointerState.dragged = true;
-        render();
+        applyDragVisualState();
         updateGhost(pointerState.lastX, pointerState.lastY);
         vibrate(8);
       }
@@ -2445,9 +2505,10 @@
         const pileEl = boardPileAtPoint(clientX, clientY);
         const destination = pileFromElement(pileEl);
 
-        // Clear the transient drag layer before mutating/rendering the board. Rendering
-        // with state.drag still active can leave source-hidden cards or floating ghosts
-        // on mobile Safari until a resize forces a repaint.
+        // Clear transient drag DOM before mutating/rendering the board. Rendering while
+        // drag classes or the drag ghost are still active can leave stale layers on
+        // mobile Safari until a later repaint.
+        clearDragVisualState();
         els.dragLayer.innerHTML = "";
         state.drag = null;
         state.selected = { ...drag.source };
@@ -2739,6 +2800,79 @@
         showToast(`Draw mode: ${state.drawCount}`);
       }
 
+      function recoverActiveInteraction({ rerender = true } = {}) {
+        if (!state.drag && !state.pointerState) return;
+        cleanupInteractionState({ clearSelected: true });
+        if (rerender) render();
+      }
+
+      function handleLostPointerCapture(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        setTimeout(() => {
+          if (state.pointerState && state.pointerState.pointerId === event.pointerId && state.drag) {
+            recoverActiveInteraction();
+          }
+        }, 0);
+      }
+
+      function nearestScrollGuardElement(target) {
+        if (!(target instanceof Element)) return null;
+        return target.closest(".modal-card, .board-shell");
+      }
+
+      function installBrowserRefreshGuards() {
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        document.addEventListener("touchstart", (event) => {
+          const touch = event.touches && event.touches[0];
+          if (!touch) return;
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+        }, { passive: true });
+
+        document.addEventListener("touchmove", (event) => {
+          if (event.touches.length !== 1) {
+            event.preventDefault();
+            return;
+          }
+
+          const target = event.target;
+          if (target instanceof Element && target.closest("input, textarea, select")) return;
+
+          const touch = event.touches[0];
+          const dx = touch.clientX - touchStartX;
+          const dy = touch.clientY - touchStartY;
+
+          if (state.drag || state.pointerState) {
+            event.preventDefault();
+            return;
+          }
+
+          const scroller = nearestScrollGuardElement(target);
+          if (!scroller) {
+            event.preventDefault();
+            return;
+          }
+
+          const canScroll = scroller.scrollHeight > scroller.clientHeight + 1;
+          if (!canScroll) {
+            event.preventDefault();
+            return;
+          }
+
+          const mostlyVertical = Math.abs(dy) >= Math.abs(dx);
+          if (!mostlyVertical) return;
+
+          const atTop = scroller.scrollTop <= 0;
+          const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+          if ((atTop && dy > 0) || (atBottom && dy < 0)) {
+            event.preventDefault();
+          }
+        }, { passive: false });
+      }
+
       function attachEvents() {
         els.board.addEventListener("pointerdown", (event) => {
           if (event.target.closest("button")) return;
@@ -2748,6 +2882,7 @@
         window.addEventListener("pointermove", handlePointerMove, { passive: true });
         window.addEventListener("pointerup", endPointerTracking);
         window.addEventListener("pointercancel", handlePointerCancel);
+        document.addEventListener("lostpointercapture", handleLostPointerCapture);
         window.addEventListener("resize", () => {
           applyCardSizePreset();
           if (state.drag || state.pointerState) cleanupInteractionState({ clearSelected: true });
@@ -2759,11 +2894,13 @@
           if (state.drag || state.pointerState) cleanupInteractionState({ clearSelected: true });
           if (!state.animating) scheduleSafeLayoutRefresh();
         });
-        window.addEventListener("blur", () => {
-          if (state.drag || state.pointerState) {
-            cleanupInteractionState({ clearSelected: true });
-            render();
-          }
+        window.addEventListener("blur", () => recoverActiveInteraction());
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") recoverActiveInteraction();
+        });
+        window.addEventListener("pagehide", () => {
+          recoverActiveInteraction({ rerender: false });
+          persistState(false);
         });
         ["gesturestart", "gesturechange", "gestureend"].forEach((eventName) => {
           document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
@@ -2851,6 +2988,7 @@
         buildStaticPiles();
         loadCardSizePreset();
         attachEvents();
+        installBrowserRefreshGuards();
         setupFeedbackModal();
         updateCardSizeButtons();
         schedulePeriodicAutosave();
