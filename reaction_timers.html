@@ -1166,15 +1166,19 @@
         const session = state.sessions[id];
         const trials = session.trials || [];
         const completedLatencies = trials.filter(t => t.correct !== false && Number.isFinite(t.ms)).map(t => t.ms);
+        const adjustedLatencies = trials.map(t => (Number.isFinite(t.ms) ? t.ms : 0) + (t.penalty || 0));
+        const totalPenalty = trials.reduce((sum, t) => sum + (t.penalty || 0), 0);
         const avgMs = avg(completedLatencies);
+        const adjustedAvgMs = avg(adjustedLatencies);
         const acc = accuracy(trials);
         const remaining = Math.max(0, session.targetTrials - trials.length);
 
         $("#currentStats").innerHTML = `
           <div class="pill-row" style="justify-content:flex-start">
             <div class="metric-pill">Trial ${Math.min(trials.length + 1, session.targetTrials)} / ${session.targetTrials}</div>
-            <div class="metric-pill">Avg ${fmtMs(avgMs)} ms</div>
-            <div class="metric-pill">Median ${fmtMs(median(completedLatencies))} ms</div>
+            <div class="metric-pill">Clean avg ${fmtMs(avgMs)} ms</div>
+            <div class="metric-pill">Adjusted ${fmtMs(adjustedAvgMs)} ms</div>
+            <div class="metric-pill">Penalty ${Math.round(totalPenalty)} ms</div>
             <div class="metric-pill">Accuracy ${Number.isFinite(acc) ? Math.round(acc) : "—"}%</div>
             <div class="metric-pill">${remaining} left</div>
           </div>
@@ -1182,7 +1186,7 @@
             ${trials.length ? trials.slice().reverse().map((t, i) => `
               <div class="history-row">
                 <span>${t.label || "Trial"}</span>
-                <span>${t.correct === false ? "miss" : fmtMs(t.ms) + " ms"}</span>
+                <span>${t.correct === false ? "miss" : fmtMs(t.ms) + " ms"}${t.penalty ? " +" + t.penalty : ""}</span>
                 <span class="tiny">${t.correct === false ? "✕" : "✓"}</span>
               </div>
             `).join("") : `<div class="empty">Start a run. Progress autosaves after each trial.</div>`}
@@ -1207,6 +1211,8 @@
         const stage = $("#stage");
         const content = $("#stageContent");
         stage.className = "stage";
+        stage.onclick = null;
+        stage.onpointerdown = null;
 
         if (id === "simple") return paintSimple(stage, content, session);
         if (id === "discrimination") return paintDiscrimination(stage, content, session);
@@ -1244,6 +1250,7 @@
       }
 
       function recordTrial(trial) {
+        resetRuntime();
         const id = state.activeGame;
         const session = state.sessions[id];
         session.trials.push({
@@ -1274,11 +1281,13 @@
         resetRuntime();
         const session = state.sessions[id];
         const valid = session.trials.filter(t => t.correct !== false && Number.isFinite(t.ms)).map(t => t.ms);
+        const adjusted = session.trials.map(t => (Number.isFinite(t.ms) ? t.ms : 0) + (t.penalty || 0));
         const summary = {
           id: cryptoId(),
           gameId: id,
           completedAt: unix(),
-          avgMs: avg(valid),
+          avgMs: avg(adjusted),
+          cleanAvgMs: avg(valid),
           medianMs: median(valid),
           bestMs: valid.length ? Math.min(...valid) : NaN,
           worstMs: valid.length ? Math.max(...valid) : NaN,
@@ -1313,7 +1322,7 @@
           content.innerHTML = `
             <div class="big-timer">READY</div>
             <div class="prompt">${session.lastMessage || "Tap Start to begin."}</div>
-            <div class="hint">The screen turns red while you wait. Tap only when it turns blue. False starts count as misses.</div>
+            <div class="hint">The screen turns red while you wait. When it turns blue, the entire blue screen is the tap target immediately.</div>
             <button class="wide-action primary" id="stageStart">Start Simple Reaction</button>
           `;
           $("#stageStart").addEventListener("click", startCurrentGame);
@@ -1322,26 +1331,23 @@
 
         if (session.pending === "wait") {
           stage.classList.add("ready-red");
+          stage.onpointerdown = falseStart;
           content.innerHTML = `
             <div class="big-timer">WAIT</div>
-            <div class="prompt">Do not tap yet.</div>
-            <div class="hint">Blue is your go signal.</div>
+            <div class="prompt">Red means hands off.</div>
+            <div class="hint">False starts add a 1000 ms penalty.</div>
           `;
-          stage.onclick = falseStart;
           return;
         }
 
         if (session.pending === "go") {
           stage.classList.add("go-blue");
+          stage.onpointerdown = simpleHit;
           content.innerHTML = `
             <div class="big-timer">TAP!</div>
-            <div class="prompt">React now.</div>
-            <button class="wide-action success" id="tapNow">Tap</button>
+            <div class="prompt">Tap anywhere on the blue screen.</div>
+            <div class="hint">No button. No delayed target. The whole panel is active.</div>
           `;
-          $("#tapNow").addEventListener("click", simpleHit);
-          stage.onclick = e => {
-            if (e.target.id !== "tapNow") simpleHit();
-          };
           return;
         }
 
@@ -1361,50 +1367,58 @@
         render();
         const delay = rand(1200, 4300);
         runtime.waitingSince = now();
+        runtime.inputLocked = false;
         runtime.timer = setTimeout(() => {
           state.sessions[id].pending = "go";
           state.sessions[id].updatedAt = unix();
-          runtime.trialStart = now();
           save();
           paintStage();
+          runtime.trialStart = now();
+          runtime.inputLocked = false;
           haptic(12);
         }, delay);
       }
 
-      function falseStart() {
+      function falseStart(event) {
+        if (event) event.preventDefault();
         const session = state.sessions.simple;
         if (session.status !== "running" || session.pending !== "wait") return;
-        clearTimeout(runtime.timer);
+        if (runtime.inputLocked) return;
+        runtime.inputLocked = true;
         recordTrial({
           game: "simple",
           label: "False start",
           ms: NaN,
           correct: false,
+          penalty: 1000,
           reason: "Tapped before blue"
         });
       }
 
-      function simpleHit() {
+      function simpleHit(event) {
+        if (event) event.preventDefault();
         const session = state.sessions.simple;
         if (session.status !== "running" || session.pending !== "go") return;
+        if (runtime.inputLocked) return;
+        runtime.inputLocked = true;
         const ms = now() - runtime.trialStart;
         session.pending = null;
         recordTrial({
           game: "simple",
           label: "Blue tap",
           ms,
-          correct: true
+          correct: true,
+          penalty: 0
         });
       }
 
       function makeVisitor() {
-        const alien = Math.random() < 0.5;
-        const alienFaces = ["👽","🛸","👾","🧪"];
-        const humanFaces = ["🧑‍🚀","👩‍🔬","👨‍💼","🧑‍🚒","🕵️"];
+        const isAlien = Math.random() < 0.38;
+        const decoys = ["🧑‍🚀","👩‍🔬","👨‍💼","🧑‍🚒","🕵️","🤖","🐸","🦊","🐙","🧛"];
         return {
-          target: alien ? "alien" : "civilian",
-          emoji: alien ? pick(alienFaces) : pick(humanFaces),
-          bg: alien
+          target: isAlien ? "alien" : "hold",
+          emoji: isAlien ? "👽" : pick(decoys),
+          bg: isAlien
             ? `radial-gradient(circle at 50% 18%, rgba(74,222,128,.34), transparent 46%), linear-gradient(135deg, rgba(16,185,129,.24), rgba(124,92,255,.18))`
             : `radial-gradient(circle at 50% 18%, rgba(49,211,255,.25), transparent 46%), linear-gradient(135deg, rgba(59,130,246,.20), rgba(255,255,255,.08))`
         };
@@ -1418,55 +1432,77 @@
         save();
         render();
         runtime.trialStart = now();
+        runtime.inputLocked = false;
+        const windowMs = session.prompt.target === "alien" ? 1600 : 1150;
+        runtime.timer = setTimeout(() => {
+          const s = state.sessions.discrimination;
+          if (s.status !== "running" || s.pending !== "choice") return;
+          if (s.prompt.target === "alien") {
+            recordTrial({
+              game: "discrimination",
+              label: "Missed alien",
+              ms: NaN,
+              correct: false,
+              penalty: 1500,
+              expected: "tap"
+            });
+          } else {
+            recordTrial({
+              game: "discrimination",
+              label: "Correct hold",
+              ms: NaN,
+              correct: true,
+              penalty: 0,
+              expected: "hold"
+            });
+          }
+        }, windowMs);
       }
 
       function paintDiscrimination(stage, content, session) {
         if (session.status !== "running") {
           content.innerHTML = `
             <div class="big-timer">SCAN</div>
-            <div class="prompt">${session.lastMessage || "Can you spot the alien?"}</div>
-            <div class="hint">Classify each character quickly and accurately.</div>
-            <button class="wide-action primary" id="stageStart">Start Civilian vs Alien</button>
+            <div class="prompt">${session.lastMessage || "Tap only for the alien."}</div>
+            <div class="hint">One symbol appears at a time. Tap only if it is exactly 👽. Everything else means do not tap.</div>
+            <button class="wide-action primary" id="stageStart">Start Alien Go / No-Go</button>
           `;
           $("#stageStart").addEventListener("click", startCurrentGame);
           return;
         }
 
         const p = session.prompt || makeVisitor();
+        stage.onpointerdown = answerDiscrimination;
         content.innerHTML = `
           <div class="pill-row">
             <div class="metric-pill">Trial ${session.trials.length + 1} / ${session.targetTrials}</div>
-            <div class="metric-pill">Choose identity</div>
+            <div class="metric-pill">Target: 👽 only</div>
+            <div class="metric-pill">False alarm +1000 ms</div>
           </div>
-          <div class="avatar-grid">
-            <button class="avatar-card" style="background:${p.bg}" data-answer="civilian">
-              <div class="avatar">🧑</div>
-              <div class="avatar-label">Civilian</div>
-            </button>
-            <button class="avatar-card" style="background:${p.bg}" data-answer="alien">
-              <div class="avatar">${p.emoji}</div>
-              <div class="avatar-label">Alien</div>
-            </button>
+          <div class="avatar-card" style="width:min(420px,100%);min-height:240px;background:${p.bg}">
+            <div class="avatar" style="font-size:6.5rem">${p.emoji}</div>
+            <div class="avatar-label">${p.target === "alien" ? "ALIEN: tap now" : "Not alien: hold"}</div>
           </div>
-          <div class="hint">Target shown: <strong style="font-size:1.5em">${p.emoji}</strong></div>
+          <div class="hint">${p.target === "alien" ? "Tap anywhere on the panel." : "Do not tap. The trial will advance automatically."}</div>
         `;
-        $$("[data-answer]", content).forEach(btn => {
-          btn.addEventListener("click", () => answerDiscrimination(btn.dataset.answer));
-        });
       }
 
-      function answerDiscrimination(answer) {
+      function answerDiscrimination(event) {
+        if (event) event.preventDefault();
         const session = state.sessions.discrimination;
         if (session.status !== "running" || session.pending !== "choice") return;
+        if (runtime.inputLocked) return;
+        runtime.inputLocked = true;
         const ms = now() - runtime.trialStart;
-        const correct = answer === session.prompt.target;
+        const correct = session.prompt.target === "alien";
         recordTrial({
           game: "discrimination",
-          label: correct ? session.prompt.target : `Wrong: ${answer}`,
+          label: correct ? "Alien hit" : "False alarm",
           ms,
           correct,
+          penalty: correct ? 0 : 1000,
           expected: session.prompt.target,
-          answer
+          answer: "tap"
         });
       }
 
@@ -1524,6 +1560,7 @@
           label: correct ? session.prompt.inkLabel : `Wrong: ${color}`,
           ms,
           correct,
+          penalty: correct ? 0 : 800,
           expected: session.prompt.ink,
           answer: color,
           word: session.prompt.word
@@ -1586,6 +1623,7 @@
           label: correct ? session.prompt.label : `Wrong: ${dir}`,
           ms,
           correct,
+          penalty: correct ? 0 : 800,
           expected: session.prompt.key,
           answer: dir
         });
