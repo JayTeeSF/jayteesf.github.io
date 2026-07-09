@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hey language docs - docs/stdlib/timer-counter-intrinsics.md</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <main class="container-fluid">
+    <div class="row">
+      <nav class="col-md-3 col-lg-2 p-3 border-end"><ul class="nav flex-column gap-1"><li class="nav-item"><a class="nav-link p-1" href="index_doc.html">README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__index_doc.html">docs/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__tutorial.html">docs/tutorial.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__00-quick-start.html">docs/00-quick-start.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__01-language-guide.html">docs/01-language-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__10-repl-recipes.html">docs/10-repl-recipes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__11-repl-guide.html">docs/11-repl-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__12-actors-and-mailboxes.html">docs/12-actors-and-mailboxes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__13-language-reference.html">docs/13-language-reference.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__modules-and-packages.html">docs/modules-and-packages.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__visibility-and-private-imports.html">docs/visibility-and-private-imports.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__multiline-strings.html">docs/multiline-strings.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__heyc.html">docs/heyc.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__index_doc.html">docs/stdlib/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__docs.html">docs/stdlib/docs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__jobs.html">docs/stdlib/jobs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__json-codecs.html">docs/stdlib/json-codecs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__package-authoring.html">docs/stdlib/package-authoring.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__static-files.html">docs/stdlib/static-files.md</a></li><li class="nav-item"><a class="nav-link p-1 fw-bold" href="docs__stdlib__timer-counter-intrinsics.html">docs/stdlib/timer-counter-intrinsics.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__vendor.html">docs/stdlib/vendor.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__web.html">docs/stdlib/web.md</a></li></ul></nav>
+      <article class="col-md-9 col-lg-10 p-4"><h1>Timer and counter semantic intrinsics</h1>
+
+<p>Status: roadmap/design note. This is not implemented yet.</p>
+
+<p>Hey should avoid introducing numeric subtypes just to make common runtime values safer or faster. `Timer` and counter-style modules can be standard-library porcelain with compiler-recognized intrinsic contracts underneath.</p>
+
+<p>The pattern is:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Public API: nice module abstraction
+Compiler view: known primitive with invariants
+Backend view: target-specific lowering
+</code></pre>
+
+<p>This keeps the language small while still giving the compiler enough facts to optimize and validate code.</p>
+
+<h2>Timer</h2>
+
+<p>A `Timer` module should expose monotonic time and elapsed-duration helpers:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>let timer = Timer.start()
+# work
+let elapsed = timer.elapsed_ns()
+</code></pre>
+
+<p>Suggested public surface:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Timer.now_ns      -&gt; monotonic instant
+Timer.start       -&gt; captured monotonic start instant
+Timer.elapsed_ns  -&gt; non-negative duration in nanoseconds
+Timer.elapsed_s   -&gt; floating reporting value derived from elapsed_ns
+</code></pre>
+
+<p>Compiler contract:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Timer.now_ns is effectful and nondeterministic.
+Timer.now_ns must not be reordered across observable effects unless a future explicit rule allows it.
+Timer.elapsed_ns returns signed Int64 with a proven non-negative invariant.
+Timer.elapsed_s is derived from elapsed_ns and exists for reporting, not as the core duration value.
+</code></pre>
+
+<p>The important value category is not unsigned arithmetic. It is a signed integer duration with a non-negative proof:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>DurationNs = signed Int64 where value &gt;= 0 when produced by Timer elapsed/difference APIs
+</code></pre>
+
+<p>That gives the optimizer a useful fact without inheriting unsigned wraparound bugs. For example, a branch checking whether a trusted elapsed duration is negative can be eliminated.</p>
+
+<p>Backend lowering should be implementation-specific but contract-compatible:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Native-C backend: clock_gettime(CLOCK_MONOTONIC, ...) or a Darwin monotonic primitive
+LLVM backend: runtime intrinsic or LLVM-compatible host call
+Self-hosted backend: emit the same runtime intrinsic call
+REPL: host runtime monotonic clock
+</code></pre>
+
+<p>All backends must agree on the same observable contract even if the host primitive differs.</p>
+
+<h2>Counter families</h2>
+
+<p>A single vague `Counter` would hide too much. Split the semantics so the compiler/runtime can use stronger facts:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Counter              mutable non-negative count
+MonotonicCounter     count that only increments
+AtomicCounter        shared/thread-safe counter
+ReductionCounter     worker-local counts merged at a structured join
+</code></pre>
+
+<p>Shared facts:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Counter.value &gt;= 0
+Counter.increment mutates state
+Counter.increment_by(k) is a checked add when k &gt;= 0
+Public APIs cannot underflow
+Overflow behavior must be explicit: trap, saturate, or return an error
+</code></pre>
+
+<p>Specialized facts:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>MonotonicCounter never decreases.
+AtomicCounter.increment must preserve explicit atomic ordering.
+ReductionCounter is valid only across structured job/supervisor joins.
+ReductionCounter may be privatized per worker and merged at the join point.
+</code></pre>
+
+<p>The biggest optimization is not choosing unsigned integers. It is recognizing reduction semantics. A hot parallel loop should not need every worker to perform expensive atomic increments when the work can be represented as worker-local counts plus a final sum.</p>
+
+<p>Possible Hey shape:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>let c = Counter.new()
+c.increment()
+c.increment_by(5)
+let n = c.value()
+</code></pre>
+
+<p>Possible reduction shape:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>let c = ReductionCounter.new()
+
+jobs.perform(items) do |item|
+  if item.valid?()
+    c.increment()
+  end
+end
+
+print(c.value())
+</code></pre>
+
+<p>Compiler/runtime lowering for the reduction case may become:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>worker_1_count += 1
+worker_2_count += 1
+...
+global_count = sum(worker_counts) at the structured join
+</code></pre>
+
+<h2>Invariant vocabulary</h2>
+
+<p>The useful future compiler signal is a small invariant vocabulary, not a full public type system:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Int64
+NonNegative&lt;Int64&gt;
+Positive&lt;Int64&gt;
+DurationNs
+MonotonicInstantNs
+CounterValue
+</code></pre>
+
+<p>These are compiler/backend facts. They do not require user-visible type declarations in the first implementation.</p>
+
+<p>The facts enable optimizations and safety checks such as:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>this value cannot be negative
+this value only increases
+this operation reads time and is not pure
+this counter can be reduced across workers
+</code></pre>
+
+<h2>Language and backend contracts</h2>
+
+<p>Document these as implementation-independent contracts before lowering them broadly:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Timer.now_ns:
+  - returns signed Int64 monotonic timestamp
+  - effectful and nondeterministic
+  - not pure
+  - lowered as a backend/runtime intrinsic
+
+DurationNs:
+  - signed Int64
+  - non-negative when produced by Timer elapsed/difference APIs
+  - convertible to Float/Double for reporting
+
+Counter:
+  - signed Int64 internally
+  - invariant: value &gt;= 0
+  - underflow unavailable through public API
+  - overflow behavior explicit
+
+MonotonicCounter:
+  - value never decreases
+  - decrement unavailable
+  - useful for metrics, ids, sequence numbers
+
+AtomicCounter:
+  - explicit atomic semantics
+  - backend lowers to host atomics/runtime atomic helpers
+
+ReductionCounter:
+  - valid only across structured job/supervisor joins
+  - backend/runtime may privatize and merge
+</code></pre>
+
+<h2>Roadmap rule</h2>
+
+<p>Start as standard-library modules backed by runtime intrinsics. Add tiny implementation-independent specs first, then lower the shared intrinsic contracts across native-c, self-hosted, LLVM, and the REPL. Do not add unsigned numeric types or public type syntax merely to support these modules.</p>
+</article>
+    </div>
+  </main>
+</body>
+</html>

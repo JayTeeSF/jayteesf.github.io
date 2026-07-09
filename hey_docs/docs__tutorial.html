@@ -1,0 +1,856 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hey language docs - docs/tutorial.md</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <main class="container-fluid">
+    <div class="row">
+      <nav class="col-md-3 col-lg-2 p-3 border-end"><ul class="nav flex-column gap-1"><li class="nav-item"><a class="nav-link p-1" href="index_doc.html">README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__index_doc.html">docs/README.md</a></li><li class="nav-item"><a class="nav-link p-1 fw-bold" href="docs__tutorial.html">docs/tutorial.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__00-quick-start.html">docs/00-quick-start.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__01-language-guide.html">docs/01-language-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__10-repl-recipes.html">docs/10-repl-recipes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__11-repl-guide.html">docs/11-repl-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__12-actors-and-mailboxes.html">docs/12-actors-and-mailboxes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__13-language-reference.html">docs/13-language-reference.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__modules-and-packages.html">docs/modules-and-packages.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__visibility-and-private-imports.html">docs/visibility-and-private-imports.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__multiline-strings.html">docs/multiline-strings.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__heyc.html">docs/heyc.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__index_doc.html">docs/stdlib/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__docs.html">docs/stdlib/docs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__jobs.html">docs/stdlib/jobs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__json-codecs.html">docs/stdlib/json-codecs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__package-authoring.html">docs/stdlib/package-authoring.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__static-files.html">docs/stdlib/static-files.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__timer-counter-intrinsics.html">docs/stdlib/timer-counter-intrinsics.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__vendor.html">docs/stdlib/vendor.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__web.html">docs/stdlib/web.md</a></li></ul></nav>
+      <article class="col-md-9 col-lg-10 p-4"><h1>Hey tutorial</h1>
+
+<p>Hey is an alpha compiled language for small, readable programs that still want native builds, actor-style concurrency, immutable data, built-in specs, and a path toward self-hosted tooling.</p>
+
+<p>Hey's quickest story is web-shaped: describe a route, handle a request with normal functions, return immutable response values, and move expensive work to Jobs when needed. The official web path is [`stdlib:web`](stdlib/web.md).</p>
+
+<p>This tutorial teaches the application-facing surface. Lower-level runtime, backend, and release-tracking details belong in reference, backend, and handoff docs.</p>
+
+<h2>How to read examples</h2>
+
+<p>Each larger example starts with a small contract block before the code:</p>
+
+<p>• **What it does** explains the user-facing behavior.</p>
+<p>• **Important calls** lists the main stdlib calls and what shape they return.</p>
+<p>• **Expected output** shows what you should see.</p>
+
+<p>Hey has a first alpha signature surface for cataloged symbols: `./bin/hey doc SYMBOL` and `./bin/heyc --describe SYMBOL`. Tutorial examples still document argument shapes inline while docs, CLI describe, and backend parity checks converge on one metadata source.</p>
+
+<h2>Hello</h2>
+
+<p>**What it does:** prints one line and also acts as its own test.</p>
+
+<p>Create `hello.hey`:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>spec 'hello'
+  expect stdout &quot;Hello, Hey!\n&quot;
+end
+
+program
+  says 'Hello, Hey!'
+end
+</code></pre>
+
+<p>Run it:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>./bin/heyc hello.hey --run
+./bin/heyc hello.hey --test
+</code></pre>
+
+<p>Expected output from `--run`:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Hello, Hey!
+</code></pre>
+
+<p>`program` is the entry point. `spec` is an executable contract for the file.</p>
+
+<h2>A tiny web app</h2>
+
+<p>**What it does:** defines one route, dispatches a request as an ordinary value, and returns JSON.</p>
+
+<p>**Important calls:**</p>
+
+<p>| Call | Meaning |</p>
+<p>|---|---|</p>
+<p>| `import 'stdlib:web'` | loads Hey's official web stdlib |</p>
+<p>| `web.get(path, handler)` | creates a GET route descriptor |</p>
+<p>| `web.routes([...])` | groups route descriptors |</p>
+<p>| `web.dispatch(routes, request)` | runs router/controller logic without opening a socket |</p>
+<p>| `web.json(value)` | returns a JSON response value |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>spec 'web health route'
+  expect stdout &quot;200\n{\&quot;ok\&quot;:true,\&quot;service\&quot;:\&quot;recall_coach\&quot;}\n&quot;
+end
+
+import 'stdlib:web'
+
+module HealthController
+  fn show(request)
+    return web.json({ok: true, service: 'recall_coach'})
+  end
+end
+
+program
+  let routes = web.routes([
+    web.get('/health', HealthController.show)
+  ])
+
+  let response = web.dispatch(routes, {
+    method: 'GET',
+    path: '/health',
+    headers: {},
+    body: ''
+  })
+
+  says response['status']
+  says response['body']
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>200
+{&quot;ok&quot;:true,&quot;service&quot;:&quot;recall_coach&quot;}
+</code></pre>
+
+<p>Dispatching without sockets helps because specs stay fast, deterministic, and free of port conflicts. `web.service(routes, options)` gives you a composable descriptor; real services cross the network boundary with `web.serve(...)`:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+
+program
+  let routes = web.routes([])
+  web.serve(routes, {host: '127.0.0.1', port: 3072, workers: 4})
+end
+</code></pre>
+
+<p>See the [web stdlib guide](stdlib/web.md) for route params, JSON bodies, file responses, middleware, secure headers, and Jobs integration.</p>
+
+<h2>Strings</h2>
+
+<p>Use single quotes for ordinary strings. Use double quotes when you need interpolation or escape sequences.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>program
+  let name = 'Ada'
+  says 'plain text'
+  says &quot;hello #{name}&quot;
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>plain text
+hello Ada
+</code></pre>
+
+<h2>Values, bindings, and interpolation</h2>
+
+<p>**Important calls and operators:**</p>
+
+<p>| Form | Meaning |</p>
+<p>|---|---|</p>
+<p>| `let name = value` | creates a binding in the current scope |</p>
+<p>| `set name = value` | rebinds an existing local name |</p>
+<p>| `#{expr}` | interpolates an expression into a double-quoted string |</p>
+<p>| `nil` | empty/no-value sentinel |</p>
+<p>| `==` | equality comparison |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>program
+  let name = 'Ada'
+  let answer = 40 + 2
+
+  says &quot;Hello, #{name}!&quot;
+  says &quot;answer: #{answer}&quot;
+  says answer == 42
+  says nil
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Hello, Ada!
+answer: 42
+true
+nil
+</code></pre>
+
+<p>Hey source currently avoids visible type ceremony. The compiler and runtime still collect type and shape facts for optimization and backend lowering.</p>
+
+<p>There is no dedicated `const` form yet. Treat `let` bindings as normal scoped bindings today; a future language slice should add immutable `const` declarations with parser, REPL, native-C, self-hosted-C, LLVM, and diagnostics coverage.</p>
+
+<h2>Immutable arrays, maps, and collection helpers</h2>
+
+<p>Hey arrays and maps are immutable values. Updating a collection returns a new value.</p>
+
+<p>**Important calls and operators:**</p>
+
+<p>| Form | Meaning |</p>
+<p>|---|---|</p>
+<p>| `[...xs, value]` | returns a new array with `value` appended |</p>
+<p>| `{...obj, key: value}` | returns a new map with updated fields |</p>
+<p>| `xs[index]` | reads an array item |</p>
+<p>| `obj['field']` | reads a field from a map |</p>
+<p>| `to_json(value)` | renders a Hey value as JSON text |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>program
+  let names = ['Ada', 'Grace']
+  let more = [...names, 'Katherine']
+  says to_json(more)
+  says more[1]
+
+  let user = {name: 'Ada', visits: 1}
+  let next = {...user, visits: user['visits'] + 1, city: 'SF'}
+  says to_json(next)
+
+  # Original values are unchanged.
+  says to_json(names)
+  says to_json(user)
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>[&quot;Ada&quot;,&quot;Grace&quot;,&quot;Katherine&quot;]
+Grace
+{&quot;name&quot;:&quot;Ada&quot;,&quot;visits&quot;:2,&quot;city&quot;:&quot;SF&quot;}
+[&quot;Ada&quot;,&quot;Grace&quot;]
+{&quot;name&quot;:&quot;Ada&quot;,&quot;visits&quot;:1}
+</code></pre>
+
+<p>Primitive helpers such as `push(collection, value)`, `put(map, key, value)`, `del`, and `delete` still exist. Prefer spread syntax in public examples unless the primitive itself is being documented. For higher-level helpers, import `stdlib:collections` and call functions such as `collections.first`, `collections.last`, `collections.includes`, `collections.uniq`, `collections.range`, `collections.sort`, `collections.zip`, `collections.chunk`, `collections.frequencies`, `collections.group_by_key`, and `collections.dig`.</p>
+
+<h2>JSON is a boundary</h2>
+
+<p>Hey object and array literals are core values. JSON is a codec over those values.</p>
+
+<p>**Important calls:**</p>
+
+<p>| Call | Arguments | Returns |</p>
+<p>|---|---|---|</p>
+<p>| `json.decode(text)` | JSON text | Hey object/array/string/number/bool/nil value |</p>
+<p>| `json.encode(value)` | Hey value | JSON text |</p>
+<p>| `keys(map)` | map | array of string keys |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:json'
+
+program
+  let user = json.decode(&quot;{\&quot;name\&quot;:\&quot;Ada\&quot;,\&quot;visits\&quot;:1}&quot;)
+  let next = {...user, visits: user['visits'] + 1}
+
+  says json.encode(next)
+  says to_json(keys(next))
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>{&quot;name&quot;:&quot;Ada&quot;,&quot;visits&quot;:2}
+[&quot;name&quot;,&quot;visits&quot;]
+</code></pre>
+
+<p>This keeps the language data model independent from any one wire format while preserving convenient JSON-shaped literals.</p>
+
+<h2>Functions</h2>
+
+<p>**Important forms:**</p>
+
+<p>| Form | Meaning |</p>
+<p>|---|---|</p>
+<p>| `fn name(args...) ... end` | defines a function |</p>
+<p>| `return value` | returns immediately |</p>
+<p>| final expression | can be the function result in the supported subset |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>fn greet(name)
+  return &quot;Hello, #{name}!&quot;
+end
+
+fn badge(name, visits)
+  &quot;#{name}: #{visits}&quot;
+end
+
+program
+  says greet('Ada')
+  says badge('Grace', 2)
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Hello, Ada!
+Grace: 2
+</code></pre>
+
+<p>A bare `return` exits the current function/program with no explicit value, which behaves as `nil` in value contexts.</p>
+
+<h2>Scope, modules, and imports</h2>
+
+<p>Modules group related functions and actors. Imports link definitions from another source file into the entry program.</p>
+
+<p>Current scope rules are intentionally conservative:</p>
+
+<p>• `let` bindings created inside `program`, `fn`, `actor`, loops, or branches are local to that block/function-style scope.</p>
+<p>• Module members live in their module namespace and should be called with the module prefix, such as `Greeter.hello(user)`.</p>
+<p>• Imports make another file's definitions available, but imported module members are still module-qualified.</p>
+<p>• There is no user-facing global variable scope today. Top-level source should contain imports, modules, actors, functions, specs, and one `program` entry point, not mutable global state.</p>
+<p>• There is no implicit main/root namespace automatically injected into every module. Shared state should be passed as values or returned from functions.</p>
+
+<p>`lib/greeter.hey`:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>module Greeter
+  fn hello(user)
+    return 'Hello, ' + user['name']
+  end
+end
+</code></pre>
+
+<p>`main.hey`:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'lib/greeter.hey'
+
+program
+  let user = {name: 'Ada'}
+  says Greeter.hello(user)
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Hello, Ada
+</code></pre>
+
+<p>Modules plus immutable maps are the current organization path. Hey does not need classes to start building useful programs.</p>
+
+<p>Python-like import conveniences such as `from Greeter import hello`, import aliases, or explicit re-export lists are useful future ergonomics, but they should be added deliberately with collision diagnostics and canonical-symbol support. Until that slice lands, examples should prefer explicit module prefixes because they make scope and ownership obvious.</p>
+
+<h2>Control flow and loops</h2>
+
+<p>Use `let` for a new binding and `set` to rebind a local name. `if`/`else`, `while`, `until`, and `for ... in` are the everyday control-flow forms.</p>
+
+<p>**Important forms:**</p>
+
+<p>| Form | Meaning |</p>
+<p>|---|---|</p>
+<p>| `if expr ... else ... end` | branch on truthiness |</p>
+<p>| `while expr ... end` | repeat while a condition remains true |</p>
+<p>| `until expr ... end` | repeat until a condition becomes true |</p>
+<p>| `for name in collection ... end` | iterate over an array-like value |</p>
+<p>| `fail message` | stop with a runtime error |</p>
+<p>| `return value` | exit the current function/program |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>program
+  let total = 0
+
+  while total &lt; 2
+    set total = total + 1
+  end
+
+  until total == 3
+    set total = total + 1
+  end
+
+  for name in ['Ada', 'Grace']
+    says 'hi ' + name
+  end
+
+  if total == 3
+    says 'done'
+  else
+    fail 'unexpected total'
+  end
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>hi Ada
+hi Grace
+done
+</code></pre>
+
+<p>For hot loops, keep scalar counters and strings in simple locals. That gives native-C and LLVM the best chance to stay on unboxed typed lanes instead of falling back to boxed dynamic values.</p>
+
+<h2>I/O</h2>
+
+<p>Hey has small public I/O statements today.</p>
+
+<p>**Important calls/statements:**</p>
+
+<p>| Form | Meaning |</p>
+<p>|---|---|</p>
+<p>| `says value` | stdout plus newline |</p>
+<p>| `print value` | stdout without newline |</p>
+<p>| `warn value` | stderr plus newline |</p>
+<p>| `write value` | stdout without newline |</p>
+<p>| `write path, text, mode` | writes text to a file |</p>
+<p>| `log path, text` | appends text to a log file |</p>
+<p>| `read(path)` | reads a file as text |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>program
+  says 'line'
+  print 'partial'
+  write ' value'
+  says ''
+  warn 'careful'
+
+  write 'build/tutorial.txt', &quot;first\n&quot;, 'w'
+  log 'build/tutorial.log', 'started'
+
+  let text = read('build/tutorial.txt')
+  says text
+end
+</code></pre>
+
+<p>The architecture goal is target-oriented I/O: files, sockets, buffers, and event loops plug into stable plumbing while higher-level convenience belongs in libraries.</p>
+
+<h2>Actors</h2>
+
+<p>Actors own state and communicate with messages.</p>
+
+<p>**Important forms:**</p>
+
+<p>| Form | Meaning |</p>
+<p>|---|---|</p>
+<p>| `actor name(args...) ... end` | defines an actor |</p>
+<p>| `spawn actor(args...)` | starts an actor and returns a pid/reference |</p>
+<p>| `send pid, message` | sends a message |</p>
+<p>| `receive msg` | binds the next received message |</p>
+<p>| `join pid` | waits for actor termination |</p>
+<p>| `exit` | exits the current actor |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>actor counter(label)
+  state count = 0
+  receive msg
+
+  if msg == 'inc'
+    set count = count + 1
+    says label + ': ' + count
+  else
+    if msg == 'stop'
+      exit
+    end
+  end
+end
+
+program
+  let visits = spawn counter('visits')
+  send visits, 'inc'
+  send visits, 'inc'
+  send visits, 'stop'
+  join visits
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>visits: 1
+visits: 2
+</code></pre>
+
+<p>Actors do not share mutable objects. Current runtime behavior clones values into FIFO mailboxes. The language direction is copied, immutable, uniquely moved, or explicitly share-safe messages.</p>
+
+<h2>Supervisors and jobs</h2>
+
+<p>The next step after plain actors is deciding how much infrastructure you want to own.</p>
+
+<p>Use supervision when you want direct control over one actor's lifecycle. Use `stdlib:jobs` when you want queue-shaped background work with worker ownership, result delivery, retry policy, and shutdown handled by library porcelain.</p>
+
+<h3>Supervision: small runtime plumbing</h3>
+
+<pre class="rounded bg-dark text-light p-3"><code>actor once
+  receive msg
+  says 'handled ' + msg
+  exit
+end
+
+program
+  let sup = supervise once max 3
+  send sup, 'one'
+  sleep 0.5
+  send sup, 'two'
+  sleep 0.5
+  stop sup
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>handled one
+handled two
+</code></pre>
+
+<h3>Jobs: stdlib porcelain over actors</h3>
+
+<p>**What it does:** starts a default job runtime, enqueues one import job, waits up to 1000ms for the result, prints the result, then stops the runtime.</p>
+
+<p>**Important calls:**</p>
+
+<p>| Call | Arguments | Returns |</p>
+<p>|---|---|---|</p>
+<p>| `jobs.start_default(worker_name)` | actor name as text | runtime object/pid bundle |</p>
+<p>| `jobs.perform_with_id(runtime, client_id, payload)` | runtime, string id, object payload | receipt object with an id |</p>
+<p>| `jobs.complete(job, value)` | job message, result value | completion acknowledgement |</p>
+<p>| `jobs.result_to(runtime, receipt, timeout_ms)` | runtime, receipt object, timeout integer | result object `{ok, value, ...}` |</p>
+<p>| `jobs.stop(runtime)` | runtime | shutdown result |</p>
+
+<p>Pasteable REPL/file example:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:jobs'
+
+actor import_worker
+  receive job
+  jobs.complete(job, {message: job['payload']['name'] + ' imported'})
+end
+
+program
+  let runtime = jobs.start_default('import_worker')
+  let receipt = jobs.perform_with_id(runtime, 'import-Ada', {name: 'Ada'})
+  let result = jobs.result_to(runtime, receipt, 1000)
+  says result['ok']
+  says result['value']['message']
+  let stopped = jobs.stop(runtime)
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>true
+Ada imported
+</code></pre>
+
+<p>The synchronous `result_to(runtime, receipt, timeout_ms)` form is tutorial porcelain. The actor-routing form is still available for programs that want actor-style result delivery: `jobs.result_to(runtime, receipt['id'], sink)` sends the completed result to `sink`, and `join sink` is the synchronization point.</p>
+
+<p>This is the plumbing/porcelain rule in practice: actors and supervision stay small and stable; queue policy, retries, durability, and result APIs live in the library.</p>
+
+<h2>Result values and expected failures</h2>
+
+<p>Use `fail` for bugs and actor crashes. Use Result values for expected failures.</p>
+
+<p>**Important calls:**</p>
+
+<p>| Call | Meaning |</p>
+<p>|---|---|</p>
+<p>| `result.ok(value)` | success result |</p>
+<p>| `result.error(message)` | failure result |</p>
+<p>| `result.is_ok(value)` | true when success |</p>
+<p>| `result.is_error(value)` | true when failure |</p>
+<p>| `result.value_or(value, default)` | unwraps success or returns default |</p>
+<p>| `result.message(value)` | error message |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:result'
+
+program
+  let cfg = result.error('missing config')
+  let ready = result.ensure(1 + 1 == 2, 'math broke')
+
+  says result.value_or(cfg, 'default')
+  says result.is_ok(ready)
+
+  if result.is_error(cfg)
+    warn result.message(cfg)
+  end
+end
+</code></pre>
+
+<p>Expected stdout:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>default
+true
+</code></pre>
+
+<p>Expected stderr:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>missing config
+</code></pre>
+
+<h2>CLI and safe process execution</h2>
+
+<p>For scripts, use `stdlib:cli` instead of hand-parsing flags.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:cli'
+
+program
+  let args = ['serve', '--port=3072', '--verbose', '--no-cache', 'public']
+  let parsed = cli.parse(args)
+
+  says cli.command(args, 'help')
+  says cli.parsed_int(parsed, 'port', 3072)
+  says cli.parsed_bool(parsed, 'verbose', false)
+  says cli.parsed_bool(parsed, 'cache', true)
+  says to_json(parsed['positionals'])
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>serve
+3072
+true
+false
+[&quot;serve&quot;,&quot;public&quot;]
+</code></pre>
+
+<p>When executing tools with user-provided values, prefer argv-shaped process execution over shell-shaped strings.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:process'
+import 'stdlib:text'
+
+program
+  let ran = process.run_argv(['/bin/echo', 'hello world'])
+  says ran['ok']
+  says text.chomp(ran['stdout'])
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>true
+hello world
+</code></pre>
+
+<h2>Text, regex-lite, collections, and debug helpers</h2>
+
+<p>The stdlib contains small batteries for common scripting work. Prefer these helpers over hand-rolled loops in user-facing examples.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:collections'
+import 'stdlib:text'
+import 'stdlib:debug'
+import 'stdlib:re'
+
+program
+  let names = ['Ada', 'Grace', 'Ada']
+  let records = [{name: 'Ada', team: 'compiler'}, {name: 'Grace', team: 'compiler'}]
+
+  says to_json(collections.uniq(names))
+  says to_json(collections.range(2, 5))
+  says collections.first(names)
+  says collections.includes(names, 'Grace')
+  says to_json(collections.group_by_key(records, 'team'))
+  says text.replace('hello world', 'world', 'Hey')
+  says text.strip_suffix('archive.zip', '.zip')
+  says re.matches('^h.llo$', 'hello')
+  says debug.typed_label('names', collections.uniq(names))
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>[&quot;Ada&quot;,&quot;Grace&quot;]
+[2,3,4]
+Ada
+true
+{&quot;compiler&quot;:[{&quot;name&quot;:&quot;Ada&quot;,&quot;team&quot;:&quot;compiler&quot;},{&quot;name&quot;:&quot;Grace&quot;,&quot;team&quot;:&quot;compiler&quot;}]}
+hello Hey
+archive
+true
+names: array
+</code></pre>
+
+<p>`stdlib:re` is regex-lite, not full Perl/Ruby/Python regex parity. It supports anchors, wildcard dot, simple quantifiers, scan, replace, and selected character-class/alternation behavior. Captures/backreferences/lookaround are not the portable baseline yet.</p>
+
+<h2>Packages, validation, debug events, and lower-level service descriptors</h2>
+
+<p>This section demonstrates stdlib porcelain: readable APIs that create structured values. Normal web apps should start with [`stdlib:web`](stdlib/web.md); this section shows lower-level package/debug/net descriptors.</p>
+
+<p>**What it does:** builds a package manifest, resolves a dependency, creates a validation result, formats a debug event, and describes an HTTP service.</p>
+
+<p>**Important calls:**</p>
+
+<p>| Call | Arguments | Returns |</p>
+<p>|---|---|---|</p>
+<p>| `packages.manifest(name, version, modules)` | string, string, array of module names | manifest object |</p>
+<p>| `packages.source(name, modules)` | string, array | source object |</p>
+<p>| `packages.with_source(manifest, source)` | manifest, source | manifest with source metadata |</p>
+<p>| `packages.registry(manifests)` | array of manifests | registry object |</p>
+<p>| `packages.dependency(name, version_req)` | string, version requirement | dependency object |</p>
+<p>| `packages.resolve(registry, dependency)` | registry, dependency | resolution object with a `code` field |</p>
+<p>| `errors.validation(field, code)` | field name, error code | validation error object |</p>
+<p>| `errors.validation_result(errors)` | array of validation errors | result object with an `error` field |</p>
+<p>| `debug.event(name, data)` | event name, object metadata | structured debug event |</p>
+<p>| `debug.log_line(event)` | debug event | text line |</p>
+<p>| `net.listener(host, port, options)` | host, port, object options | listener descriptor |</p>
+<p>| `net.route(method, path, handler)` | method, path, handler name | route descriptor |</p>
+<p>| `net.http_service(listener, routes)` | listener descriptor, array of routes | service descriptor |</p>
+<p>| `net.service_summary(service)` | service descriptor | object with summary fields such as `routes` |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:packages'
+import 'stdlib:debug'
+import 'stdlib:errors'
+import 'stdlib:net'
+
+program
+  let manifest = packages.with_source(
+    packages.manifest('cards', '1.0.0', ['cards']),
+    packages.source('stdlib', ['cards'])
+  )
+  says packages.import_path(manifest, 'cards')
+
+  let registry = packages.registry([manifest])
+  let resolved = packages.resolve(registry, packages.dependency('cards', '=1.0.0'))
+  says resolved['code']
+
+  let validation = errors.validation_result([errors.validation('name', 'required')])
+  says validation['error']
+
+  let event = debug.event('compile', {files: 3})
+  says debug.log_line(event)
+
+  let listener = net.listener('127.0.0.1', 3072, {concurrency: 8})
+  let service = net.http_service(listener, [net.route('GET', '/', 'home')])
+  says net.service_summary(service)['routes']
+end
+</code></pre>
+
+<p>Read this as a contract for application ergonomics. The package, validation, debug, and service values are ordinary Hey objects. The friendly API is the porcelain; lower-level details such as lockfile cache layout, diagnostic sinks, socket accept loops, TLS policy, and supervised listener workers are plumbing.</p>
+
+<p>This example matters for LLVM because it forces the backend to support realistic language shapes: imports, module-qualified calls, nested calls, arrays, object literals, string fields, boxed values, indexing, and structured return values.</p>
+
+<p>Production networking needs one additional step beyond descriptors. A clearer future shape would separate description from execution:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>let service = net.http_service(listener, routes)
+let server = net.serve(service)
+</code></pre>
+
+<p>Today, treat `net.http_service(...)` as “describe this service,” not “start serving internet traffic.”</p>
+
+<h2>Static files for service apps</h2>
+
+<p>The static-files layer is path-policy porcelain, not a complete HTTP server.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:static_files'
+
+program
+  write 'build/public-ok.txt', 'ok', 'w'
+
+  let good = static_files.read('build', '/public-ok.txt?cache=1')
+  says good['status']
+  says good['body']
+
+  let blocked = static_files.resolve('build', '../secret.txt')
+  says blocked['status']
+  says blocked['reason']
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>ok
+ok
+error
+unsafe-path
+</code></pre>
+
+<p>The current default rejects `..`, dotfiles, backslashes, colons, and percent-encoded input before reading. Future HTTP middleware still needs URL decoding, realpath/symlink confinement, MIME/cache/range/compression/sendfile, and actor-supervised socket integration.</p>
+
+<h2>EHY templates</h2>
+
+<p>`stdlib:ehy` is Hey's ERB-style template layer. Templates are plain text plus three tags:</p>
+
+<p>| Tag | Meaning |</p>
+<p>|---|---|</p>
+<p>| `&lt;% code %&gt;` | statement/code block |</p>
+<p>| `&lt;%= expr %&gt;` | interpolate expression |</p>
+<p>| `&lt;%# comment %&gt;` | comment, dropped entirely |</p>
+<p>| `-%&gt;` | trim the newline after the tag |</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:ehy'
+
+program
+  let t = 'Hello, &lt;%= name %&gt;!' + &quot;\n&quot; + '&lt;% for n in [1, 2] -%&gt;' + &quot;\n&quot; + 'n=&lt;%= n %&gt;' + &quot;\n&quot; + '&lt;% end -%&gt;' + &quot;\n&quot;
+  print ehy.result_with(t, {name: 'Ada'})
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>Hello, Ada!
+n=1
+n=2
+</code></pre>
+
+<p>`ehy.result_with(template, bindings)` turns each binding into a `let`, compiles the template to a standalone Hey program, runs it, and returns stdout.</p>
+
+<h2>Lower-level HTTP requests, responses, and routes</h2>
+
+<p>`stdlib:http` is the lower-level web roadmap's first protocol layer: a pure request/response data model, parser, serializer, and tiny route matcher. It has no socket dependency, so it can run anywhere the backend supports these value shapes.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:http'
+
+program
+  let raw = 'GET /posts/42?draft=1 HTTP/1.1' + &quot;\r\n&quot; + 'Host: example.test' + &quot;\r\n&quot; + &quot;\r\n&quot;
+  let req = http.parse_request(raw)
+
+  says get(req, 'method')
+  says get(req, 'path')
+  says get(get(req, 'params'), 'draft')
+  says http.header(req, 'Host')
+
+  let hit = http.route_match('/posts/:id', get(req, 'path'))
+  says get(get(hit, 'params'), 'id')
+
+  let resp = http.response(200, {'content-type': 'text/plain'}, 'hello')
+  print http.response_text(resp)
+end
+</code></pre>
+
+<p>Expected first lines:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>GET
+/posts/42
+1
+example.test
+42
+HTTP/1.1 200 OK
+</code></pre>
+
+<p>Requests are immutable objects with fields such as `method`, `target`, `path`, `query`, `params`, `version`, `headers`, and `body`. Header names normalize to lowercase on parse. `http.response_text` emits CRLF line endings and an automatic `content-length`.</p>
+
+<h2>REPL</h2>
+
+<p>Start the REPL:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>./bin/hey-repl
+</code></pre>
+
+<p>Example transcript:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>hey&gt; let xs = ['Ada']
+hey&gt; says to_json([...xs, 'next'])
+[&quot;Ada&quot;,&quot;next&quot;]
+hey&gt; quit
+</code></pre>
+
+<p>The REPL is native, not a Ruby shim. REPL examples should be pasteable. When a tutorial block imports stdlib code, it should be covered by a REPL spec.</p>
+
+<h2>Where to go next</h2>
+
+<p>• [Web stdlib](stdlib/web.md)</p>
+<p>• [Vendor stdlib](stdlib/vendor.md)</p>
+<p>• [Quick start](00-quick-start.md)</p>
+<p>• [Language reference](13-language-reference.md)</p>
+<p>• [Jobs stdlib](stdlib/jobs.md)</p>
+<p>• [Compiler CLI](heyc.md)</p>
+<p>• [Backend parity gap](backend/llvm-parity-gap.md)</p>
+
+<h2>Tutorial maintenance rules</h2>
+
+<p>A tutorial example is not complete unless it says what it does, explains the non-obvious calls, and shows expected output.</p>
+
+<p>New examples should prefer stdlib porcelain over raw primitives unless the tutorial is teaching the primitive itself. Raw socket/file/process/actor/runtime examples belong in reference docs and primitive-focused specs.</p>
+
+<p>When adding or changing a REPL-pasteable block, add or update a REPL spec. When adding a backend-specific example, say which backend it requires and why.</p>
+
+
+<h2>Keeping helpers private</h2>
+
+
+<h2>Multiline strings</h2>
+
+<p>Use triple-quoted strings when help text, HTML, or docs snippets are too large for one readable line:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>fn help_text()
+  return &quot;&quot;&quot;Usage:
+  hey app --name NAME
+  hey app --help
+&quot;&quot;&quot;
+end
+</code></pre>
+
+<p>See [Multiline strings](multiline-strings.md).</p>
+
+<p>When a module needs implementation helpers, use `private fn`. When a file needs an implementation dependency that should not become part of its public import surface, use `private import`. See [Visibility and private imports](visibility-and-private-imports.md).</p>
+</article>
+    </div>
+  </main>
+</body>
+</html>

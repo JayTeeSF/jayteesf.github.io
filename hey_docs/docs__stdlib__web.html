@@ -1,0 +1,348 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hey language docs - docs/stdlib/web.md</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <main class="container-fluid">
+    <div class="row">
+      <nav class="col-md-3 col-lg-2 p-3 border-end"><ul class="nav flex-column gap-1"><li class="nav-item"><a class="nav-link p-1" href="index_doc.html">README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__index_doc.html">docs/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__tutorial.html">docs/tutorial.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__00-quick-start.html">docs/00-quick-start.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__01-language-guide.html">docs/01-language-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__10-repl-recipes.html">docs/10-repl-recipes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__11-repl-guide.html">docs/11-repl-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__12-actors-and-mailboxes.html">docs/12-actors-and-mailboxes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__13-language-reference.html">docs/13-language-reference.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__modules-and-packages.html">docs/modules-and-packages.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__visibility-and-private-imports.html">docs/visibility-and-private-imports.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__multiline-strings.html">docs/multiline-strings.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__heyc.html">docs/heyc.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__index_doc.html">docs/stdlib/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__docs.html">docs/stdlib/docs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__jobs.html">docs/stdlib/jobs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__json-codecs.html">docs/stdlib/json-codecs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__package-authoring.html">docs/stdlib/package-authoring.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__static-files.html">docs/stdlib/static-files.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__timer-counter-intrinsics.html">docs/stdlib/timer-counter-intrinsics.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__vendor.html">docs/stdlib/vendor.md</a></li><li class="nav-item"><a class="nav-link p-1 fw-bold" href="docs__stdlib__web.html">docs/stdlib/web.md</a></li></ul></nav>
+      <article class="col-md-9 col-lg-10 p-4"><h1>Web stdlib (`stdlib:web`)</h1>
+
+<p>`stdlib:web` is Hey's official web surface. Use it for normal application code:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+</code></pre>
+
+<p>It sits above the lower-level `stdlib:http` parser/serializer and `stdlib:net` listener descriptors. The design goal is a small Rails-like request/router/response layer that keeps request handling readable, pure where possible, and ready to compose with actors and Jobs.</p>
+
+<h2>Why dispatch works without opening a socket</h2>
+
+<p>`web.dispatch(routes, request)` takes ordinary Hey values and returns an ordinary response value. That lets controller and routing specs run quickly and deterministically with no port conflicts, no sleeps, and no network flakiness.</p>
+
+<p>A real service still uses sockets at the boundary. In Hey that boundary is `web.serve(routes, options)`. Most app behavior should be tested below that boundary; a smaller number of integration specs can exercise `web.serve`/listener plumbing.</p>
+
+<h2>A tiny route</h2>
+
+<pre class="rounded bg-dark text-light p-3"><code>spec 'web health route'
+  expect stdout &quot;200\n{\&quot;ok\&quot;:true,\&quot;service\&quot;:\&quot;recall_coach\&quot;}\n&quot;
+end
+
+import 'stdlib:web'
+
+module HealthController
+  fn show(request)
+    return web.json({ok: true, service: 'recall_coach'})
+  end
+end
+
+program
+  let routes = web.routes([
+    web.get('/health', HealthController.show)
+  ])
+
+  let response = web.dispatch(routes, {
+    method: 'GET',
+    path: '/health',
+    headers: {},
+    body: ''
+  })
+
+  says response['status']
+  says response['body']
+end
+</code></pre>
+
+<p>Expected output:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>200
+{&quot;ok&quot;:true,&quot;service&quot;:&quot;recall_coach&quot;}
+</code></pre>
+
+<h2>Requests</h2>
+
+<p>A request is an immutable object:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>{
+  method: 'POST',
+  path: '/sessions/session_abc/responses',
+  params: {session_id: 'session_abc'},
+  query: {},
+  headers: {'content-type': 'application/json'},
+  body: '{&quot;card_id&quot;:&quot;card_1&quot;}',
+  request_id: 'req_123'
+}
+</code></pre>
+
+<p>Common helpers:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>web.method(request)
+web.path(request)
+web.params(request)
+web.param(request, 'session_id')
+web.query(request)
+web.query_param(request, 'page', '1')
+web.headers(request)
+web.header(request, 'content-type')
+web.body(request)
+web.json_body(request)
+web.user(request)
+</code></pre>
+
+<h2>Responses</h2>
+
+<p>A response is an immutable object:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>{status: 200, headers: {'content-type': 'application/json'}, body: '{&quot;ok&quot;:true}'}
+</code></pre>
+
+<p>Use helpers instead of hand-building responses:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>web.text('hello')
+web.html('&lt;h1&gt;Hello&lt;/h1&gt;')
+web.json({ok: true})
+web.created({id: 'card_1'})
+web.accepted({queued: true})
+web.bad_request({error: 'bad_request'})
+web.unauthorized({error: 'unauthorized'})
+web.forbidden({error: 'forbidden'})
+web.not_found({error: 'not_found'})
+web.conflict({error: 'conflict'})
+web.unprocessable({error: 'invalid'})
+web.server_error({error: 'server_error'})
+web.redirect('/next')
+</code></pre>
+
+<p>Render a response as HTTP text when you need to inspect or hand it to lower-level HTTP tooling:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>let response_text = web.response_text(web.text('ok'))
+</code></pre>
+
+<h2>Route params and JSON bodies</h2>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+
+module SessionsController
+  fn show(request)
+    return web.text(web.param(request, 'session_id'))
+  end
+end
+
+module ResponsesController
+  fn create(request)
+    let input = web.json_body(request)
+    return web.text(input['card_id'])
+  end
+end
+
+program
+  let routes = web.routes([
+    web.get('/sessions/:session_id', SessionsController.show),
+    web.post('/responses', ResponsesController.create)
+  ])
+end
+</code></pre>
+
+<p>A route miss returns `404`. A path match with the wrong method returns `405`.</p>
+
+<h2>Files from routes</h2>
+
+<p>For tutorials and small apps, route to files through `web.file(root, request_path)`. The helper delegates path safety to `stdlib:static_files`, rejecting traversal/dotfile/encoded unsafe paths before reading.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+
+module PublicFiles
+  fn show(request)
+    return web.file('public', web.param(request, 'name'))
+  end
+end
+
+program
+  let routes = web.routes([
+    web.get('/files/:name', PublicFiles.show)
+  ])
+end
+</code></pre>
+
+<h2>Middleware</h2>
+
+<pre class="rounded bg-dark text-light p-3"><code>let app = web.stack([
+  web.request_id(),
+  web.recover_errors(),
+  web.secure_headers(),
+  web.max_body(1048576),
+  web.rate_limit({key: 'user_or_ip', limit: 120, window_seconds: 60})
+], routes)
+</code></pre>
+
+<p>Current stdlib middleware behavior:</p>
+
+<p>• `web.request_id()` adds `request_id: 'req_1'` when a request is missing one.</p>
+<p>• `web.recover_errors()` converts handler failures into a `500` response.</p>
+<p>• `web.secure_headers()` adds conservative headers: `nosniff`, `DENY`, `no-referrer`, and `default-src 'self'`.</p>
+<p>• `web.max_body(bytes)` rejects oversized request bodies with `413`.</p>
+<p>• `web.require_json()` rejects bad JSON bodies with `400` before dispatch.</p>
+<p>• `web.log_requests()`, `web.rate_limit(policy)`, and `web.cors(policy)` are stable descriptors for upcoming runtime behavior.</p>
+
+<h2>Service boundary</h2>
+
+<p>Use port `3072` in examples and tutorials:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+
+program
+  let routes = web.routes([])
+
+  web.serve(routes, {
+    host: '127.0.0.1',
+    port: 3072,
+    workers: 4,
+    request_timeout_ms: 15000,
+    max_body_bytes: 1048576
+  })
+end
+</code></pre>
+
+<p>`web.service(routes, options)` returns a composable descriptor. `web.serve(routes, options)` marks the service boundary; the current alpha keeps it descriptor-shaped while the listener worker lifecycle continues to harden.</p>
+
+<h2>Jobs integration</h2>
+
+<p>Keep web requests small. Send expensive work to `stdlib:jobs` and return `202 Accepted`:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+import 'stdlib:jobs'
+
+module EvaluateSessionWorker
+  fn enqueue(input)
+    return {id: 'job_' + input['id']}
+  end
+end
+
+module SessionsController
+  fn finish(request)
+    let session_id = web.param(request, 'session_id')
+    let receipt = EvaluateSessionWorker.enqueue({id: session_id})
+
+    return web.accepted({
+      ok: true,
+      session_id: session_id,
+      evaluation_status: 'queued',
+      receipt_id: receipt['id']
+    })
+  end
+end
+</code></pre>
+
+<h2>Under the hood: routes, handler references, and dispatch</h2>
+
+<p>This route table stores handler references as values:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>let routes = web.routes([
+  web.get('/health', HealthController.show)
+])
+</code></pre>
+
+<p>`HealthController.show` is not called when the route table is built. The compiler stores the module-qualified function name as the handler value. `web.dispatch(routes, request)` then:</p>
+
+<p>1. scans the route descriptors in order,</p>
+<p>2. matches method and path,</p>
+<p>3. extracts `:params` into the request value,</p>
+<p>4. calls the handler with that enriched request,</p>
+<p>5. returns the handler's immutable response value.</p>
+
+<p>That is why controller specs can call `web.dispatch(...)` without sockets. It is also why handlers should stay small: parse the request, validate it, enqueue expensive work into Jobs, and return a response.</p>
+
+<h2>Long-running services and concurrency</h2>
+
+<p>Use `web.serve(routes, options)` as the service boundary:</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>web.serve(routes, {
+  host: '127.0.0.1',
+  port: 3072,
+  workers: 4,
+  request_timeout_ms: 15000,
+  max_body_bytes: 1048576
+})
+</code></pre>
+
+<p>In the current alpha, `web.service(...)` and `web.serve(...)` return service descriptors that include the listener options and a `net.worker_pool(...)` plan. The live listener lifecycle is still being hardened in `stdlib:net`; route/controller behavior should be tested with `web.dispatch(...)`, and deploy-time accept/read/write loops should remain behind the `web.serve(...)` boundary as the runtime matures.</p>
+
+<p>The intended concurrency model is:</p>
+
+<p>• each listener worker handles lightweight request parsing and dispatch;</p>
+<p>• request handlers remain synchronous and fast;</p>
+<p>• slow work is explicitly pushed into `stdlib:jobs` or actors;</p>
+<p>• actors own shared in-memory state such as chat rooms, counters, and presence;</p>
+<p>• Jobs own CPU-heavy or slow background work.</p>
+
+<p>`stdlib:web` does not secretly turn every request into a Job. That would make latency and ordering harder to reason about. Instead, the controller chooses when to enqueue work.</p>
+
+<h2>EHY form and shared-room example</h2>
+
+<p>This example shows the pieces you use for a small interactive app: EHY views, a form, dynamic time, and a shared room API that can later be backed by an actor. The dispatch version is socket-free so it is easy to test. The same routes are the ones you pass to `web.serve(...)`.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib:web'
+import 'stdlib:ehy'
+
+module Views
+  fn layout(title, body)
+    return ehy.result_with('&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;&lt;title&gt;&lt;%= title %&gt;&lt;/title&gt;&lt;/head&gt;&lt;body&gt;&lt;%= body %&gt;&lt;/body&gt;&lt;/html&gt;', {title: title, body: body})
+  end
+
+  fn form()
+    return Views.layout('Hello', '&lt;form action=&quot;/hello&quot; method=&quot;GET&quot;&gt;&lt;input name=&quot;name&quot;&gt;&lt;button&gt;Say hello&lt;/button&gt;&lt;/form&gt;')
+  end
+
+  fn hello(name, current)
+    return Views.layout('Hello ' + name, '&lt;h1&gt;Hello &lt;%= name %&gt;&lt;/h1&gt;&lt;p&gt;Now: &lt;%= current %&gt;&lt;/p&gt;')
+  end
+end
+
+module Room
+  fn snapshot(messages)
+    return {count: len(messages), messages: messages}
+  end
+
+  fn add(messages, from, text)
+    return [...messages, {from: from, text: text}]
+  end
+end
+
+module PeopleController
+  fn form(request)
+    return web.html(Views.form())
+  end
+
+  fn hello(request)
+    let name = web.query_param(request, 'name', 'friend')
+    return web.html(Views.hello(name, now_ns()))
+  end
+end
+
+module RoomController
+  fn show(request)
+    let snapshot = Room.snapshot([])
+    return web.json(snapshot)
+  end
+end
+
+program
+  let routes = web.routes([
+    web.get('/', PeopleController.form),
+    web.get('/hello', PeopleController.hello),
+    web.get('/room', RoomController.show)
+  ])
+
+  web.serve(routes, {host: '127.0.0.1', port: 3072, workers: 4})
+end
+</code></pre>
+
+<p>For a real multi-tab chat, make `Room` an actor with one mailbox-owned message list. Each browser request sends a message to that actor: direct messages include a target user, and broadcast messages append to the shared room. The controller should only validate, send to the actor, and render the current snapshot.</p>
+</article>
+    </div>
+  </main>
+</body>
+</html>

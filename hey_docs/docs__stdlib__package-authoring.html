@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hey language docs - docs/stdlib/package-authoring.md</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <main class="container-fluid">
+    <div class="row">
+      <nav class="col-md-3 col-lg-2 p-3 border-end"><ul class="nav flex-column gap-1"><li class="nav-item"><a class="nav-link p-1" href="index_doc.html">README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__index_doc.html">docs/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__tutorial.html">docs/tutorial.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__00-quick-start.html">docs/00-quick-start.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__01-language-guide.html">docs/01-language-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__10-repl-recipes.html">docs/10-repl-recipes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__11-repl-guide.html">docs/11-repl-guide.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__12-actors-and-mailboxes.html">docs/12-actors-and-mailboxes.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__13-language-reference.html">docs/13-language-reference.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__modules-and-packages.html">docs/modules-and-packages.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__visibility-and-private-imports.html">docs/visibility-and-private-imports.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__multiline-strings.html">docs/multiline-strings.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__heyc.html">docs/heyc.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__index_doc.html">docs/stdlib/README.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__docs.html">docs/stdlib/docs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__jobs.html">docs/stdlib/jobs.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__json-codecs.html">docs/stdlib/json-codecs.md</a></li><li class="nav-item"><a class="nav-link p-1 fw-bold" href="docs__stdlib__package-authoring.html">docs/stdlib/package-authoring.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__static-files.html">docs/stdlib/static-files.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__timer-counter-intrinsics.html">docs/stdlib/timer-counter-intrinsics.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__vendor.html">docs/stdlib/vendor.md</a></li><li class="nav-item"><a class="nav-link p-1" href="docs__stdlib__web.html">docs/stdlib/web.md</a></li></ul></nav>
+      <article class="col-md-9 col-lg-10 p-4"><h1>Authoring a third-party Hey package</h1>
+
+<p>This page shows the current package shape for a small third-party package. It is intentionally file-first and cache-first: package metadata is ordinary Hey data, modules are copied into a local cache, and trust is enforced with SHA-256 checksums before install.</p>
+
+<h2>Suggested layout</h2>
+
+<pre class="rounded bg-dark text-light p-3"><code>flashcards_tools/
+  src/
+    flashcards/main.hey
+    flashcards/format.hey
+  docs/
+    README.md
+  tests/
+    format_spec.hey
+</code></pre>
+
+<p>The package source path points at the directory containing the module files named in the manifest. Nested module names map to nested `.hey` files.</p>
+
+<h2>Manifest, lock, and verified local install</h2>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib/packages.hey'
+import 'stdlib/result.hey'
+
+program
+  let manifest = packages.manifest('flashcards_tools', '0.1.0', ['flashcards/main', 'flashcards/format'])
+  let dep = packages.dependency('stdlib/http', '=0.99.114a')
+  let package = packages.add_dependency(manifest, dep)
+  let source = packages.file_source('src', ['flashcards/main', 'flashcards/format'])
+  let trusted = result.value(packages.trust_source(source, package))
+  let lock = packages.lockfile(package, [packages.lock_dependency(dep, '0.99.114a', packages.sha256('known-dependency-digest'))])
+  let installed = packages.install_verified_local('build/pkg-cache', package, trusted, lock)
+  says result.is_ok(installed)
+end
+</code></pre>
+
+<p>Use `packages.install_verified_local` for local development whenever you want the same trust boundary as a fetched package. It recomputes the SHA-256 digest over the declared source modules and rejects untrusted or mismatched sources before copying files into the cache.</p>
+
+<h2>File and remote fetch primitives</h2>
+
+<p>For package archives or registry responses, fetch the bytes first, verify SHA-256, then install the unpacked source directory.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib/packages.hey'
+import 'stdlib/crypto.hey'
+import 'stdlib/result.hey'
+
+program
+  let expected = packages.sha256(crypto.sha256_text('abc'))
+  let local = packages.fetch_file('fixtures/pkg.txt', 'build/pkg.txt', expected)
+  says result.is_ok(local)
+
+  let remote = packages.remote_source('http://packages.example.test/flashcards_tools-0.1.0.zip', ['flashcards/main'])
+  says remote['transport']
+  # packages.fetch_remote(remote['url'], 'build/flashcards_tools.zip', expected)
+end
+</code></pre>
+
+<p>`packages.fetch_remote` performs a real `http://` GET through the runtime networking primitive and verifies the downloaded body with SHA-256. HTTPS/TLS policy remains explicit: use a reverse proxy or signed/checksummed artifacts until native TLS support is added.</p>
+
+
+<h2>Dependency isolation and import scope</h2>
+
+<p>Modules remain namespaces. Package isolation is a tooling/manifest contract layered on top of modules rather than a new object system. Use top-level imports for app-owned modules; use package manifests, locks, cache paths, and scoped namespaces for third-party code. A locked dependency resolves inside its own versioned namespace, so the app and two packages can depend on different versions without stomping each other.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib/packages.hey'
+
+program
+  let app = packages.manifest('cards', '1.0.0', ['main'])
+  let dep = packages.dependency('shared-tools', '=2.1.0')
+  let locked = packages.lock_dependency(dep, '2.1.0', packages.sha256('digest'))
+  let scope = packages.dependency_scope(app, locked)
+  says packages.namespace(app)
+  says packages.scoped_module(app, 'main')
+  says packages.scoped_import_path('pkg-cache', app, 'main')
+  says scope['dependency_namespace']
+end
+</code></pre>
+
+<p>This is the current answer to “imports inside a module/package”: they are private implementation imports for that owner scope. Public app imports stay above the module/program. Future import-generation tooling should write cache paths and canonical symbols from the lockfile instead of consulting the app's dependency versions.</p>
+
+<h2>Import aliases</h2>
+
+<p>Aliases are metadata today, pinned so tooling can generate readable imports later without inventing a new shape.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib/packages.hey'
+
+program
+  let alias = packages.import_alias('flashcards/main', 'cards')
+  says alias['alias'] + '/' + alias['module']
+end
+</code></pre>
+
+<h2>Semver ranges and generated docs</h2>
+
+<p>Use semver records for tooling decisions instead of comparing version strings by hand. `packages.caret_range(...)` and `packages.range_requirement(...)` let a registry choose the newest compatible package, while `packages.docs_markdown(...)` gives package authors a generated README starting point.</p>
+
+<pre class="rounded bg-dark text-light p-3"><code>import 'stdlib/packages.hey'
+import 'stdlib/result.hey'
+
+program
+  let parsed = result.value(packages.parse_semver('1.4.0'))
+  let range = packages.caret_range(parsed)
+  let dep = packages.dependency('flashcards_tools', packages.range_requirement(range))
+  let registry = packages.registry([
+    packages.manifest('flashcards_tools', '1.3.0', ['flashcards/main']),
+    packages.manifest('flashcards_tools', '1.4.0', ['flashcards/main'])
+  ])
+  let selected = result.value(packages.resolve_best(registry, dep))
+  let docs = packages.docs_markdown(selected, [packages.module_doc('flashcards/main', 'Reusable flashcard helpers.')])
+  says packages.id(selected)
+  says docs
+end
+</code></pre>
+</article>
+    </div>
+  </main>
+</body>
+</html>
