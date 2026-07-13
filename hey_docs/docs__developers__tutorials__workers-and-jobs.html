@@ -151,7 +151,7 @@ completed
 
 <p>`'Doubles'` is the operational name used by metrics and diagnostics. It is not a function-name string used for dispatch; the second argument is the actual worker value.</p>
 
-<p>`count: 2` fixes the current number of worker instances. Adaptive `min`/`max` scaling is a later slice.</p>
+<p>`count: 2` fixes the number of worker instances. Fixed Jobs remain useful when reproducibility matters more than elasticity.</p>
 
 <p>`capacity: 8` bounds work waiting to start. The bound prevents an overloaded producer from consuming memory indefinitely.</p>
 
@@ -166,6 +166,26 @@ completed
 <ul><li>`status`: `completed`, `failed`, `cancelled`, `rejected`, `timeout`, or `unknown`;</li><li>`ok`: `true` only for successful completion;</li><li>`value`: the worker's returned value on success;</li><li>`error`: the failure reason when `ok` is false;</li><li>`attempts`: how many handler attempts were made.</li></ul>
 
 <p>The `1000` timeout bounds the caller's wait. It does not currently kill a native handler that is already running.</p>
+
+<h2>Adaptive queue-latency scaling</h2>
+
+<p>Use the complete adaptive option trio instead of `count:` when a Job should respond to queue pressure:</p>
+
+<pre><code>let Previews = jobs.define(
+  'Previews',
+  RenderPreview,
+  min_workers: 1,
+  max_workers: 8,
+  target_queue_latency_ms: 25,
+  capacity: 256
+)
+</code></pre>
+
+<p>`min_workers` is both the initial size and the idle floor. `max_workers` is a hard ceiling. `target_queue_latency_ms` is the oldest queued-work age that asks the pool to grow. The runtime also considers backlog per live worker, but starts or retires at most one lightweight worker per rate interval. These workers run on the existing managed scheduler rather than owning operating-system threads.</p>
+
+<p>When the queue drains and all turns remain idle, the pool retires workers gradually until it reaches `min_workers`. Fixed `count:` and adaptive options are intentionally mutually exclusive.</p>
+
+<p>`Previews.status().pool` exposes `current_workers`, `desired_workers`, `peak_workers`, `oldest_queue_wait_ns`, `scale_up_events`, `scale_down_events`, `workers_started`, `workers_retired`, and `last_scale_reason`.</p>
 
 <h2>Retries and explicit failure acknowledgements</h2>
 
@@ -295,9 +315,9 @@ end
 
 <ul><li>`durable`: whether journaling is enabled;</li><li>`journal_events`: records read or written since definition;</li><li>`journal_errors`: failed reads, parses, writes, synchronizations, or compactions;</li><li>`replayed`: enqueue records restored from the journal.</li></ul>
 
-<h2>Deterministic retry tests</h2>
+<h2>Deterministic retry and scaling tests</h2>
 
-<p>Reliability tests should not sleep for arbitrary wall-clock intervals. The test clock controls only the Jobs retry timer:</p>
+<p>Reliability and scaling tests should not sleep merely to age retry, queue, or idle deadlines. The Jobs test clock controls retry deadlines and adaptive scaling decisions:</p>
 
 <pre><code>let started_at = jobs.test_clock_set(0)
 let advanced_to = jobs.test_clock_advance(100)
@@ -305,9 +325,9 @@ let advanced_to = jobs.test_clock_advance(100)
 
 <p>`jobs.test_clock_set(milliseconds)` enables the manual Jobs clock and sets its absolute value.</p>
 
-<p>`jobs.test_clock_advance(milliseconds)` moves it forward and wakes the retry timer thread immediately.</p>
+<p>`jobs.test_clock_advance(milliseconds)` moves it forward, wakes the retry timer thread, and makes the new time visible to scaling decisions.</p>
 
-<p>These helpers make retry/backoff specs deterministic. They do not change file, network, process, or general `time.now_ns()` behavior.</p>
+<p>These helpers make retry/backoff and scale-up/scale-down specs deterministic. They do not change file, network, process, or general `time.now_ns()` behavior.</p>
 
 <h2>Choosing the abstraction</h2>
 

@@ -31,7 +31,9 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 <pre><code>let ImportUsers = jobs.define(
   'ImportUsers',
   ImportUser,
-  count: 4,
+  min_workers: 2,
+  max_workers: 12,
+  target_queue_latency_ms: 25,
   capacity: 256,
   retries: 2,
   backoff_ms: 100,
@@ -46,7 +48,9 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 
 <p>Arguments and options:</p>
 
-<ul><li>`'ImportUsers'`: human-readable operational name used by status, diagnostics, and journal filtering;</li><li>`ImportUser`: the actual worker value, not a string used for dispatch;</li><li>`count`: fixed worker instances in the current slice;</li><li>`capacity`: bounded messages waiting to start;</li><li>`retries`: attempts allowed after the first failed attempt;</li><li>`backoff_ms`: delay before the first retry;</li><li>`max_backoff_ms`: cap for exponential retry delay;</li><li>`result_capacity`: retained receipt/result records;</li><li>`dead_letter_capacity`: retained terminal failures;</li><li>`idempotency_capacity`: remembered message idempotency keys;</li><li>`journal_path`: optional append-only durable journal; parent directory must exist;</li><li>`journal_compact_after`: event count that triggers atomic snapshot compaction.</li></ul>
+<ul><li>`'ImportUsers'`: human-readable operational name used by status, diagnostics, and journal filtering;</li><li>`ImportUser`: the actual worker value, not a string used for dispatch;</li><li>`count`: a fixed worker count; use this alone for deterministic fixed-size Jobs;</li><li>`min_workers`: adaptive pool floor and initial worker count;</li><li>`max_workers`: adaptive pool ceiling;</li><li>`target_queue_latency_ms`: oldest queued-work latency that triggers bounded scale-up;</li><li>`capacity`: bounded messages waiting to start;</li><li>`retries`: attempts allowed after the first failed attempt;</li><li>`backoff_ms`: delay before the first retry;</li><li>`max_backoff_ms`: cap for exponential retry delay;</li><li>`result_capacity`: retained receipt/result records;</li><li>`dead_letter_capacity`: retained terminal failures;</li><li>`idempotency_capacity`: remembered message idempotency keys;</li><li>`journal_path`: optional append-only durable journal; parent directory must exist;</li><li>`journal_compact_after`: event count that triggers atomic snapshot compaction.</li></ul>
+
+<p>Choose either `count:` or the complete adaptive trio `min_workers:`, `max_workers:`, and `target_queue_latency_ms:`. Mixing the fixed and adaptive forms, or supplying only part of the adaptive trio, is rejected. Adaptive workers are lightweight pooled actors on the existing managed scheduler; scaling does not create one operating-system thread per worker. Scale-up and retirement are rate-limited, and sustained idleness returns the pool to `min_workers`.</p>
 
 <p>Without `journal_path`, the Job is process-local. With it, accepted work and terminal outcomes are synchronized before the runtime reports their state transition.</p>
 
@@ -150,7 +154,7 @@ end
 jobs.test_clock_advance(100)
 </code></pre>
 
-<p>These test helpers control only the Jobs retry timer. Advancing the clock wakes delayed retries immediately, so specs need no arbitrary sleeps.</p>
+<p>These test helpers control Jobs retry deadlines and adaptive scaling decisions. Advancing the clock wakes delayed retries and lets specs age queued or idle work without arbitrary wall-clock sleeps. They do not alter file, network, process, or general time APIs.</p>
 
 <h2>Status</h2>
 
@@ -160,6 +164,8 @@ jobs.test_clock_advance(100)
 <p>Job fields include:</p>
 
 <ul><li>`enqueued`, `completed`, `failed`, `retried`, `cancelled`, `rejected`;</li><li>`retry_delay_total_ms`;</li><li>`idempotent_reuses`;</li><li>`pending_results`, `dead_letters`;</li><li>`durable`, `journal_events`, `journal_errors`, `replayed`;</li><li>`pool`, containing the worker-pool status fields.</li></ul>
+
+<p>Adaptive pool status includes `adaptive`, `current_workers`, `desired_workers`, `min_workers`, `max_workers`, `peak_workers`, `oldest_queue_wait_ns`, `target_queue_latency_ms`, `scale_up_events`, `scale_down_events`, `workers_started`, `workers_retired`, and `last_scale_reason`. Fixed `count:` Jobs report `adaptive: false` and keep their configured worker count.</p>
 
 <h2>Stop</h2>
 
