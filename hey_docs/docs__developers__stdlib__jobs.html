@@ -38,8 +38,11 @@ program
     count: 4,
     capacity: 256,
     retries: 2,
+    backoff_ms: 100,
+    max_backoff_ms: 5000,
     result_capacity: 1024,
-    dead_letter_capacity: 128
+    dead_letter_capacity: 128,
+    idempotency_capacity: 4096
   )
 end
 </code></pre>
@@ -67,7 +70,7 @@ worker ResizeImage(image)
 end
 </code></pre>
 
-<p>A failed attempt is retried up to the Job's `retries:` limit. The current retry policy is immediate. Delayed backoff is the next reliability step.</p>
+<p>A failed attempt is retried up to the Job's `retries:` limit. `backoff_ms:` sets the first delay and `max_backoff_ms:` caps exponential backoff. Delayed retries wait on one runtime timer queue; they do not occupy a worker instance.</p>
 
 <h2>Enqueue and receive a result</h2>
 
@@ -90,7 +93,28 @@ end
 
 <p>The timeout passed to `jobs.result(...)` bounds how long the caller waits. It does not yet interrupt a handler that is already running.</p>
 
-<p>Completed results are removed when consumed. `result_capacity:` bounds unconsumed result records; enqueue rejects additional work rather than growing beyond that bound.</p>
+<p>Completed results remain available until bounded pruning removes the oldest completed record. `result_capacity:` bounds retained records; enqueue rejects additional work when no completed record can be pruned without violating an active receipt.</p>
+
+
+<h2>Idempotency</h2>
+
+<p>Include an `idempotency_key` in an immutable message when duplicate submissions must reuse one execution:</p>
+
+<pre><code>let first = ImportUsers.enqueue({
+  idempotency_key: 'user-42',
+  user_id: 42
+})
+
+let duplicate = ImportUsers.enqueue({
+  idempotency_key: 'user-42',
+  user_id: 42
+})
+
+says first.id == duplicate.id
+says duplicate.duplicate
+</code></pre>
+
+<p>`idempotency_capacity:` bounds remembered keys. A duplicate returns the original receipt and retained result instead of enqueueing another worker turn. This is in-process idempotency; durable cross-process replay remains a later milestone.</p>
 
 <h2>Cancellation</h2>
 
@@ -120,6 +144,8 @@ says status.enqueued
 says status.completed
 says status.failed
 says status.retried
+says status.retry_delay_total_ms
+says status.idempotent_reuses
 says status.cancelled
 says status.rejected
 says status.pending_results
@@ -138,11 +164,11 @@ says status.pool.queue_wait_avg_ns
 
 <h2>Complete reliability example</h2>
 
-<p>Run `examples/jobs_reliability.hey`; the focused contracts are `specs/language/975_named_jobs_reliability.hey` and `specs/language/976_named_jobs_cancellation.hey`.</p>
+<p>Run `examples/jobs_reliability.hey` and `examples/jobs_backoff_idempotency.hey`; the focused contracts are `specs/language/975_named_jobs_reliability.hey`, `specs/language/976_named_jobs_cancellation.hey`, and `specs/language/977_named_jobs_backoff_idempotency.hey`.</p>
 
 <h2>Delivery contract</h2>
 
-<p>The current runtime is in-process. It provides bounded retries and result/dead-letter lifecycle, but does not yet claim durable at-least-once replay. Handlers should be idempotent so persistent retries can be added without changing application semantics.</p>
+<p>The current runtime is in-process. It provides bounded delayed retries, bounded idempotency reuse, and result/dead-letter lifecycle, but does not yet claim durable at-least-once replay. Running-handler interruption also remains open until compiler-injected cancellation safe points exist. Handlers should still be idempotent so durable replay can be added without changing application semantics.</p>
 </main>
   </div>
   <script>
