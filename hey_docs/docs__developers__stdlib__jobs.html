@@ -22,7 +22,7 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
     </aside>
     <main class="docs-content"><header class="docs-kind-banner" data-doc-kind="user"><span class="docs-badge docs-badge-user" data-doc-kind="user">Hey developer documentation</span><span>Audience-specific Hey documentation</span></header><h1>Jobs</h1>
 
-<p>Jobs are Hey's preferred public interface for background work. A Job owns a bounded pool of stateless workers and provides receipts, results, metrics, and lifecycle without exposing mailboxes or channels.</p>
+<p>Jobs are Hey's normal interface for managed background and parallel work. A Job owns a bounded pool of stateless workers and provides receipts, acknowledgements, retries, results, cancellation, dead letters, metrics, and lifecycle without exposing mailboxes or channels.</p>
 
 <h2>Define a Job</h2>
 
@@ -32,52 +32,85 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 end
 
 program
-  let ImportUsers = jobs.define('ImportUsers', ImportUser, count: 4, capacity: 256)
+  let ImportUsers = jobs.define(
+    'ImportUsers',
+    ImportUser,
+    count: 4,
+    capacity: 256,
+    retries: 2,
+    result_capacity: 1024,
+    dead_letter_capacity: 128
+  )
 end
 </code></pre>
 
-<p>`jobs.define(...)` binds directly to the worker declaration. It does not use a function-name or actor-name string.</p>
+<p>`jobs.define(...)` binds directly to a worker declaration.</p>
 
-<p>No import is required for `jobs.define(...)`, `Job.enqueue(...)`, `jobs.result(...)`, `Job.status()`, or `Job.stop()`. `import 'std:jobs'` remains available for additional Jobs helpers as the reliability layer grows.</p>
+<h2>Acknowledgements</h2>
+
+<p>A worker acknowledges success by returning an ordinary value or `result.ok(value)`:</p>
+
+<pre><code>worker ResizeImage(image)
+  return {output: 'build/thumbs/' + image.id + '.jpg'}
+end
+</code></pre>
+
+<p>It explicitly reports a recoverable failure with `result.error(...)`:</p>
+
+<pre><code>import 'std:result'
+
+worker ResizeImage(image)
+  if image.valid == false
+    return result.error('invalid image')
+  end
+  return resize(image)
+end
+</code></pre>
+
+<p>A failed attempt is retried up to the Job's `retries:` limit. The current retry policy is immediate. Delayed backoff is the next reliability step.</p>
 
 <h2>Enqueue and receive a result</h2>
 
 <pre><code>let receipt = ImportUsers.enqueue({user_id: 42})
 
 if receipt.accepted == false
-  fail 'ImportUsers queue is full'
+  fail receipt.status
 end
 
-let result = jobs.result(ImportUsers, receipt, 5000)
+let outcome = jobs.result(ImportUsers, receipt, 5000)
 
-if result.ok
-  says result.value
+if outcome.ok
+  says outcome.value
 else
-  warn result.error
+  warn outcome.error
 end
 </code></pre>
 
-<p>A receipt contains:</p>
+<p>Result status may be `completed`, `failed`, `cancelled`, `rejected`, `timeout`, or `unknown`.</p>
 
-<pre><code>kind      job_receipt
-job       Job name
-id        in-process receipt id
-status    queued or rejected
-accepted  true or false
+<p>The timeout passed to `jobs.result(...)` bounds how long the caller waits. It does not yet interrupt a handler that is already running.</p>
+
+<p>Completed results are removed when consumed. `result_capacity:` bounds unconsumed result records; enqueue rejects additional work rather than growing beyond that bound.</p>
+
+<h2>Cancellation</h2>
+
+<pre><code>let cancellation = jobs.cancel(ImportUsers, receipt)
+says cancellation.status
 </code></pre>
 
-<p>A result contains:</p>
+<p>Cancellation is cooperative at the current milestone. Queued work is completed as cancelled when the worker pool releases it; an already-running handler may finish before cancellation is observed. Enforceable running-handler cancellation belongs to the next reliability slice.</p>
 
-<pre><code>kind      job_result
-job       Job name
-id        receipt id
-status    completed, rejected, timeout, or unknown
-ok        true only for completed work
-value     worker return value when completed
-error     queue_full, timeout, or unknown_receipt
+<h2>Dead letters</h2>
+
+<p>A failed receipt that exhausts its retry limit enters the bounded dead-letter collection:</p>
+
+<pre><code>for letter in jobs.dead_letters(ImportUsers)
+  warn letter.error
+  warn letter.payload
+end
 </code></pre>
 
-<p>The timeout passed to `jobs.result(...)` limits how long the caller waits. Enforceable worker execution deadlines belong to the reliability slice and are not yet claimed.</p>
+<p>Each dead letter includes its receipt id, number of attempts, error, and original immutable payload.</p>
 
 <h2>Metrics</h2>
 
@@ -85,57 +118,31 @@ error     queue_full, timeout, or unknown_receipt
 
 says status.enqueued
 says status.completed
+says status.failed
+says status.retried
+says status.cancelled
 says status.rejected
-says status.pool.workers
-says status.pool.capacity
+says status.pending_results
+says status.dead_letters
 says status.pool.queued
 says status.pool.active
 says status.pool.queue_wait_avg_ns
-says status.pool.queue_wait_max_ns
 </code></pre>
-
-<p>Queue-wait measurements establish the signal that adaptive scaling will use in a later slice.</p>
 
 <h2>Stop</h2>
 
 <pre><code>ImportUsers.stop()
 </code></pre>
 
-<p>Stopping a Job closes its pool, rejects new submissions, releases queued messages, completes their receipts as rejected, and allows active worker turns to finish.</p>
+<p>Stopping closes the Job's pool, rejects new submissions, cancels queued work, and allows active worker turns to finish.</p>
 
-<h2>Complete example</h2>
+<h2>Complete reliability example</h2>
 
-<pre><code>worker Double(message)
-  return message * 2
-end
+<p>Run `examples/jobs_reliability.hey`; the focused contracts are `specs/language/975_named_jobs_reliability.hey` and `specs/language/976_named_jobs_cancellation.hey`.</p>
 
-program
-  let Doubles = jobs.define('Doubles', Double, count: 2, capacity: 8)
-  let receipt = Doubles.enqueue(21)
-  let result = jobs.result(Doubles, receipt, 1000)
+<h2>Delivery contract</h2>
 
-  says receipt.accepted
-  says result.status
-  says result.value
-
-  Doubles.stop()
-end
-</code></pre>
-
-<p>Output:</p>
-
-<pre><code>true
-completed
-42
-</code></pre>
-
-<p>See `examples/jobs_worker_pool.hey`.</p>
-
-<h2>Current delivery contract</h2>
-
-<p>This first worker-backed Jobs layer is in-process and fixed-size. Accepted work executes once unless the process exits. Rejected work is explicit. Durable at-least-once delivery, acknowledgements, retries, backoff, execution timeouts, cancellation, dead letters, and replay are the next Jobs reliability milestone.</p>
-
-<p>Application handlers should still be written idempotently when future retry policies may be enabled.</p>
+<p>The current runtime is in-process. It provides bounded retries and result/dead-letter lifecycle, but does not yet claim durable at-least-once replay. Handlers should be idempotent so persistent retries can be added without changing application semantics.</p>
 </main>
   </div>
   <script>
