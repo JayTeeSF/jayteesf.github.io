@@ -1,0 +1,52 @@
+import 'stdlib:text'
+
+fn parse_line(line)
+  let parts = text.words(line)
+  if len(parts) < 2
+    fail 'malformed GEDCOM line: ' + line
+  end
+  let level = text.parse_int(parts[0])
+  let cursor = 1
+  let identifier = ''
+  if text.starts_with(parts[cursor], '@') and text.ends_with(parts[cursor], '@')
+    set identifier = parts[cursor]
+    set cursor = cursor + 1
+  end
+  if cursor >= len(parts)
+    fail 'missing GEDCOM tag: ' + line
+  end
+  let tag = parts[cursor]
+  set cursor = cursor + 1
+  let value_parts = []
+  while cursor < len(parts)
+    set value_parts = [...value_parts, parts[cursor]]
+    set cursor = cursor + 1
+  end
+  return {level: level, id: identifier, tag: tag, value: text.join(value_parts, ' ')}
+end
+
+fn parse_gedcom(source)
+  let records = []
+  let parents = {}
+  for line in text.lines(source)
+    if text.trim(line) != ''
+      let parsed = parse_line(line)
+      let parent_index = nil
+      if parsed.level > 0
+        let parent_key = '' + (parsed.level - 1)
+        if has(parents, parent_key) == false
+          fail 'GEDCOM level skipped in: ' + line
+        end
+        set parent_index = parents[parent_key]
+      end
+      let record = {...parsed, parent_index: parent_index}
+      set records = [...records, record]
+      set parents = put(parents, '' + parsed.level, len(records) - 1)
+    end
+  end
+  return records
+end
+
+program
+  says parse_gedcom("0 @I1@ INDI\n1 NAME Ada /Lovelace/\n1 BIRT\n2 DATE 10 DEC 1815")
+end

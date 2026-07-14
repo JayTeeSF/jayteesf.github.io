@@ -1,0 +1,134 @@
+# Compact reference implementation of the Solitaire deck transform.
+# Cards 1..52 are ordinary; 53 and 54 are jokers A and B.
+
+fn remove_at(items, at)
+  let out = []
+  let i = 0
+  for item in items
+    if i != at
+      set out = [...out, item]
+    end
+    set i = i + 1
+  end
+  return out
+end
+
+fn insert_at(items, at, value)
+  let out = []
+  let i = 0
+  while i <= len(items)
+    if i == at
+      set out = [...out, value]
+    end
+    if i < len(items)
+      set out = [...out, items[i]]
+    end
+    set i = i + 1
+  end
+  return out
+end
+
+fn find_card(deck, card)
+  let i = 0
+  while i < len(deck)
+    if deck[i] == card
+      return i
+    end
+    set i = i + 1
+  end
+  fail 'card not found'
+end
+
+fn move_down(deck, card, steps)
+  let out = deck
+  let n = 0
+  while n < steps
+    let at = find_card(out, card)
+    let without = remove_at(out, at)
+    let destination = at + 1
+    if destination >= len(out)
+      set destination = 1
+    end
+    set out = insert_at(without, destination, card)
+    set n = n + 1
+  end
+  return out
+end
+
+fn take(items, start, count)
+  let out = []
+  let i = start
+  while i < start + count
+    set out = [...out, items[i]]
+    set i = i + 1
+  end
+  return out
+end
+
+fn triple_cut(deck)
+  let a = find_card(deck, 53)
+  let b = find_card(deck, 54)
+  let first = a
+  let second = b
+  if b < a
+    set first = b
+    set second = a
+  end
+  return [
+    ...take(deck, second + 1, len(deck) - second - 1),
+    ...take(deck, first, second - first + 1),
+    ...take(deck, 0, first),
+  ]
+end
+
+fn count_cut(deck)
+  let bottom = deck[len(deck) - 1]
+  let count = bottom
+  if count >= 53
+    set count = 53
+  end
+  if count == 0 or count >= len(deck) - 1
+    return deck
+  end
+  return [
+    ...take(deck, count, len(deck) - count - 1),
+    ...take(deck, 0, count),
+    bottom,
+  ]
+end
+
+fn next_key(deck)
+  let current = deck
+  while true
+    set current = move_down(current, 53, 1)
+    set current = move_down(current, 54, 2)
+    set current = triple_cut(current)
+    set current = count_cut(current)
+    let top = current[0]
+    if top >= 53
+      set top = 53
+    end
+    let output = current[top]
+    if output < 53
+      return {deck: current, key: ((output - 1) % 26) + 1}
+    end
+  end
+end
+
+fn transform(values, deck, direction)
+  let out = []
+  let current = deck
+  for value in values
+    let generated = next_key(current)
+    set current = generated.deck
+    let shifted = value + direction * generated.key
+    while shifted <= 0
+      set shifted = shifted + 26
+    end
+    while shifted > 26
+      set shifted = shifted - 26
+    end
+    set out = [...out, shifted]
+  end
+  return {deck: current, values: out}
+end
