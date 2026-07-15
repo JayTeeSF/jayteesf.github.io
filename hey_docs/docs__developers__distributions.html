@@ -41,6 +41,56 @@ hey-VERSION-windows-x64.zip
 
 <p>Visual Studio Build Tools, Xcode, Homebrew LLVM, GCC, and Clang are release-builder dependencies only. They must not be ordinary recipient prerequisites once a target archive is promoted.</p>
 
+
+<h2>Linux target archive pack, verify, and release proof</h2>
+
+<p>The Linux x64 archive wraps a target-contained SDK in one recipient download:</p>
+
+<pre><code>./bin/hey target pack \
+  --sdk dist/hey-VERSION-linux-x64 \
+  --target linux-x64 \
+  --out &quot;$HOME/Downloads/hey-VERSION-linux-x64.tar.gz&quot;
+
+./bin/hey target verify \
+  --archive &quot;$HOME/Downloads/hey-VERSION-linux-x64.tar.gz&quot; \
+  --target linux-x64
+</code></pre>
+
+<p>Use `--extract-to DIR` when the already-verified payload should be retained for</p>
+<p>installation or a target-host receipt. Verification still expands and checks</p>
+<p>the archive once; it simply does not delete that checked tree afterward.</p>
+
+<p>The packer refuses SDKs that do not report `self_contained_sdk=true`, stages</p>
+<p>the complete tree with SDK-safe symlink handling, and emits:</p>
+
+<ul><li>one deterministic `tar.gz` with a single versioned top-level directory;</li><li>`manifest.json`, `VERSION.txt`, and `TARGET.txt`;</li><li>`SHA256SUMS` covering regular payload files;</li><li>a publication `.sha256` sidecar for the complete archive;</li><li>`install.sh` and `uninstall.sh`.</li></ul>
+
+<p>After extracting the archive, a normal user install is:</p>
+
+<pre><code>./install.sh --user
+</code></pre>
+
+<p>This installs under `~/.local/hey/VERSION` and links the public commands in</p>
+<p>`~/.local/bin`. A system installation uses:</p>
+
+<pre><code>sudo ./install.sh --system
+</code></pre>
+
+<p>This installs under `/opt/hey/VERSION` and links commands in `/usr/local/bin`.</p>
+<p>Custom test or managed prefixes use `--prefix DIR --bin-dir DIR`. The installer</p>
+<p>verifies `SHA256SUMS` before publication. The uninstaller removes only symbolic</p>
+<p>links that still point to its own installed version, then removes that version</p>
+<p>root.</p>
+
+<p>v0.99.282a binds this mechanism to the maintained real Linux closure gate. The</p>
+<p>gate exports the exact SDK only after relocated compiler, sysroot, native</p>
+<p>library, and compiler-free run-bundle execution pass. The archive is then</p>
+<p>verified, installed into an unrelated prefix, and used with `PATH=/nonexistent`,</p>
+<p>`LD_LIBRARY_PATH=/nonexistent`, and checkout discovery removed to compile and</p>
+<p>run the OpenSSL fixture. `ldd` must resolve `libssl` and `libcrypto` from the</p>
+<p>installed archive. This is the first executable one-download compiler archive</p>
+<p>receipt; public signing/publication automation remains separate work.</p>
+
 <h2>Three-root SDK closure</h2>
 
 <p>A target-contained SDK is staged from three explicit roots:</p>
@@ -111,9 +161,23 @@ stdlib
 
 <h2>Current platform truth</h2>
 
-<table class="table table-sm table-bordered"><thead><tr><th>Target</th><th>Product compiler archive</th><th>Precompiled app bundle</th><th>Recipient compiler required</th><th>Native target receipt</th></tr></thead><tbody><tr><td>Linux x64</td><td>contained SDK path proven internally</td><td>proven</td><td>no for the contained SDK</td><td>passed internally and through Docker vendoring</td></tr><tr><td>macOS arm64</td><td>contained candidate with explicit `ld64.lld`</td><td>previously passed before the linker regression</td><td>no by design</td><td>must be rerun for v0.99.278a</td></tr><tr><td>Windows x64</td><td>not yet built as the product Hey compiler</td><td>native runtime promotion harness only</td><td>current test harness temporarily installs Build Tools</td><td>pending</td></tr></tbody></table>
+<table class="table table-sm table-bordered"><thead><tr><th>Target</th><th>Product compiler archive</th><th>Precompiled app bundle</th><th>Recipient compiler required</th><th>Native target receipt</th></tr></thead><tbody><tr><td>Linux x64</td><td>real contained SDK packed/installed/compiled</td><td>proven</td><td>no</td><td>executable archive receipt passed</td></tr><tr><td>macOS arm64</td><td>contained candidate with explicit `ld64.lld`</td><td>previously passed before the linker regression</td><td>no by design</td><td>must be rerun directly for v0.99.279a</td></tr><tr><td>Windows x64</td><td>not yet built as the product Hey compiler</td><td>native runtime promotion harness only</td><td>current test harness temporarily installs Build Tools</td><td>pending</td></tr></tbody></table>
 
-<p>Windows is not implemented as a promoted product compiler distribution yet. The v0.99.277a-v0.99.278a ZIP is a target-host **runtime promotion test**, not the intended language installer. Its Microsoft C++ installation step exists only to compile the receipt on the target while the actual self-contained `hey.exe` distribution is unfinished.</p>
+<p>Windows is not implemented as a promoted product compiler distribution yet. The v0.99.277a-v0.99.282a ZIP is a target-host **runtime promotion test**, not the intended language installer. Its Microsoft C++ installation step exists only to compile the receipt on the target while the actual self-contained `hey.exe` distribution is unfinished.</p>
+
+
+<h2>Structural verification versus native promotion</h2>
+
+<p>Compiler matrices must remain runnable on ordinary development hosts. Contract</p>
+<p>979 therefore invokes the Darwin closure gate with</p>
+<p>`HEY_TARGET_RECEIPT_MODE=optional`: when `ld64.lld`, the macOS SDK, or OpenSSL</p>
+<p>is unavailable, the contract records an explicit skip and continues checking</p>
+<p>the source/layout invariants.</p>
+
+<p>Promotion remains stricter. Running</p>
+<p>`test/regression_darwin_sdk_target_closure.sh` directly uses required mode,</p>
+<p>fails on any missing prerequisite, and must compile and execute the relocated</p>
+<p>application on Apple Silicon. Optional mode can never set a platform promoted.</p>
 
 <h2>Windows command-line use</h2>
 
