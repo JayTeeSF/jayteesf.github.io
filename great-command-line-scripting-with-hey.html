@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A practical guide to writing maintainable, fast command-line scripts with Hey, using a static package-index generator as a complete example.">
+  <title>Great Command-Line Scripting with Hey</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page-width: 980px;
+      --border: color-mix(in srgb, currentColor 18%, transparent);
+      --muted: color-mix(in srgb, currentColor 68%, transparent);
+      --panel: color-mix(in srgb, canvas 94%, currentColor 6%);
+      --code: color-mix(in srgb, canvas 90%, currentColor 10%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      max-width: var(--page-width);
+      margin: 0 auto;
+      padding: 2rem 1.25rem 5rem;
+    }
+
+    header {
+      margin-bottom: 2.5rem;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+    }
+
+    h1 {
+      margin-bottom: 0.5rem;
+      font-size: clamp(2rem, 6vw, 3.4rem);
+    }
+
+    h2 {
+      margin-top: 3rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    h3 {
+      margin-top: 2rem;
+    }
+
+    a {
+      text-underline-offset: 0.18em;
+    }
+
+    .lede {
+      max-width: 760px;
+      font-size: 1.15rem;
+      color: var(--muted);
+    }
+
+    .source-links,
+    .callout {
+      margin: 1.5rem 0;
+      padding: 1rem 1.2rem;
+      border: 1px solid var(--border);
+      border-radius: 0.65rem;
+      background: var(--panel);
+    }
+
+    .source-links ul,
+    .callout ul {
+      margin-bottom: 0;
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    :not(pre) > code {
+      padding: 0.1em 0.3em;
+      border-radius: 0.25rem;
+      background: var(--code);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25rem 0 2rem;
+    }
+
+    th,
+    td {
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel);
+    }
+
+    .number {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    footer {
+      margin-top: 4rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Great Command-Line Scripting with Hey</h1>
+    <p class="lede">
+      A practical guide to structuring, rendering, parallelizing, compiling, and benchmarking a real Hey command-line program.
+      The running example generates a static package index for a directory of versioned Hey packages.
+    </p>
+
+    <div class="source-links">
+      <strong>Complete source files</strong>
+      <ul>
+        <li><a href="generate-packages-index-main.hey">Hey implementation</a></li>
+        <li><a href="generate-packages-index.hey">Hey launcher</a></li>
+        <li><a href="generate-packages-index.rb">Ruby implementation</a></li>
+      </ul>
+      <p class="muted">
+        These links are relative because this article and the programs are intended to live together in the top-level directory of <code>www.jayteesf.com</code>.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>1. The shape of a good Hey script</h2>
+      <p>A maintainable Hey command-line program normally has five layers:</p>
+      <ol>
+        <li>A small launcher that selects the intended Hey installation.</li>
+        <li>Explicit standard-library imports.</li>
+        <li>An <code>UpperCamelCase</code> module that owns the program's behavior.</li>
+        <li>A small public entry function such as <code>PackagesIndex.run(args)</code>.</li>
+        <li>A tiny <code>program</code> block that passes <code>cli.args()</code> into the module.</li>
+      </ol>
+
+      <p>The launcher keeps the selected Hey checkout explicit:</p>
+
+      <pre><code>#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" &amp;&amp; pwd)"
+HEY_ROOT="${HEY_ROOT:-$HOME/dev/hey-lang-bootstrap-plan}"
+HEY_SOURCE="$SCRIPT_DIR/generate-packages-index-main.hey"
+
+export HEY_ROOT
+export HEY_STDLIB_PATH="${HEY_STDLIB_PATH:-$HEY_ROOT/stdlib}"
+
+exec "$HEY_ROOT/bin/heyc" "$HEY_SOURCE" --run -- "$@"</code></pre>
+
+      <p>The actual Hey source stays namespaced:</p>
+
+      <pre><code>import 'stdlib:cli'
+import 'stdlib:files'
+import 'stdlib:streams'
+import 'stdlib:text'
+
+module PackagesIndex
+  fn run(args)
+    # command behavior
+  end
+end
+
+program
+  PackagesIndex.run(cli.args())
+end</code></pre>
+
+      <p>
+        This provides the organizational benefit of a Ruby service class without constructing an object whose only purpose is namespacing.
+      </p>
+    </section>
+
+    <section>
+      <h2>2. Command-line arguments and help</h2>
+      <p>
+        <code>cli.args()</code> returns application arguments. <code>cli.positionals(args)</code> extracts positional values, while
+        <code>cli.flag?</code>, <code>cli.flag_int</code>, and <code>cli.missing_value?</code> support readable option handling.
+      </p>
+
+      <pre><code>let args = cli.args()
+
+if cli.flag?(args, 'help') or cli.flag?(args, 'h')
+  PackagesIndex.usage()
+  return
+end
+
+if cli.missing_value?(args, 'workers')
+  fail '--workers requires an integer value'
+end
+
+let paths = cli.positionals(args)
+let workers = cli.flag_int(args, 'workers', cpu_count())</code></pre>
+
+      <p>Use a raw squiggly heredoc for help text:</p>
+
+      <pre><code>private fn usage_text()
+  return &lt;&lt;~'USAGE'
+    Usage: ./generate-packages-index.hey [OPTIONS] [PACKAGES_DIR]
+
+    Options:
+      --workers N   Number of parallel workers
+      -h, --help    Show help
+  USAGE
+end</code></pre>
+    </section>
+
+    <section>
+      <h2>3. Filesystem discovery</h2>
+      <p>The <code>stdlib:files</code> module owns traversal, metadata, path manipulation, and publication.</p>
+
+      <pre><code>let packages = files.entries('./packages')
+let all_files = files.files('./packages/hey_web', '')
+let markdown = files.files('./packages/hey_web', '.md')</code></pre>
+
+      <ul>
+        <li><code>files.entries(path)</code> returns immediate children.</li>
+        <li><code>files.files(root, suffix)</code> recursively returns matching regular files.</li>
+        <li>An empty suffix returns every regular file below the root.</li>
+        <li><code>files.directory?</code>, <code>files.file?</code>, and <code>files.metadata</code> provide filesystem checks.</li>
+        <li><code>files.write_atomic(path, content)</code> publishes through a sibling temporary file and rename.</li>
+      </ul>
+
+      <p>For this index generator, one recursive scan per package is preferable to rescanning the same tree for every extension:</p>
+
+      <pre><code>let package_files = files.files(package_dir, '')
+let docs_dirs = PackagesIndex.docs_directories(package_dir, package_files)
+let linkable_files = PackagesIndex.linkable_files(package_files)</code></pre>
+    </section>
+
+    <section>
+      <h2>4. Collection pipelines</h2>
+      <p>After importing <code>stdlib:collections</code>, receiver-oriented collection helpers can be chained:</p>
+
+      <pre><code>let sorted = paths
+  .uniq
+  .sort(PackagesIndex.compare_paths)</code></pre>
+
+      <p>
+        The complete program uses natural numeric ordering so <code>0.2.10</code> sorts after <code>0.2.2</code>, rather than relying on plain lexical ordering.
+      </p>
+    </section>
+
+    <section>
+      <h2>5. Rendering with heredocs</h2>
+      <p>Heredocs are the clearest default for complete HTML sections:</p>
+
+      <pre><code>return &lt;&lt;~HTML
+  &lt;section class="package"&gt;
+    &lt;h2&gt;#{PackagesIndex.html_escape(package_name)}&lt;/h2&gt;
+  #{text.indent(docs_html, '  ')}
+  #{text.indent(files_html, '  ')}
+  &lt;/section&gt;
+HTML</code></pre>
+
+      <p>Use <code>text.join</code> and <code>text.indent</code> to compose rendered fragments:</p>
+
+      <pre><code>let links_html = text.indent(text.join(links, "\n"), '  ')
+
+return &lt;&lt;~HTML
+  &lt;ul&gt;
+  #{links_html}
+  &lt;/ul&gt;
+HTML</code></pre>
+    </section>
+
+    <section>
+      <h2>6. Escape at the boundary</h2>
+      <p>
+        Structured path data should remain ordinary strings until rendering. Escape it only when it crosses into HTML text or a URL attribute.
+      </p>
+
+      <pre><code>private fn html_escape(value)
+  return value
+    .replace_all('&amp;', '&amp;amp;')
+    .replace_all('&lt;', '&amp;lt;')
+    .replace_all('&gt;', '&amp;gt;')
+    .replace_all('"', '&amp;quot;')
+    .replace_all("'", '&amp;#39;')
+end</code></pre>
+    </section>
+
+    <section>
+      <h2>7. Parallel work without manual threads</h2>
+      <p>
+        One package is a natural independent work unit. Package trees can therefore be scanned and rendered with a bounded parallel stream:
+      </p>
+
+      <pre><code>let sections = tasks
+  .map(PackagesIndex.render_package, workers: workers)
+  .collect()</code></pre>
+
+      <p>
+        Parallel stream stages preserve input order by default, so work may finish in any internal order while the generated page remains deterministic.
+      </p>
+
+      <div class="callout">
+        <strong>Parallelism is not automatically faster.</strong>
+        <p>
+          This example contains only seven small package trees. Creating workers, scheduling jobs, communicating results, and preserving order costs more than the filesystem work saved by parallel execution. The fastest measured configuration uses one worker.
+        </p>
+      </div>
+
+      <p>The program therefore keeps an explicit sequential fast path:</p>
+
+      <pre><code>if workers == 1
+  for task in tasks
+    set sections = [...sections, PackagesIndex.render_package(task)]
+  end
+else
+  set sections = tasks
+    .map(PackagesIndex.render_package, workers: workers)
+    .collect()
+end</code></pre>
+
+      <p>
+        More workers may become useful for hundreds of packages, much larger trees, Markdown rendering, archive inspection, hashing, link validation, or network-bound work. Worker count should be measured rather than assumed.
+      </p>
+    </section>
+
+    <section>
+      <h2>8. Atomic output</h2>
+      <p>Do not truncate the live index before its replacement is complete:</p>
+
+      <pre><code>files.write_atomic(output_path, html)</code></pre>
+
+      <p>
+        Readers see either the previous complete index or the newly generated complete index, rather than a partially written page.
+      </p>
+    </section>
+
+    <section>
+      <h2>9. A minimal build-up version</h2>
+      <p>A deliberately smaller version teaches the basic structure before the complete program adds validation, escaping, sorting, and parallelism:</p>
+
+      <pre><code>import 'stdlib:cli'
+import 'stdlib:files'
+import 'stdlib:text'
+
+module SimplePackagesIndex
+  fn run(args)
+    let paths = cli.positionals(args)
+    let root = './packages'
+
+    if paths.length == 1
+      set root = paths[0]
+    end
+
+    let links = []
+    for path in files.files(root, '.md')
+      let relative = text.strip_prefix(path, root + '/')
+      set links = [
+        ...links,
+        %qq(&lt;li&gt;&lt;a href="#{relative}"&gt;#{relative}&lt;/a&gt;&lt;/li&gt;)
+      ]
+    end
+
+    let html = &lt;&lt;~HTML
+      &lt;!doctype html&gt;
+      &lt;html lang="en"&gt;
+      &lt;body&gt;
+        &lt;h1&gt;Packages&lt;/h1&gt;
+        &lt;ul&gt;
+      #{text.indent(text.join(links, "\n"), '    ')}
+        &lt;/ul&gt;
+      &lt;/body&gt;
+      &lt;/html&gt;
+    HTML
+
+    files.write_atomic(files.join(root, 'index.html'), html)
+  end
+end
+
+program
+  SimplePackagesIndex.run(cli.args())
+end</code></pre>
+
+      <p>The complete linked implementation adds:</p>
+      <ul>
+        <li>argument validation and <code>--help</code>;</li>
+        <li>Markdown and HTML links;</li>
+        <li>versioned <code>docs/</code> links, including empty directories;</li>
+        <li>HTML and URL escaping;</li>
+        <li>natural numeric sorting;</li>
+        <li>optional package-level parallelism;</li>
+        <li>a sequential fast path;</li>
+        <li>deterministic output;</li>
+        <li>atomic publication;</li>
+        <li>a generated UTC timestamp.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>10. Performance: interpreted source, compiled Hey, and Ruby</h2>
+      <p>
+        Execution mode matters. Running the source through <code>heyc --run</code> includes Hey parsing and interpreter startup on every invocation. For a meaningful runtime comparison, the Hey implementation was compiled once with the native-C backend and the resulting executable was benchmarked directly.
+      </p>
+
+      <pre><code>export HEY_ROOT="$HOME/dev/hey-lang-bootstrap-plan"
+export HEY_STDLIB_PATH="$HEY_ROOT/stdlib"
+
+mkdir -p ./build
+
+"$HEY_ROOT/bin/heyc" build \
+  --backend native-c \
+  ./generate-packages-index-main.hey \
+  -o ./build/generate-packages-index</code></pre>
+
+      <p>The warmed benchmark used three warm-up runs followed by thirty measured runs:</p>
+
+      <pre><code>hyperfine \
+  --warmup 3 \
+  --runs 30 \
+  './build/generate-packages-index --workers 1 ./packages' \
+  './build/generate-packages-index --workers 2 ./packages' \
+  './build/generate-packages-index --workers 7 ./packages' \
+  './generate-packages-index.rb ./packages'</code></pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Program</th>
+            <th class="number">Mean</th>
+            <th class="number">Standard deviation</th>
+            <th class="number">Range</th>
+            <th class="number">Relative to Ruby</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Compiled Hey, 1 worker</td>
+            <td class="number">13.7 ms</td>
+            <td class="number">1.0 ms</td>
+            <td class="number">12.4–17.7 ms</td>
+            <td class="number"><strong>8.20× faster</strong></td>
+          </tr>
+          <tr>
+            <td>Compiled Hey, 2 workers</td>
+            <td class="number">30.1 ms</td>
+            <td class="number">0.8 ms</td>
+            <td class="number">27.4–32.0 ms</td>
+            <td class="number">3.72× faster</td>
+          </tr>
+          <tr>
+            <td>Compiled Hey, 7 workers</td>
+            <td class="number">46.2 ms</td>
+            <td class="number">5.4 ms</td>
+            <td class="number">42.1–67.3 ms</td>
+            <td class="number">2.43× faster</td>
+          </tr>
+          <tr>
+            <td>Ruby</td>
+            <td class="number">112.1 ms</td>
+            <td class="number">8.6 ms</td>
+            <td class="number">100.6–138.6 ms</td>
+            <td class="number">Baseline</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Redirecting normal output to <code>/dev/null</code> produced essentially the same result: compiled single-worker Hey averaged 13.6 ms, Ruby averaged 112.2 ms, and Hey was 8.26 times faster. Terminal output was therefore not responsible for the difference.
+      </p>
+
+      <p>
+        Ruby also benefits from warm filesystem and operating-system caches: its first hand-timed invocation was slower than subsequent runs. The benchmark deliberately warms every command before measurement, so the comparison is between steady-state executions rather than one cold program and one warm program.
+      </p>
+
+      <div class="callout">
+        <strong>What the numbers show</strong>
+        <ul>
+          <li>Compilation is the dominant performance improvement for this small program.</li>
+          <li>Compiled single-worker Hey is approximately 8.2 times faster than the Ruby implementation in the warmed benchmark.</li>
+          <li>Two workers are approximately 2.21 times slower than one worker.</li>
+          <li>Seven workers are approximately 3.38 times slower than one worker.</li>
+          <li>The best worker count depends on the size and cost of the workload, not merely on the number of available CPU cores.</li>
+        </ul>
+      </div>
+
+      <p>
+        These results should not be generalized to every Hey or Ruby program. This is a small, filesystem-oriented workload with only seven package directories. It does, however, demonstrate two practical rules: benchmark the compiled artifact when evaluating compiled-language performance, and measure parallelism instead of assuming that more workers will help.
+      </p>
+    </section>
+
+    <section>
+      <h2>11. Verification workflow</h2>
+      <p>Run the source through the launcher:</p>
+
+      <pre><code>chmod +x \
+  ./generate-packages-index.hey \
+  ./generate-packages-index-main.hey
+
+./generate-packages-index.hey --help
+./generate-packages-index.hey ./packages</code></pre>
+
+      <p>Compile once for runtime benchmarking:</p>
+
+      <pre><code>export HEY_ROOT="$HOME/dev/hey-lang-bootstrap-plan"
+export HEY_STDLIB_PATH="$HEY_ROOT/stdlib"
+
+"$HEY_ROOT/bin/heyc" build \
+  --backend native-c \
+  ./generate-packages-index-main.hey \
+  -o ./build/generate-packages-index</code></pre>
+
+      <p>Check the generated page:</p>
+
+      <pre><code>test -s ./packages/index.html
+grep -n 'docs/' ./packages/index.html
+grep -nE '\.(md|html)&lt;/a&gt;' ./packages/index.html</code></pre>
+
+      <p>
+        The complete implementation linked at the top of this article supports normal documentation trees, nested documentation, multiple versions, natural sorting such as <code>0.2.2</code> versus <code>0.2.10</code>, and empty versioned <code>docs/</code> directories.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Article source and example programs are designed to be published together at the root of <code>www.jayteesf.com</code>.
+    </p>
+  </footer>
+</body>
+</html>
