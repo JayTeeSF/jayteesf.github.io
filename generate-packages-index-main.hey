@@ -1,10 +1,11 @@
 #!/usr/bin/env hey
 
-import 'stdlib:cli'
-import 'stdlib:collections'
-import 'stdlib:files'
-import 'stdlib:streams'
-import 'stdlib:text'
+import 'stdlib:Cli'
+import 'stdlib:Collections'
+import 'stdlib:Env'
+import 'stdlib:Files'
+import 'stdlib:Streams'
+import 'stdlib:Text'
 
 module PackagesIndex
   private fn usage_text()
@@ -21,6 +22,11 @@ module PackagesIndex
       Options:
         --workers N   Parallel package renderers (default: CPU count, max 16)
         -h, --help    Show this help
+
+      Environment:
+        PACKAGES_INDEX_GENERATED_AT
+          Optional ISO-8601 UTC timestamp. Supplying the same value to the
+          Ruby and Hey generators makes their output byte-for-byte identical.
 
       Examples:
         ./generate-packages-index.hey
@@ -41,9 +47,9 @@ module PackagesIndex
     let finish = start
 
     while finish < value.length
-      if !PackagesIndex.digit?(text.slice(value, finish, 1))
+      if !PackagesIndex.digit?(Text.slice(value, finish, 1))
         return {
-          value: text.slice(value, start, finish - start),
+          value: Text.slice(value, start, finish - start),
           next: finish
         }
       end
@@ -52,7 +58,7 @@ module PackagesIndex
     end
 
     return {
-      value: text.slice(value, start, finish - start),
+      value: Text.slice(value, start, finish - start),
       next: finish
     }
   end
@@ -60,11 +66,11 @@ module PackagesIndex
   private fn trim_leading_zeroes(value)
     let index = 0
 
-    while index + 1 < value.length and text.slice(value, index, 1) == '0'
+    while index + 1 < value.length and Text.slice(value, index, 1) == '0'
       set index = index + 1
     end
 
-    return text.slice(value, index, value.length - index)
+    return Text.slice(value, index, value.length - index)
   end
 
   private fn compare_digit_runs(left, right)
@@ -72,26 +78,26 @@ module PackagesIndex
     let normalized_right = PackagesIndex.trim_leading_zeroes(right)
 
     if normalized_left.length != normalized_right.length
-      return collections.compare(normalized_left.length, normalized_right.length)
+      return Collections.compare(normalized_left.length, normalized_right.length)
     end
 
-    let comparison = collections.compare(normalized_left, normalized_right)
+    let comparison = Collections.compare(normalized_left, normalized_right)
     if comparison != 0
       return comparison
     end
 
-    return collections.compare(left.length, right.length)
+    return Collections.compare(left.length, right.length)
   end
 
   fn compare_paths(left, right)
-    let folded_left = text.lower(left)
-    let folded_right = text.lower(right)
+    let folded_left = Text.lower(left)
+    let folded_right = Text.lower(right)
     let left_index = 0
     let right_index = 0
 
     while left_index < folded_left.length and right_index < folded_right.length
-      let left_character = text.slice(folded_left, left_index, 1)
-      let right_character = text.slice(folded_right, right_index, 1)
+      let left_character = Text.slice(folded_left, left_index, 1)
+      let right_character = Text.slice(folded_right, right_index, 1)
 
       if PackagesIndex.digit?(left_character) and PackagesIndex.digit?(right_character)
         let left_run = PackagesIndex.digit_run(folded_left, left_index)
@@ -105,7 +111,7 @@ module PackagesIndex
         set left_index = left_run.next
         set right_index = right_run.next
       else
-        let comparison = collections.compare(left_character, right_character)
+        let comparison = Collections.compare(left_character, right_character)
         if comparison != 0
           return comparison
         end
@@ -115,12 +121,12 @@ module PackagesIndex
       end
     end
 
-    let length_comparison = collections.compare(folded_left.length, folded_right.length)
+    let length_comparison = Collections.compare(folded_left.length, folded_right.length)
     if length_comparison != 0
       return length_comparison
     end
 
-    return collections.compare(left, right)
+    return Collections.compare(left, right)
   end
 
   private fn sorted_unique(paths)
@@ -135,46 +141,46 @@ module PackagesIndex
     end
 
     let prefix = root
-    if !text.ends_with?(prefix, '/')
+    if !Text.ends_with?(prefix, '/')
       set prefix = prefix + '/'
     end
 
-    if text.starts_with?(path, prefix)
-      return text.strip_prefix(path, prefix)
+    if Text.starts_with?(path, prefix)
+      return Text.strip_prefix(path, prefix)
     end
 
-    let parent = files.dirname(path)
+    let parent = Files.dirname(path)
     if parent == path
       fail "path is not inside root: #{path} root=#{root}"
     end
 
-    let leaf = files.basename(path)
+    let leaf = Files.basename(path)
     let parent_relative = PackagesIndex.relative_path(parent, root)
     if parent_relative == ''
       return leaf
     end
 
-    return files.join(parent_relative, leaf)
+    return Files.join(parent_relative, leaf)
   end
 
   private fn html_escape(value)
-    let escaped = text.replace_all(value, '&', '&amp;')
-    set escaped = text.replace_all(escaped, '<', '&lt;')
-    set escaped = text.replace_all(escaped, '>', '&gt;')
-    set escaped = text.replace_all(escaped, '"', '&quot;')
-    set escaped = text.replace_all(escaped, "'", '&#39;')
+    let escaped = Text.replace_all(value, '&', '&amp;')
+    set escaped = Text.replace_all(escaped, '<', '&lt;')
+    set escaped = Text.replace_all(escaped, '>', '&gt;')
+    set escaped = Text.replace_all(escaped, '"', '&quot;')
+    set escaped = Text.replace_all(escaped, "'", '&#39;')
     return escaped
   end
 
   private fn url_path(value)
-    let encoded = text.replace_all(value, '%', '%25')
-    set encoded = text.replace_all(encoded, ' ', '%20')
-    set encoded = text.replace_all(encoded, '#', '%23')
-    set encoded = text.replace_all(encoded, '?', '%3F')
-    set encoded = text.replace_all(encoded, '"', '%22')
-    set encoded = text.replace_all(encoded, "'", '%27')
-    set encoded = text.replace_all(encoded, '<', '%3C')
-    set encoded = text.replace_all(encoded, '>', '%3E')
+    let encoded = Text.replace_all(value, '%', '%25')
+    set encoded = Text.replace_all(encoded, ' ', '%20')
+    set encoded = Text.replace_all(encoded, '#', '%23')
+    set encoded = Text.replace_all(encoded, '?', '%3F')
+    set encoded = Text.replace_all(encoded, '"', '%22')
+    set encoded = Text.replace_all(encoded, "'", '%27')
+    set encoded = Text.replace_all(encoded, '<', '%3C')
+    set encoded = Text.replace_all(encoded, '>', '%3E')
     return encoded
   end
 
@@ -184,7 +190,7 @@ module PackagesIndex
     ) + '/'
     let label = PackagesIndex.relative_path(path, package_dir) + '/'
 
-    return %qq(<li class="directory"><a href="#{PackagesIndex.html_escape(href)}">#{PackagesIndex.html_escape(label)}</a></li>)
+    return %qq(        <li class="directory"><a href="#{PackagesIndex.html_escape(href)}">#{PackagesIndex.html_escape(label)}</a></li>)
   end
 
   private fn file_link(path, packages_dir, package_dir)
@@ -193,38 +199,35 @@ module PackagesIndex
     )
     let label = PackagesIndex.relative_path(path, package_dir)
 
-    return %qq(<li><a href="#{PackagesIndex.html_escape(href)}">#{PackagesIndex.html_escape(label)}</a></li>)
+    return %qq(        <li><a href="#{PackagesIndex.html_escape(href)}">#{PackagesIndex.html_escape(label)}</a></li>)
   end
 
   private fn docs_directories(package_dir, package_files)
     let directories = []
-    let package_docs = files.join(package_dir, 'docs')
+    let package_docs = Files.join(package_dir, 'docs')
 
-    if files.directory?(package_docs)
+    if Files.directory?(package_docs)
       set directories = [...directories, package_docs]
     end
 
-    # Package releases conventionally live one directory below the package.
-    # Checking those directories directly also finds an empty versioned docs/.
-    for version_dir in files.entries(package_dir)
-      if files.directory?(version_dir)
-        let version_docs = files.join(version_dir, 'docs')
-        if files.directory?(version_docs)
+    for version_dir in Files.entries(package_dir)
+      if Files.directory?(version_dir)
+        let version_docs = Files.join(version_dir, 'docs')
+        if Files.directory?(version_docs)
           set directories = [...directories, version_docs]
         end
       end
     end
 
-    # The ancestor pass also supports less conventional nested docs/ trees.
     for path in package_files
-      let current = files.dirname(path)
+      let current = Files.dirname(path)
 
       while current != package_dir
-        if files.basename(current) == 'docs'
+        if Files.basename(current) == 'docs'
           set directories = [...directories, current]
           set current = package_dir
         else
-          let parent = files.dirname(current)
+          let parent = Files.dirname(current)
           if parent == current
             set current = package_dir
           else
@@ -241,8 +244,8 @@ module PackagesIndex
     let result = []
 
     for path in package_files
-      let lower_path = text.lower(path)
-      if text.ends_with?(lower_path, '.md') or text.ends_with?(lower_path, '.html')
+      let lower_path = Text.lower(path)
+      if Text.ends_with?(lower_path, '.md') or Text.ends_with?(lower_path, '.html')
         set result = [...result, path]
       end
     end
@@ -252,85 +255,80 @@ module PackagesIndex
 
   private fn documentation_section(docs_dirs, packages_dir, package_dir)
     if docs_dirs.empty?
-      return '        <p class="empty">No docs directories found.</p>'
+      return '      <p class="empty">No docs directories found.</p>'
     end
 
-    let links = []
+    let lines = [
+      '      <h3>Documentation directories</h3>',
+      '      <ul>'
+    ]
+
     for docs_dir in docs_dirs
-      set links = [
-        ...links,
+      set lines = [
+        ...lines,
         PackagesIndex.directory_link(docs_dir, packages_dir, package_dir)
       ]
     end
 
-    let links_html = text.indent(text.join(links, "\n"), '  ')
-
-    return <<~HTML
-      <h3>Documentation directories</h3>
-      <ul>
-      #{links_html}
-      </ul>
-    HTML
+    set lines = [...lines, '      </ul>']
+    return Text.join(lines, "\n")
   end
 
   private fn files_section(linkable_files, packages_dir, package_dir)
     if linkable_files.empty?
-      return '        <p class="empty">No Markdown or HTML files found.</p>'
+      return '      <p class="empty">No Markdown or HTML files found.</p>'
     end
 
-    let links = []
+    let lines = [
+      '      <h3>Markdown and HTML files</h3>',
+      '      <ul>'
+    ]
+
     for path in linkable_files
-      set links = [
-        ...links,
+      set lines = [
+        ...lines,
         PackagesIndex.file_link(path, packages_dir, package_dir)
       ]
     end
 
-    let links_html = text.indent(text.join(links, "\n"), '  ')
-
-    return <<~HTML
-      <h3>Markdown and HTML files</h3>
-      <ul>
-      #{links_html}
-      </ul>
-    HTML
+    set lines = [...lines, '      </ul>']
+    return Text.join(lines, "\n")
   end
 
   fn render_package(task)
     let package_dir = task.package_dir
     let packages_dir = task.packages_dir
-    let package_name = files.basename(package_dir)
+    let package_name = Files.basename(package_dir)
     let package_href = PackagesIndex.url_path(
       PackagesIndex.relative_path(package_dir, packages_dir)
     ) + '/'
-    let package_files = files.files(package_dir, '')
+    let package_files = Files.files(package_dir, '')
     let docs_dirs = PackagesIndex.docs_directories(package_dir, package_files)
     let linkable_files = PackagesIndex.linkable_files(package_files)
-    let docs_html = PackagesIndex.documentation_section(
-      docs_dirs,
-      packages_dir,
-      package_dir
-    )
-    let files_html = PackagesIndex.files_section(
-      linkable_files,
-      packages_dir,
-      package_dir
-    )
+    let lines = [
+      '    <section class="package">',
+      %qq(      <h2><a href="#{PackagesIndex.html_escape(package_href)}">#{PackagesIndex.html_escape(package_name)}</a></h2>),
+      PackagesIndex.documentation_section(
+        docs_dirs,
+        packages_dir,
+        package_dir
+      ),
+      PackagesIndex.files_section(
+        linkable_files,
+        packages_dir,
+        package_dir
+      ),
+      '    </section>'
+    ]
 
-    return <<~HTML
-      <section class="package">
-        <h2><a href="#{PackagesIndex.html_escape(package_href)}">#{PackagesIndex.html_escape(package_name)}</a></h2>
-      #{text.indent(docs_html, '  ')}
-      #{text.indent(files_html, '  ')}
-      </section>
-    HTML
+    return Text.join(lines, "\n")
   end
 
   private fn package_directories(packages_dir)
     let directories = []
 
-    for path in files.entries(packages_dir)
-      if files.directory?(path) and !text.starts_with?(files.basename(path), '.')
+    for path in Files.entries(packages_dir)
+      if Files.directory?(path) and !Text.starts_with?(Files.basename(path), '.')
         set directories = [...directories, path]
       end
     end
@@ -370,12 +368,12 @@ module PackagesIndex
   private fn worker_count(args, package_count)
     let workers = PackagesIndex.default_worker_count(package_count)
 
-    if cli.flag?(args, 'workers')
-      if cli.missing_value?(args, 'workers')
+    if Cli.flag?(args, 'workers')
+      if Cli.missing_value?(args, 'workers')
         fail '--workers requires an integer value'
       end
 
-      set workers = cli.flag_int(args, 'workers', workers)
+      set workers = Cli.flag_int(args, 'workers', workers)
     end
 
     if workers < 1 or workers > 16
@@ -389,95 +387,121 @@ module PackagesIndex
     return workers
   end
 
-  private fn render_page(sections)
-    let packages_html = '    <p class="empty">No packages found.</p>\n'
-
-    if !sections.empty?
-      set packages_html = text.indent(text.join(sections, ''), '    ')
+  private fn generated_at()
+    let value = Env.default('PACKAGES_INDEX_GENERATED_AT', '')
+    if value == ''
+      fail 'PACKAGES_INDEX_GENERATED_AT must be set by generate-packages-index.hey'
     end
 
-    return <<~HTML
-      <!doctype html>
-      <html lang="en">
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Hey Packages</title>
-        <style>
-          :root {
-            color-scheme: light dark;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            line-height: 1.5;
-          }
+    return value
+  end
 
-          body {
-            max-width: 960px;
-            margin: 0 auto;
-            padding: 2rem 1rem 4rem;
-          }
+  private fn render_page(sections, generated_at)
+    let lines = [
+      '<!doctype html>',
+      '<html lang="en">',
+      '<head>',
+      '  <meta charset="utf-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+      '  <title>Hey Packages</title>',
+      '  <style>',
+      '    :root {',
+      '      color-scheme: light dark;',
+      '      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
+      '      line-height: 1.5;',
+      '    }',
+      '',
+      '    body {',
+      '      max-width: 960px;',
+      '      margin: 0 auto;',
+      '      padding: 2rem 1rem 4rem;',
+      '    }',
+      '',
+      '    header {',
+      '      margin-bottom: 2rem;',
+      '    }',
+      '',
+      '    .package {',
+      '      margin: 1.5rem 0;',
+      '      padding: 1rem 1.25rem;',
+      '      border: 1px solid color-mix(in srgb, currentColor 20%, transparent);',
+      '      border-radius: 0.5rem;',
+      '    }',
+      '',
+      '    h2 {',
+      '      margin-top: 0;',
+      '    }',
+      '',
+      '    h3 {',
+      '      margin-bottom: 0.25rem;',
+      '      font-size: 1rem;',
+      '    }',
+      '',
+      '    ul {',
+      '      margin-top: 0.25rem;',
+      '    }',
+      '',
+      '    li {',
+      '      margin: 0.2rem 0;',
+      '    }',
+      '',
+      '    .directory a {',
+      '      font-weight: 600;',
+      '    }',
+      '',
+      '    .empty,',
+      '    .generated-at {',
+      '      opacity: 0.7;',
+      '    }',
+      '',
+      '    code {',
+      '      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;',
+      '    }',
+      '  </style>',
+      '</head>',
+      '<body>',
+      '  <header>',
+      '    <h1>Hey Packages</h1>',
+      '    <p>Documentation and browsable package files.</p>',
+      '  </header>',
+      '',
+      '  <main>'
+    ]
 
-          header {
-            margin-bottom: 2rem;
-          }
+    if sections.empty?
+      set lines = [
+        ...lines,
+        '    <p class="empty">No packages found.</p>'
+      ]
+    else
+      for section in sections
+        set lines = [...lines, section]
+      end
+    end
 
-          .package {
-            margin: 1.5rem 0;
-            padding: 1rem 1.25rem;
-            border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-            border-radius: 0.5rem;
-          }
+    set lines = [
+      ...lines,
+      '  </main>',
+      '',
+      '  <footer>',
+      '    <p class="generated-at">',
+      "      Generated #{PackagesIndex.html_escape(generated_at)}",
+      '    </p>',
+      '  </footer>',
+      '</body>',
+      '</html>'
+    ]
 
-          h2 {
-            margin-top: 0;
-          }
-
-          h3 {
-            margin-bottom: 0.25rem;
-            font-size: 1rem;
-          }
-
-          ul {
-            margin-top: 0.25rem;
-          }
-
-          li {
-            margin: 0.2rem 0;
-          }
-
-          .directory a {
-            font-weight: 600;
-          }
-
-          .empty {
-            opacity: 0.7;
-          }
-
-          code {
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-          }
-        </style>
-      </head>
-      <body>
-        <header>
-          <h1>Hey Packages</h1>
-          <p>Documentation and browsable package files.</p>
-        </header>
-
-        <main>
-      #{packages_html}
-        </main>
-      </body>
-      </html>
-    HTML
+    return Text.join(lines, "\n") + "\n"
   end
 
   fn run(args)
-    if cli.flag?(args, 'help') or cli.flag?(args, 'h')
+    if Cli.flag?(args, 'help') or Cli.flag?(args, 'h')
       PackagesIndex.usage()
       return
     end
 
-    let positionals = cli.positionals(args)
+    let positionals = Cli.positionals(args)
     if positionals.length > 1
       PackagesIndex.usage()
       fail 'expected zero or one PACKAGES_DIR argument'
@@ -488,11 +512,11 @@ module PackagesIndex
       set packages_dir = positionals[0]
     end
 
-    if !files.directory?(packages_dir)
+    if !Files.directory?(packages_dir)
       fail "packages directory does not exist: #{packages_dir}"
     end
 
-    let output_path = files.join(packages_dir, 'index.html')
+    let output_path = Files.join(packages_dir, 'index.html')
     let package_dirs = PackagesIndex.package_directories(packages_dir)
     let workers = PackagesIndex.worker_count(args, package_dirs.length)
     let tasks = PackagesIndex.package_tasks(package_dirs, packages_dir)
@@ -510,7 +534,11 @@ module PackagesIndex
       end
     end
 
-    let written = files.write_atomic(output_path, PackagesIndex.render_page(sections))
+    let generated_at = PackagesIndex.generated_at()
+    let written = Files.write_atomic(
+      output_path,
+      PackagesIndex.render_page(sections, generated_at)
+    )
     if !written.ok
       fail "could not write #{output_path}: #{written.error}"
     end
@@ -521,5 +549,5 @@ module PackagesIndex
 end
 
 program
-  PackagesIndex.run(cli.args())
+  PackagesIndex.run(Cli.args())
 end

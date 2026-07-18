@@ -4,9 +4,11 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 HEY_ROOT="${HEY_ROOT:-$HOME/dev/hey-lang-bootstrap-plan}"
 HEY_SOURCE="$SCRIPT_DIR/generate-packages-index-main.hey"
+GENERATED_AT="${PACKAGES_INDEX_GENERATED_AT:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}"
 
 export HEY_ROOT
 export HEY_STDLIB_PATH="${HEY_STDLIB_PATH:-$HEY_ROOT/stdlib}"
+export PACKAGES_INDEX_GENERATED_AT="$GENERATED_AT"
 
 if [ ! -x "$HEY_ROOT/bin/heyc" ]; then
   echo "generate-packages-index: missing Hey compiler: $HEY_ROOT/bin/heyc" >&2
@@ -19,4 +21,39 @@ if [ ! -f "$HEY_SOURCE" ]; then
   exit 1
 fi
 
-exec "$HEY_ROOT/bin/heyc" "$HEY_SOURCE" --run -- "$@"
+packages_dir="./packages"
+expect_worker_value=false
+for argument in "$@"; do
+  if [ "$expect_worker_value" = true ]; then
+    expect_worker_value=false
+    continue
+  fi
+
+  case "$argument" in
+    --workers)
+      expect_worker_value=true
+      ;;
+    -h|--help)
+      ;;
+    -*)
+      ;;
+    *)
+      packages_dir="$argument"
+      ;;
+  esac
+done
+
+"$HEY_ROOT/bin/heyc" "$HEY_SOURCE" --run -- "$@"
+
+output_path="$packages_dir/index.html"
+if [ ! -f "$output_path" ]; then
+  echo "generate-packages-index: expected output was not created: $output_path" >&2
+  exit 1
+fi
+
+if ! grep -F "Generated $GENERATED_AT" "$output_path" >/dev/null 2>&1; then
+  echo "generate-packages-index: generated timestamp verification failed" >&2
+  exit 1
+fi
+
+echo "Verified $output_path (generated_at=$GENERATED_AT)"
