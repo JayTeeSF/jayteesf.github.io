@@ -21,8 +21,12 @@ module PackagesIndex
       PACKAGES_DIR defaults to ./packages.
 
       Options:
-        --workers N   Parallel package renderers (default: CPU count, max 16)
+        --workers N   Use exactly N package renderers (1..16)
+        --all-cpus    Use all available CPUs, capped by package count and 16
         -h, --help    Show this help
+
+      The default is one worker because package rendering is usually faster
+      without parallel scheduling overhead for small package sets.
 
       Environment:
         PACKAGES_INDEX_GENERATED_AT
@@ -33,6 +37,7 @@ module PackagesIndex
         ./generate-packages-index.hey
         ./generate-packages-index.hey ./packages
         ./generate-packages-index.hey --workers 4 ./packages
+        ./generate-packages-index.hey --all-cpus ./packages
     USAGE
   end
 
@@ -350,13 +355,13 @@ module PackagesIndex
     return tasks
   end
 
-  private fn default_worker_count(package_count)
+  private fn all_cpu_worker_count(package_count)
     let workers = cpu_count()
 
     if workers > 16
       set workers = 16
     end
-    if workers > package_count
+    if package_count > 0 and workers > package_count
       set workers = package_count
     end
     if workers < 1
@@ -367,9 +372,19 @@ module PackagesIndex
   end
 
   private fn worker_count(args, package_count)
-    let workers = PackagesIndex.default_worker_count(package_count)
+    let has_workers = Cli.flag?(args, 'workers')
+    let use_all_cpus = Cli.flag?(args, 'all-cpus')
 
-    if Cli.flag?(args, 'workers')
+    if has_workers and use_all_cpus
+      fail '--workers and --all-cpus cannot be used together'
+    end
+
+    if use_all_cpus
+      return PackagesIndex.all_cpu_worker_count(package_count)
+    end
+
+    let workers = 1
+    if has_workers
       if Cli.missing_value?(args, 'workers')
         fail '--workers requires an integer value'
       end
