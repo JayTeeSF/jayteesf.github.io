@@ -269,20 +269,25 @@
 
   function transformExpression(input) {
     let expr = transformInterpolatedStrings(String(input).trim());
+    const retiredModule = expr.match(/\b(web|files|bytes)\./);
+    if (retiredModule) {
+      const canonical = {web: 'Web', files: 'Files', bytes: 'Bytes'}[retiredModule[1]];
+      throw new Error(`retired module qualifier ${retiredModule[1]}.; use ${canonical}.`);
+    }
     expr = expr.replace(/\bnil\b/g, 'null').replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\s+/g, '!');
     expr = expr.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\?(?=\s*\()/g, (_, name) => `${name}__question`);
     expr = expr.replace(/([A-Za-z_][A-Za-z0-9_.\[\]]*)\.to_json\b/g, 'runtime.toJson($1)');
     expr = expr.replace(/\bspawn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^()]*)\)/g, 'runtime.spawn($1($2))');
     expr = transformNamedCall(expr, 'workers');
-    expr = transformNamedCall(expr, 'jobs.define');
+    expr = transformNamedCall(expr, 'Jobs.define');
     expr = transformNamedCall(expr, '.map');
     expr = transformNamedCall(expr, '.filter');
     expr = expr.replace(/\bworkers\s*\(/g, 'runtime.workers(');
-    expr = expr.replace(/\bjobs\.define\s*\(/g, 'runtime.jobs.define(');
-    expr = expr.replace(/\bjobs\.result\s*\(/g, 'await runtime.jobs.result(');
-    expr = expr.replace(/\bweb\./g, 'runtime.web.');
-    expr = expr.replace(/\bfiles\./g, 'runtime.files.');
-    expr = expr.replace(/\bbytes\./g, 'runtime.bytes.');
+    expr = expr.replace(/\bJobs\.define\s*\(/g, 'runtime.jobs.define(');
+    expr = expr.replace(/\bJobs\.result\s*\(/g, 'await runtime.jobs.result(');
+    expr = expr.replace(/\bWeb\./g, 'runtime.web.');
+    expr = expr.replace(/\bFiles\./g, 'runtime.files.');
+    expr = expr.replace(/\bBytes\./g, 'runtime.bytes.');
     expr = expr.replace(/\bjoin\s*\(/g, 'runtime.joinValues(');
     expr = transformStream(expr);
     return expr;
