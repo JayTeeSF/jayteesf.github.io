@@ -62,6 +62,24 @@
       color: var(--muted);
     }
 
+    .tldr {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+
+    .tldr h2 {
+      margin: 0 0 0.75rem;
+      padding: 0;
+      border: 0;
+    }
+
+    .tldr pre {
+      margin-bottom: 0.75rem;
+    }
+
     .benchmark-summary {
       margin-top: 2rem;
     }
@@ -154,6 +172,57 @@
       The running example generates a static package index, while its Hey and Ruby implementations intentionally produce byte-for-byte-identical HTML.
     </p>
 
+    <section class="tldr" aria-labelledby="tldr-fast">
+      <h2 id="tldr-fast">TL;DR: how to get the measured LLVM speed</h2>
+
+      <p>
+        The <strong>3.3 ms “LLVM compiled, 1 worker”</strong> result is the speed of a previously compiled native executable.
+        Build that executable once, then run the executable directly:
+      </p>
+
+      <pre><code>export HEY_ROOT="$HOME/dev/hey-lang-bootstrap-plan"
+export HEY_STDLIB_PATH="$HEY_ROOT/stdlib"
+
+"$HEY_ROOT/bin/heyc" build \
+  --backend llvm \
+  ./generate-packages-index.hey \
+  -o "$HOME/bin/generate-packages-index"
+
+"$HOME/bin/generate-packages-index" \
+  --workers 1 \
+  ./packages</code></pre>
+
+      <p>
+        That command path corresponds to the measured <strong>LLVM compiled, 1 worker</strong> lane.
+        On this benchmark it averaged <strong>3.3 ms</strong>, or <strong>34.68&times; faster than Ruby</strong>.
+        Using <code>--workers 10</code> produced the best observed mean, <strong>2.6 ms</strong>, but the one-worker command
+        is the clearest direct comparison.
+      </p>
+
+      <p>
+        The <code>-o</code> option chooses the executable name directly; there is no need to accept an
+        <code>a.out</code> name and rename it afterward. Use a platform-appropriate filename, such as
+        <code>generate-packages-index</code> on macOS/Linux or <code>generate-packages-index.exe</code> on Windows
+        where the LLVM backend is available.
+      </p>
+
+      <p>
+        For script convenience with automatic LLVM compilation and reuse, run through the application cache:
+      </p>
+
+      <pre><code>"$HEY_ROOT/bin/hey" \
+  ./generate-packages-index.hey \
+  --workers 1 \
+  ./packages</code></pre>
+
+      <p>
+        The first invocation may compile and publish the LLVM artifact. Later source-index and artifact hits averaged
+        <strong>43.8 ms</strong> in this test—still <strong>2.59&times; faster than Ruby</strong>, but not as fast as
+        invoking the explicitly compiled executable directly. Do not use <code>heyc --run</code> as the runtime-speed
+        comparison; that is the evaluator path.
+      </p>
+    </section>
+
     <section class="benchmark-summary" aria-labelledby="benchmark-results">
       <h2 id="benchmark-results">Benchmark results</h2>
 
@@ -225,16 +294,15 @@
         <li><a href="generate-packages-index.rb">Ruby parity implementation</a></li>
       </ul>
       <p class="muted">
-        The example now has exactly two source files. The Hey file contains its own shebang, CLI entry point,
-        timestamp generation, rendering logic, and program block; no shell launcher or separate
-        <code>generate-packages-index.hey</code> file is required.
+        The example has exactly two source files. The Hey file contains its own shebang, CLI entry point,
+        timestamp generation, rendering logic, and program block; no shell launcher or separate main file is required.
       </p>
     </div>
 
     <div class="callout">
       <strong>Current implementation contract</strong>
       <p>
-        The two-file implementation consists of one executable Hey program and one Ruby parity program. They use the same natural ordering, escaping rules, compact linked-heading layout, and optional fixed timestamp. With the same <code>PACKAGES_INDEX_GENERATED_AT</code> value, their HTML must be byte-for-byte identical.
+        The two-file implementation consists of one executable Hey program and one Ruby parity program. The Hey source keeps the LLVM-safe lowering shape used by the benchmark; both implementations use the same natural ordering, escaping rules, compact linked-heading layout, and optional fixed timestamp. With the same <code>PACKAGES_INDEX_GENERATED_AT</code> value, their HTML must be byte-for-byte identical.
       </p>
     </div>
   </header>
@@ -341,43 +409,59 @@ let linkable_files = PackagesIndex.linkable_files(package_files)</code></pre>
     </section>
 
     <section>
-      <h2>4. Ergonomic collection style within the LLVM subset</h2>
+      <h2>4. Ergonomic style within the LLVM-supported subset</h2>
+
       <p>
-        Hey supports receiver-oriented collection operations, but the executable source must also stay inside the
-        current direct LLVM lowering subset. The package index therefore uses the receiver chains already proven by
-        the LLVM benchmark, while leaving stateful traversal and accumulation as explicit loops.
+        The source should be as expressive as the production backend can actually lower. The generator uses the
+        receiver-oriented parallel stream form that LLVM already supports:
       </p>
-
-      <pre><code>private fn sorted_unique(paths)
-  return paths
-    .uniq
-    .sort(PackagesIndex.compare_paths)
-end</code></pre>
-
-      <p>The parallel rendering path uses the supported stream pipeline:</p>
 
       <pre><code>set sections = tasks
   .map(PackagesIndex.render_package, workers: workers)
   .collect()</code></pre>
 
       <p>
-        A broader refactor to synchronous <code>.map</code>, <code>.filter</code>, and <code>.reduce</code> was tested,
-        but the current direct LLVM backend rejected that application with unsupported-lowering diagnostics.
-        Shipping code that actually compiles is more important than forcing every available collection helper into
-        this example. Those forms can replace the remaining loops after the LLVM lowerer supports them end to end.
+        A broader refactor replaced filesystem traversal and rendering accumulators with receiver-oriented
+        <code>.filter</code> and <code>.reduce</code> pipelines. That version was more compact, but it was not a valid
+        production improvement: the current LLVM lowering path expanded those calls into unsupported collection
+        comparison, filesystem iteration, and boxed-local constructs.
       </p>
 
+      <div class="callout">
+        <strong>Ergonomics must not silently disable LLVM.</strong>
+        <p>
+          Until the LLVM backend lowers those higher-order stdlib paths, explicit loops remain the correct implementation
+          for stateful directory traversal, natural-sort comparison, and accumulator-heavy rendering. This is not a claim
+          that loops are the final language style; it is the current LLVM-safe style.
+        </p>
+      </div>
+
       <p>
-        The natural comparator also remains imperative because it advances independently through two strings.
-        That loop is a clearer representation of the state machine than an artificial collection pipeline.
+        The practical rule is simple: use <code>.map</code>, <code>.filter</code>, and <code>.reduce</code> where the
+        LLVM verification tier proves they lower correctly. Keep an explicit loop when the receiver form pulls an
+        unsupported implementation into the compiled closure.
       </p>
     </section>
 
     <section>
       <h2>5. Rendering deterministic HTML</h2>
+
       <p>
-        Small pure functions render one link, while explicit loops append those links to line arrays. This form is
-        currently LLVM-compatible, keeps indentation obvious, and still joins each completed fragment only once.
+        The LLVM-safe implementation constructs compact line arrays and joins them once. Small rendering functions
+        return one complete HTML line:
+      </p>
+
+      <pre><code>private fn file_link(path, packages_dir, package_dir)
+  let href = PackagesIndex.url_path(
+    PackagesIndex.relative_path(path, packages_dir)
+  )
+  let label = PackagesIndex.relative_path(path, package_dir)
+
+  return %qq(        &lt;li&gt;&lt;a href="#{PackagesIndex.html_escape(href)}"&gt;#{PackagesIndex.html_escape(label)}&lt;/a&gt;&lt;/li&gt;)
+end</code></pre>
+
+      <p>
+        Stateful accumulation remains explicit so the LLVM backend sees a straightforward sequence of array updates:
       </p>
 
       <pre><code>let lines = [
@@ -401,9 +485,8 @@ return Text.join(lines, "
 ")</code></pre>
 
       <p>
-        This preserves the compact linked-heading format and keeps the Hey and Ruby outputs byte-for-byte comparable.
-        Once receiver <code>reduce</code> is supported by the direct LLVM path for this program, this accumulation loop
-        can be reconsidered without changing the output contract.
+        This preserves the compact linked-heading format, byte-for-byte Ruby parity, and—most importantly—the direct
+        LLVM build used for the performance results.
       </p>
     </section>
 
@@ -590,6 +673,8 @@ export HEY_STDLIB_PATH="$HEY_ROOT/stdlib"
 
 "$HEY_ROOT/bin/heyc" build   --backend llvm   ./generate-packages-index.hey   -o ./build/generate-packages-index-llvm
 
+./build/generate-packages-index-llvm   --workers 1   ./packages
+
 "$HEY_ROOT/bin/heyc" build   --backend native-c   ./generate-packages-index.hey   -o ./build/generate-packages-index-native-c</code></pre>
 
       <p>
@@ -661,6 +746,25 @@ hey-run: cache=hit backend=llvm key=13512060f760334a3dfc3490</code></pre>
         A warm artifact hit was 15.28 times faster than an artifact miss. The evaluator control was 67.84 times slower
         than the warm application-cache path.
       </p>
+
+      <p>
+        Choose the path based on how the program will be used:
+      </p>
+      <ul>
+        <li>
+          <strong>Installed command:</strong> compile once with <code>heyc build --backend llvm -o ...</code> and put
+          that executable in <code>$HOME/bin</code> or another directory on <code>PATH</code>. This is the path that
+          reaches the 2.6-3.3 ms direct-runtime results.
+        </li>
+        <li>
+          <strong>Source script:</strong> invoke the <code>.hey</code> file through <code>bin/hey</code>. The first run
+          may compile; later cache hits avoid rebuilding and retain script-like convenience.
+        </li>
+        <li>
+          <strong>Evaluator:</strong> reserve <code>heyc --run</code> for evaluator and development behavior, not for
+          claiming compiled-application speed.
+        </li>
+      </ul>
 
       <div class="callout">
         <strong>What the updated numbers show</strong>
