@@ -150,9 +150,708 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 <p>first, then alloca, then store. Receipt class renamed</p>
 <p>literal-output -&gt; straight-line (spec 1122 updated in the same slice).</p>
 
-<p>Next item-5 sub-slices: interpolated literals, then route one product</p>
-<p>command through `emit-llvm` behind the golden compare before touching</p>
-<p>`heyc_emit_llvm_ir_for_loaded`.</p>
+<p>Slice 6 (landed): interpolated say/print. Each interpolated literal seeds a</p>
+<p>fresh empty string constant, then left-folds segments — nonempty text</p>
+<p>segments concat interned constants, `#{...}` integer expressions format via</p>
+<p>`hey_llvm_format_fixed_string(value, 0)` and concat — ending in</p>
+<p>puts/`@.fmt_str` printf on the accumulator; flips runtime-required. Empty</p>
+<p>text segments between expressions emit nothing. Unknown locals, richer</p>
+<p>expressions, and unterminated markers stay fail-closed.</p>
+
+<p>Slice 7 (landed): the product path routes through HeyLlvm. `hey-selfc`</p>
+<p>now tries `emit-llvm` first and hands the Hey-emitted `.ll` to the new</p>
+<p>native link-only command `heyc link-ll`; outside the supported class the</p>
+<p>emitter fails closed and the Stage-0 `build-mir` consumer remains</p>
+<p>authoritative (receipt `selfhost_consumer=hey-llvm-text` vs `direct-mir`;</p>
+<p>`HEY_SELFC_MIR_CONSUMER=stage0` forces the native route for bisecting).</p>
+<p>`stdlib/HeyLlvm.hey` joined the selfc pipeline cache fingerprint (v6-&gt;v7)</p>
+<p>and both `hey-selfc` Makefile prerequisite lists. The selfc smoke</p>
+<p>regression now proves the hey route on `examples/hello.hey` plus a</p>
+<p>product-path golden compare (`cmp` of hey vs forced-stage0 `.ll`).</p>
+
+<p>Slice 8 (landed): control flow. `if bool`/`else`/`end` and `while bool`</p>
+<p>over integer comparisons (`slt/sgt/sle/sge/eq/ne`) lower to the native</p>
+<p>shared-label shape (`if.thenN/elseN/endN`, `while.condN/bodyN/endN`; an</p>
+<p>empty else block always emits), with nesting via a control-frame stack.</p>
+<p>Locals declared inside frames stay fail-closed (entry-block alloca</p>
+<p>dominance remains Stage-0's job). Receipt class renamed</p>
+<p>straight-line -&gt; structured (spec 1122 updated in the same slice).</p>
+
+<p>Slice 9 (landed): user functions. All-i64 `fn` MIR records lower to</p>
+<p>`define i64 @hey_fn_&lt;name&gt;` with per-binding param allocas (`%&lt;p&gt;.in`</p>
+<p>stored into `%bN.addr`), the module-global `%tN` counter, and functions</p>
+<p>emitted before `main` (blank line after each). Calls are whole</p>
+<p>expressions (`call name(args)` standalone; source spelling `name(args)`</p>
+<p>inside interpolation markers) with operand args loaded left-to-right; the</p>
+<p>native `heyc_c_name` mangling is mirrored for defines/calls</p>
+<p>(`hey_fn_hey_c_reserved__double`) and unclean param names fail closed.</p>
+<p>Function bodies beyond bindings + one integer return stay fail-closed</p>
+<p>(proven negative), as do unknown callees and arity mismatches.</p>
+
+<p>Slice 10 (landed): function-body statements. The walker's special</p>
+<p>function mode dissolved into the shared dispatch — entering a `fn`</p>
+<p>stashes the entry body/locals and restores them at close, so says/print,</p>
+<p>locals, stores, if/while, and interpolation inside functions reuse the</p>
+<p>exact main-body machinery (module-global string pool, temp and label</p>
+<p>counters). Early `return` inside a branch sets a block-terminated flag</p>
+<p>that suppresses that branch's closing `br` (native shape), statements</p>
+<p>after a `ret` fail closed as unreachable, and a function whose final</p>
+<p>block does not terminate fails closed. Comparisons now split on the</p>
+<p>depth-0 operator, so whole-expression operands including multi-arg calls</p>
+<p>work in conditions. Non-i64 signatures remain fail-closed (negative</p>
+<p>updated: says-in-fn is now supported, the negative moved to a Str param).</p>
+
+<p>Slice 11 (landed): frame-scoped locals. Investigation resolved the</p>
+<p>hoisting question: the native reused-slot predeclare pass skips any</p>
+<p>`let` carrying a BindingId, and MIR-lowered locals always carry one, so</p>
+<p>on the MIR path native always emits allocas inline inside branch/loop</p>
+<p>blocks — my inline emission was already the exact native shape, and the</p>
+<p>fail-closed guard simply dropped. Covers same-named locals in sibling</p>
+<p>branches (distinct BindingIds) and per-iteration loop locals in fn</p>
+<p>bodies; the old frame-local negative became positive fixture coverage.</p>
+
+<p>Slice 12 (landed): call-operand binary expressions. The integer</p>
+<p>expression evaluator gained a depth-0 operator scan with operand-or-call</p>
+<p>sides (subsuming the old 3-token split): MIR spells a leading call as</p>
+<p>`call name(args)` and embedded operands keep the source spelling, sides</p>
+<p>evaluate left-to-right through the shared temp counter — covering</p>
+<p>initializers, stores, say payloads, function returns, condition sides,</p>
+<p>and interpolation markers. Multi-op expressions and nested call</p>
+<p>arguments stay fail-closed.</p>
+
+<p>Class-coverage survey (examples corpus, 100 programs, post-slice-12):</p>
+<p>3 wholly in-class and byte-identical, 97 fail-closed, ZERO divergent</p>
+<p>(no in-class program emits different bytes than Stage-0). First-blocker</p>
+<p>tally: 25x `local :boxed`, 11x `local :str`, ~20x actor records,</p>
+<p>~10x worker records, 1x `local :bytes`; then richer int expressions</p>
+<p>(parenthesized groups, `%`, nested call args like</p>
+<p>`div(sum - div(count, 2), count)`), string concat in say payloads</p>
+<p>(`say str &quot;...&quot; + var`), `write` ops, and non-i64 fn signatures</p>
+<p>(str/bool/boxed params and returns, blocked behind the str ABI).</p>
+
+<p>Slice 13 (landed): str locals. The locals map became typed</p>
+<p>(`bid:type` entries); `local/store :str` lower to `alloca ptr` slots</p>
+<p>with interned-literal (alloca-first) or expression (expr-first)</p>
+<p>initializers, single `+` concat goes through `hey_llvm_concat_string`</p>
+<p>(flips runtime-required), say/print accept string expressions, and a</p>
+<p>str-local interpolation marker concats raw with no format call. Survey</p>
+<p>after: 5/100 wholly in-class (was 3), still zero divergent — remaining</p>
+<p>str programs cascade into str fn params and mixed str+int concat.</p>
+
+<p>Slice 14 (landed, boxed-arc step 1a): mixed/multi-part concatenation.</p>
+<p>String expressions left-fold `part + part + ...` (split at depth zero</p>
+<p>outside quotes); str parts load, i64-local parts load-then-format</p>
+<p>through `hey_llvm_format_fixed_string`, every fold step concats, and</p>
+<p>the first part must be string-kind (int-first folds are unpinned and</p>
+<p>fail closed). Pinning for step 1b found a native class boundary: the</p>
+<p>native emitter itself rejects statements inside string-returning</p>
+<p>functions (&quot;non-string body&quot;), so str-fn bodies are bindings+ret-only</p>
+<p>in the class and HeyLlvm must fail closed there rather than expand</p>
+<p>beyond byte-identity.</p>
+
+<p>Slice 15 (landed, boxed-arc step 1b): typed function signatures. The</p>
+<p>fns registry stores `ret_kind|param_kinds`; str params render as</p>
+<p>`ptr %name.in` and are used directly in return expressions (`pstr`</p>
+<p>locals entries — never reloaded from their allocas, per the native</p>
+<p>shape), str returns `define ptr`, bool returns zext their comparison to</p>
+<p>i64, call sites type each argument from the registry, bool-returning</p>
+<p>calls branch via `icmp ne &lt;result&gt;, 0`, and `say bool &lt;call&gt;` routes</p>
+<p>through hey_llvm_says_bool. String-constant threading now flows through</p>
+<p>every expression evaluator (call args may intern literals). Native</p>
+<p>rejects statements inside str/bool-returning bodies, so those stay</p>
+<p>bindings+ret-only with a proven fail-closed negative. The survey's</p>
+<p>divergence check caught a real bug during this slice: program-fn calls</p>
+<p>are NOT runtime-facade calls and must not flip runtime-required — a</p>
+<p>zero-arg literal-str fn keeps `hey-runtime-required: false`. Survey:</p>
+<p>8/100 wholly in-class (was 5), zero divergent.</p>
+
+<p>Slice 16 (landed, boxed-arc step 2): boxed literals and says. Boxed</p>
+<p>locals use `.obj` slots predeclared (alloca ptr + null store) at the</p>
+<p>top of main in record order — including frame-scoped declarations — and</p>
+<p>released in the same order at hey.program.done via</p>
+<p>`hey_llvm_release_value_ptr` (pre-scan pass mirrors the native</p>
+<p>object-slot predeclare). Array/object literals build via</p>
+<p>`json_parse_cstr` seeds (a fresh `[]`/`{}` constant per literal, no</p>
+<p>dedupe) plus chained `push_i64`/`push_cstr`/`put_key_cstr`/`put_key_i64`;</p>
+<p>`say boxed` loads and calls `hey_llvm_says_value`; `len`/`at`/`get`</p>
+<p>read through `json_len_i64`/`json_get_index_value`/`json_get_key_value`.</p>
+<p>Boxed stores/reassignment, boxed in fn bodies, nested literals, and</p>
+<p>non-literal elements stay fail-closed (release-ordering and ownership</p>
+<p>pins needed first). Survey stable at 8/100, zero divergent — real</p>
+<p>boxed programs need stores, loops over arrays, and boxed params next.</p>
+
+<p>Slice 17 (landed, boxed-arc step 2b): boxed stores. A reassigned boxed</p>
+<p>slot owns its pointer: native clones the freshly constructed value</p>
+<p>(`hey_llvm_value_clone_ptr`), releases the old one through</p>
+<p>`hey_llvm_actor_value_release` (NOT `release_value_ptr`, which is the</p>
+<p>program-exit release), then stores the clone — mirrored exactly,</p>
+<p>including in loop bodies. Array construction gained i64-local elements</p>
+<p>with the native temp quirk (the push-result temp is reserved before the</p>
+<p>element load, so ids run load=%tN+1, push=%tN with load emitted first).</p>
+<p>Boxed locals in fn bodies stay fail-closed (negative added). Next</p>
+<p>rungs: iteration over arrays, boxed params/returns, then actors.</p>
+
+<p>Slice 18 (landed, boxed-arc step 3): array iteration. `control boxed</p>
+<p>for bN var in target` loads the target `.obj` and its `json_len_i64`</p>
+<p>once, allocates a TEMP-NAMED index slot (`%tN = alloca i64`) plus an</p>
+<p>inline loop-var `.obj` slot (nulled, never predeclared, never released</p>
+<p>— mirroring native), then loops through `forin.cond/body/end` labels on</p>
+<p>the shared counter: cond loads the index and `icmp slt` against the</p>
+<p>length, body `json_get_index_value`s into the var slot, end re-uses the</p>
+<p>cond-block index temp for the increment. Boxed loop vars (`:bfor`</p>
+<p>locals entries) convert via `hey_llvm_value_to_i64` in integer contexts</p>
+<p>and say through `says_value`. Frame tokens grew index/cond-temp fields.</p>
+
+<p>Slice 19 (landed, boxed-arc step 4): boxed function signatures. Boxed</p>
+<p>params render as `ptr %name.in` and bind to `.obj` slots through a</p>
+<p>three-line sequence (alloca, null store, param store) — borrowed from</p>
+<p>the caller and never released inside the fn; boxed returns evaluate,</p>
+<p>CLONE (`hey_llvm_value_clone_ptr`), then `ret ptr` so the caller owns a</p>
+<p>fresh value; call sites pass borrowed loads from `.obj` slots; and any</p>
+<p>fn with boxed params or a boxed return keeps a bindings+ret-only body</p>
+<p>(fn_restricted flag). Integer contexts reject boxed-returning calls.</p>
+<p>Data plumbing of the boxed arc is now complete: literals, access,</p>
+<p>stores, iteration, and signatures. Remaining: actors, workers, and the</p>
+<p>long tail of builtins/expressions the 92 fail-closed examples need.</p>
+
+<p>Slice 20 (landed, boxed-arc step 5 opening): echo-class actors. A</p>
+<p>zero-param zero-state actor emits the paired functions —</p>
+<p>`hey_actor_&lt;name&gt;` with the fixed receive loop (name-based `%&lt;recv&gt;` /</p>
+<p>`%&lt;recv&gt;.obj` registers, `actor.recv/body/stop` labels, is_stop guard,</p>
+<p>per-iteration release) and `hey_actor_step_&lt;name&gt;` with the same body</p>
+<p>plus the `actor.step.store.0` epilogue — both bodies flowing the module</p>
+<p>temp counter. Entry-side `:actor` locals join the predeclare/release</p>
+<p>pre-scan, `spawn` interns the actor-name constant and passes the step</p>
+<p>function to `hey_llvm_actor_spawn_pooled_values`, `actor.send` boxes</p>
+<p>string literals via `hey_llvm_string_value`, `actor.stop` loads and</p>
+<p>stops. examples/actor_echo.hey now compiles wholly through HeyLlvm</p>
+<p>(9/100, zero divergent). Actor params/state/join and richer bodies</p>
+<p>stay fail-closed with a proven stateful-actor negative — the next</p>
+<p>actor slices need a dispatch refactor so bodies can reuse the general</p>
+<p>statement machinery twice (actor fn + step fn) instead of the current</p>
+<p>echo-class hand emission.</p>
+
+<p>Slice 21 (landed, boxed-arc step 5b): stateful actors. The deep fact:</p>
+<p>actor state is BOXED at runtime despite `:i64` MIR typing — the actor</p>
+<p>fn initializes it through `hey_llvm_int_value` into a name-based `.obj`</p>
+<p>slot before the receive loop and releases it on the stop path;</p>
+<p>`store count:i64 = count + &lt;lit&gt;` lowers to boxed arithmetic</p>
+<p>(`hey_llvm_add_value`) with the full clone/release store discipline —</p>
+<p>NOT scalar add — which is why actor bodies keep their own per-shape</p>
+<p>emission instead of reusing the general dispatch. The step fn loads</p>
+<p>state from the arg array (`actor_arg_value(arg, 0)`) and writes it back</p>
+<p>in the `actor.step.store.0` epilogue (arg_set + release); stateful</p>
+<p>spawns build a `[1 x ptr]` initial-state array with the spawn-result</p>
+<p>temp reserved before the array temps (the reserve-first quirk again).</p>
+<p>Class: exactly one i64 state, statement tokens sayrecv/saystate/inc;</p>
+<p>actor params and multi-state stay fail-closed. Survey 9/100, zero</p>
+<p>divergent.</p>
+
+<p>Slice 22 (landed, boxed-arc step 5c): actor params. A single boxed</p>
+<p>param binds from arg index 0 into its BindingId `.obj` slot; the actor</p>
+<p>fn releases the arg array right after binding (`actor_args_release`)</p>
+<p>while the step fn does not — the args_release asymmetry. State follows</p>
+<p>at index param_count, stop/epilogue paths release params before state,</p>
+<p>the step epilogue's `arg_set` targets the state index, and spawns box</p>
+<p>literal args (interned BEFORE the actor-name constant) into the</p>
+<p>`[N x ptr]` array with the spawn-result temp reserved first. Class: one</p>
+<p>boxed param + optional one i64 state; multi-param stays fail-closed</p>
+<p>(negative updated). The remaining gap to real actor programs</p>
+<p>(actor_counter et al) is message conditionals (`if msg == '...'`) and</p>
+<p>`join`/`exit` — the next actor rungs.</p>
+
+<p>Slice 23 (landed, boxed-arc step 5d): actor message conditionals.</p>
+<p>`if msg == '&lt;lit&gt;'` inside actor bodies compares through</p>
+<p>`value_to_raw_string_cstr` + `strcmp` (an i32 result) + `icmp eq 0`,</p>
+<p>with standard if.then/else/end labels drawn from the shared module</p>
+<p>counter in both the actor and step functions. The slice also fixed a</p>
+<p>latent divergence: the `actor.step.store.N` label consumes a counter</p>
+<p>slot allocated at step-emission start (before the step body's own</p>
+<p>ifs) — the previous hardcoded `.store.0` would have diverged for any</p>
+<p>actor program with later labels. Nesting rides a per-body frame stack;</p>
+<p>else-branches in actor conditionals stay fail-closed. Remaining for</p>
+<p>real actor corpus coverage: `exit`, `join`, else-dispatch chains.</p>
+
+<p>Slice 24 (landed, boxed-arc step 5e): actor exit/join. `actor.exit`</p>
+<p>terminates its branch differently per emitted function —</p>
+<p>`hey_actor_exit_self` + release + `ret void` in the persistent actor</p>
+<p>fn, but exit_self + release + a branch to the `actor.step.store.N`</p>
+<p>label in the step fn so state still writes back — and the following</p>
+<p>endif suppresses its leading br after a terminated branch (per-body</p>
+<p>terminated flag). `actor.join` loads the slot and calls</p>
+<p>`hey_llvm_actor_join_value_ptr`. The actor class now covers echo,</p>
+<p>state, params, message dispatch, and lifecycle; else-chains</p>
+<p>(`else if msg == ...`) are the last gap to actor_counter.hey.</p>
+
+<p>Slice 25 (landed, boxed-arc step 5f): else-dispatch chains. `else`</p>
+<p>inside actor conditionals closes the then-branch with a</p>
+<p>terminated-aware leading br, emits the else label, and swaps the frame</p>
+<p>to consumed state so the matching endif emits only br + end label —</p>
+<p>the same frame rules as main bodies, in both emitted functions, with</p>
+<p>nested ifmsg/exit inside else branches proven. The actor emission</p>
+<p>family is functionally complete for the dispatch-loop idiom (echo,</p>
+<p>state, params, strcmp dispatch, else chains, exit/join); what keeps</p>
+<p>the remaining actor examples fail-closed is mixed concat over</p>
+<p>params/state in actor bodies (`says label + ': ' + count`) and</p>
+<p>multi-param spawns — body-expression widening, not new structure.</p>
+
+<p>Slice 26 (landed, boxed-arc step 5g): mixed concat in actor bodies.</p>
+<p>`says label + ': ' + count` left-folds with boxed parts (param and</p>
+<p>state slots) converting through `value_to_raw_string_cstr`, literals</p>
+<p>interning per use, and the accumulator feeding puts — the exact</p>
+<p>actor_counter shape. The survey's divergence check caught a second</p>
+<p>real bug mid-slice: the receive-loop register is ALWAYS `%msg`</p>
+<p>regardless of the receive variable's source name (only the `.obj` slot</p>
+<p>is name-based) — the echo pin's variable happened to be named msg,</p>
+<p>masking it until tour_03_actors (receive message) entered the class.</p>
+<p>Survey: 12/100 wholly in-class (was 9; actor_counter, pooled_counter,</p>
+<p>and tour_03_actors all compile through HeyLlvm now), zero divergent.</p>
+
+<p>Slice 27 (landed, boxed-arc step 5h): multi-param actors. Params</p>
+<p>generalize to lists: sequential binds at arg indices 0..N-1 (bid</p>
+<p>alloca + arg_value + store each), one `args_release` after all binds</p>
+<p>in the actor fn, state at index N everywhere (step binds, epilogue</p>
+<p>arg_set), releases in param order then state, spawns fill the</p>
+<p>[N+state x ptr] array from comma-split literal args, and body tokens</p>
+<p>carry per-param bids (sayparam:&lt;bid&gt;, mix parts p&lt;bid&gt;). The actor</p>
+<p>family is now list-general; the fail-closed negative moved to boxed</p>
+<p>send payloads. Survey holds 12/100, zero divergent.</p>
+
+<p>Slice 28 (landed, long-tail step 1): boxed parts in string</p>
+<p>expressions. Main-body says and interpolation markers convert boxed</p>
+<p>locals through `value_to_raw_string_cstr`; a `-&gt; str` fn with any</p>
+<p>boxed param operates in the BOXED domain — literals box via</p>
+<p>`string_value`, `+` is `add_value`, the result clones, callers</p>
+<p>to_raw it — registered as the distinct `bstr` return kind; literal</p>
+<p>args to boxed params box via `string_value` at call sites. (Bug found</p>
+<p>mid-slice: shadowing call_expr's `rendered` accumulator leaked a</p>
+<p>render object into an arg list — Hey lets `let` shadow outer locals.)</p>
+
+<p>Refreshed blocker inventory for the 12-&gt;100 push (first-blockers</p>
+<p>cascade; each program needs several): control flow inside</p>
+<p>boxed-domain/restricted fn bodies (`functions`), interpolated bstr</p>
+<p>returns (`tour_02`), object spread + field access</p>
+<p>(`{...user, visits: user.visits + 1}`), boxed field/index says</p>
+<p>(`msg.event`, `items[0]`), the worker family (9 programs), builtin</p>
+<p>facade calls into boxed locals (~10), `div` with expression args,</p>
+<p>`until`, `fail`, `write`, `sleep`, float. Each is pinnable with the</p>
+<p>established method; the worker family is the largest single unlock.</p>
+
+<p>Slice 28 fix (landed): the bstr call-site temp id was built with an</p>
+<p>inline boxed-field coercion that is not lane-stable (see lessons);</p>
+<p>slice 28's gate was red on the REPL-session specs and the slice was</p>
+<p>committed prematurely on receipt-tail evidence. Fixed with a typed</p>
+<p>local; specs 1114/1118 pass in the compiled lane again.</p>
+
+<p>Slice 29 (landed, long-tail step 2): worker records. A worker emits as</p>
+<p>an ordinary `hey_fn_` function — boxed param binding, full statement</p>
+<p>body, and a named `%fallback.nil = hey_llvm_nil_value()` / `ret ptr`</p>
+<p>epilogue when the body does not terminate (workers are exempt from the</p>
+<p>restricted-body guard). Pools are boxed locals from</p>
+<p>`hey_llvm_workers_create_value(name-const, fn-ptr, count, capacity)`;</p>
+<p>`pool.enqueue(&quot;&lt;lit&gt;&quot;)` boxes via string_value and `pool.stop()` loads</p>
+<p>the slot, both allocating their unused result temps. The worker corpus</p>
+<p>examples still cascade into boxed field access (`message.reply_to`),</p>
+<p>which is the next slice.</p>
+
+<p>Slice 30 (landed): compiled-lane repairs + the emitter perf harness.</p>
+<p>Preparing the performance A/B the user requested exposed two more</p>
+<p>compiled-lane divergences invisible to every gate: the actor</p>
+<p>ifmsg/saymix byte counts used the lane-unstable inline coercion</p>
+<p>([31 x i8] for &quot;inc&quot;), and label-bearing programs emitted `if.thennil`</p>
+<p>labels because `label_a/b/x` were declared int in the open branch but</p>
+<p>string in the else/end handlers of the same function (see lessons).</p>
+<p>Both fixed; the selfc smoke regression now byte-compares control_flow</p>
+<p>and actor_counter through the COMPILED pipeline against Stage-0.</p>
+
+<p>Performance answer (test/perf_hey_llvm_emitter.sh, medians of 5</p>
+<p>alternating runs): binary runtime is identical by construction</p>
+<p>(byte-identical IR; measured deltas are noise), and the hey route costs</p>
+<p>~4-8ms (~3-5%) extra on the emit+link stage from its two extra</p>
+<p>subprocesses — wall-clock build times within noise. No need to wait</p>
+<p>for broader coverage to assess performance; byte-identity settles the</p>
+<p>runtime question class by class.</p>
+
+<p>Slice 31 (landed): boxed field and index access. Dot access loads the</p>
+<p>slot and calls `json_get_key_value` with a per-use interned key</p>
+<p>constant (the get() builtin path with different spelling), brackets use</p>
+<p>`json_get_index_value`, and dot access inside string folds converts</p>
+<p>through `value_to_raw_string_cstr` — verified in BOTH lanes (the</p>
+<p>compiled-lane check is now part of the per-slice routine). Standing</p>
+<p>directive: continue until 100/100 examples compile through HeyLlvm;</p>
+<p>slices now batch several small shapes per gate cycle.</p>
+
+<p>Slice 32 (landed, long-tail batch 1): `until` (while labels, swapped</p>
+<p>branch targets), `div` (sdiv over recursive int-expression args, so</p>
+<p>`div(sum - div(count, 2), count)` works), `sleep i64 &lt;lit&gt;`</p>
+<p>(hey_llvm_sleep_ms, runtime), `write &quot;&lt;lit&gt;&quot;` (the print-str lowering,</p>
+<p>no runtime flip), and empty string literals (now pinned:</p>
+<p>`[1 x i8] c&quot;\00&quot;` through the normal intern path). Survey 14/100,</p>
+<p>zero divergent.</p>
+
+<p>Slice 33 (landed, long-tail batch 2): `json(x)` round-trips boxed</p>
+<p>values (to_raw_string_cstr then json_parse_cstr), `keys(x)` calls</p>
+<p>json_keys_value and composes inside json(), actor receive-field says</p>
+<p>get_key the recv slot with per-use interned keys, and the receive value</p>
+<p>joins actor mixed concat as a to_raw part. Remaining top blockers: the</p>
+<p>one-facade-per-program stdlib tail (Files/Http/Packages/Net/...),</p>
+<p>boxed-local aliasing (`= start`), spreads, stream chains, dynamic actor</p>
+<p>sends (message.reply_to), and Web handlers.</p>
+
+<p>Slice 34 (landed, long-tail batch 3): worker-body expressions. Boxed</p>
+<p>arithmetic returns go scalar-through-int (`value_to_i64` for bare</p>
+<p>params, the int-typed `json_get_key_i64` for field reads, then scalar</p>
+<p>mul/add/sub, `int_value` re-boxing, clone); negated boxed-field</p>
+<p>conditions (`if !message.valid`) lower to `icmp ne` + `xor i1 …, true`;</p>
+<p>and string-typed ret records inside boxed workers box via</p>
+<p>`string_value` + clone. The jobs corpus cascades next into entry-side</p>
+<p>pool porcelain (object-literal enqueue payloads, jobs() declarations,</p>
+<p>dynamic actor sends). Survey 16/100, zero divergent.</p>
+
+<p>Slice 35 (landed, long-tail batch 4): the worker round-trip. The</p>
+<p>walker became TWO-PASS because native emits all actor functions before</p>
+<p>ordinary/worker fns regardless of MIR record order (temps and labels</p>
+<p>flow actor-first); non-pass records skim with depth tracking. Object</p>
+<p>literals accept local values (`reply_to: collector`) through</p>
+<p>put_key_value with the reserve-first temp quirk; `!pool.enqueue(...)`</p>
+<p>conditions chain enqueue/value_to_i64/icmp ne/xor; worker bodies send</p>
+<p>to boxed-field targets (`send message.reply_to, message.value * 2`)</p>
+<p>with scalar-through-int re-boxed payloads; and a terminating actor</p>
+<p>body (top-level exit) skips the receive-loop epilogue. The full</p>
+<p>spawn/enqueue/compute/reply/join cycle now runs through Hey-owned</p>
+<p>emission. Survey 16/100 — the worker examples cascade next into</p>
+<p>for-loop enqueues over literal arrays.</p>
+
+<p>Slice 36 (landed, long-tail batch 5): unrolled literal for-ins and the</p>
+<p>quickstart enqueue loop. Native fully UNROLLS `for v in [1, 2]` — the</p>
+<p>loop var gets a scalar i64 `.addr` slot, and the body re-emits per</p>
+<p>element with fresh constants and labels; the walker implements this by</p>
+<p>rewinding its line index per element (typed flit state; single level,</p>
+<p>nested literal-forins fail closed). Object literals accept i64-local</p>
+<p>values via load + put_key_i64 with the reserve-first quirk; sends</p>
+<p>accept bare boxed-field payloads (get_key_value); `fail str` lowers to</p>
+<p>hey_runtime_error. Survey 17/100, zero divergent — the workers</p>
+<p>examples cascade next into multi-state actors (Collector with</p>
+<p>seen+total).</p>
+
+<p>Slice 37 (landed, long-tail batch 6): multi-state actors and the full</p>
+<p>workers pair. Actor state generalized from a singleton to a</p>
+<p>space-separated `name~init` list: sequential init blocks, step binds at</p>
+<p>arg indices `param_count..param_count+S-1`, per-state</p>
+<p>`actor.step.store.N` arg_sets in declaration order, stop/epilogue</p>
+<p>releases params-then-states. New actor tokens: `saystate:&lt;name&gt;`,</p>
+<p>`incby:&lt;name&gt;:&lt;lit&gt;`, `increcv:&lt;name&gt;` (state += receive value loads</p>
+<p>the recv slot), `ifcmp:&lt;slotA&gt;:&lt;slotB&gt;` (boxed==boxed compares via</p>
+<p>to_raw_string_cstr on BOTH sides + strcmp), saymix state pieces are</p>
+<p>`S&lt;name&gt;`. Spawn args and send payloads accept bare int literals</p>
+<p>(int_value); send payload RHS generalized to a second boxed int term</p>
+<p>(`message.value * message.value`). Pool facades: `pool.status().&lt;key&gt;`</p>
+<p>(workers_status_value + get_key) in boxed_expr AND str parts;</p>
+<p>`local = pool.stop()` init (the statement-level `.stop()` dispatch now</p>
+<p>excludes local/store lines). Fixed a PRE-EXISTING compiled-lane</p>
+<p>divergence (present at the previous HEAD): `!pool.enqueue(...)`</p>
+<p>negation temps misnumbered (`%t141` vs `%t15`) because `nq_next` read</p>
+<p>`next_t` lane-unstably — fixed with the typed passthrough</p>
+<p>(`hey_llvm_label_base_value`); the selfc smoke regression's</p>
+<p>compiled-lane parity loop now covers workers_quickstart and</p>
+<p>tour_04_workers so this class stays gated. Fixture</p>
+<p>llvm_say_multi_state (Collector prints 30); workers_quickstart and</p>
+<p>tour_04_workers are byte-identical in BOTH lanes and execute correctly</p>
+<p>(&quot;20\n4&quot;, &quot;30\ncompleted=4&quot;). Survey 19/100, zero divergent.</p>
+
+<p>Slice 38 (landed, long-tail batch 7): spread literals and richer object</p>
+<p>values. Array and object literals accept a leading `...local` spread:</p>
+<p>the chain seeds from the loaded boxed local instead of the parsed</p>
+<p>`[]`/`{}` global (native never parses an empty seed for spreads).</p>
+<p>Object values gain bool literals (`json_put_key_bool` i64 1/0) and</p>
+<p>`&lt;boxed-local&gt;.&lt;key&gt; + &lt;int-lit&gt;` value expressions (reserve-first put</p>
+<p>temp, get_key chain via boxed_expr, int_value + add_value —</p>
+<p>BOXED add, not scalar). Unlocked json_tiny_spread, json_values, and</p>
+<p>modules_json — all byte-identical in both lanes and executing</p>
+<p>correctly; both regression scripts now cover the spread pair, and the</p>
+<p>selfc compiled-lane parity loop covers all three. Survey 22/100, zero</p>
+<p>divergent. Next singles: json_helpers tail (`has?`→has_key_i64 +</p>
+<p>says_bool, `del`, `values()`, `type()`), json_syntax_sugar,</p>
+<p>json_arrays (`store items:boxed = [...items, {ok:true}]` — object</p>
+<p>literal INSIDE a spread array), sleep in actor bodies (actor_registry),</p>
+<p>`say boxed event[0]` (json_array_actor). Clusters: one_brc family (4,</p>
+<p>long chain: actor-typed actor params, byte_at, boxed cursor</p>
+<p>arithmetic), supervise (3), stdlib facades (Files/Http/Packages/...).</p>
+
+<p>Slice 39 (landed, long-tail batch 8): the json method/builtin tail.</p>
+<p>`say bool &lt;local&gt;.has?(&quot;k&quot;)` → has_key_i64 + says_bool; `say bool</p>
+<p>&lt;local&gt;.&lt;key&gt; == &lt;int-lit&gt;` → get_key + value_to_string_cstr +</p>
+<p>string_eq against the STRINGIFIED literal + icmp/zext (boxed==int</p>
+<p>compares as strings). boxed_expr grows `.del(&quot;k&quot;)`</p>
+<p>(json_delete_key_value), `.put(&quot;k&quot;, v)` (load target first, reserve</p>
+<p>put temp, value = int-lit via put_key_i64 DIRECTLY — native never</p>
+<p>boxes int put values — or field+lit via boxed add), nested `[`/`{`</p>
+<p>literal values in object entries (reserve-first + recurse), and</p>
+<p>`json(values(&lt;local&gt;))` / `json(values((&lt;literal&gt;)))`. str parts grow</p>
+<p>`type(&lt;local&gt;)` and `type(keys(&lt;local&gt;))` (type_value_string,</p>
+<p>formatted:false — a formatted first part is rejected by design).</p>
+<p>Unlocked json_helpers, json_syntax_sugar, json_string_key_fast_path,</p>
+<p>json_tiny_method_sugar (+modules_json in batch 7's wake). Survey</p>
+<p>26/100, zero divergent (two transient divergences caught by the</p>
+<p>survey's cmp during the batch — put-int boxing — fixed before ship).</p>
+
+<p>Slice 40 (landed, long-tail batch 9): nested collection elements and</p>
+<p>comparison string parts. Array elements accept nested `{`/`[` literals</p>
+<p>(reserve-first push temp + recursive emission + json_push_value) — the</p>
+<p>`[...items, {ok:true}]` shape. json() gains `entries(&lt;local&gt;)`.</p>
+<p>type() accepts `&lt;local&gt;.&lt;key&gt;` field args (get_key chain). New string</p>
+<p>parts: `X.has?(&quot;k&quot;)` (has_key_i64 + icmp ne + SELECT over interned</p>
+<p>true/false globals) and `(shape_id(a) != shape_id(b))` (two shape_id</p>
+<p>calls + icmp/zext/icmp + select). New condition: `&lt;str-local&gt; ==</p>
+<p>&quot;&lt;lit&gt;&quot;` via strcmp + icmp eq 0. Unlocked json_arrays, json_multiline,</p>
+<p>collection_iteration_and_json_codec. Survey 29/100, zero divergent.</p>
+
+<p>Slice 41 (landed, long-tail batch 10): io statements and string-length</p>
+<p>shapes. New entry ops: `warn str` (hey_llvm_warn_string), two-arg</p>
+<p>`log str &quot;&lt;path&gt;&quot;, &quot;&lt;line&gt;&quot;` (log_path_string), two-arg `write</p>
+<p>&quot;&lt;path&gt;&quot;, &quot;&lt;content&gt;&quot;` (write_path_string with native's REVERSED</p>
+<p>intern order: content global first, path second, call passes</p>
+<p>path-first). New int exprs: `len(&lt;str-local&gt;)` -&gt; strlen,</p>
+<p>`len(&quot;&lt;lit&gt;&quot;)` constant-folds to the rendered byte count. New string</p>
+<p>parts: `read(&quot;&lt;path&gt;&quot;)` (read_file_string) and `&lt;str-local&gt;.length`</p>
+<p>(strlen + format_fixed_string). The formatted-first-part rejection</p>
+<p>narrowed to NUMBER-formatted parts only (find format_fixed_string in</p>
+<p>the part lines) — native legally starts concats with boxed dot-access</p>
+<p>parts (tour_01). Learned: guard length-dependent slice() probes with a</p>
+<p>len() check FIRST — a negative slice start is a runtime error in the</p>
+<p>interpreter that silently knocks unrelated examples out of the survey</p>
+<p>class (the three core examples &quot;lost&quot; mid-batch were this, not real</p>
+<p>regressions; the survey composition diff caught it). Unlocked</p>
+<p>io_statements, self_hosted_string_len, tour_01_values. Survey 32/100,</p>
+<p>zero divergent.</p>
+
+<p>Slice 42 (landed, long-tail batch 11): actor-body sleep and indexed</p>
+<p>receive payloads. New actor tokens (emitted in BOTH paired builders —</p>
+<p>and the ifmsg insertion anchor appears once per builder; a text</p>
+<p>replacement whose inserted block ends with its own search anchor will</p>
+<p>nest the second insertion inside the first, mis-appending to the other</p>
+<p>builder's accumulator): `sleeplit:&lt;n&gt;` (sleep_ms literal), `sleeprecv`</p>
+<p>(load recv + value_to_i64 + sleep_ms), `sayrecvidx:&lt;n&gt;` (load recv +</p>
+<p>json_get_index_value + says_value), `sayrecvlen` (json_len_i64 +</p>
+<p>fmt_i64 printf), and plain literal says in actor bodies reuse saymix</p>
+<p>with a single L piece. Unlocked parallel_sleep and json_array_actor</p>
+<p>(array-literal send payloads with nested objects came free from batch</p>
+<p>9's push_value elements). actor_registry parked: needs type() on actor</p>
+<p>locals plus the actors()/pid()/info facade family. Survey 34/100,</p>
+<p>zero divergent.</p>
+
+<p>Slice 43 (landed with slice 42, long-tail batch 12): control flow in</p>
+<p>restricted fn bodies. The fn_restricted gate admits `if bool ` lines;</p>
+<p>an ifelse whose arms BOTH terminate emits no join label and stays</p>
+<p>terminated (native omits if.end entirely — the frame carries a</p>
+<p>then-terminated flag). Literal str rets inside branches box through</p>
+<p>string_value + clone (only trivial top-level literal rets stay `ret</p>
+<p>ptr @.str.N`), and a str fn whose body branched registers ret kind</p>
+<p>bstr so call sites add the to_raw before puts — the fns registry entry</p>
+<p>is finalized at the fn's `end`, after the body reveals whether it</p>
+<p>branched. Unlocked `functions`. Survey 36/100, zero divergent.</p>
+<p>NOTE (workflow): the slice-42 gate ran concurrently with these edits</p>
+<p>and was discarded as tainted — gates must run with a quiet tree; this</p>
+<p>combined state was re-gated cleanly before commit.</p>
+
+<p>Slice 44 (landed, long-tail batch 13): recurrence arithmetic and the</p>
+<p>Cli/Time facades. Integer expressions gain the parenthesized left-fold</p>
+<p>chain with modulo tail (`(acc * 1664525 + i) % 2147483647` -&gt; loads in</p>
+<p>order, literal RHS inline, srem), `Text.parse_int(&lt;boxed&gt;[n])` with the</p>
+<p>reserve-first result temp, and `Time.now_ns()` / `Time.elapsed_ns(x)`</p>
+<p>(load-then-now, sub) / `Time.ns_to_ms(x)` (sdiv 1000000). boxed_expr</p>
+<p>gains `Cli.args()` (argv_value); conditions gain `&lt;boxed&gt;.length &lt;op&gt;</p>
+<p>&lt;lit&gt;` (json_len_i64 + icmp). Unlocked selfhost_llvm_recurrence and</p>
+<p>llvm_integer_hot_loop_timed. Survey 38/100, zero divergent.</p>
+<p>ENVIRONMENT (READ FIRST, next LLM): work in ~/dev/claude_01 (branch</p>
+<p>claude_01). The old ~/dev/hey-lang-bootstrap-plan is the user's TRUNK</p>
+<p>checkout — never touch it. The installer env</p>
+<p>(~/.config/hey/env.sh, sourced by the login shell) points every HEY_*</p>
+<p>var and PATH at the trunk checkout, so BEFORE running any hey tooling</p>
+<p>source the override script checked in at `bin/claude01-env.sh`</p>
+<p>(`. bin/claude01-env.sh` from the repo root): it pins</p>
+<p>HEY_ROOT/HEY_STDLIB_PATH/HEY_COMPILER_BUILD_DIR to this tree, gives it</p>
+<p>a separate cache home (~/Library/Caches/Hey-claude01), and prepends</p>
+<p>this tree's build/bin to PATH. Always invoke repo tools by relative</p>
+<p>path from the repo root after sourcing it.</p>
+
+<p>Slice 45 (landed, long-tail batch 14): actor-typed params and grouped</p>
+<p>actor emission. Actor headers/bindings accept `:actor` params; spawn</p>
+<p>args accept actor/boxed locals (load from `.obj`); new token</p>
+<p>`sendparamrecv:&lt;bid&gt;` (send the receive value to a param target). THE</p>
+<p>STRUCTURAL FIX: native emits ALL `hey_actor_` functions before ALL</p>
+<p>`hey_actor_step_` functions, with module temp/label/global counters</p>
+<p>flowing in that grouped order — so step functions can no longer be</p>
+<p>built at each actor's `end`. The walker now stashes per-actor metadata</p>
+<p>(name/recv/params/states/tokens, newline-joined — accumulate the</p>
+<p>record into a local before push(); an inline multi-`+ &quot;\n&quot;` push arg</p>
+<p>is outside the compiled host subset) and builds every step function at</p>
+<p>the end of pass 0 with the continuing counters. Single-actor programs</p>
+<p>emit identical bytes either way; multi-actor programs (actor_chain,</p>
+<p>message_chain) required it. Unlocked actor_chain, message_chain, and</p>
+<p>self_hosted_function_control_flow (freed by batch 12's fn control</p>
+<p>flow). Survey 40/100, zero divergent.</p>
+
+<p>Slice 46 (landed, long-tail batch 15): supervise and interpolated</p>
+<p>returns. `local &lt;bid&gt;:actor = supervise &lt;actor&gt; max &lt;n&gt;` lowers to</p>
+<p>hey_llvm_actor_supervise_values(@name, @hey_actor_&lt;name&gt;, i64 0, ptr</p>
+<p>null, i64 &lt;n&gt;) — note it passes the ACTOR function (not the step fn).</p>
+<p>The interpolation machinery split into hey_llvm_interpolated_fold_value</p>
+<p>(returns the folded cstr result) + the puts/printf output wrapper;</p>
+<p>`ret str &quot;...#{x}...&quot;` in fns folds with the empty-seed idiom then</p>
+<p>boxes via string_value + clone (bstr). Unlocked supervisor_restart.</p>
+<p>Parked: tour_02 (`local :callable = greet` — function values),</p>
+<p>supervisor_info/strategy (actor_info facade), one_brc family (rich</p>
+<p>actor bodies: receive-field conditionals, fn calls with field args,</p>
+<p>object sends with field values, boxed state inits, Files.write_text —</p>
+<p>needs a generalized actor-body dispatch rather than more tokens; the</p>
+<p>per-actor stash from slice 45 is the right substrate). Survey 41/100,</p>
+<p>zero divergent.</p>
+
+<p>Slice 47 (landed, long-tail batch 16): the actor_info facade.</p>
+<p>`actor_info(&lt;actor-local&gt;)` lowers to load + hey_llvm_actor_info_value</p>
+<p>in boxed_expr, and type() accepts bare actor locals. Unlocked</p>
+<p>supervisor_info and supervisor_strategy. actor_registry parked (needs</p>
+<p>`actors()`/`pid()` porcelain: actors().length conditions, len(actors())</p>
+<p>says, pid(p) == info.pid bool compares). Survey 43/100, zero</p>
+<p>divergent.</p>
+
+<p>Slice 48 (landed, long-tail batch 17): the actors()/pid() porcelain.</p>
+<p>say-bool gains `actors().length &lt;op&gt; &lt;lit&gt;` (actors_value + len_i64 +</p>
+<p>icmp/zext) and `pid(&lt;actor&gt;) == &lt;boxed&gt;.&lt;key&gt;` with native's quirky</p>
+<p>order (get_key, then RESERVE the value_to_i64 temp, then load+pid_i64,</p>
+<p>then the deferred to_i64, icmp on pid-first). len() accepts</p>
+<p>`actors()`. Unlocked actor_registry. Survey 44/100, zero divergent.</p>
+
+<p>Slice 49 (landed, long-tail batch 18, foundation): sleep expressions.</p>
+<p>The paren-chain evaluator generalizes its tail op (`) % lit` srem and</p>
+<p>`) * lit` mul), and `sleep i64 &lt;chain&gt;` in fn/worker bodies routes</p>
+<p>through it (`sleep i64 (5 - value) * 20` emits load, sub-with-literal-</p>
+<p>LHS, mul, sleep_ms). No example classes yet — stream_resequencing</p>
+<p>continues into the Streams facade and jobs_partitioned into Jobs</p>
+<p>porcelain. PINNED for the next io batch: 3-arg write is</p>
+<p>`hey_llvm_write_path_mode_string` with intern order content, mode,</p>
+<p>path and call order path, content, mode; `file(&quot;p&quot;,&quot;m&quot;)` is</p>
+<p>hey_llvm_file_value; `write &lt;boxed-file&gt;, &quot;lit&quot;` is</p>
+<p>hey_llvm_write_target_string(load, @lit); io_modes_async continues</p>
+<p>into read(file(...)) and read_async(path, actor). Survey 44/100, zero</p>
+<p>divergent.</p>
+
+<p>Slice 50 (landed, long-tail batch 19): the file-object io family.</p>
+<p>Three-arg `write &quot;p&quot;, &quot;c&quot;, &quot;m&quot;` lowers to write_path_mode_string</p>
+<p>(intern order content, mode, path; call order path, content, mode);</p>
+<p>`file(&quot;p&quot;,&quot;m&quot;)` becomes hey_llvm_file_value in boxed_expr; `write</p>
+<p>&lt;boxed-file&gt;, &quot;lit&quot;` becomes write_target_string; the read() string</p>
+<p>part accepts `read(file(&quot;p&quot;,&quot;m&quot;))` with the reserve-first result temp</p>
+<p>(read_value_string reserved before file_value); and actor locals init</p>
+<p>from `read_async(&quot;&lt;path&gt;&quot;, &lt;actor-local&gt;)`. Unlocked io_modes_async.</p>
+<p>Survey 45/100, zero divergent.</p>
+
+<p>Slice 51 (landed, long-tail batch 20): string flit unrolling and</p>
+<p>compared say-bools. The literal for-in unroller gains string-literal</p>
+<p>element lists (loop var gets a `ptr` .addr slot registered :str; first</p>
+<p>element allocas+stores its interned global, later elements re-store</p>
+<p>with fresh per-iteration globals through the same rewind machinery;</p>
+<p>elements containing ','/';' fail closed — the comma-joined frame</p>
+<p>state). say-bool payloads containing a comparison route through</p>
+<p>cmp_expr + zext + says_bool. Unlocked control_flow_ergonomics. Survey</p>
+<p>46/100, zero divergent.</p>
+
+<p>Slice 52 (landed, long-tail batch 21): double spreads and actor links.</p>
+<p>A second leading `...local` in array/object literals merges via</p>
+<p>hey_llvm_json_merge_value before the put/push chain continues (the</p>
+<p>object seed's list variable is `entries`, the array's `elements` —</p>
+<p>the two seed blocks are near-identical text; a blind two-site</p>
+<p>replacement briefly referenced the wrong list). say-bool gains</p>
+<p>`link(&lt;actor&gt;, &lt;actor&gt;)` (actor_link_value + value_to_i64) and</p>
+<p>boxed_expr gains `monitor_to(&lt;actor&gt;, &lt;actor&gt;)`</p>
+<p>(actor_monitor_to_value). Unlocked json_spread_literals and</p>
+<p>link_propagation; links_and_monitors parked (len(actor_info(...))</p>
+<p>tail). Survey 48/100, zero divergent.</p>
+
+<p>Slice 53 (landed, long-tail batch 22): call field args and monitors.</p>
+<p>Call-expression boxed args accept `&lt;local&gt;.&lt;key&gt;` (load + get_key</p>
+<p>feeding the ptr arg). boxed_expr gains `monitor(&lt;actor&gt;)`</p>
+<p>(actor_monitor_value_ptr) and `monitor_info(&lt;boxed&gt;)` with an optional</p>
+<p>`.key` chain (actor_monitor_info_value + get_key). len() accepts</p>
+<p>`actor_info(&lt;actor&gt;).&lt;key&gt;` (info + get_key + len_i64). Unlocked</p>
+<p>imports_main and links_and_monitors (past the halfway mark). Survey</p>
+<p>51/100, zero divergent.</p>
+
+<p>Slice 54 (landed, long-tail batch 23): runtime-error emissions. A</p>
+<p>send whose target local is str-typed emits native's exact</p>
+<p>hey_runtime_error(&quot;send target is not an actor&quot;) and continues; `say</p>
+<p>boxed &quot;&lt;lit&gt;&quot; - &lt;int&gt;` emits hey_runtime_error(&quot;`-` expects two</p>
+<p>integers&quot;) then boxes zero for the says (native continues with a</p>
+<p>placeholder after the error call). Unlocked runtime_error_send and</p>
+<p>runtime_error_sub. Survey 53/100, zero divergent.</p>
+
+<p>Slice 55 (landed, long-tail batch 24): nil actor state and the ring</p>
+<p>tokens. States accept `:boxed = nil` (nil_value in both the actor init</p>
+<p>and the spawn arg list). New actor tokens in both builders:</p>
+<p>`ifstatenil` (state==nil via paired to_raw + strcmp), `setstaterecv`</p>
+<p>(clone recv, release old, store), `ifmsgint` (recv == int literal via</p>
+<p>value_to_STRING_cstr + string_eq — string compares use to_RAW +</p>
+<p>strcmp; int compares differ), `ifrecvcmp` (value_to_i64 + icmp),</p>
+<p>`sendstateint`, `sendstatesub` (recv minus literal). Entry sends</p>
+<p>accept bare actor-local payloads (load + send). Unlocked process_ring.</p>
+<p>Survey 54/100, zero divergent.</p>
+
+<p>Slice 56 (landed, long-tail batch 25, orchestrated): allocations and</p>
+<p>boxed compare operands. Fable 5 now orchestrates: four Sonnet pin</p>
+<p>agents produced cluster specs (spec_*.md in the scratchpad; protocol</p>
+<p>in ORCHESTRATION.md there — fold into docs when stable). This batch:</p>
+<p>boxed_expr gains reset_allocations() (allocations_reset + nil_value</p>
+<p>result) and allocations(); cmp_expr sides whose head is a boxed local</p>
+<p>route through hey_llvm_boxed_int_term_value (bare local -&gt; value_to_i64,</p>
+<p>field -&gt; json_get_key_i64); boxed_expr gains field+field boxed adds</p>
+<p>(paired get_key + add_value). Unlocked allocation_stats,</p>
+<p>actor_send_move_and_mailbox_slab (+1 freed). Survey 57/100, zero</p>
+<p>divergent. QUEUE (from agent specs, Fable-triaged): (1) generic facade</p>
+<p>dispatcher — native routes unrecognized Module.fn(...) through</p>
+<p>hey_llvm_stdlib_json_call(module, fn, args, argc) with int_value/</p>
+<p>string_value-boxed args (proven in pin_one_brc_single); per-site</p>
+<p>byte-verify because some facades have DEDICATED runtime calls instead;</p>
+<p>(2) chained dot access a.b.c (http/web/stateful_file_io/hey_ast);</p>
+<p>(3) and/or combinators in cmp_expr (global gap); (4) wired-but-unused</p>
+<p>declared builtins (join, byte_at, format_fixed, cpu_count, print/warn</p>
+<p>boxed, fail boxed); (5) Jobs quartet (define/enqueue/result/status +</p>
+<p>Result.error; 19-arg define needs per-example pins); (6) callable</p>
+<p>trampolines (hey_llvm_callable_named_value + per-arity</p>
+<p>hey_program_call_callable_&lt;n&gt; synthesis; streams/web cluster);</p>
+<p>(7) bytes type; (8) generalized actor-body dispatch for one_brc</p>
+<p>(reuse the fn-body statement chain over the slice-45 stash, NOT more</p>
+<p>tokens).</p>
+
+<h2>Boxed-arc plan (item 5, the big remaining widening)</h2>
+
+<p>Evidence: 25x `local :boxed` first-blockers plus the actor/worker</p>
+<p>corpus behind them. Approach stays unchanged — pin each native shape</p>
+<p>empirically, mirror byte-identically, fail closed otherwise, one gated</p>
+<p>commit per slice. Ordered sub-slices:</p>
+
+<p>1. Mixed concat + str fn signatures (pre-boxed cleanup): `say str</p>
+<p>&quot;a&quot; + &lt;int&gt;` (format-then-concat), str params/returns</p>
+<p>(`define ptr @hey_fn_*`), bool fn returns. Unlocks most remaining</p>
+<p>non-boxed programs.</p>
+<p>2. Boxed literals and says: `local bN x:boxed = [1, 2]` / `{a: 1}`</p>
+<p>array/object literal construction calls, `say boxed &lt;local&gt;`</p>
+<p>(`hey_llvm_says_value`), release discipline at `hey.program.done`</p>
+<p>(the object_locals release loop in the native emitter — pin</p>
+<p>`hey_llvm_release_value_ptr` ordering carefully; ownership lessons</p>
+<p>apply: boxed stores may consume, clone before store when the source</p>
+<p>local remains live).</p>
+<p>3. Boxed element access and builtins: `len`/`at`/`get`/`put`/`push`</p>
+<p>via the `hey_llvm_json_*`/collections runtime calls.</p>
+<p>4. Boxed params/returns and boxed interpolation.</p>
+<p>5. Actor records (`actor name(...)` MIR): the native actor</p>
+<p>function/step emission pair (`heyc_llvm_emit_actor_functions`);</p>
+<p>workers after actors.</p>
+<p>6. Re-survey; promote hey-llvm-text coverage counts into the receipts.</p>
+
+<p>Native reference commands for pinning: `heyc llvm-ir-from-mir</p>
+<p>&lt;file.mir&gt;` prints the .ll; `build-mir --backend llvm` leaves</p>
+<p>`&lt;out&gt;.ll` beside the app.</p>
 
 <h2>Known failures or blockers</h2>
 

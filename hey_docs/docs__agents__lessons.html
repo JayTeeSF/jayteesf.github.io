@@ -512,6 +512,45 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 <p>come from a boxed array element, extract the access into a tiny helper with</p>
 <p>an explicit `-&gt; str` so the classifier gives callers a string local.</p>
 
+<h2>v0.99.382a: same-name locals with different types across sibling branches corrupt the compiled lane</h2>
+
+<p>Declaring `let label_a` as an integer in one dispatch branch and as a</p>
+<p>string (a frame-token slice) in a sibling branch of the same huge</p>
+<p>function made the integer reads resolve to nil in the selfc-compiled</p>
+<p>lane while the interpreted lane stayed correct — emitting `if.thennil`</p>
+<p>labels that only surfaced when a label-bearing program was built through</p>
+<p>the product pipeline. Rename branch-local variables uniquely when their</p>
+<p>types differ, and give every compiled-in-module emission lane a</p>
+<p>byte-compare gate through the COMPILED pipeline (interpreted-only</p>
+<p>verification cannot see host-compiler inference divergences). A</p>
+<p>performance A/B harness, not a correctness gate, found this: measurement</p>
+<p>runs exercise lanes the fixtures never did.</p>
+
+<h2>v0.99.382a: inline boxed-field integer coercion is not lane-stable</h2>
+
+<p>`'%t' + (record.field + 0)` inside a longer concat chain evaluated as</p>
+<p>integer addition in the interpreted lane but as string concatenation in</p>
+<p>the selfc-compiled lane, emitting `%t60` where `%t6` was meant — caught</p>
+<p>only when the REPL-session specs exercised the compiled pipeline.</p>
+<p>Always extract boxed record fields into typed locals</p>
+<p>(`let n = record.field + 0`) before using them in concatenations; the</p>
+<p>inline coercion idiom is safe only for strings (`+ ''`). Relatedly:</p>
+<p>never commit a slice on receipt-tail evidence while its gate is still</p>
+<p>running — wait for the aggregate `gate_exit`/`compiler_contracts_ok`</p>
+<p>line; a slice was committed with a red gate this way and needed a</p>
+<p>follow-up fix commit.</p>
+
+<h2>v0.99.382a: survey with a divergence check, not just a pass/fail tally</h2>
+
+<p>When an emitter's supported class widens, run the whole corpus through</p>
+<p>both emitters and byte-compare every in-class result as part of the</p>
+<p>survey — a program that newly enters the class can emit successfully</p>
+<p>with subtly wrong output (here: program-fn calls wrongly flipping</p>
+<p>runtime-required), and only the corpus-wide cmp catches it before a</p>
+<p>fixture exists. Also: a direct call to a program function is not a</p>
+<p>runtime-facade call; only hey_llvm_*/hey_runtime_* emissions flip</p>
+<p>runtime-required.</p>
+
 <h2>v0.99.382a: byte-identity emitter migration starts from captured output</h2>
 
 <p>When replacing a native emitter with a Hey-owned one behind byte-identity</p>
@@ -539,6 +578,19 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 <p>the mirror and route the call through the stdlib JSON delegation path (which</p>
 <p>runs the real Hey source); parity between interpreted and compiled behavior</p>
 <p>is worth the subprocess cost for tooling calls.</p>
+
+<h2>v0.99.382a: compiled-lane parity must be gated per newly-classed example</h2>
+
+<p>The `!pool.enqueue(...)` negation had a compiled-lane temp-numbering</p>
+<p>divergence (`%t141` where native says `%t15`) that predated the slice that</p>
+<p>found it: the fixture had been verified interpreted-lane-only, and the selfc</p>
+<p>smoke's compiled-lane parity loop covered just two programs. Two rules:</p>
+<p>(1) when a survey moves an example into the supported class, add it to the</p>
+<p>compiled-lane parity loop in `test/regression_selfc_llvm_emitter.sh` in the</p>
+<p>same slice; (2) any `record.next_t + 0` read feeding further arithmetic that</p>
+<p>must render numerically goes through the typed passthrough</p>
+<p>(`hey_llvm_label_base_value(x + 0)`) — the bare `+ 0` idiom is not</p>
+<p>lane-stable for record-field reads.</p>
 </main>
   </div>
   <script>
