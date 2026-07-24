@@ -223,6 +223,41 @@ export HEY_STDLIB_PATH="$HEY_ROOT/stdlib"
       </p>
     </section>
 
+    <div class="callout">
+      <h2>Refreshed 2026-07-24: re-measured on hey v0.99.397a</h2>
+      <p>
+        The tables below are preserved as originally measured on an earlier toolchain. Re-running the
+        identical byte-parity benchmark on v0.99.397a (same machine, same fixed timestamp,
+        <code>hyperfine</code>, 30 runs) gives a different picture &mdash; both slower in one place and
+        faster in another:
+      </p>
+      <table>
+        <thead><tr><th>Lane</th><th>Mean</th><th>vs Ruby 3.4 (134&nbsp;ms)</th></tr></thead>
+        <tbody>
+          <tr><td>Hey LLVM, 1 worker (original source)</td><td class="number">28.3 ms</td><td class="number">4.7&times; faster</td></tr>
+          <tr><td>Hey LLVM, 1 worker (optimized source, below)</td><td class="number">22.8 ms</td><td class="number">5.8&times; faster</td></tr>
+          <tr><td>Hey LLVM, 10 workers</td><td class="number">109 ms</td><td class="number">regression &mdash; see note</td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li><strong>The 3.3&nbsp;ms era did not survive the toolchain's self-hosting migration</strong> &mdash;
+          today's runtime spends its time in boxed-value allocation and copying (profiled: no single hotspot,
+          just diffuse malloc/memmove/clone), which is precisely what the in-flight stdlib-archive and
+          copy-elimination roadmap targets. Expect this number to fall again; the probes that watch it are
+          committed alongside the source.</li>
+        <li><strong>The 10-worker advice is withdrawn for small trees:</strong> parallel rendering now burns
+          ~780&nbsp;ms of CPU to deliver 109&nbsp;ms of wall time on 12 packages. Use <code>--workers 1</code>
+          unless the package set is large; the script's own usage text said so all along.</li>
+        <li><strong>Optimization applied to the source</strong> (kept byte-for-byte parity with Ruby): the
+          natural-sort comparator now uses the bare-builtin <code>slice</code> and direct character
+          equality in its hot loop instead of per-character facade calls &mdash; a 20% end-to-end win.</li>
+        <li><strong>A pitfall worth knowing:</strong> <code>byte_at(string, i)</code> compiles in function
+          context but silently returns 0 &mdash; it is a Bytes-value operation. Our first optimization pass
+          used it, which made the comparator report all paths equal: the program got faster and wrong
+          (output parity caught it). Benchmark claims need output verification, always.</li>
+      </ul>
+    </div>
+
     <section class="benchmark-summary" aria-labelledby="benchmark-results">
       <h2 id="benchmark-results">Benchmark results</h2>
 

@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How three Hey web services went from ~500 to ~20,000 requests per second in eight days: measurement-driven app fixes plus the v0.99.394a-397a toolchain ladder.">
+  <title>From 500 to 20,000 Requests per Second with Hey</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page-width: 980px;
+      --border: color-mix(in srgb, currentColor 18%, transparent);
+      --muted: color-mix(in srgb, currentColor 68%, transparent);
+      --panel: color-mix(in srgb, canvas 94%, currentColor 6%);
+      --code: color-mix(in srgb, canvas 90%, currentColor 10%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      max-width: var(--page-width);
+      margin: 0 auto;
+      padding: 2rem 1.25rem 5rem;
+    }
+
+    header {
+      margin-bottom: 2.5rem;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+    }
+
+    h1 {
+      margin-bottom: 0.5rem;
+      font-size: clamp(2rem, 6vw, 3.4rem);
+    }
+
+    h2 {
+      margin-top: 3rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    h3 {
+      margin-top: 2rem;
+    }
+
+    a {
+      text-underline-offset: 0.18em;
+    }
+
+    .lede {
+      max-width: 760px;
+      font-size: 1.15rem;
+      color: var(--muted);
+    }
+
+    .tldr {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+
+    .tldr h2 {
+      margin: 0 0 0.75rem;
+      padding: 0;
+      border: 0;
+    }
+
+    .tldr pre {
+      margin-bottom: 0.75rem;
+    }
+
+    .benchmark-summary {
+      margin-top: 2rem;
+    }
+
+    .benchmark-summary h2 {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .benchmark-summary caption {
+      padding: 0 0 0.65rem;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .source-links,
+    .callout {
+      margin: 1.5rem 0;
+      padding: 1rem 1.2rem;
+      border: 1px solid var(--border);
+      border-radius: 0.65rem;
+      background: var(--panel);
+    }
+
+    .source-links ul,
+    .callout ul {
+      margin-bottom: 0;
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    :not(pre) > code {
+      padding: 0.1em 0.3em;
+      border-radius: 0.25rem;
+      background: var(--code);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25rem 0 2rem;
+    }
+
+    th,
+    td {
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel);
+    }
+
+    .number {
+
+</head>
+<body>
+  <header>
+    <h1>From 500 to 20,000 Requests per Second</h1>
+    <p class="lede">
+      How three real Hey web services — a prayer-journal app, a blind-ciphertext sync server, and a
+      church scheduling tool — went from three-digit to five-digit requests per second in eight days,
+      through measurement, application fixes, and four toolchain releases.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li>We built a load-test harness <em>in Hey itself</em>, cross-checked with <code>oha</code>, and profiled with macOS <code>sample</code>.</li>
+        <li>Three findings explained everything: a ~7&nbsp;ms interpreter-delegation tax on stdlib calls from compiled code, inverse worker scaling, and no HTTP keep-alive.</li>
+        <li>Application fixes (de-delegated hot paths, right-sized workers, smaller assets) bought 3&ndash;10&times;. Four toolchain releases (v0.99.394a&ndash;397a) bought the rest.</li>
+        <li>Result: war-room <code>/health</code> went 2,251 &rarr; 12,274 req/s at p50 <strong>79&nbsp;&micro;s</strong>; the sync server peaks at <strong>19,739 req/s</strong>; scheduling pages fell from 103&nbsp;ms to <strong>3.9&nbsp;ms</strong>.</li>
+      </ul>
+    </div>
+
+    <h2>Where we started</h2>
+    <p>
+      On hey v0.99.390a, our fastest service answered a 364-byte JSON health check at about
+      <strong>2,251 req/s</strong> with a median latency of 7&nbsp;ms (16 connections, <code>oha</code>).
+      Page routes in the scheduling app sat near <strong>110&nbsp;ms</strong> per render. A Go
+      <code>net/http</code> baseline on the same machine served the identical payload at 61,972 req/s.
+      The gap was not mysterious after three days of measurement &mdash; it decomposed into exactly
+      three mechanisms.
+    </p>
+
+    <h3>Finding 1: the delegation tax</h3>
+    <p>
+      Compiled Hey code calling a pure-Hey <code>stdlib:</code> or <code>pkg:</code> function paid
+      ~7&nbsp;ms per call &mdash; each call wrote a temp file and spawned an interpreter subprocess.
+      A handler making one such call caps at ~117 req/s. Our probe made this a single number you can
+      watch: <code>Text.trim</code> &times;1000, ~7,344&nbsp;&micro;s each.
+    </p>
+    <h3>Finding 2: inverse worker scaling</h3>
+    <p>
+      More workers made every server slower: 1 worker = 5,977 req/s; 8 workers = 1,589 req/s.
+      Root cause (found upstream later): macOS <code>SO_REUSEPORT</code> does not load-balance, so
+      per-worker listeners degraded to single-worker serving &mdash; plus a per-request deep clone of
+      the routes tree that multiplied with worker count.
+    </p>
+    <h3>Finding 3: no keep-alive</h3>
+    <p>
+      The runtime hardcoded <code>connection: close</code>; every request paid a fresh TCP connection,
+      and response bytes cost ~0.2&nbsp;ms/KB in a copy-heavy write path.
+    </p>
+
+    <h2>Application-side fixes (what you can do in your own code)</h2>
+    <ul>
+      <li><strong>De-delegate hot paths.</strong> Handlers must not call pure-Hey stdlib per request.
+        We built local response helpers from builtins (<code>to_json</code>, <code>get</code>,
+        <code>len</code>) and dropped per-request middleware. The scheduling app's health check went
+        408 &rarr; 3,933 req/s from this alone (9.6&times;).</li>
+      <li><strong>Right-size workers by workload.</strong> CPU-light handlers wanted
+        <code>workers: 1</code> (2.7&times; for war-room); I/O-blocking handlers wanted more. Measure,
+        don't guess &mdash; the optimum flipped twice across toolchain releases.</li>
+      <li><strong>Ship fewer bytes.</strong> esbuild-minifying a 35.5&nbsp;KB client bundle to
+        25&nbsp;KB bought +46% throughput on that route, because the write path scales with size.</li>
+      <li><strong>Use native packages, not subprocess fallbacks.</strong> Swapping the scheduling
+        app's per-query <code>sqlite3</code> CLI forks for the native <code>hey_sqlite3</code>
+        package took pages from 103&nbsp;ms to single-digit milliseconds of server time.</li>
+    </ul>
+
+    <h2>Toolchain-side fixes (the v0.99.394a&ndash;397a ladder)</h2>
+    <table>
+      <thead><tr><th>Release</th><th>Change</th><th>Measured effect here</th></tr></thead>
+      <tbody>
+        <tr><td>394a</td><td>Lock-free shape interning</td><td>The old #1 profile hotspot (strcmp under a global mutex) vanished from compiled-server profiles.</td></tr>
+        <tr><td>395a</td><td>String-context path facades</td><td>Path porcelain lowers natively.</td></tr>
+        <tr><td>396a</td><td>Keep-alive, copy elimination, platform-aware accept</td><td>war-room /health p50 2.6&nbsp;ms &rarr; <strong>79&nbsp;&micro;s</strong>; positive worker scaling for I/O-mixed servers (sync server 9.1K &rarr; 19.7K req/s at 4 workers).</td></tr>
+        <tr><td>397a</td><td>Direct-facade table, 21 &rarr; 60 entries</td><td>Tabled stdlib calls: ~3,400&nbsp;&micro;s &rarr; <strong>~3&nbsp;&micro;s</strong> (~1,100&times;). Our deliberately un-tabled canary still reads ~4.4&nbsp;ms &mdash; that's the remaining tax the upcoming sidecar/stdlib-archive work removes.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>The numbers, before and after</h2>
+    <table>
+      <thead><tr><th>Service / route</th><th>v0.99.390a era</th><th>v0.99.396a&ndash;397a</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>war-room <code>GET /health</code></td><td class="number">2,251 req/s, p50 7.0 ms</td><td class="number">12,274 req/s, p50 0.079 ms</td><td class="number">5.5&times; rps, 89&times; latency</td></tr>
+        <tr><td>war-room, no keep-alive</td><td class="number">5,977 req/s (workers tuned)</td><td class="number">18,798 req/s</td><td class="number">3.1&times;</td></tr>
+        <tr><td>sync server <code>/health</code></td><td class="number">5,565 req/s, p50 2.7 ms</td><td class="number">19,739 req/s (4 workers)</td><td class="number">3.5&times;</td></tr>
+        <tr><td>sync server, authenticated read</td><td class="number">872 req/s, p50 18.2 ms</td><td class="number">3,338 req/s, sub-ms p50</td><td class="number">3.8&times;</td></tr>
+        <tr><td>scheduling signup page</td><td class="number">114 req/s, p50 103 ms</td><td class="number">240 req/s, p50 3.9 ms</td><td class="number">26&times; latency</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Methodology: <code>oha -c 16</code>, keep-alive unless noted; medians; Apple M-series;
+      byte-for-byte-verified behavior via each app's full test/parity gates before and after every change.
+      Absolute throughput wobbles with ambient load &mdash; latency medians are the stable comparator.
+    </p>
+
+    <h2>How the collaboration worked</h2>
+    <p>
+      Two AI seats shared one machine: a benchmark seat (this work) owning harnesses, probes, and
+      profiles; and a compiler-orchestrator seat landing verified toolchain slices. They exchanged
+      findings through an append-only relay file &mdash; measured claims with reproduction commands,
+      not vibes. The benchmark seat's profiles named upstream stages (a dispatch-path clone
+      elimination is now on the roadmap because of a 5-second <code>sample</code> trace); the
+      orchestrator's landing notes predicted probe readings that were then confirmed to the
+      microsecond. Every number in this article is reproducible from the repos' committed probes.
+    </p>
+
+    <h2>What's next</h2>
+    <p>
+      The remaining delegation tax (~4.4&nbsp;ms per un-tabled stdlib call) falls to a persistent
+      interpreter sidecar (measured ceiling: ~6&nbsp;&micro;s warm) and then a precompiled stdlib
+      archive. The runtime's event loop moves to kqueue for thousand-connection keep-alive fan-in.
+      The 60,000 req/s target is no longer speculative &mdash; the interpreter lane already measured
+      19.9K, and the compiled lane's remaining ceilings each have a named fix and a probe watching them.
+    </p>
+  </main>
+
+  <footer>
+    <p>Written 2026-07-24. Numbers from the war-room-prayer-compass evidence log (docs/PERFORMANCE-FINDINGS.md).</p>
+  </footer>
+</body>
+</html>

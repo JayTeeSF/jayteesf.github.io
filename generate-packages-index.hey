@@ -45,6 +45,10 @@ module PackagesIndex
     print PackagesIndex.usage_text()
   end
 
+  # Bare-builtin character helpers: `slice` lowers natively, so the hot
+  # comparison loops never leave compiled code. (Do NOT use byte_at here:
+  # it is a Bytes-value operation and silently returns 0 for string
+  # arguments in compiled code — hey 0.99.397a.)
   private fn digit?(character)
     return character >= '0' and character <= '9'
   end
@@ -52,19 +56,12 @@ module PackagesIndex
   private fn digit_run(value, start)
     let finish = start
 
-    while finish < value.length
-      if !PackagesIndex.digit?(Text.slice(value, finish, 1))
-        return {
-          value: Text.slice(value, start, finish - start),
-          next: finish
-        }
-      end
-
+    while finish < value.length and PackagesIndex.digit?(slice(value, finish, 1))
       set finish = finish + 1
     end
 
     return {
-      value: Text.slice(value, start, finish - start),
+      value: slice(value, start, finish - start),
       next: finish
     }
   end
@@ -72,11 +69,11 @@ module PackagesIndex
   private fn trim_leading_zeroes(value)
     let index = 0
 
-    while index + 1 < value.length and Text.slice(value, index, 1) == '0'
+    while index + 1 < value.length and slice(value, index, 1) == '0'
       set index = index + 1
     end
 
-    return Text.slice(value, index, value.length - index)
+    return slice(value, index, value.length - index)
   end
 
   private fn compare_digit_runs(left, right)
@@ -102,8 +99,8 @@ module PackagesIndex
     let right_index = 0
 
     while left_index < folded_left.length and right_index < folded_right.length
-      let left_character = Text.slice(folded_left, left_index, 1)
-      let right_character = Text.slice(folded_right, right_index, 1)
+      let left_character = slice(folded_left, left_index, 1)
+      let right_character = slice(folded_right, right_index, 1)
 
       if PackagesIndex.digit?(left_character) and PackagesIndex.digit?(right_character)
         let left_run = PackagesIndex.digit_run(folded_left, left_index)
@@ -117,9 +114,8 @@ module PackagesIndex
         set left_index = left_run.next
         set right_index = right_run.next
       else
-        let comparison = Collections.compare(left_character, right_character)
-        if comparison != 0
-          return comparison
+        if left_character != right_character
+          return Collections.compare(left_character, right_character)
         end
 
         set left_index = left_index + 1
@@ -246,17 +242,15 @@ module PackagesIndex
     return PackagesIndex.sorted_unique(directories)
   end
 
+  private fn linkable?(path)
+    let lower_path = Text.lower(path)
+    return Text.ends_with?(lower_path, '.md') or Text.ends_with?(lower_path, '.html')
+  end
+
   private fn linkable_files(package_files)
-    let result = []
-
-    for path in package_files
-      let lower_path = Text.lower(path)
-      if Text.ends_with?(lower_path, '.md') or Text.ends_with?(lower_path, '.html')
-        set result = [...result, path]
-      end
-    end
-
-    return PackagesIndex.sorted_unique(result)
+    return PackagesIndex.sorted_unique(
+      package_files.filter(PackagesIndex.linkable?)
+    )
   end
 
   private fn documentation_section(docs_dirs, packages_dir, package_dir)
@@ -330,16 +324,14 @@ module PackagesIndex
     return Text.join(lines, "\n")
   end
 
+  private fn visible_directory?(path)
+    return Files.directory?(path) and !Text.starts_with?(Files.basename(path), '.')
+  end
+
   private fn package_directories(packages_dir)
-    let directories = []
-
-    for path in Files.entries(packages_dir)
-      if Files.directory?(path) and !Text.starts_with?(Files.basename(path), '.')
-        set directories = [...directories, path]
-      end
-    end
-
-    return directories.sort(PackagesIndex.compare_paths)
+    return Files.entries(packages_dir)
+      .filter(PackagesIndex.visible_directory?)
+      .sort(PackagesIndex.compare_paths)
   end
 
   private fn package_tasks(package_dirs, packages_dir)
