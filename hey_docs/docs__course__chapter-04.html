@@ -84,36 +84,62 @@ a{color:var(--docs-link);text-decoration-thickness:.08em;text-underline-offset:.
 <p>data, written `b&quot;...&quot;`) and `nil` (the deliberate &quot;nothing here&quot;</p>
 <p>value).</p>
 
-<h2>Type inference and annotations</h2>
+<h2>Type inference and conversions</h2>
 
 <p>Hey is **statically typed**: the compiler determines a type for every</p>
 <p>binding *before the program runs*, and rejects programs that misuse</p>
-<p>types. But you rarely write types, because of **type inference** — the</p>
+<p>types. But you never write types, because of **type inference** — the</p>
 <p>compiler deduces types from evidence:</p>
 
-<pre><code>let n = parse_int('8080')   # n is Int: parse_int always returns Int
+<pre><code>let n = '8080'.to_i         # n is Int: to_i always returns Int
 let s = 'port: ' + n        # s is Str: + with a string makes a string
 let cfg = {port: n}         # cfg is boxed: object literals are boxed
 </code></pre>
 
 <p>The compiler knows the **signature** of every built-in function — its</p>
 <p>parameter types and return type — from a signature table inside the</p>
-<p>semantic-analysis stage (Chapter 7), so results like `parse_int(...)`</p>
+<p>semantic-analysis stage (Chapter 7), so results like `'8080'.to_i`</p>
 <p>get precise scalar types automatically.</p>
 
-<p>When you want to be explicit — for documentation, or at a module's</p>
-<p>public boundary — annotations use `:` after the name:</p>
+<p>Usage is evidence too. A function parameter infers `Int` when it is</p>
+<p>used with a **number-proof** operator — `%`, `/`, or binary/unary</p>
+<p>`-` — because those operations only make sense on numbers:</p>
 
-<pre><code>fn greet(name: Str) -&gt; Str
-  return 'hello, ' + name
+<pre><code>fn even?(n)
+  return n % 2 == 0    # n infers Int: % is number-proof
 end
-
-let port: Int = parse_int('8080')
 </code></pre>
 
-<p>`-&gt; Str` declares the return type. Function signatures written this</p>
-<p>way appear throughout Chapters 6–10, because the compiler's own</p>
-<p>modules annotate their public functions.</p>
+<p>`+` and `*` are deliberately *not* number-proof: `+` concatenates</p>
+<p>strings as well as adding numbers, and `*` repeats strings</p>
+<p>(`'ab' * 3` is `'ababab'`) as well as multiplying, so neither forces</p>
+<p>a type by itself.</p>
+
+<p>When *you* want to control a type, you don't declare it — you</p>
+<p>**convert** the value, Ruby-style. `value.to_i` converts to an</p>
+<p>integer; `value.to_s` converts to a string (both are ordinary</p>
+<p>builtins, also callable as `to_i(value)` / `to_s(value)`):</p>
+
+<pre><code>fn repeat_banner(width)
+  return '=' * width.to_i
+end
+
+let port = '8080'.to_i
+</code></pre>
+
+<p>Conversions carry the same information an annotation would — &quot;this is</p>
+<p>an `Int` from here on&quot; — while *doing* something meaningful at</p>
+<p>runtime, and they compose with inference: a converted value is a</p>
+<p>proven scalar for the rest of the analysis. The compiler even leans</p>
+<p>on this idiom in its diagnostics — pass a string where `%` needs a</p>
+<p>number and the error suggests `.to_i` (`%` on strings is reserved for</p>
+<p>possible future formatting).</p>
+
+<p>You may notice type names like `i64` in the compiler's internal</p>
+<p>representations in Chapters 7–10. Type *annotations* exist only as</p>
+<p>compiler-internal machinery; they are not part of user-facing Hey,</p>
+<p>and application code should never contain them. If a piece of code</p>
+<p>needs a specific type, reach for a conversion.</p>
 
 <h2>Why the scalar/boxed split matters</h2>
 
@@ -133,13 +159,27 @@ let port: Int = parse_int('8080')
 <p>(Chapter 8), where every binding is marked `i64`, `str`, `bool`, or</p>
 <p>`boxed`.</p>
 
+<p>A value that *stays* boxed still works with the polymorphic</p>
+<p>operators: `+` and `*` on a boxed value dispatch on its runtime kind</p>
+<p>(a number adds/multiplies, a string concatenates/repeats). That is</p>
+<p>convenient, but each such site pays the boxed toll, which is exactly</p>
+<p>where conversions earn their keep: one `value.to_i` turns a</p>
+<p>runtime-dispatch site into static scalar code. The read-only</p>
+<p>`hey advise` tool reports sites where a value stays boxed and</p>
+<p>flows into runtime dispatch (its coverage is growing; today it</p>
+<p>reports boxed `*` sites), with the exact conversion that would</p>
+<p>make it static — and the opt-in strict mode</p>
+<p>(`HEY_STRICT_DISPATCH=1`) turns those sites into diagnostics that</p>
+<p>offer the same options (`x.to_i * 4` for arithmetic, `x.to_s * 4`</p>
+<p>for repetition) instead of dispatching at runtime.</p>
+
 <h2>Discussion questions</h2>
 
 <p>1. Dynamically typed languages (Python, JavaScript) effectively box</p>
 <p>*everything*. What do they gain? Measure the cost: how many machine</p>
 <p>steps might `a + b` take if both operands must be unboxed first?</p>
-<p>2. Hey infers `let n = parse_int(s)` as `Int` because the builtin's</p>
-<p>signature is known. What could the compiler do if `parse_int` might</p>
+<p>2. Hey infers `let n = s.to_i` as `Int` because the builtin's</p>
+<p>signature is known. What could the compiler do if `to_i` might</p>
 <p>fail on bad input? (Look back at &quot;Errors and results&quot; in</p>
 <p>Chapter 3.)</p>
 <p>3. Immutable arrays mean `push` returns a new array. Propose an</p>

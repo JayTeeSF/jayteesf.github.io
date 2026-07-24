@@ -103,7 +103,7 @@ end
 
 <p>Current Hey scope is explicit and conservative:</p>
 
-<ul><li>`let` introduces a binding in the current statement/function-style scope.</li><li>`set` rebinds an existing local binding.</li><li>Module functions/actors are called with their module prefix, such as `Greeter.hello(user)`.</li><li>`import 'stdlib:Web'` loads a bundled stdlib module without exposing its checkout path.</li><li>`import './file.hey'` loads an app-local module relative to the importing file.</li><li>`import 'pkg:cards@1.2.3/main'` loads an installed package module from `${HEY_PACKAGE_PATH:-.hey/packages}`.</li><li>Imports do not inject every imported name unqualified into every scope.</li><li>There is no user-facing mutable global variable scope and no implicit root/main namespace automatically imported into modules.</li><li>Application/package module names conventionally use `UpperCamelCase`. Capitalization is not semantic: lexical bindings win over same-named module namespaces for field/property resolution in every maintained compiler lane.</li><li>A future language slice should add `const`/immutable module exports and import aliases/from-imports deliberately, with canonical-symbol collision diagnostics. See `docs/developers/modules-and-packages.md` for the canonical import path contract.</li></ul>
+<ul><li>`let` introduces a binding in the current statement/function-style scope.</li><li>`set` rebinds an existing local binding.</li><li>Module functions/actors are called with their module prefix, such as `Greeter.hello(user)`.</li><li>`import 'stdlib:Web'` loads a bundled stdlib module without exposing its checkout path.</li><li>`import './file.hey'` loads an app-local module relative to the importing file.</li><li>`import 'pkg:cards@1.2.3/main'` loads an installed package module from `${HEY_PACKAGE_PATH:-.hey/packages}`.</li><li>Import paths are case-sensitive on every platform and must match the module file's canonical CamelCase spelling, in both colon and path forms. `import 'stdlib:reflection'` is rejected with `module casing mismatch: 'stdlib:reflection' vs canonical 'stdlib:Reflection'` — even on filesystems that would tolerate the lowercase spelling.</li><li>Imports do not inject every imported name unqualified into every scope.</li><li>There is no user-facing mutable global variable scope and no implicit root/main namespace automatically imported into modules.</li><li>Application/package module names conventionally use `UpperCamelCase`. Capitalization is not semantic: lexical bindings win over same-named module namespaces for field/property resolution in every maintained compiler lane.</li><li>A future language slice should add `const`/immutable module exports and import aliases/from-imports deliberately, with canonical-symbol collision diagnostics. See `docs/developers/modules-and-packages.md` for the canonical import path contract.</li></ul>
 
 <h2>Statements</h2>
 
@@ -146,6 +146,16 @@ exit
 
 <p>`write expr` writes to stdout without appending a newline. `write target, value` writes to a file target. `write target, value, mode` accepts explicit file modes where supported by the runtime. `log target, value` appends a line.</p>
 
+<p>A statement continues across lines while a `(`, `[`, or `{` opened in that statement is unclosed, so multi-line call arguments and literals are ordinary statements:</p>
+
+<pre><code>Web.serve(routes, {
+  host: '0.0.0.0',
+  port: 8080
+})
+</code></pre>
+
+<p>Single-line code parses exactly as before; heredocs and `let` bodies are unchanged, and there is no trailing-operator continuation. An unclosed delimiter reports `unterminated '(' opened on line N`.</p>
+
 <h2>Expressions</h2>
 
 <pre><code>'text'
@@ -180,8 +190,13 @@ pool.status()
 pool.stop()
 module_name.function_name(arg)
 value.method_name(arg)
+value.to_i
+value.to_s
 left + right
 left - right
+left * right
+left / right
+left % right
 left == right
 left != right
 left &lt; right
@@ -231,13 +246,27 @@ says cards.count
 
 <p>The `stdlib:Json` facade owns JSON decoding and encoding at external boundaries. Ordinary Hey code should keep values structured and render them with `value.to_json` only when text is required.</p>
 
+<h2>Conversions and `*` dispatch</h2>
+
+<p>`to_i` and `to_s` are builtins in every lane, with receiver sugar `x.to_i` / `x.to_s` (also callable as `to_i(x)` / `to_s(x)`). They are the user-facing casting idiom: convert values explicitly instead of annotating types.</p>
+
+<p>`*` has three behaviors:</p>
+
+<ul><li>`Int * Int` multiplies, as always.</li><li>`String * Int` repeats the string: `&quot;ab&quot; * 3` is `&quot;ababab&quot;`.</li><li>A boxed/dynamic value dispatches on its runtime kind — a number multiplies, a string repeats — the same mechanism `+` already uses for concat-vs-add.</li></ul>
+
+<p>Setting `HEY_STRICT_DISPATCH=1` turns boxed polymorphic operations into a diagnostic that offers the explicit options (for `x * 4`: `x.to_s * 4` for repetition, `x.to_i * 4` for arithmetic) instead of dispatching at runtime. It is diagnostics only — it never changes emitted code for programs that pass.</p>
+
+<p>`hey advise &lt;program.hey | program.hir&gt;` is a read-only advisory tool that reports sites where a value stays boxed and flows into runtime-dispatch operations (today: boxed `*` sites; coverage grows with the dispatch doctrine), with the exact conversion (`x.to_i`, `x.to_s`) that would make it static scalar code. It has zero effect on builds.</p>
+
 <h2>Truthiness</h2>
 
 <p>`false` and `nil` are falsey. Everything else is truthy. Prefix `!` is the concise negation operator; `not` remains a readable word alias. Boolean expressions compose with `or` and `and`, and all maintained compiler/interpreter lanes share the same precedence and short-circuit behavior: `true or right()` skips `right`, while `false and right()` skips `right`. Predicate callables conventionally end in `?`.</p>
 
 <h2>Typing</h2>
 
-<p>Hey does not require annotations for ordinary functions. Optional annotations are currently an alpha compiler feature; the clean architecture plan keeps source-level types semantic and keeps machine/ABI types inside compiler IR. Generated `.hey/` metadata may cache analysis or module interfaces, but it is never a required semantic input and deleting it must not change program behavior. See <a href="docs__humans__26-clean-compiler-architecture.html">Clean compiler architecture</a>.</p>
+<p>Hey user code does not use type annotations. Write functions with plain parameter names; the compiler infers parameter types from usage. The &quot;number-proof&quot; operators `%`, `/`, and binary or unary `-` are conclusive evidence, so an un-annotated parameter used with them infers `Int` with no diagnostic. `+` and `*` are polymorphic and never force a type by themselves. A string reaching `%` is an error that suggests `.to_i` (`%` on strings is reserved for possible future formatting). When a value's type matters, convert it explicitly with `x.to_i` / `x.to_s` rather than annotating.</p>
+
+<p>Annotations exist only as compiler-internal machinery; the clean architecture plan keeps source-level types semantic and keeps machine/ABI types inside compiler IR. Generated `.hey/` metadata may cache analysis or module interfaces, but it is never a required semantic input and deleting it must not change program behavior. See <a href="docs__humans__26-clean-compiler-architecture.html">Clean compiler architecture</a>.</p>
 
 <h2>Plumbing and porcelain rule</h2>
 
