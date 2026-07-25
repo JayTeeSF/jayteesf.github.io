@@ -109,10 +109,23 @@
       Every request quietly retained ~5.8&nbsp;KB (about 6&nbsp;GB per million requests), absorbed by
       the OS compressor at idle but real pressure under load &mdash; the same clone-and-abandon compiler
       bug that made list-building quadratic in RAM (16,000 appends: 2.7&nbsp;GB). Fixed in 406a:
-      the same list now costs <strong>4&ndash;6&nbsp;MB</strong>, and a fresh server held a flat
-      ~0.6&nbsp;GB working set across 2.4&nbsp;million served requests where the old model predicted
-      ~14&nbsp;GB.
+      the same list now costs <strong>4&ndash;6&nbsp;MB</strong>, and a 2.4&nbsp;million-request soak
+      held 0.6&ndash;1.7&nbsp;GB where the old model predicted ~14&nbsp;GB.
     </p>
+    <div class="callout">
+      <h2>Correction (2026-07-25, same day)</h2>
+      <p>
+        This section first said the fix left a <em>flat</em> working set. That was our inference from
+        sampling memory before and after load; instrumented measurement upstream superseded it. Per-request
+        retention dropped roughly 12&times; &mdash; from ~5.8&nbsp;KB to <strong>~500&nbsp;bytes</strong> per
+        request &mdash; but it is still <strong>linear</strong>, not flat: about 500&nbsp;MB per million
+        requests, concurrency-independent (514&nbsp;B/req at 4 connections, 490&nbsp;B/req at 16). The
+        remaining cause is separate from the one fixed in 406a: compiled functions do not release their
+        boxed temporaries, so every handler call leaves a small allocation behind. That fix is in flight,
+        and the same work opens the single-core performance campaign. Long-running servers should still be
+        restarted periodically until it lands.
+      </p>
+    </div>
 
     <h2>Application-side fixes (what you can do in your own code)</h2>
     <ul>
@@ -141,7 +154,7 @@
         <tr><td>397a</td><td>Direct-facade table</td><td>Tabled stdlib calls ~3,400&nbsp;&micro;s &rarr; <strong>~3&nbsp;&micro;s</strong>.</td></tr>
         <tr><td>399a</td><td>Dispatch-path clone elimination, stage 4c</td><td>Route-count scaling anomaly gone; all apps peak at 4 workers, 24&ndash;29K req/s.</td></tr>
         <tr><td>402a</td><td>Delegation sidecar</td><td><strong>The delegation tax died</strong>: canary 4,479 &rarr; 56&nbsp;&micro;s; records 28&ndash;31K req/s.</td></tr>
-        <tr><td>406a</td><td>Clone-and-abandon fix (memory)</td><td><strong>The OOM class died</strong>: 16K-item list 2,741&nbsp;MB &rarr; 5.7&nbsp;MB; server per-request leak &rarr; flat working set.</td></tr>
+        <tr><td>406a</td><td>Clone-and-abandon fix (memory)</td><td><strong>The OOM class died</strong>: 16K-item list 2,741&nbsp;MB &rarr; 5.7&nbsp;MB (481&times;); server per-request retention ~5.8&nbsp;KB &rarr; ~500&nbsp;B (still linear &mdash; see correction above).</td></tr>
         <tr><td>407a</td><td>Dispatch deep-clones removed; route scan borrows; stats counters gated</td><td><strong>The 8-worker crater died and 8 workers became the optimum</strong>: war-room 11.7K &rarr; <strong>83.3K req/s</strong> at w8; per-request allocations 287 &rarr; 177. (The gated stats counters alone were worth ~61% throughput.)</td></tr>
         <tr><td>408a&ndash;409a</td><td>Correctness: zero-IR compile guards + statement-truncation fix</td><td>A silent-miscompile class (found <em>by this benchmarking work</em>) can no longer ship quietly; a toolchain tool compiled to a working native binary for the first time.</td></tr>
       </tbody>

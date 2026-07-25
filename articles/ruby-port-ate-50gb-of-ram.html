@@ -64,8 +64,8 @@
     <p class="lede">
       A 606-line Ruby archiver, ported to Hey, killed a terminal at roughly 50 GB of resident memory.
       Chasing that number over one night surfaced five failure classes, every one of which failed
-      <em>silently</em>. This is the case file: what we saw, what we believed, what was true, and &mdash;
-      the only part that generalizes &mdash; what makes each one loud now.
+      <em>silently</em>. The case file: what we saw, what we believed, what was true, what makes each loud
+      now.
     </p>
   </header>
 
@@ -77,17 +77,18 @@
           terminate. The reduced reproducer hit <strong>4.9 GB in ~20 seconds on a ten-file fixture</strong>.</li>
         <li>That loop was my bug. Underneath it sat a compiler bug: the idiomatic list append retained every
           intermediate copy. 16,000 appends cost <strong>2,741 MB</strong>; after the fix (v0.99.406a,
-          2026-07-25) the same list costs <strong>5.7 MB</strong> &mdash; <strong>481&times;</strong>. The
-          same defect explained a web server idling at <strong>919 MB</strong>.</li>
+          2026-07-25), <strong>5.7 MB</strong> &mdash; <strong>481&times;</strong>. The same defect explained
+          a web server idling at <strong>919 MB</strong>.</li>
         <li>Three more silent classes fell out: a benchmark baseline that was a <em>dead binary</em> timing
-          its own death at 2.3 ms, a compiler that deleted statements, and a path prefix (<code>./</code>)
-          that made scripts do nothing.</li>
+          its own death at 2.3 ms, a compiler that deleted statements, and a cache race that published a
+          poisoned compiler component &mdash; minting scripts that do nothing, deterministically, keyed by
+          how you typed the path.</li>
         <li><strong>Disclosed weakness:</strong> these are the bugs a young self-hosting language has. The
           story is the detection method and the ~24-hour fix loop, not an absence of bugs.</li>
-        <li><strong>Falsifiability:</strong> the parity gate is <code>bin/check</code> in the
-          <code>source_zip</code> repo (9/9 green, both lanes); the probes are in the war-room repo under
-          <code>bench/probes/</code>; every figure has a dated entry in
-          <code>docs/PERFORMANCE-FINDINGS.md</code>.</li>
+
+        <li><strong>Falsifiability:</strong> the parity gate is <code>bin/check</code> in
+          <code>source_zip</code> (9/9 green, both lanes); probes in the war-room repo under
+          <code>bench/probes/</code>; every figure dated in <code>PERFORMANCE-FINDINGS.md</code>.</li>
       </ul>
     </div>
 
@@ -97,20 +98,18 @@
         Apple M-series machine throughout. Memory figures are <dfn>RSS</dfn> &mdash; the RAM a process
         occupies right now &mdash; sampled immediately after each run, before macOS compresses idle pages
         and flatters the result. CLI timings are <code>hyperfine</code> over a synthetic git corpus, one
-        output directory per lane, and every timed cell asserts expected output bytes rather than merely an
-        <dfn>exit code</dfn> of 0. "Quiet box" means nothing else was competing; anything measured under
-        load is a lower bound.
+        output directory per lane, every cell asserting expected output bytes rather than an
+        <dfn>exit code</dfn> of 0. Anything measured under load is a lower bound.
       </p>
     </div>
 
     <h2>The crash</h2>
     <p>
       The task was mundane: port <code>source-zip</code>, a Ruby tool that walks a git tree and packs it
-      into an archive, to Hey. The port passed its parity gate. Then someone ran it on a real tree and the
-      terminal died &mdash; not slowed, died, the way processes go when the OS's <dfn>jetsam</dfn>
-      mechanism reclaims memory from whoever is asking for the most of it. Last observed RSS: roughly
-      50 GB. No exception, no warning, no log line. That is the one thing all five exhibits have in common.
-      A crash is a gift: it tells you where and when. Every bug in this file declined to do that.
+      into an archive. The port passed its parity gate. Then someone ran it on a real tree and the terminal
+      died &mdash; not slowed, died, the way processes go when the OS's <dfn>jetsam</dfn> mechanism
+      reclaims memory from whoever asks for the most. Last observed RSS: roughly 50 GB, with no exception,
+      warning, or log line. A crash is a gift: it tells you where and when. Every bug here declined to.
     </p>
 
     <h2>Exhibit A: the loop that could not end</h2>
@@ -123,8 +122,8 @@
     </p>
     <p>
       <strong>WHAT WAS TRUE.</strong> <code>Io.read</code> does not return a string. It returns a record,
-      <code>{data, count, eof}</code>. My drain loop came from Ruby muscle memory, where the read returns a
-      string and an empty string means "done". Reduced to its bones:
+      <code>{data, count, eof}</code>. My drain loop came from Ruby muscle memory, where a read returns a
+      string and an empty string means "done":
     </p>
 <pre><code>let chunk = Io.read(handle, 65536)   # {data, count, eof} &mdash; never a string
 while chunk != '' {                  # a record is never equal to ''
@@ -133,53 +132,49 @@ while chunk != '' {                  # a record is never equal to ''
     <p>
       The comparison can never be true, so the loop never exits, and <code>+</code> stringifies the record
       onto a growing buffer every pass. Two forgiving behaviours &mdash; a comparison that returns false
-      instead of objecting to mismatched types, and an operator that stringifies rather than refusing
-      &mdash; compose into an unbounded allocator. On a ten-file fixture: <strong>4.9 GB in about 20
-      seconds</strong> before SIGKILL. On a real tree, the 50 GB class.
+      instead of objecting, an operator that stringifies instead of refusing &mdash; compose into an
+      unbounded allocator. On a ten-file fixture: <strong>4.9 GB in about 20 seconds</strong> before SIGKILL.
     </p>
     <p>
-      <strong>WHAT MAKES IT LOUD NOW.</strong> Honestly, not enough: a committed reproducer and an operator
-      rule ("never compare an <code>Io.read</code> result to a string"). A type error on that comparison is
-      the real fix and it belongs upstream. This is the one exhibit where my code was genuinely at fault,
-      and also the one with the weakest guard today.
+      <strong>WHAT MAKES IT LOUD NOW.</strong> Honestly, not enough: a committed reproducer and a rule
+      ("never compare an <code>Io.read</code> result to a string"). A type error on that comparison is the
+      real fix, and it belongs upstream. This is the exhibit where my code was at fault, and the one with
+      the weakest guard.
     </p>
 
     <h2>Exhibit B: the ghost of every list that ever existed</h2>
     <p>
-      <strong>SYMPTOM.</strong> Two, believed unrelated for weeks. The Hey port beat Ruby on small trees
-      and lost badly on big ones, memory growing far faster than the data. And a Hey web server sat at a
-      <strong>919 MB</strong> footprint while idle &mdash; spotted not by a dashboard but by the maintainer
-      looking at Activity Monitor.
+      <strong>SYMPTOM.</strong> Two, believed unrelated for weeks. The port lost badly to Ruby on big
+      trees, memory growing far faster than the data. And a Hey web server sat at <strong>919 MB</strong>
+      while idle &mdash; spotted not by a dashboard but by the maintainer looking at Activity Monitor.
     </p>
     <p>
-      <strong>WHAT WE BELIEVED.</strong> That the append idiom was merely <dfn>quadratic</dfn> in time
-      &mdash; annoying but survivable &mdash; and, separately, that the server leaked in request handling.
+      <strong>WHAT WE BELIEVED.</strong> That the append idiom was merely <dfn>quadratic</dfn> in time, and
+      separately that the server leaked in request handling.
     </p>
     <p>
       <strong>WHAT WAS TRUE.</strong> <code>set xs = [...xs, item]</code> was quadratic in <em>peak
-      memory</em>. Every intermediate list stayed alive: add 16,000 items and you hold not one
-      16,000-item list but the ghost of every list that existed on the way there. Measured:
-      <strong>2,741 MB</strong> for 16,000 appends in the spread form, <strong>3,058 MB</strong> in the
-      push form. A 30&ndash;60,000-file tree reaches the 50 GB class on its own, no infinite loop required.
-      Exhibit A was not the whole crash; it was the fast half.
+      memory</em>. Every intermediate list stayed alive: add 16,000 items and you hold not one 16,000-item
+      list but the ghost of every list on the way there. Measured: <strong>2,741 MB</strong> for 16,000
+      appends in the spread form, <strong>3,058 MB</strong> in the push form. A 30&ndash;60,000-file tree
+      reaches the 50 GB class on its own. Exhibit A was the fast half of the crash, not the whole.
     </p>
     <p>
-      The server was the same bug in office clothes. A controlled cell on a fresh instance: RSS
-      <strong>2 MB &rarr; 577 MB across 99,314 keep-alive requests</strong>, dead linear, about
-      <strong>5.8 KB retained per request</strong>. The photographed server had served roughly 310,000
-      requests, and 310,000 &times; 5.8 KB is 919 MB. The screenshot became the acceptance test.
+      The server was the same bug in office clothes: on a fresh instance, RSS <strong>2 MB &rarr; 577 MB
+      across 99,314 keep-alive requests</strong>, dead linear, <strong>~5.8 KB per request</strong>. The
+      photographed server had served roughly 310,000 requests, and 310,000 &times; 5.8 KB is 919 MB. The
+      screenshot became the acceptance test.
     </p>
 
     <div class="aside">
       <h3>The correction that matters more than the fix</h3>
       <p>
         Our first diagnosis was <strong>wrong</strong>, and it belongs here at the same size as the result.
-        We said the compiler "forgot to free the old value" on reassignment. Plausible, pointed at the right
-        file, and it would have justified exactly the same patch &mdash; which is what made it dangerous.
-        The upstream red team refused it and found the real mechanism: <dfn>clone-and-abandon</dfn>. The
-        compiler built the new value, made a full <dfn>deep copy</dfn>, stored the copy, and orphaned the
-        original. Not a missed release &mdash; an extra allocation, abandoned once per loop pass. A fix
-        built on the wrong mechanism passes the same benchmark and leaves the class alive elsewhere.
+        We said the compiler "forgot to free the old value" on reassignment. Plausible, and it would have
+        justified exactly the same patch &mdash; which is what made it dangerous. The upstream red team
+        refused it and found the real mechanism: <dfn>clone-and-abandon</dfn>. The compiler built the new
+        value, made a full <dfn>deep copy</dfn>, stored the copy, and orphaned the original. A fix on the
+        wrong mechanism passes the same benchmark and leaves the class alive elsewhere.
       </p>
     </div>
 
@@ -187,24 +182,39 @@ while chunk != '' {                  # a record is never equal to ''
       <strong>WHAT MAKES IT LOUD NOW.</strong> v0.99.406a (2026-07-25) fixed the reassignment path: 16,000
       appends went <strong>2,741 MB &rarr; 5.7 MB (481&times;)</strong> in the spread form and
       <strong>3,058 MB &rarr; 7.2 MB (425&times;)</strong> in the push form, verified twice on independent
-      harnesses. The permanent guard is not the patch but the instrument: an RSS-versus-N flatness probe
-      that fails if memory grows with list size at all. The pre-registered server cell confirmed it too
-      &mdash; a fresh instance served 2.05 million further requests and RSS went <em>down</em>
-      (877 &rarr; 576 MB), which is what a bounded <dfn>working set</dfn> looks like next to a leak.
+      harnesses. The lasting guard is the instrument, not the patch: an RSS-versus-N flatness probe that
+      fails if memory grows with list size.
     </p>
+
+    <div class="aside">
+      <h3>Exhibit B has a sixth retraction, and it is mine</h3>
+      <p>
+        I first reported that the server side was cured outright &mdash; that after the fix, two million
+        further requests took memory <em>down</em>, a bounded <dfn>working set</dfn> rather than a leak.
+        That was an artifact of a bad instrument. Sampling a process's memory with <code>ps</code> after a
+        load run measures whatever macOS has finished compressing and reclaiming by the moment you look;
+        run the same test twice and you get 3,271 MB and then 1,100 MB, which would imply memory going
+        backwards at 4 KB per request. The correct instrument arrived days later, when the runtime learned
+        to report its own memory from inside the process: <strong>329 MB after 778,040 requests, about 440
+        bytes each</strong> &mdash; matching, independently, what the compiler team measured with a leak
+        checker. So the honest number is that this fix cut per-request retention roughly <strong>12&times;
+        </strong>, from ~5.8 KB to ~500 B. It is still linear. The remaining half is a different bug
+        &mdash; compiled functions never releasing their temporaries &mdash; and its fix is in flight as I
+        write this.
+      </p>
+    </div>
 
     <details class="deep">
       <summary>Mechanism: why "byte-identical emission" was the receipt that mattered</summary>
       <p>
         Three acceptance criteria worth stealing. <dfn>byte-parity</dfn> of the compiler's own output: for
-        every program that did <em>not</em> have the bug, the emitted code was unchanged byte for byte
-        &mdash; proof the change touched only the broken case. <dfn>ASAN</dfn> clean: AddressSanitizer
-        watches every memory access during the test run and reports use-after-free, overruns and leaks; it
-        found nothing. (Its sibling <dfn>TSAN</dfn> catches data races, and covered the separate dispatch
-        fix that stopped worker threads deep-copying shared route data per request.) And borrow-safety: the
-        fix works by <em>not</em> copying where it used to, so the shortcut had to be proven incapable of
-        leaving a reference pointing at freed memory. The verifier, allowed to argue back, also found a
-        third instance of the defect in actor-state storage that the work order had not listed.
+        every program that did <em>not</em> have the bug, emitted code unchanged byte for byte &mdash; proof
+        the change touched only the broken case. <dfn>ASAN</dfn> clean: AddressSanitizer watches every
+        memory access during the test run and reports use-after-free, overruns and leaks; it found nothing.
+        (Its sibling <dfn>TSAN</dfn> catches data races, and covered the dispatch fix that stopped worker
+        threads deep-copying shared route data.) And borrow-safety: since the fix works by <em>not</em>
+        copying, the shortcut had to be proven incapable of leaving a reference into freed memory. The
+        verifier, allowed to argue back, found a third leak site nobody listed.
       </p>
     </details>
 
@@ -215,71 +225,61 @@ while chunk != '' {                  # a record is never equal to ''
     </p>
     <p>
       <strong>WHAT WE BELIEVED.</strong> That the fast measurement was the truth and the slow one was the
-      regression &mdash; the default assumption of every performance investigation ever conducted, and
-      load-bearing in a way nobody examines.
+      regression &mdash; the default assumption of every performance investigation, load-bearing in a way
+      nobody examines.
     </p>
     <p>
       <strong>WHAT WAS TRUE.</strong> The fast baseline was a corpse. The 2.3 ms binary exited 0, printed
-      zero bytes, and died before reaching the first line of user code &mdash; every invocation,
-      deterministically. It had been timing its own death. The "slow" binary was the only one doing work,
-      and there was no regression.
+      zero bytes, and died before the first line of user code, on every invocation. It had been timing its
+      own death; the "slow" binary was the only one doing work. And the part I own: my parity check had
+      declared that corpse's output correct, because it never deleted the output file first and so compared
+      one left by the <em>previous</em> lane. A dead program passed a correctness gate because the gate was
+      reading a ghost.
     </p>
     <p>
-      The part I own: my parity check had declared that binary's output correct. It did not delete the
-      output file before the run, so the comparison read a file left on disk by the <em>previous</em> lane.
-      "Output matches" was true and completely vacuous. A dead program passed a correctness gate because
-      the gate was reading a ghost.
-    </p>
-    <p>
-      <strong>WHAT MAKES IT LOUD NOW.</strong> Two rules, in the lessons file where they survive between
-      sessions. One: <code>rm</code> the output, <em>then</em> run, <em>then</em> assert it was recreated,
-      <em>then</em> compare &mdash; baselines included. Two: never trust a clean exit code without evidence
-      of output. A harness that cannot see death is not a harness.
+      <strong>WHAT MAKES IT LOUD NOW.</strong> Two rules. One: <code>rm</code> the output, <em>then</em>
+      run, <em>then</em> assert it was recreated, <em>then</em> compare &mdash; baselines included. Two:
+      never trust a clean exit code without evidence of output. A harness that cannot see death is no
+      harness.
     </p>
 
     <div class="aside">
       <h3>Why the parity gate outranks the test suite</h3>
       <p>
-        The port's gate compares the Hey program's behaviour against the Ruby original's on identical
-        inputs: member lists, extracted trees, normalized stdout, nine checks, both lanes. It is not a
-        unit-test suite and it tests nothing about the language. It caught more real bugs in one night than
-        any test suite in this project, because it does not have to imagine failure modes in advance
-        &mdash; it only needs the two programs to disagree. (Archive bytes are excluded: an access-time
-        field makes even Ruby-versus-Ruby unstable, and a flaky gate is an ignored gate.)
+        The gate compares the Hey program's behaviour against the Ruby original's on identical inputs:
+        member lists, extracted trees, normalized stdout, nine checks, both lanes. It tests nothing about
+        the language, yet it caught more real bugs in one night than any test suite here &mdash; because it
+        need not imagine failure modes in advance. It only needs the two programs to disagree.
       </p>
     </div>
 
     <h2>Exhibit D: the compiler that deleted my code</h2>
     <p>
       <strong>SYMPTOM.</strong> Programs that compiled cleanly, ran, exited 0, and did some &mdash;
-      sometimes none &mdash; of what their source said. Partial output. One tool's entire entry point
-      absent from the binary.
+      sometimes none &mdash; of what their source said. One tool's entry point was absent from the binary.
     </p>
     <p>
       <strong>WHAT WE BELIEVED.</strong> Five successive explanations: a routing regression, a cache-key
       problem, my dead baseline, worker wake-storms, CPU oversubscription. Each was falsified by a
-      measurement. Five wrong theories from experienced investigators about one defect should calibrate
-      anyone's confidence in their own first hypothesis.
+      measurement. Five wrong theories about one defect should calibrate anyone's confidence in a first
+      hypothesis.
     </p>
     <p>
       <strong>WHAT WAS TRUE.</strong> A <dfn>silent miscompile</dfn>. The native emitter misread a bare
-      module-function call in statement position as the block's implicit return value, and dropped that
-      call along with every statement after it &mdash; the enclosing block truncated at compile time. Nor
-      was it confined to the compiled lane: the interpreter got the same shapes <em>wrong</em>, not
-      truncated but wrong. A three-function reproducer printed <strong>900</strong> where the correct
-      answer is <strong>4</strong>. A wrong answer with a clean exit is the worst outcome in this article.
-      What finally pinned it was Exhibit C's corpse, preserved rather than deleted; the false alarm paid
-      for itself several times over.
+      module-function call in statement position as the block's implicit return value, and dropped that call
+      along with every statement after it &mdash; the block truncated at compile time. The interpreter got
+      the same shapes <em>wrong</em>, not truncated but wrong: a three-function reproducer printed
+      <strong>900</strong> where the answer is <strong>4</strong>. A wrong answer with a clean exit is the
+      worst outcome in this article. What finally pinned it was Exhibit C's corpse.
     </p>
     <p>
-      <strong>WHAT MAKES IT LOUD NOW.</strong> The case file's best answer, in two releases on one day.
+      <strong>WHAT MAKES IT LOUD NOW.</strong> The best answer here, in two releases on one day.
       v0.99.408a added the guard: if any statement lowers to zero <dfn>IR</dfn> &mdash; the compiler's
-      internal instruction form between source and machine code &mdash; the build fails loudly. Fleet-wide
-      and structural: it does not fix the bug, it makes the whole <em>class</em> unable to ship quietly
-      again. v0.99.409a landed the fix, blast radius measured across all 1,143 files of the upstream corpus
-      rather than guessed at. A milestone rode along: <code>hey_run</code>, one of the toolchain's own
-      tools, compiled to a working native artifact for the first time &mdash; which for a language pursuing
-      <dfn>self-hosting</dfn> is the whole point.
+      instruction form between source and machine code &mdash; the build fails loudly, fleet-wide. It does
+      not fix the bug; it makes the <em>class</em> unable to ship quietly again. v0.99.409a landed the fix,
+      blast radius measured across all 1,143 files of the corpus rather than guessed at. And
+      <code>hey_run</code>, one of the toolchain's own tools, compiled to a working native artifact for the
+      first time &mdash; the point of <dfn>self-hosting</dfn>.
     </p>
 
     <div class="aside">
@@ -287,64 +287,66 @@ while chunk != '' {                  # a record is never equal to ''
       <p>
         Twice in one night a confident theory died because somebody wrote down the expected result
         <em>before</em> running the experiment. That is a <dfn>pre-registered prediction</dfn>, borrowed
-        from clinical trials for the reason clinical trials use it: a result you interpret after seeing it
-        will agree with you. The worker "wake-storm" theory led the field until its own criterion failed;
-        the real cause, proven from disassembly, was per-request deep-copying of route data. The discipline
-        costs one sentence in a log file before you press enter.
+        from clinical trials: a result you interpret after seeing it will agree with you. The "wake-storm"
+        theory led the field until its own criterion failed; the real cause, proven from disassembly, was
+        per-request deep-copying of route data.
       </p>
     </div>
 
-    <h2>Exhibit E: one character</h2>
+    <h2>Exhibit E: the theory that came back from the dead</h2>
     <p>
       <strong>SYMPTOM.</strong> Committed probe scripts, previously alive, producing nothing. Exit 0, zero
       output, no diagnostic &mdash; and a compile-cache entry minted, as if work had been done.
     </p>
     <p>
-      <strong>WHAT WE BELIEVED.</strong> In escalating order of drama: a stale cache; a regression in how a
-      binding form was spelled; then, after preserving 45 files of build artifacts and finding three
-      distinct compilers keyed to the same version plus orphaned temporaries, a <em>poisoned compiler</em>
-      &mdash; a racy publish step leaving a corrupted toolchain minting bad binaries. Those racy twin-mint
-      receipts were real. They were also irrelevant.
+      <strong>WHAT WE BELIEVED.</strong> Four theories, each killed by a measurement: a stale cache
+      (survived every cache sweep we knew about); a binding-form spelling regression (confounded); a
+      <em>poisoned compiler binary</em> from a racy publish (the preserved binary was byte-identical to a
+      healthy one); then a path-handling bug &mdash; <code>hey ./x.hey</code> dead while <code>hey x.hey</code>
+      lived, same file, same minute &mdash; which held for hours and was also wrong.
     </p>
     <p>
-      <strong>WHAT WAS TRUE.</strong> <code>hey ./x.hey</code> silently does nothing. <code>hey x.hey</code>
-      works. Same file, same caches, same minute. A leading <code>./</code> sent the run down a path that
-      missed an index lookup and returned nil, and the nil was never checked. The spelling "regression" was
-      a confound: every dead cell happened to use the prefix and every live one did not.
+      <strong>WHAT WAS TRUE.</strong> The poisoned-artifact theory was right after all &mdash; one shelf over.
+      An unlocked cache publish (a <dfn>TOCTOU race</dfn> &mdash; the file changes between the moment it is
+      checked and the moment it is used) can mint a corrupted entry in the compiler's <em>sidecar cache</em>;
+      anything compiled through that entry silently drops the program body, and the native loader never
+      checks for the empty result. The spooky per-spelling determinism was bookkeeping: each way of typing
+      the path hashes to its own cache key, so <code>./x.hey</code> deterministically hit the poisoned key
+      while <code>x.hey</code> hit a healthy one. Stranded temp files show the race had been minting corpses
+      for weeks; the output assertions were simply the first instruments honest enough to see them.
     </p>
     <p>
-      The best detail is why this surfaced only now. The nil-returning path is old, hidden for ages behind
-      Exhibit D &mdash; the truncation bug had been deleting the very code that would have hit it. Fixing
-      the miscompile un-truncated a latent bug. The old defect was accidentally protective, which happens
-      in real systems and which no amount of clean architecture prevents.
-    </p>
-    <p>
-      <strong>WHAT MAKES IT LOUD NOW.</strong> Least of the five, and still open upstream at the time of
-      writing: a bisection that eliminated content, name and all caches before naming the invocation form;
-      an interim rule (never invoke Hey scripts with <code>./</code>); probes switched to the unprefixed
-      form. Diagnosed within hours, not fixed within hours. The other four are fixed or guard-blocked; this
-      one is bounded by a rule, and rules are the weakest kind of guard.
+      <strong>WHAT MAKES IT LOUD NOW.</strong> The one not yet fixed: an upstream slice (publish lock,
+      cache sweeps that cascade to downstream artifacts, and a loud guard at the exact check the loader
+      skips) is written and queued. Meanwhile the cure is verified on our own corpse &mdash; clear the
+      sidecar cache <em>and</em> the run cache, then recompile &mdash; and the interim rule stands: a
+      silent-dead script is a cache-poisoning suspect before it is anything else. Diagnosed the same
+      morning; bounded by a rule, the weakest kind of guard, until the slice lands.
     </p>
 
     <h2>The record of retractions</h2>
     <p>
-      In a case file, discarded theories belong in the record at full size. Each was believed by competent
-      people with evidence, and each was killed by a measurement rather than an argument:
+      In a case file, discarded theories belong in the record at full size. Each was believed with evidence;
+      each was killed by a measurement:
     </p>
     <ul>
-      <li><strong>"The compiler forgot to free the old value."</strong> The mechanism was
-        clone-and-abandon. Caught by the upstream red team before the fix landed on the wrong story.</li>
+      <li><strong>"The compiler forgot to free the old value."</strong> It was clone-and-abandon. Caught by
+        the red team before the fix landed on the wrong story.</li>
       <li><strong>"A 9&times; runtime regression."</strong> There was none; the baseline was a dead binary.
-        Every conclusion built on its 2.3 ms number was invalidated in the evidence log by name and
-        timestamp.</li>
-      <li><strong>"Binary output parity green."</strong> Vacuous &mdash; no delete before the run, so the
-        diff compared a stale file. Mine.</li>
-      <li><strong>"A binding-form spelling regression."</strong> Spelling was never the variable; it was
-        confounded with invocation form in every cell.</li>
-      <li><strong>"A poisoned compiler from a racy publish."</strong> The artifacts were real and the theory
-        was wrong. It dissolved into one character of path prefix.</li>
-      <li><strong>"Return type triggers the truncation."</strong> Two variables changed at once during
-        debugging. Statement position is the trigger.</li>
+        Every conclusion built on its 2.3 ms number was invalidated by timestamp.</li>
+      <li><strong>"Binary output parity green."</strong> Vacuous: no delete before the run, so the diff
+        compared a stale file. Mine.</li>
+      <li><strong>"A binding-form spelling regression."</strong> Spelling was confounded with invocation
+        form in every cell.</li>
+      <li><strong>"A poisoned compiler binary from a racy publish."</strong> Half right, and that was the
+        trap: the preserved binary was byte-identical to a healthy one, so the theory died &mdash; then
+        came back four theories later as a poisoned <em>cache entry</em> from the same racy publish.</li>
+      <li><strong>"A path-prefix bug: <code>./x.hey</code> is broken."</strong> Reproducible, believed for
+        hours by both of us, and wrong. The prefix only selected which cache key you hit.</li>
+      <li><strong>"The server memory leak is fixed; what remains is a bounded working set."</strong> Mine,
+        published, and an artifact of measuring memory with the wrong tool. Retracted above.</li>
+      <li><strong>"Return type triggers the truncation."</strong> Two variables changed at once. Statement
+        position is the trigger.</li>
     </ul>
 
     <h2>The Silence Table</h2>
@@ -354,185 +356,162 @@ while chunk != '' {                  # a record is never equal to ''
       </thead>
       <tbody>
         <tr>
-          <td><strong>A.</strong> RAM climbing to ~50 GB; terminal dead</td>
-          <td>killed &mdash; no exit</td>
+          <td><strong>A.</strong> RAM to ~50 GB; terminal dead</td>
+          <td>killed</td>
           <td>nothing</td>
           <td>one porting session</td>
-          <td>Reduced fixture: 4.9 GB in ~20 s on 10 files. Rule only; no compiler guard yet</td>
+          <td>Reduced fixture (4.9 GB / 20 s). Rule only; no guard yet</td>
         </tr>
         <tr>
-          <td><strong>B.</strong> 919 MB idle server; big trees slower than Ruby</td>
+          <td><strong>B.</strong> 919 MB idle server; big trees slow</td>
           <td class="number">0</td>
-          <td>nothing &mdash; it read as "Hey is slow"</td>
-          <td>weeks, shipped as known slowness</td>
-          <td>RSS-vs-N flatness probe; fixed in 406a (481&times; / 425&times;)</td>
+          <td>nothing; read as slowness</td>
+          <td>weeks, as known slowness</td>
+          <td>RSS-vs-N flatness probe; fixed in 406a</td>
         </tr>
         <tr>
-          <td><strong>C.</strong> A "9&times; regression" against a 2.3 ms baseline</td>
+          <td><strong>C.</strong> "9&times; regression" vs a 2.3 ms baseline</td>
           <td class="number">0</td>
-          <td>"parity green" &mdash; against a stale file</td>
-          <td>hours of alarms; the binary's own age unknown</td>
-          <td>rm &rarr; run &rarr; assert recreated &rarr; compare; assert output, not exit</td>
+          <td>"parity green", against a stale file</td>
+          <td>hours of alarms</td>
+          <td>rm &rarr; run &rarr; assert recreated &rarr; compare</td>
         </tr>
         <tr>
-          <td><strong>D.</strong> Partial output; an entry point absent; 900 instead of 4</td>
+          <td><strong>D.</strong> Partial output; 900 instead of 4</td>
           <td class="number">0</td>
           <td>nothing; clean build</td>
-          <td>across releases and 1,143 corpus files</td>
-          <td>408a zero-IR build guard, fleet-wide, plus the 409a fix</td>
+          <td>releases; 1,143 corpus files</td>
+          <td>408a zero-IR build guard, then the 409a fix</td>
         </tr>
         <tr>
-          <td><strong>E.</strong> Probes printing nothing; a cache entry minted anyway</td>
+          <td><strong>E.</strong> Probes silent; cache entry minted anyway</td>
           <td class="number">0</td>
           <td>nothing</td>
-          <td>latent for ages behind D</td>
-          <td>2&times;2 bisect on invocation form; interim rule, fix still open</td>
+          <td>weeks (stranded temp files prove it)</td>
+          <td>Two-layer cache sweep cures it; publish lock + loud guard queued</td>
         </tr>
       </tbody>
     </table>
     <p>
-      Read the second column down. Four zeroes. Every dangerous bug here exited successfully; nothing
-      crashed at the fault site. The crash, when it came, happened in a different program, hours later, at
-      50 GB.
+      Read the second column down: four zeroes. Every dangerous bug here exited successfully, and nothing
+      crashed at the fault site.
     </p>
 
     <h2>The guard is the hero</h2>
     <p>
       The satisfying story would be the 481&times;. It is the wrong story &mdash; one fix to one defect, and
-      next month there will be a different defect. What survives is the instrument: a flatness gate that
-      fails on any list-shaped retention whatever causes it; a build that refuses to emit a program where a
-      statement lowered to nothing; a harness that asserts output bytes so it can never again time a corpse;
-      a parity gate that compares against a working Ruby program and does not care what the language does
-      internally. Each converts a silent failure into a loud one, the only transformation that compounds.
+      next month there will be another. What survives is the instrument: a flatness gate that fails on any
+      list-shaped retention; a build that refuses to emit a program where a statement lowered to nothing; a
+      harness that asserts output bytes so it can never again time a corpse; a parity gate indifferent to
+      what the language does internally. Each converts a silent failure into a loud one &mdash; the only
+      transformation that compounds.
     </p>
     <p>
-      That is also the honest answer to "why should I believe your throughput numbers?" &mdash; the question
-      our companion article on
+      That is also the answer to "why should I believe your throughput numbers?" &mdash; the question our
+      companion article on
       <a href="hey-web-services-500-to-60000-rps.html">taking three Hey web services from 500 to 60,000
-      requests per second</a> has to answer, and the reason this case file was published first. That
-      methodology was not designed in the abstract; it was beaten into shape by these five bugs.
+      requests per second</a> (where the delegation <dfn>sidecar</dfn> and the dispatch fixes do the heavy
+      lifting) has to answer, and the reason this case file was published first. That methodology was
+      beaten into shape by these five bugs.
     </p>
 
     <h2>The benchmark, since you asked</h2>
     <p>
-      The same port, re-measured on a quiet box on 2026-07-25 after the memory fix &mdash; Hey compiled
-      against the Ruby original, same corpus, same machine, parity gate 9/9 green in both lanes:
+      The same port re-measured on a quiet box, 2026-07-25, after the memory fix; parity gate 9/9 green in
+      both lanes:
     </p>
     <table>
       <thead><tr><th>Corpus</th><th>Ruby</th><th>Hey (compiled)</th><th>Verdict</th></tr></thead>
       <tbody>
         <tr><td>500 files</td><td class="number">153.3 ms</td><td class="number"><strong>66.5 ms</strong></td><td>Hey 2.31&times; faster</td></tr>
-        <tr><td>2,000 files</td><td class="number">254 ms</td><td class="number">247 ms</td><td>dead heat (was a Ruby win before the memory fix)</td></tr>
+        <tr><td>2,000 files</td><td class="number">254 ms</td><td class="number">247 ms</td><td>dead heat (a Ruby win before the fix)</td></tr>
         <tr><td>8,000 files</td><td class="number"><strong>672 ms</strong></td><td class="number">2.16 s</td><td>Ruby 3.2&times; faster (was 5.0&times;)</td></tr>
       </tbody>
     </table>
     <p>
       Hey wins small, ties in the middle, still loses badly on large trees. The memory fix moved the
-      crossover and halved the deep deficit, but it only addressed retention: building big lists remains
+      crossover and halved the deep deficit, but it only addressed retention: building big lists is still
       quadratic in <em>time</em>, and that fix ("slice B") is queued, not landed. Until it lands, this
-      article's own subject program is the wrong tool for an 8,000-file tree. Not a hedge; a measurement.
+      article's subject program is the wrong tool for an 8,000-file tree.
     </p>
 
     <div class="aside">
       <h3>The ergonomics tax, stated honestly</h3>
       <p>
         Identical functionality: <strong>Ruby 606 lines, Hey 861 &mdash; 1.42&times;</strong>. Some of that
-        is Hey's explicitness and some is workarounds for the defects in this very article. It is a real
-        cost no benchmark table will show you. Two more lanes where Hey loses today: the compiled build loop
-        is minutes where Go is seconds and Ruby is zero, and the ecosystem is a rounding error beside
-        either.
+        is Hey's explicitness, some is workarounds for the defects in this very article. Two more lanes
+        where Hey loses today: the compiled build loop is minutes where Go is seconds and Ruby is zero, and
+        the ecosystem is a rounding error beside either.
       </p>
     </div>
 
     <h2>So would you actually ship this?</h2>
     <p>
-      The question deserves an answer in print rather than in the comments: yes, with conditions, and the
-      conditions are the interesting part.
-    </p>
-    <p>
-      You are buying a language whose defects, when it has them, tend to be silent &mdash; and a team that
-      fixes or guard-blocks them within about a day of a reproducer landing. Five classes in one night: four
-      fixed or made structurally unshippable within roughly 24 hours, the fifth diagnosed to its mechanism
-      the same morning and bounded by an operator rule while the fix sits upstream. Weigh that against Ruby's
-      and Go's decades of hardening, an enormous advantage Hey cannot buy at any price this year. Against
-      <em>that</em>, a defect filed at 2 a.m. had a guard in the compiler by breakfast, which the decades-old
-      ecosystems do not offer either.
+      In print rather than in the comments, then: yes, with conditions. You are
+      buying a language whose defects tend to be silent, and a team that fixes or guard-blocks them within
+      about a day &mdash; five classes in one night, four fixed or made structurally unshippable within
+      roughly 24 hours, the fifth diagnosed the same morning and bounded by a rule while the fix sits
+      upstream. Weigh that against Ruby's and Go's decades of hardening, which Hey cannot buy at any price
+      this year. Against <em>that</em>, a defect filed at 2 a.m. had a guard in the compiler by breakfast.
     </p>
     <p>
       Practically: ship it where you can hold a parity gate against a reference implementation, or where
       your tests assert real output rather than exit codes. Do not ship it where a wrong-but-quiet answer is
-      expensive and you have no independent check &mdash; not because that is likely today, but because
-      Exhibit D happened, and the correct response to Exhibit D is a policy, not a reassurance. If you run
-      Hey servers, restart long-lived processes after heavy load until you are on 406a or later, and
-      re-measure your worker count every release; the optimum moved three times in nine days.
+      expensive and you have no independent check &mdash; because Exhibit D happened, and the right response
+      to it is a policy, not a reassurance.
     </p>
     <p>
-      What I would defend is narrower than the language and more useful: the loop. A crash report from a
-      human looking at Activity Monitor, a reduced reproducer, a pre-registered prediction, a red team
-      allowed to contradict the going story, a guard that makes the class unshippable, and a correction
-      printed at the same volume as the original claim. That loop found five silent-failure classes in a
-      night. Speed was the reward. It was never the subject.
+      What I would defend is narrower than the language: the loop. A crash report from a human looking at
+      Activity Monitor, a reduced reproducer, a pre-registered prediction, a red team allowed to contradict
+      the going story, a guard that makes the class unshippable, and a correction printed as loudly as the
+      claim. That loop found five silent-failure classes in a night. Speed was the reward. It was never the
+      subject.
     </p>
 
     <h2>Glossary</h2>
     <dl class="glossary">
       <dt>byte-parity</dt>
-      <dd>Comparing outputs byte for byte rather than "looks right" &mdash; port versus original, or emitted
-        code before versus after a fix.</dd>
+      <dd>Comparing outputs byte for byte rather than "looks right".</dd>
       <dt>RSS</dt>
-      <dd>Resident set size: the physical RAM a process occupies right now. The number that matters when the
-        OS decides who dies.</dd>
+      <dd>Resident set size: the RAM a process occupies right now.</dd>
       <dt>jetsam</dt>
-      <dd>The macOS mechanism that reclaims memory by killing processes under pressure. It leaves no stack
-        trace.</dd>
+      <dd>The macOS mechanism that kills processes to reclaim memory.</dd>
       <dt>quadratic</dt>
-      <dd>Cost growing with the square of the input. Tolerable in time at small sizes; fatal in memory at any
-        size.</dd>
+      <dd>Cost growing with the square of the input.</dd>
       <dt>deep copy</dt>
-      <dd>Duplicating a value and everything it references instead of sharing a reference. Safe, and
-        expensive per loop pass or per request.</dd>
+      <dd>Duplicating a value and everything it references, rather than sharing it.</dd>
       <dt>clone-and-abandon</dt>
-      <dd>This file's headline defect: build a value, deep-copy it, store the copy, orphan the original.
-        Looks like a leak; is an unclaimed allocation.</dd>
+      <dd>Build a value, deep-copy it, store the copy, orphan the original.</dd>
       <dt>ASAN</dt>
-      <dd>AddressSanitizer: an instrumented build that watches every memory access and reports use-after-free,
-        overruns and leaks.</dd>
+      <dd>AddressSanitizer: reports use-after-free, overruns and leaks at runtime.</dd>
       <dt>TSAN</dt>
-      <dd>ThreadSanitizer: catches data races, the class that works 999 times and corrupts on the
-        thousandth.</dd>
+      <dd>ThreadSanitizer: catches data races between threads.</dd>
       <dt>silent miscompile</dt>
-      <dd>A compiler emitting a program that does not match its source, with no error. It builds, runs, exits
-        0, and is wrong.</dd>
+      <dd>A compiler emitting a program that does not match its source.</dd>
       <dt>self-hosting</dt>
-      <dd>A language whose compiler and tools are written in itself &mdash; why one tool compiling to a
-        working binary counts as a milestone.</dd>
+      <dd>A language whose compiler and tools are written in itself.</dd>
       <dt>IR</dt>
-      <dd>Intermediate representation: the compiler's internal instruction form between source and machine
-        code. "Zero IR" means nothing was emitted.</dd>
+      <dd>Intermediate representation: the compiler's form between source and machine code.</dd>
       <dt>pre-registered prediction</dt>
-      <dd>Writing down what a measurement should show before taking it, so the result can falsify the theory
-        instead of being fitted to it.</dd>
+      <dd>Recording the expected result before measuring, so it can falsify the theory.</dd>
       <dt>working set</dt>
-      <dd>The memory a program genuinely needs in flight, which plateaus under load. Told apart from a leak
-        by whether it comes back down.</dd>
+      <dd>Memory a program needs in flight; unlike a leak, it comes back down.</dd>
       <dt>sidecar</dt>
-      <dd>A long-lived helper process serving requests from the main program instead of spawning one per
-        call. Hey's cut a stdlib call from milliseconds to microseconds.</dd>
+      <dd>A long-lived helper process replacing per-call process spawning.</dd>
       <dt>exit code</dt>
-      <dd>The integer a process returns on termination; 0 conventionally means success. Every exhibit that
-        managed to exit at all returned 0.</dd>
+      <dd>The integer a process returns on termination; 0 means success.</dd>
     </dl>
   </main>
 
   <footer>
     <p>
       Written 2026-07-25. Numbers from the war-room evidence log
-      (<code>docs/PERFORMANCE-FINDINGS.md</code>), with reproduction paths in the same repos:
-      <code>bench/probes/</code> for the memory and latency instruments, and <code>bin/check</code> in the
-      <code>source_zip</code> repo for the parity gate. Measurement process: two AI seats shared one machine
-      &mdash; a benchmark seat owning probes, harnesses and published numbers, and a toolchain seat landing
-      verified compiler slices &mdash; exchanging claims through append-only relay files, so every headline
-      figure here was produced by one seat and reproduced by the other before it was written down.
+      (<code>docs/PERFORMANCE-FINDINGS.md</code>); reproduction paths in the same repos:
+      <code>bench/probes/</code> for the memory instruments, <code>bin/check</code> in <code>source_zip</code>
+      for the parity gate. Measurement process: two AI seats shared one machine &mdash; a benchmark seat
+      owning probes and published numbers, a toolchain seat landing verified compiler slices &mdash;
+      exchanging claims through append-only relay files, so every headline figure came from one seat and
+      was reproduced by the other.
     </p>
   </footer>
 </body>
