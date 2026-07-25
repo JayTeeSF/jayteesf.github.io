@@ -20,7 +20,9 @@ module PackagesIndex
   # --workers N, or PACKAGES_INDEX_WORKERS. Defaults to 4, which measured
   # fastest on a 14-package tree; 1 is the serial path.
   private fn worker_count(args)
-    let requested = Env.default('PACKAGES_INDEX_WORKERS', '4')
+    # The flag wins, and is checked first so the common case never pays
+    # for an environment lookup (Env.default measured ~5 ms here).
+    let requested = ''
     let index = 0
 
     while index < args.length
@@ -28,6 +30,19 @@ module PackagesIndex
         set requested = args[index + 1]
       end
       set index = index + 1
+    end
+
+    if requested == ''
+      set requested = Env.default('PACKAGES_INDEX_WORKERS', '')
+    end
+
+    # Nothing supplied: take the default without validating it. This is
+    # not micro-optimisation — Text.int_token? is a delegated call, and
+    # the first delegated call in a process costs ~5.8 ms (probe:
+    # war-room bench/probes/cli-startup-call-cost.hey). Paying that to
+    # check a literal we wrote ourselves cost 20% of total runtime.
+    if requested == ''
+      return 4
     end
 
     if !Text.int_token?(requested)
