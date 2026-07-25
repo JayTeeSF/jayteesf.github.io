@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Writing fast, Ruby-ergonomic command-line scripts with Hey v0.99.397a: receiver chains, byte-parity benchmarking against Ruby, and the hot-loop rules that keep compiled Hey fast.">
+  <meta name="description" content="Writing fast command-line programs in Hey v0.99.410a: Ruby-style ergonomics, a byte-parity gate that makes the benchmark mean something, a dated progression table, and the hot-loop rules for the post-sidecar era.">
   <title>Great Command-Line Scripting with Hey</title>
   <style>
     :root {
@@ -49,49 +49,81 @@
     ul { padding-left: 1.4rem; }
     li { margin: 0.35rem 0; }
     footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+    details.deep > summary { cursor: pointer; font-weight: 600; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
   </style>
 </head>
 <body>
   <header>
     <h1>Great Command-Line Scripting with Hey</h1>
     <p class="lede">
-      A practical guide to writing a real Hey command-line program on today's toolchain
-      (v0.99.399a): Ruby-style ergonomics, honest benchmarks against an identical Ruby
-      implementation, and the hot-loop rules that keep compiled Hey fast.
+      One job, two implementations, one rule: the outputs must match to the byte. On today's
+      toolchain (v0.99.410a) the Hey version builds a documentation index 5.46&times; faster than
+      the Ruby it was ported from. The number is not the interesting part. The gate that makes the
+      number mean anything is.
     </p>
   </header>
 
   <main>
     <div class="tldr">
       <h2>TL;DR</h2>
-      <p>Build once, run the native executable:</p>
-      <pre><code>export HEY_ROOT="$HOME/dev/hey-lang-bootstrap-plan"
-"$HEY_ROOT/bin/heyc" build --backend llvm \
-  ./generate-packages-index.hey \
-  -o "$HOME/bin/generate-packages-index"
+      <ul>
+        <li><strong>23.5 ms vs 128.1 ms &mdash; 5.46&times; faster than Ruby</strong>, rendering a
+          14-package documentation index on a quiet Apple M-series laptop, 30 timed runs,
+          byte-for-byte identical output. The script lane, no build step at all, does it in
+          <strong>26.3 ms</strong>.</li>
+        <li><strong>A benchmark without an output-parity gate is a wish.</strong> Ours caught an
+          optimization that made this program <em>faster and wrong</em>, and a "record" 2.3 ms
+          result that was a dead binary timing its own death.</li>
+        <li>Two lanes: the script you run, the binary you build. The binary leads by only
+          <strong>1.12&times;</strong> today &mdash; a story about a bare <code>print</code> in a
+          help function, not about compilation.</li>
+        <li><strong>Disclosed weakness:</strong> the parallel lane is <em>slower</em> than serial at
+          this size, big-list workloads still lose to Ruby (8,000 files: Ruby 672 ms, Hey 2.16 s),
+          and the Hey source is 1.79&times; the Ruby line count.</li>
+        <li><strong>Falsifiability:</strong> both implementations are in this repository, the
+          harness below produced every figure, and each release is a dated row in the progression
+          table &mdash; new measurements add rows rather than replacing a headline.</li>
+      </ul>
+    </div>
 
-generate-packages-index --workers 1 ./packages</code></pre>
+    <div class="aside">
+      <h3>How to read these numbers</h3>
       <p>
-        On an Apple M-series laptop this renders a 12-package documentation index in
-        <strong>23&nbsp;ms</strong> &mdash; <strong>5.7&times; faster than the equivalent Ruby</strong>
-        (133&nbsp;ms, Ruby 3.4 + YJIT) &mdash; while producing <strong>byte-for-byte identical HTML</strong>.
-        Use <code>--workers 1</code> for small trees: parallel rendering only pays past hundreds of items.
+        Apple M-series laptop, macOS, quiet box &mdash; nothing else running, ambient load checked
+        before each cell. Timings from <dfn>hyperfine</dfn>, a benchmark runner that repeats a
+        command and reports mean &plusmn; standard deviation:
+        <code>hyperfine --warmup 3 --runs 30</code>, same 14-package tree, fixed timestamp via
+        <code>PACKAGES_INDEX_GENERATED_AT</code> for every lane. Each lane deletes its output first,
+        asserts it came back non-empty, and diffs it against Ruby's before any clock is trusted
+        &mdash; never an <dfn>exit code</dfn> of 0 alone. Anything measured on a loaded machine is a
+        lower bound; nothing here was.
       </p>
     </div>
 
-    <h2>The running example</h2>
+    <h2>The running example, and why a port is a legitimate benchmark</h2>
     <p>
-      One script, two implementations: <a href="../generate-packages-index.hey">generate-packages-index.hey</a>
+      One job, two implementations: <a href="../generate-packages-index.hey">generate-packages-index.hey</a>
       and <a href="../generate-packages-index.rb">generate-packages-index.rb</a>. Both walk a package
-      directory, natural-sort every versioned <code>docs/</code> directory and every Markdown/HTML file,
-      and render one static index page. Given the same timestamp
-      (<code>PACKAGES_INDEX_GENERATED_AT</code>), their output is identical to the byte &mdash; which is
-      what makes the benchmark honest: you cannot get faster by quietly doing less.
+      directory, natural-sort every versioned <code>docs/</code> directory and every Markdown or HTML
+      file below it, and render one static index page.
+    </p>
+    <p>
+      A port is the cleanest benchmark available to a small language and the easiest to cheat at:
+      a real program doing real filesystem work, but most accidental speedups in a rewrite come
+      from quietly doing less &mdash; a sort that no longer sorts, a directory that no longer gets
+      walked. So the pair is held to one condition: same timestamp in, identical bytes out. Take
+      that away and the multiplier means nothing.
     </p>
 
     <h2>Hey can read like Ruby</h2>
-    <p>Receiver chains, predicates with <code>?</code>, string interpolation, heredocs:</p>
-    <pre><code>private fn linkable?(path)
+    <p>Receiver chains, predicates ending in <code>?</code>, string interpolation, heredocs:</p>
+<pre><code>private fn linkable?(path)
   let lower_path = Text.lower(path)
   return Text.ends_with?(lower_path, '.md') or Text.ends_with?(lower_path, '.html')
 end
@@ -108,74 +140,267 @@ private fn package_directories(packages_dir)
     .sort(PackagesIndex.compare_paths)
 end</code></pre>
     <p>
-      Also available: <code>.uniq</code>, <code>.map(fn)</code>, <code>.map(fn, workers: n).collect()</code>
-      for parallel fan-out, <code>.empty?</code>, <code>value.length</code>, <code>%qq(...)</code>
-      interpolated strings with <code>#{expr}</code>, and <code>&lt;&lt;~'TEXT'</code> heredocs for usage
-      banners. A Ruby programmer can read the whole 560-line script cold.
+      Also on hand: <code>.uniq</code>, <code>.map(fn)</code>,
+      <code>.map(fn, workers: n).collect()</code> for parallel fan-out, <code>.empty?</code>,
+      <code>value.length</code>, <code>%qq(...)</code> interpolation with <code>#{expr}</code>, and
+      <code>&lt;&lt;~'TEXT'</code> heredocs. A Ruby programmer reads the whole script cold, which is
+      most of the argument for Hey as a scripting language.
     </p>
 
-    <h2>The three rules that keep compiled Hey fast</h2>
-    <h3>Rule 1: bare builtins in hot loops</h3>
+    <div class="aside">
+      <h3>The ergonomics tax, stated honestly</h3>
+      <p>
+        Identical behaviour costs <strong>Ruby 313 lines, Hey 561 &mdash; 1.79&times;</strong> for
+        this script; on the sibling <code>source-zip</code> tool it is 606 versus 861, or
+        1.42&times;. Some is Hey's explicitness; most is workarounds for known toolchain gaps
+        &mdash; bound intermediates where chained indexing will not lower, plain helpers where
+        worker bodies reject assignment. Those gaps have tickets, so the tax should shrink. Today
+        it is real and you should price it in.
+      </p>
+    </div>
+
+    <h2>The parity gate</h2>
     <p>
-      Language builtins (<code>len</code>, <code>slice</code>, <code>find</code>, <code>parse_int</code>,
-      <code>to_json</code>&hellip;) compile to native code. Stdlib facade calls are fast for ordinary use
-      (~3&nbsp;&micro;s via v0.99.397a's 60-entry direct table), but a natural-sort comparator that runs
-      thousands of times per sort should not pay even that. Switching our comparator's inner loop from
-      per-character facade calls to bare <code>slice</code> plus direct <code>!=</code> was a
-      <strong>20% end-to-end win</strong>.
+      The thesis, and it outranks every number here: <strong>a benchmark without an output-parity
+      gate is a wish.</strong> Two receipts from this program.
     </p>
-    <h3>Rule 2: verify output, not just speed</h3>
     <p>
-      Our first optimization pass used <code>byte_at(string, i)</code> &mdash; which compiles and silently
-      returns 0 (it is a Bytes-value operation, hey 0.99.397a). The comparator declared every path equal,
-      the sort became a no-op, and the benchmark got <em>faster and wrong</em>. The byte-parity check
-      against Ruby caught it instantly. Benchmarks without output verification are wishes.
+      The first optimization pass rewrote the natural-sort comparator to use
+      <code>byte_at(string, i)</code>. It compiled. It also silently returned 0 for every string
+      argument &mdash; it is a Bytes-value operation &mdash; so the comparator declared every path
+      equal to every other, the sort collapsed into a no-op, and the benchmark got <em>faster and
+      wrong</em>: the classic rewrite failure, arriving in the shape of good news. The
+      <dfn>byte-parity</dfn> check against Ruby caught it on the first run.
     </p>
-    <h3>Rule 3: parallelism has a floor</h3>
     <p>
-      <code>.map(fn, workers: 10)</code> over 12 packages: 109&nbsp;ms of wall clock for 783&nbsp;ms of
-      CPU &mdash; 4&times; slower than one worker. Worker fan-out pays for large workloads, not a dozen
-      quick renders. Default to <code>--workers 1</code> and measure before scaling.
+      The second is worse, because the gate itself lied. The fastest result this project ever
+      recorded was a 2.3 ms binary. It was a corpse: exit 0, zero bytes of output, dead before the
+      first line of user code, timing its own death. The parity check blessed it, because it never
+      deleted the output file before running and so compared the one left by the <em>previous</em>
+      lane. A dead program passed a correctness gate reading a ghost. That one is my bug, not the
+      compiler's, and it is why the harness below deletes first and asserts before it compares. The
+      autopsy, plus four more silent-failure classes, is in
+      <a href="ruby-port-ate-50gb-of-ram.html">the case file on the Ruby port that ate 50 GB of
+      RAM</a>.
     </p>
 
-    <h2>Benchmark (hey v0.99.399a, 2026-07-24)</h2>
+    <h2>The dated progression</h2>
+    <p>
+      This table is the spine. Same script, same 14 packages, same machine, one row per release.
+      Nothing here gets rewritten when a new measurement lands; it gets a new row.
+    </p>
     <table>
-      <thead><tr><th>Lane</th><th>Mean (30 runs)</th><th>vs Ruby</th></tr></thead>
+      <thead>
+        <tr><th>Release</th><th>What landed</th><th>Hey script</th><th>Hey binary</th><th>Ruby control</th></tr>
+      </thead>
       <tbody>
-        <tr><td>Hey LLVM compiled, 1 worker</td><td class="number">23.3 ms &plusmn; 1.1</td><td class="number"><strong>5.7&times; faster</strong></td></tr>
-        <tr><td>Hey LLVM compiled, 10 workers</td><td class="number">87.1 ms</td><td class="number">slower &mdash; see Rule 3</td></tr>
-        <tr><td>Ruby 3.4 (+YJIT)</td><td class="number">132.8 ms &plusmn; 5.0</td><td class="number">baseline</td></tr>
+        <tr><td>v0.99.390a</td><td>pre-facade: every stdlib call round-tripped an interpreter</td><td colspan="2"><strong>~7 ms <em>per stdlib call</em></strong> &mdash; unusable in a hot loop</td><td class="number">120&ndash;133 ms</td></tr>
+        <tr><td>v0.99.397a</td><td>60-entry direct facade table</td><td class="number">&mdash;</td><td class="number">23.2 ms</td><td class="number">~123 ms</td></tr>
+        <tr><td>v0.99.402a</td><td>delegation sidecar</td><td class="number">&mdash;</td><td class="number">23.5 ms</td><td class="number">~123 ms</td></tr>
+        <tr><td>v0.99.403a</td><td>launcher slice</td><td class="number">&mdash;</td><td class="number">26.4 ms</td><td class="number">123.2 ms</td></tr>
+        <tr><td>v0.99.404a</td><td>emitter slices</td><td class="number">&mdash;</td><td class="number">27.4 ms</td><td class="number">123.4 ms</td></tr>
+        <tr><td>v0.99.405a</td><td>self-hosted emitter</td><td class="number"><strong>6.3 ms</strong></td><td class="number">&mdash;</td><td class="number">~123 ms</td></tr>
+        <tr><td>v0.99.409a</td><td>launcher fix; both lanes on one consumer path</td><td class="number">24.9 &plusmn; 0.7</td><td class="number">22.3 &plusmn; 0.8</td><td class="number">120.0 &plusmn; 3.5</td></tr>
+        <tr><td>v0.99.410a</td><td>observability and longevity landing</td><td class="number">26.3 &plusmn; 0.9</td><td class="number"><strong>23.5 &plusmn; 0.7</strong></td><td class="number">128.1 &plusmn; 3.0</td></tr>
       </tbody>
     </table>
-    <p class="muted">
-      Toolchain progression: the 10-worker lane improved 109 &rarr; 87&nbsp;ms when v0.99.399a's
-      dispatch-clone elimination landed &mdash; parallel overhead is falling release by release, but
-      Rule 3 still holds at this workload size.
+    <p>
+      Read the last column first. Ruby sits flat between 120 and 133 ms across the whole span, and
+      that flatness is what makes the Hey columns legible: when Hey moves and the control does not,
+      the movement belongs to the toolchain. The v0.99.409a cells came off a quieter box, so the
+      honest reading of the last two rows is "unchanged, plus a little ambient", not "a regression".
     </p>
-    <p class="muted">
-      Apple M-series, macOS, <code>hyperfine --warmup 3 --runs 30</code>, fixed timestamp, output
-      byte-compared every run. 12 package directories.
+    <p>
+      Be suspicious of the v0.99.405a row. For one release the script lane genuinely measured 6.3 ms
+      &mdash; then a launcher fix put both lanes back on the same code path and it went away. Not a
+      mismeasurement; just not durable. Take it as evidence that this program's floor is far below
+      today's number, and as an argument against any headline built on one release.
     </p>
 
-    <h2>Where the next speed comes from</h2>
+    <h2>Two lanes, in plain English</h2>
     <p>
-      <strong>2026-07-25 addendum:</strong> v0.99.402a's delegation sidecar cut stdlib facade calls
-      from ~4.4&nbsp;ms to ~60&nbsp;&micro;s &mdash; so Rule&nbsp;1 relaxes for scripts: casual stdlib
-      use is now fine outside the hottest loops (this benchmark, whose hot path was already
-      builtin-only, holds at 23.5&nbsp;ms with parity green). The remaining time is the diffuse
-      boxed-value cost described below.
+      There is the script you run, and there is the binary you build. Same source file either way:
+    </p>
+<pre><code># the script you run — no build step, shebang is #!/usr/bin/env hey
+./generate-packages-index.hey --workers 1 ./packages
+
+# the binary you build — a standalone native executable
+export HEY_ROOT="$HOME/dev/hey-lang-bootstrap-plan"
+"$HEY_ROOT/bin/heyc" build --backend llvm \
+  ./generate-packages-index.hey \
+  -o "$HOME/bin/generate-packages-index"
+
+generate-packages-index --workers 1 ./packages</code></pre>
+    <table>
+      <thead><tr><th>Lane (v0.99.410a)</th><th>Mean, 30 runs</th><th>vs Ruby</th><th>vs the script</th></tr></thead>
+      <tbody>
+        <tr><td>Ruby 3.4 + YJIT</td><td class="number">128.1 &plusmn; 3.0 ms</td><td class="number">baseline</td><td class="number">&mdash;</td></tr>
+        <tr><td>Hey, the script you run</td><td class="number">26.3 &plusmn; 0.9 ms</td><td class="number">4.87&times;</td><td class="number">1.00&times;</td></tr>
+        <tr><td>Hey, the binary you build</td><td class="number">23.5 &plusmn; 0.7 ms</td><td class="number"><strong>5.46&times;</strong></td><td class="number">1.12&times;</td></tr>
+      </tbody>
+    </table>
+    <p>
+      You would expect the compiled artifact to crush the interpreted one. It beats it by 12%. That
+      is not a verdict on compilation, and the reason is almost funny: this program has a help
+      function whose entire body is a bare <code>print</code> of a heredoc. A v0.99.382a-era emitter
+      guard cannot prove that a bare module-function call in statement position terminates, so it
+      declines to lower the program fully natively and drops the whole thing onto the shared
+      consumer path &mdash; leaving roughly 31 sites going through <dfn>delegation</dfn> instead of
+      compiled inline. Both lanes then run most of the same machinery, and the binary's lead shrinks
+      to a startup difference.
     </p>
     <p>
-      Profiling the 22.8&nbsp;ms shows no single hotspot &mdash; the time is spread across boxed-value
-      allocation and copying plus real filesystem syscalls. That diffuse cost is precisely what the
-      toolchain's in-flight work targets (copy elimination in ordinary compiled paths, and a precompiled
-      stdlib archive). The same probes that measured this article's numbers are committed beside the
-      source, so when those land, this table gets a new row rather than a rewrite.
+      So today's binary-versus-script gap measures a usage banner, not a compiler. The emitter slice
+      that removes the fallback is queued for v0.99.411a. When it lands the spine gets a row; if the
+      gap does not widen, that is a finding and it gets printed at the same size.
     </p>
+
+    <h2>The three rules that keep Hey fast</h2>
+    <h3>Rule 1: stdlib freely outside hot loops, builtins only inside them</h3>
+    <p>
+      A stdlib call from compiled code now costs roughly 60&ndash;80&nbsp;&micro;s through the
+      <dfn>sidecar</dfn>; tabled and natively lowered calls cost under a microsecond. At that price
+      ordinary use is free &mdash; parse arguments, read a config, format a report with whatever
+      reads best. The rule bites only in the innermost per-item loop. This script's comparator runs
+      thousands of times per sort, so its inner loop uses bare <dfn>builtins</dfn>
+      (<code>slice</code>, <code>len</code>, direct <code>!=</code>) and never leaves compiled code;
+      moving that one loop off per-character facade calls was a 20% end-to-end win. Everywhere else
+      in the file, the stdlib is used without ceremony.
+    </p>
+
+    <div class="aside">
+      <h3>What this rule used to say, and why it changed</h3>
+      <p>
+        An earlier version of this article said: avoid stdlib calls in hot loops, full stop. That
+        was correct and is now wrong, the more interesting kind of obsolete. Before v0.99.402a a
+        stdlib call from compiled code wrote a temp file and spawned an interpreter subprocess to
+        service it &mdash; about <strong>7 ms per call</strong>, so one careless
+        <code>Text.trim</code> over a thousand items cost seven seconds. The v0.99.402a sidecar
+        replaced that subprocess with one long-lived helper and took it to ~60&nbsp;&micro;s. Four
+        orders of magnitude does not refine a rule; it retires one.
+      </p>
+    </div>
+
+    <h3>Rule 2: measure output before you measure time</h3>
+    <p>
+      The whole article, in one line: delete the output, run, assert it came back, compare bytes,
+      and only then start a clock. Both of this project's most memorable numbers &mdash; the
+      comparator that sorted nothing, the binary that did nothing &mdash; were speedups.
+    </p>
+
+    <h3>Rule 3: parallelism has a floor, and it is above 14 packages</h3>
+    <p>
+      <code>.map(fn, workers: n)</code> hands each item to a <dfn>worker pool</dfn>, and at this
+      size that is a straight loss: scheduling and collecting 14 quick renders costs more wall clock
+      than just doing them in order. Default to <code>--workers 1</code> and treat fan-out as
+      something you earn with a measurement. One sharp edge while you are there: pool sizes in
+      <code>Jobs.define</code> must be integer literals &mdash; a variable will not lower, and it
+      tells you so at compile time rather than at 3 a.m.
+    </p>
+
+    <h2>A harness that cannot lie to you</h2>
+    <p>
+      Everything above reduces to a script you can run. The ordering is the load-bearing part: the
+      <code>rm</code> before the run, the assertion before the comparison &mdash; so that a program
+      producing nothing fails here instead of posting a record.
+    </p>
+<pre><code>set -eu
+STAMP=2026-07-25T00:00:00Z
+
+lane() {                      # $1 = label, $2.. = command
+  rm -f packages/index.html
+  PACKAGES_INDEX_GENERATED_AT="$STAMP" "${@:2}" >/dev/null
+  test -s packages/index.html || { echo "$1: NO OUTPUT"; exit 1; }
+  cp packages/index.html "out.$1.html"
+}
+
+lane ruby   ruby ./generate-packages-index.rb ./packages
+lane script ./generate-packages-index.hey ./packages
+lane binary generate-packages-index ./packages
+
+cmp out.ruby.html out.script.html
+cmp out.ruby.html out.binary.html
+
+hyperfine --warmup 3 --runs 30 \
+  'ruby ./generate-packages-index.rb ./packages' \
+  './generate-packages-index.hey ./packages' \
+  'generate-packages-index ./packages'</code></pre>
+    <p>
+      When a lane dies silently &mdash; exit 0, no output, no diagnostic &mdash; do not start by
+      blaming the compiler or rewriting your code. A racy cache publish can mint a corrupted entry
+      that deterministically produces do-nothing programs, and the poison propagates: a dead run
+      writes its own dead entry downstream. Sweep both layers, then rebuild.
+    </p>
+<pre><code>rm -rf "$HEY_COMPILER_BUILD_DIR/compiler-sidecars"   # poisoned sidecar entries
+rm -rf "$HOME/.cache/hey/run"                        # the run cache they poisoned</code></pre>
+    <p>
+      Alive after that, you had a cache problem. Still dead, bisect &mdash; same file by a different
+      path, a copy under a different name, one lane at a time &mdash; then file it. A publish lock
+      and a loud guard for exactly this are queued upstream. Until they land, the rule is
+      unglamorous and absolute: always assert output, never trust exit 0.
+    </p>
+
+    <h2>Where the next speed comes from, and where Hey loses</h2>
+    <p>
+      Three known items. The v0.99.411a emitter slice that stops a help function from dragging the
+      program off the native path. Copy elimination in ordinary compiled paths &mdash; profiling
+      this script shows no single hotspot, just boxed values being allocated and copied, plus honest
+      filesystem syscalls. And a queued fix for list-append <em>time</em> cost, which matters most
+      outside this article: it is where Hey currently loses, measured on the sibling
+      <code>source-zip</code> port, same day, same box.
+    </p>
+    <table>
+      <thead><tr><th>Corpus</th><th>Ruby</th><th>Hey (compiled)</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>500 files</td><td class="number">153.3 ms</td><td class="number"><strong>66.5 ms</strong></td><td>Hey 2.31&times; faster</td></tr>
+        <tr><td>2,000 files</td><td class="number">254 ms</td><td class="number">247 ms</td><td>dead heat</td></tr>
+        <tr><td>8,000 files</td><td class="number"><strong>672 ms</strong></td><td class="number">2.16 s</td><td>Ruby 3.2&times; faster</td></tr>
+      </tbody>
+    </table>
+    <p>
+      A memory fix moved that crossover to around 2&ndash;3 thousand items and halved the deep
+      deficit; the remaining half is building large lists, still <dfn>quadratic</dfn> in time, fix
+      queued and not landed. So the honest scope for Hey today is small-to-medium command-line work,
+      where it is several times faster than Ruby and ships as one file &mdash; and not large-list
+      batch processing, where Ruby wins and you should let it. The instruments behind every figure
+      here are committed beside the source, which is the only reason I can name the losses with the
+      same confidence as the wins.
+    </p>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>hyperfine</dt>
+      <dd>A benchmark runner: repeats a command and reports mean &plusmn; standard deviation.</dd>
+      <dt>byte-parity</dt>
+      <dd>Comparing outputs byte for byte rather than "looks right".</dd>
+      <dt>sidecar</dt>
+      <dd>A long-lived helper process replacing per-call process spawning.</dd>
+      <dt>delegation</dt>
+      <dd>A compiled program handing a call to the interpreter instead of running it natively.</dd>
+      <dt>builtin</dt>
+      <dd>A language primitive the compiler lowers straight to machine code.</dd>
+      <dt>LLVM</dt>
+      <dd>The compiler backend Hey targets to produce native executables.</dd>
+      <dt>worker pool</dt>
+      <dd>A fixed set of workers processing items in parallel from a shared queue.</dd>
+      <dt>exit code</dt>
+      <dd>The integer a process returns on termination; 0 means success.</dd>
+      <dt>run cache</dt>
+      <dd>Where the toolchain stores compiled artifacts for scripts it has already run.</dd>
+      <dt>quadratic</dt>
+      <dd>Cost growing with the square of the input.</dd>
+    </dl>
   </main>
 
   <footer>
-    <p>Updated 2026-07-24 for hey v0.99.399a. Both source files and the benchmark commands are in this repository.</p>
+    <p>
+      Written 2026-07-24; rewritten 2026-07-25 for hey v0.99.410a &mdash; the parity gate promoted
+      from a rule to the thesis, Rule 1 rewritten for the post-sidecar era, and the single-release
+      benchmark replaced by a dated progression table. Numbers from the war-room evidence log
+      (<code>docs/PERFORMANCE-FINDINGS.md</code>); both implementations and the harness above are in
+      this repository. Companion piece:
+      <a href="ruby-port-ate-50gb-of-ram.html">A Ruby Port Ate 50 GB of RAM</a>.
+    </p>
   </footer>
 </body>
 </html>
