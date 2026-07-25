@@ -194,7 +194,7 @@ end</code></pre>
         <tr><th>Release</th><th>What landed</th><th>Hey script</th><th>Hey binary</th><th>Ruby control</th></tr>
       </thead>
       <tbody>
-        <tr><td>v0.99.390a</td><td>pre-facade: every stdlib call round-tripped an interpreter</td><td colspan="2"><strong>~7 ms <em>per stdlib call</em></strong> &mdash; unusable in a hot loop</td><td class="number">120&ndash;133 ms</td></tr>
+        <tr><td>v0.99.390a</td><td>pre-facade: every stdlib call round-tripped an interpreter</td><td colspan="2"><strong>~7 ms <em>per stdlib call</em></strong> &mdash; unusable in a hot loop</td><td class="number">120&ndash;128 ms</td></tr>
         <tr><td>v0.99.397a</td><td>60-entry direct facade table</td><td class="number">&mdash;</td><td class="number">23.2 ms</td><td class="number">~123 ms</td></tr>
         <tr><td>v0.99.402a</td><td>delegation sidecar</td><td class="number">&mdash;</td><td class="number">23.5 ms</td><td class="number">~123 ms</td></tr>
         <tr><td>v0.99.403a</td><td>launcher slice</td><td class="number">&mdash;</td><td class="number">26.4 ms</td><td class="number">123.2 ms</td></tr>
@@ -205,7 +205,7 @@ end</code></pre>
       </tbody>
     </table>
     <p>
-      Read the last column first. Ruby sits flat between 120 and 133 ms across the whole span, and
+      Read the last column first. Ruby sits flat between 120 and 128 ms across the whole span, and
       that flatness is what makes the Hey columns legible: when Hey moves and the control does not,
       the movement belongs to the toolchain. The v0.99.409a cells came off a quieter box, so the
       honest reading of the last two rows is "unchanged, plus a little ambient", not "a regression".
@@ -263,9 +263,8 @@ generate-packages-index --workers 1 ./packages</code></pre>
       ordinary use is free &mdash; parse arguments, read a config, format a report with whatever
       reads best. The rule bites only in the innermost per-item loop. This script's comparator runs
       thousands of times per sort, so its inner loop uses bare <dfn>builtins</dfn>
-      (<code>slice</code>, <code>len</code>, direct <code>!=</code>) and never leaves compiled code;
-      moving that one loop off per-character facade calls was a 20% end-to-end win. Everywhere else
-      in the file, the stdlib is used without ceremony.
+      (<code>slice</code>, <code>len</code>, direct <code>!=</code>) and never leaves compiled code.
+      Everywhere else in the file, the stdlib is used without ceremony.
     </p>
 
     <div class="aside">
@@ -300,9 +299,9 @@ generate-packages-index --workers 1 ./packages</code></pre>
 
     <h2>A harness that cannot lie to you</h2>
     <p>
-      All of it reduces to a script you can run. The ordering is the load-bearing part: the
-      <code>rm</code> before the run, the assertion before the comparison &mdash; so a program
-      producing nothing fails here instead of posting a record.
+      All of it reduces to one runnable script. The ordering is load-bearing: <code>rm</code> before
+      run, assertion before comparison &mdash; so a program producing nothing fails here instead of
+      posting a record.
     </p>
 <pre><code>set -eu
 STAMP=2026-07-25T00:00:00Z
@@ -328,8 +327,8 @@ hyperfine --warmup 3 --runs 30 \
     <p>
       When a lane dies silently &mdash; exit 0, no output, no diagnostic &mdash; do not start by
       blaming the compiler or rewriting your code. A racy cache publish can mint a corrupted entry
-      that deterministically produces do-nothing programs, and the poison propagates downstream:
-      dead runs write dead entries. Sweep both layers, then rebuild.
+      that deterministically produces do-nothing programs, and the poison propagates: a dead run
+      writes its own entry into the <dfn>run cache</dfn>. Sweep both layers, then rebuild.
     </p>
 <pre><code>rm -rf "$HEY_COMPILER_BUILD_DIR/compiler-sidecars"   # poisoned sidecar entries
 rm -rf "$HOME/.cache/hey/run"                        # the run cache they poisoned</code></pre>
@@ -343,11 +342,11 @@ rm -rf "$HOME/.cache/hey/run"                        # the run cache they poison
     <h2>Where the next speed comes from, and where Hey loses</h2>
     <p>
       Three known items. The v0.99.411a emitter slice that stops a help function dragging the
-      program off the native path. Copy elimination in ordinary compiled paths &mdash; profiling
-      this script shows no single hotspot, just boxed values allocated and copied, plus honest
-      filesystem syscalls. And a queued fix for list-append <em>time</em> cost, which matters most
-      outside this article: it is where Hey loses today, measured on the sibling
-      <code>source-zip</code> port, same day, same box.
+      program off the native path. Copy elimination in ordinary compiled paths: profiling shows no
+      single hotspot, just boxed values allocated and copied, plus real filesystem syscalls. And a
+      queued fix for list-append <em>time</em> cost, which matters most outside this article &mdash;
+      it is where Hey loses today, measured on the sibling <code>source-zip</code> port, same day,
+      same box.
     </p>
     <table>
       <thead><tr><th>Corpus</th><th>Ruby</th><th>Hey (compiled)</th><th>Verdict</th></tr></thead>
