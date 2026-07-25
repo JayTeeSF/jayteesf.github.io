@@ -5,50 +5,76 @@ import 'stdlib:Collections'
 import 'stdlib:Env'
 import 'stdlib:Files'
 import 'stdlib:Time'
-import 'stdlib:Streams'
 import 'stdlib:Text'
 
 module PackagesIndex
-  private fn usage_text()
-    return <<~'USAGE'
-      Usage: ./generate-packages-index.hey [OPTIONS] [PACKAGES_DIR]
-
-      Generate PACKAGES_DIR/index.html with links to:
-        * every versioned docs/ directory
-        * every .md file below each package
-        * every .html file below each package
-
-      PACKAGES_DIR defaults to ./packages.
-
-      Options:
-        --workers N   Use exactly N package renderers (1..16)
-        --all-cpus    Use all available CPUs, capped by package count and 16
-        -h, --help    Show this help
-
-      The default is one worker because package rendering is usually faster
-      without parallel scheduling overhead for small package sets.
-
-      Environment:
-        PACKAGES_INDEX_GENERATED_AT
-          Optional ISO-8601 UTC timestamp. Supplying the same value to the
-          Ruby and Hey generators makes their output byte-for-byte identical.
-
-      Examples:
-        ./generate-packages-index.hey
-        ./generate-packages-index.hey ./packages
-        ./generate-packages-index.hey --workers 4 ./packages
-        ./generate-packages-index.hey --all-cpus ./packages
-    USAGE
+  fn new(packages_dir, generated_at, workers)
+    return {
+      packages_dir: packages_dir,
+      output_path: Files.join(packages_dir, 'index.html'),
+      generated_at: generated_at,
+      workers: workers
+    }
   end
 
-  fn usage()
-    print PackagesIndex.usage_text()
+  # --workers N, or PACKAGES_INDEX_WORKERS. Defaults to 4, which measured
+  # fastest on a 14-package tree; 1 is the serial path.
+  private fn worker_count(args)
+    # The flag wins, and is checked first so the common case never pays
+    # for an environment lookup (Env.default measured ~5 ms here).
+    let requested = ''
+    let index = 0
+
+    while index < args.length
+      if args[index] == '--workers' and index + 1 < args.length
+        set requested = args[index + 1]
+      end
+      set index = index + 1
+    end
+
+    if requested == ''
+      set requested = Env.default('PACKAGES_INDEX_WORKERS', '')
+    end
+
+    # Nothing supplied: take the default without validating it. This is
+    # not micro-optimisation — Text.int_token? is a delegated call, and
+    # the first delegated call in a process costs ~5.8 ms (probe:
+    # war-room bench/probes/cli-startup-call-cost.hey). Paying that to
+    # check a literal we wrote ourselves cost 20% of total runtime.
+    if requested == ''
+      return 4
+    end
+
+    if !Text.int_token?(requested)
+      fail "--workers expects a positive integer, got #{requested}"
+    end
+
+    let count = Text.parse_int(requested)
+    if count < 1
+      fail '--workers must be at least 1'
+    end
+
+    return count
   end
 
-  # Bare-builtin character helpers: `slice` lowers natively, so the hot
-  # comparison loops never leave compiled code. (Do NOT use byte_at here:
-  # it is a Bytes-value operation and silently returns 0 for string
-  # arguments in compiled code — hey 0.99.397a.)
+  fn generate(index)
+    # Results are bound rather than discarded: a bare module call in
+    # statement position is read as the block's implicit return, which
+    # silently drops every statement after it (toolchain bug, 0.99.410a).
+    let validated = PackagesIndex.validate_packages_dir!(index)
+    let written = Files.write_text(index.output_path, PackagesIndex.render_page(index))
+    says "Generated #{index.output_path}"
+    return 0
+  end
+
+  private fn validate_packages_dir!(index)
+    if Files.directory?(index.packages_dir)
+      return
+    end
+
+    fail "Packages directory does not exist: #{index.packages_dir}"
+  end
+
   private fn digit?(character)
     return character >= '0' and character <= '9'
   end
@@ -80,11 +106,15 @@ module PackagesIndex
     let normalized_left = PackagesIndex.trim_leading_zeroes(left)
     let normalized_right = PackagesIndex.trim_leading_zeroes(right)
 
-    if normalized_left.length != normalized_right.length
-      return Collections.compare(normalized_left.length, normalized_right.length)
+    let comparison = Collections.compare(
+      normalized_left.length,
+      normalized_right.length
+    )
+    if comparison != 0
+      return comparison
     end
 
-    let comparison = Collections.compare(normalized_left, normalized_right)
+    set comparison = Collections.compare(normalized_left, normalized_right)
     if comparison != 0
       return comparison
     end
@@ -105,7 +135,10 @@ module PackagesIndex
       if PackagesIndex.digit?(left_character) and PackagesIndex.digit?(right_character)
         let left_run = PackagesIndex.digit_run(folded_left, left_index)
         let right_run = PackagesIndex.digit_run(folded_right, right_index)
-        let comparison = PackagesIndex.compare_digit_runs(left_run.value, right_run.value)
+        let comparison = PackagesIndex.compare_digit_runs(
+          left_run.value,
+          right_run.value
+        )
 
         if comparison != 0
           return comparison
@@ -114,8 +147,9 @@ module PackagesIndex
         set left_index = left_run.next
         set right_index = right_run.next
       else
-        if left_character != right_character
-          return Collections.compare(left_character, right_character)
+        let comparison = Collections.compare(left_character, right_character)
+        if comparison != 0
+          return comparison
         end
 
         set left_index = left_index + 1
@@ -123,18 +157,86 @@ module PackagesIndex
       end
     end
 
-    let length_comparison = Collections.compare(folded_left.length, folded_right.length)
-    if length_comparison != 0
-      return length_comparison
+    let comparison = Collections.compare(
+      folded_left.length,
+      folded_right.length
+    )
+    if comparison != 0
+      return comparison
     end
 
     return Collections.compare(left, right)
   end
 
   private fn sorted_unique(paths)
-    return paths
-      .uniq
-      .sort(PackagesIndex.compare_paths)
+    return paths.uniq.sort(PackagesIndex.compare_paths)
+  end
+
+  private fn package_directories(index)
+    let directories = []
+
+    for path in Files.entries(index.packages_dir)
+      if Files.directory?(path) and !Text.starts_with?(Files.basename(path), '.')
+        set directories = [...directories, path]
+      end
+    end
+
+    return directories.sort(PackagesIndex.compare_paths)
+  end
+
+  private fn package_files(package_dir)
+    return Files.files(package_dir, '')
+  end
+
+  private fn docs_directories(package_dir, files)
+    let directories = []
+    let package_docs = Files.join(package_dir, 'docs')
+
+    if Files.directory?(package_docs)
+      set directories = [...directories, package_docs]
+    end
+
+    for version_dir in Files.entries(package_dir)
+      if Files.directory?(version_dir)
+        let version_docs = Files.join(version_dir, 'docs')
+        if Files.directory?(version_docs)
+          set directories = [...directories, version_docs]
+        end
+      end
+    end
+
+    for path in files
+      let current = Files.dirname(path)
+
+      while current != package_dir
+        if Files.basename(current) == 'docs'
+          set directories = [...directories, current]
+          set current = package_dir
+        else
+          let parent = Files.dirname(current)
+          if parent == current
+            set current = package_dir
+          else
+            set current = parent
+          end
+        end
+      end
+    end
+
+    return PackagesIndex.sorted_unique(directories)
+  end
+
+  private fn linkable_files(files)
+    let linkable = []
+
+    for path in files
+      let lower_path = Text.lower(path)
+      if Text.ends_with?(lower_path, '.md') or Text.ends_with?(lower_path, '.html')
+        set linkable = [...linkable, path]
+      end
+    end
+
+    return PackagesIndex.sorted_unique(linkable)
   end
 
   private fn relative_path(path, root)
@@ -165,7 +267,7 @@ module PackagesIndex
     return Files.join(parent_relative, leaf)
   end
 
-  private fn html_escape(value)
+  private fn html(value)
     let escaped = Text.replace_all(value, '&', '&amp;')
     set escaped = Text.replace_all(escaped, '<', '&lt;')
     set escaped = Text.replace_all(escaped, '>', '&gt;')
@@ -186,76 +288,27 @@ module PackagesIndex
     return encoded
   end
 
-  private fn directory_link(path, packages_dir, package_dir)
+  private fn directory_link(packages_dir, path, package_dir)
     let href = PackagesIndex.url_path(
       PackagesIndex.relative_path(path, packages_dir)
     ) + '/'
     let label = PackagesIndex.relative_path(path, package_dir) + '/'
 
-    return %qq(        <li class="directory"><a href="#{PackagesIndex.html_escape(href)}">#{PackagesIndex.html_escape(label)}</a></li>)
+    return %qq(        <li class="directory"><a href="#{PackagesIndex.html(href)}">#{PackagesIndex.html(label)}</a></li>)
   end
 
-  private fn file_link(path, packages_dir, package_dir)
+  private fn file_link(packages_dir, path, package_dir)
     let href = PackagesIndex.url_path(
       PackagesIndex.relative_path(path, packages_dir)
     )
     let label = PackagesIndex.relative_path(path, package_dir)
 
-    return %qq(        <li><a href="#{PackagesIndex.html_escape(href)}">#{PackagesIndex.html_escape(label)}</a></li>)
+    return %qq(        <li><a href="#{PackagesIndex.html(href)}">#{PackagesIndex.html(label)}</a></li>)
   end
 
-  private fn docs_directories(package_dir, package_files)
-    let directories = []
-    let package_docs = Files.join(package_dir, 'docs')
-
-    if Files.directory?(package_docs)
-      set directories = [...directories, package_docs]
-    end
-
-    for version_dir in Files.entries(package_dir)
-      if Files.directory?(version_dir)
-        let version_docs = Files.join(version_dir, 'docs')
-        if Files.directory?(version_docs)
-          set directories = [...directories, version_docs]
-        end
-      end
-    end
-
-    for path in package_files
-      let current = Files.dirname(path)
-
-      while current != package_dir
-        if Files.basename(current) == 'docs'
-          set directories = [...directories, current]
-          set current = package_dir
-        else
-          let parent = Files.dirname(current)
-          if parent == current
-            set current = package_dir
-          else
-            set current = parent
-          end
-        end
-      end
-    end
-
-    return PackagesIndex.sorted_unique(directories)
-  end
-
-  private fn linkable?(path)
-    let lower_path = Text.lower(path)
-    return Text.ends_with?(lower_path, '.md') or Text.ends_with?(lower_path, '.html')
-  end
-
-  private fn linkable_files(package_files)
-    return PackagesIndex.sorted_unique(
-      package_files.filter(PackagesIndex.linkable?)
-    )
-  end
-
-  private fn documentation_section(docs_dirs, packages_dir, package_dir)
-    if docs_dirs.empty?
-      return '      <p class="empty">No docs directories found.</p>'
+  private fn documentation_section(packages_dir, docs, package_dir)
+    if docs.empty?
+      return ['      <p class="empty">No docs directories found.</p>']
     end
 
     let lines = [
@@ -263,20 +316,19 @@ module PackagesIndex
       '      <ul>'
     ]
 
-    for docs_dir in docs_dirs
+    for path in docs
       set lines = [
         ...lines,
-        PackagesIndex.directory_link(docs_dir, packages_dir, package_dir)
+        PackagesIndex.directory_link(packages_dir, path, package_dir)
       ]
     end
 
-    set lines = [...lines, '      </ul>']
-    return Text.join(lines, "\n")
+    return [...lines, '      </ul>']
   end
 
-  private fn files_section(linkable_files, packages_dir, package_dir)
-    if linkable_files.empty?
-      return '      <p class="empty">No Markdown or HTML files found.</p>'
+  private fn files_section(packages_dir, files, package_dir)
+    if files.empty?
+      return ['      <p class="empty">No Markdown or HTML files found.</p>']
     end
 
     let lines = [
@@ -284,127 +336,72 @@ module PackagesIndex
       '      <ul>'
     ]
 
-    for path in linkable_files
+    for path in files
       set lines = [
         ...lines,
-        PackagesIndex.file_link(path, packages_dir, package_dir)
+        PackagesIndex.file_link(packages_dir, path, package_dir)
       ]
     end
 
-    set lines = [...lines, '      </ul>']
-    return Text.join(lines, "\n")
+    return [...lines, '      </ul>']
   end
 
-  fn render_package(task)
-    let package_dir = task.package_dir
+  private fn package_section(task)
     let packages_dir = task.packages_dir
+    let package_dir = task.package_dir
+    let files = PackagesIndex.package_files(package_dir)
+    let docs = PackagesIndex.docs_directories(package_dir, files)
+    let linkable = PackagesIndex.linkable_files(files)
     let package_name = Files.basename(package_dir)
     let package_href = PackagesIndex.url_path(
       PackagesIndex.relative_path(package_dir, packages_dir)
     ) + '/'
-    let package_files = Files.files(package_dir, '')
-    let docs_dirs = PackagesIndex.docs_directories(package_dir, package_files)
-    let linkable_files = PackagesIndex.linkable_files(package_files)
+
     let lines = [
       '    <section class="package">',
-      %qq(      <h2><a href="#{PackagesIndex.html_escape(package_href)}">#{PackagesIndex.html_escape(package_name)}</a></h2>),
-      PackagesIndex.documentation_section(
-        docs_dirs,
-        packages_dir,
-        package_dir
-      ),
-      PackagesIndex.files_section(
-        linkable_files,
-        packages_dir,
-        package_dir
-      ),
+      %qq(      <h2><a href="#{PackagesIndex.html(package_href)}">#{PackagesIndex.html(package_name)}</a></h2>),
+      ...PackagesIndex.documentation_section(packages_dir, docs, package_dir),
+      ...PackagesIndex.files_section(packages_dir, linkable, package_dir),
       '    </section>'
     ]
 
     return Text.join(lines, "\n")
   end
 
-  private fn visible_directory?(path)
-    return Files.directory?(path) and !Text.starts_with?(Files.basename(path), '.')
-  end
-
-  private fn package_directories(packages_dir)
-    return Files.entries(packages_dir)
-      .filter(PackagesIndex.visible_directory?)
-      .sort(PackagesIndex.compare_paths)
-  end
-
-  private fn package_tasks(package_dirs, packages_dir)
+  # Each task is self-contained so it can be rendered on any worker.
+  private fn package_tasks(index, package_dirs)
     let tasks = []
 
     for package_dir in package_dirs
       set tasks = [
         ...tasks,
-        {package_dir: package_dir, packages_dir: packages_dir}
+        { packages_dir: index.packages_dir, package_dir: package_dir }
       ]
     end
 
     return tasks
   end
 
-  private fn all_cpu_worker_count(package_count)
-    let workers = cpu_count()
+  private fn render_page(index)
+    let package_dirs = PackagesIndex.package_directories(index)
+    let sections = []
 
-    if workers > 16
-      set workers = 16
-    end
-    if package_count > 0 and workers > package_count
-      set workers = package_count
-    end
-    if workers < 1
-      set workers = 1
-    end
+    if package_dirs.empty?
+      set sections = ['    <p class="empty">No packages found.</p>']
+    else
+      let tasks = PackagesIndex.package_tasks(index, package_dirs)
 
-    return workers
-  end
-
-  private fn worker_count(args, package_count)
-    let has_workers = Cli.flag?(args, 'workers')
-    let use_all_cpus = Cli.flag?(args, 'all-cpus')
-
-    if has_workers and use_all_cpus
-      fail '--workers and --all-cpus cannot be used together'
-    end
-
-    if use_all_cpus
-      return PackagesIndex.all_cpu_worker_count(package_count)
-    end
-
-    let workers = 1
-    if has_workers
-      if Cli.missing_value?(args, 'workers')
-        fail '--workers requires an integer value'
+      if index.workers == 1
+        for task in tasks
+          set sections = [...sections, PackagesIndex.package_section(task)]
+        end
+      else
+        set sections = tasks
+          .map(PackagesIndex.package_section, workers: index.workers)
+          .collect()
       end
-
-      set workers = Cli.flag_int(args, 'workers', workers)
     end
 
-    if workers < 1 or workers > 16
-      fail '--workers must be between 1 and 16'
-    end
-
-    if package_count > 0 and workers > package_count
-      set workers = package_count
-    end
-
-    return workers
-  end
-
-  private fn generated_at()
-    let configured = Env.default('PACKAGES_INDEX_GENERATED_AT', '')
-    if configured != ''
-      return configured
-    end
-
-    return Time.utc_iso8601()
-  end
-
-  private fn render_page(sections, generated_at)
     let lines = [
       '<!doctype html>',
       '<html lang="en">',
@@ -473,89 +470,54 @@ module PackagesIndex
       '    <p>Documentation and browsable package files.</p>',
       '  </header>',
       '',
-      '  <main>'
-    ]
-
-    if sections.empty?
-      set lines = [
-        ...lines,
-        '    <p class="empty">No packages found.</p>'
-      ]
-    else
-      for section in sections
-        set lines = [...lines, section]
-      end
-    end
-
-    set lines = [
-      ...lines,
+      '  <main>',
+      ...sections,
       '  </main>',
       '',
       '  <footer>',
       '    <p class="generated-at">',
-      "      Generated #{PackagesIndex.html_escape(generated_at)}",
+      "      Generated #{PackagesIndex.html(index.generated_at)}",
       '    </p>',
       '  </footer>',
       '</body>',
-      '</html>'
+      '</html>',
+      ''
     ]
 
-    return Text.join(lines, "\n") + "\n"
-  end
-
-  fn run(args)
-    if Cli.flag?(args, 'help') or Cli.flag?(args, 'h')
-      PackagesIndex.usage()
-      return
-    end
-
-    let positionals = Cli.positionals(args)
-    if positionals.length > 1
-      PackagesIndex.usage()
-      fail 'expected zero or one PACKAGES_DIR argument'
-    end
-
-    let packages_dir = './packages'
-    if positionals.length == 1
-      set packages_dir = positionals[0]
-    end
-
-    if !Files.directory?(packages_dir)
-      fail "packages directory does not exist: #{packages_dir}"
-    end
-
-    let output_path = Files.join(packages_dir, 'index.html')
-    let package_dirs = PackagesIndex.package_directories(packages_dir)
-    let workers = PackagesIndex.worker_count(args, package_dirs.length)
-    let tasks = PackagesIndex.package_tasks(package_dirs, packages_dir)
-    let sections = []
-
-    if workers == 1
-      for task in tasks
-        set sections = [...sections, PackagesIndex.render_package(task)]
-      end
-    else
-      if !tasks.empty?
-        set sections = tasks
-          .map(PackagesIndex.render_package, workers: workers)
-          .collect()
-      end
-    end
-
-    let generated_at = PackagesIndex.generated_at()
-    let written = Files.write_atomic(
-      output_path,
-      PackagesIndex.render_page(sections, generated_at)
-    )
-    if !written.ok
-      fail "could not write #{output_path}: #{written.error}"
-    end
-
-    says "Generated #{output_path} (packages=#{package_dirs.length}, workers=#{workers})"
-    return nil
+    return Text.join(lines, "\n")
   end
 end
 
 program
-  PackagesIndex.run(Cli.args())
+  let args = Cli.args()
+  let workers = PackagesIndex.worker_count(args)
+
+  let positionals = []
+  let index = 0
+  while index < args.length
+    if args[index] == '--workers'
+      set index = index + 1
+    else
+      set positionals = [...positionals, args[index]]
+    end
+    set index = index + 1
+  end
+
+  if positionals.length > 1
+    fail 'expected zero or one PACKAGES_DIR argument'
+  end
+
+  let packages_dir = './packages'
+  if positionals.length == 1
+    set packages_dir = positionals[0]
+  end
+
+  let generated_at = Env.default(
+    'PACKAGES_INDEX_GENERATED_AT',
+    Time.utc_iso8601()
+  )
+
+  let generated = PackagesIndex.generate(
+    PackagesIndex.new(packages_dir, generated_at, workers)
+  )
 end
