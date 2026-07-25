@@ -85,6 +85,42 @@ weakness as the house signature. Convergence noted; adopted.
    (because these gates caught these bugs) and links to A/B; A/B
    link back to C as the methodology's origin story.
 
+## Beyond speed: the full comparison rubric (maintainer mandate, 2026-07-25)
+
+Article A (and, in lighter form, B/C) compares Hey vs Go vs Ruby on
+MORE than throughput. Two classes of axis:
+
+**Measured axes (cells in the standing ladder, per lesson 16d):**
+| Axis | Why a reader cares | How measured |
+|---|---|---|
+| Memory under load | Decides the VPS you rent; a 512 MB box runs Go/Hey, not a Rails cluster | RSS idle / post-load / post-soak, whole server AND per worker |
+| Latency tail | p99 is your unluckiest user | p50 + p99 + p99.9 + full oha summary (16c) |
+| Throughput per core | The only unit that isolates the language | per-worker curves 1/2/4/8 (16b) |
+| Startup to first request | Serverless/cold-start + dev loop | time from exec to first 200 |
+| Edit-to-serving time | The inner dev loop | build-from-source wall time (Hey ~2.5-5 min compiled app vs Go seconds vs Ruby zero — Hey's honest weak axis today) |
+| Artifact/deploy size | Ship a binary or a runtime+gems? | bytes on disk; runtime dependencies count |
+| Sustained-load stability | Does it survive Tuesday? | soak duration + RSS slope (gate 3) |
+
+**Judged axes (argued honestly in prose, with receipts where they
+exist):**
+- Ergonomics: LOC for identical functionality (source-zip: Ruby vs
+  Hey line counts — measurable!), readability for a Ruby developer
+  (B's "reads like Ruby" section), error-handling model, REPL/
+  tooling maturity.
+- Correctness confidence: type/guard story, sanitizer support
+  (ASAN/TSAN), the parity-gate discipline, silent-failure history
+  DISCLOSED (article C is the receipt), fix latency (24 h) vs
+  ecosystem maturity (Ruby/Go's decades).
+- Concurrency model: workers vs goroutines vs threads/GIL; what the
+  programmer must know to be safe.
+- Ecosystem & hiring: libraries, docs, community — where Hey loses
+  today and says so.
+- Operational story: single binary (Go, compiled Hey) vs interpreter
+  + dependency tree (Ruby); crash/jetsam behavior; observability.
+Rule: every judged axis names at least one lane where Hey LOSES
+(edit-to-serving time and ecosystem are the standing candidates) —
+same discipline as the numbers.
+
 ## Draft workflow (next phase)
 
 Writer agent drafts C, then B, following this plan + fresh numbers
