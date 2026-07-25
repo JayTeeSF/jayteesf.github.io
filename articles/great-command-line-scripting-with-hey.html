@@ -64,8 +64,8 @@
     <p class="lede">
       One job, two implementations, one rule: the outputs must match to the byte. On today's
       toolchain (v0.99.410a) the Hey version builds a documentation index 5.46&times; faster than
-      the Ruby it was ported from. The number is not the interesting part. The gate that makes the
-      number mean anything is.
+      the Ruby it was ported from. That number is not the interesting part; the gate that makes it
+      mean anything is.
     </p>
   </header>
 
@@ -108,10 +108,10 @@
 
     <h2>The running example, and why a port is a legitimate benchmark</h2>
     <p>
-      One job, two implementations: <a href="../generate-packages-index.hey">generate-packages-index.hey</a>
-      and <a href="../generate-packages-index.rb">generate-packages-index.rb</a>. Both walk a package
-      directory, natural-sort every versioned <code>docs/</code> directory and every Markdown or HTML
-      file below it, and render one static index page.
+      <a href="../generate-packages-index.hey">generate-packages-index.hey</a> and
+      <a href="../generate-packages-index.rb">generate-packages-index.rb</a> both walk a package
+      directory, natural-sort every versioned <code>docs/</code> directory and every Markdown or
+      HTML file below it, and render one static index page.
     </p>
     <p>
       A port is the cleanest benchmark available to a small language and the easiest to cheat at:
@@ -243,11 +243,11 @@ generate-packages-index --workers 1 ./packages</code></pre>
       You would expect the compiled artifact to crush the interpreted one. It beats it by 12%. That
       is not a verdict on compilation, and the reason is almost funny: this program has a help
       function whose entire body is a bare <code>print</code> of a heredoc. A v0.99.382a-era emitter
-      guard cannot prove that a bare module-function call in statement position terminates, so it
+      guard cannot prove a bare module-function call in statement position terminates, so it
       declines to lower the program fully natively and drops the whole thing onto the shared
       consumer path &mdash; leaving roughly 31 sites going through <dfn>delegation</dfn> instead of
-      compiled inline. Both lanes then run most of the same machinery, and the binary's lead shrinks
-      to a startup difference.
+      compiled inline. Both lanes then run most of the same machinery, and the binary's lead is
+      mostly a startup difference.
     </p>
     <p>
       So today's binary-versus-script gap measures a usage banner, not a compiler. The emitter slice
@@ -283,25 +283,25 @@ generate-packages-index --workers 1 ./packages</code></pre>
 
     <h3>Rule 2: measure output before you measure time</h3>
     <p>
-      The whole article, in one line: delete the output, run, assert it came back, compare bytes,
-      and only then start a clock. Both of this project's most memorable numbers &mdash; the
-      comparator that sorted nothing, the binary that did nothing &mdash; were speedups.
+      Delete the output, run, assert it came back, compare bytes, and only then start a clock. Both
+      of this project's most memorable numbers &mdash; the comparator that sorted nothing, the
+      binary that did nothing &mdash; were speedups.
     </p>
 
     <h3>Rule 3: parallelism has a floor, and it is above 14 packages</h3>
     <p>
       <code>.map(fn, workers: n)</code> hands each item to a <dfn>worker pool</dfn>, and at this
       size that is a straight loss: scheduling and collecting 14 quick renders costs more wall clock
-      than just doing them in order. Default to <code>--workers 1</code> and treat fan-out as
-      something you earn with a measurement. One sharp edge while you are there: pool sizes in
-      <code>Jobs.define</code> must be integer literals &mdash; a variable will not lower, and it
-      tells you so at compile time rather than at 3 a.m.
+      than doing them in order. Default to <code>--workers 1</code> and treat fan-out as something
+      you earn with a measurement. One sharp edge: pool sizes in <code>Jobs.define</code> must be
+      integer literals &mdash; a variable will not lower, and it says so at compile time rather than
+      at 3 a.m.
     </p>
 
     <h2>A harness that cannot lie to you</h2>
     <p>
-      Everything above reduces to a script you can run. The ordering is the load-bearing part: the
-      <code>rm</code> before the run, the assertion before the comparison &mdash; so that a program
+      All of it reduces to a script you can run. The ordering is the load-bearing part: the
+      <code>rm</code> before the run, the assertion before the comparison &mdash; so a program
       producing nothing fails here instead of posting a record.
     </p>
 <pre><code>set -eu
@@ -328,25 +328,25 @@ hyperfine --warmup 3 --runs 30 \
     <p>
       When a lane dies silently &mdash; exit 0, no output, no diagnostic &mdash; do not start by
       blaming the compiler or rewriting your code. A racy cache publish can mint a corrupted entry
-      that deterministically produces do-nothing programs, and the poison propagates: a dead run
-      writes its own dead entry downstream. Sweep both layers, then rebuild.
+      that deterministically produces do-nothing programs, and the poison propagates downstream:
+      dead runs write dead entries. Sweep both layers, then rebuild.
     </p>
 <pre><code>rm -rf "$HEY_COMPILER_BUILD_DIR/compiler-sidecars"   # poisoned sidecar entries
 rm -rf "$HOME/.cache/hey/run"                        # the run cache they poisoned</code></pre>
     <p>
       Alive after that, you had a cache problem. Still dead, bisect &mdash; same file by a different
-      path, a copy under a different name, one lane at a time &mdash; then file it. A publish lock
-      and a loud guard for exactly this are queued upstream. Until they land, the rule is
-      unglamorous and absolute: always assert output, never trust exit 0.
+      path, a copy under a different name &mdash; then file it. A publish lock and a loud guard are
+      queued upstream. Until they land, the rule is unglamorous and absolute: always assert output,
+      never trust exit 0.
     </p>
 
     <h2>Where the next speed comes from, and where Hey loses</h2>
     <p>
-      Three known items. The v0.99.411a emitter slice that stops a help function from dragging the
+      Three known items. The v0.99.411a emitter slice that stops a help function dragging the
       program off the native path. Copy elimination in ordinary compiled paths &mdash; profiling
-      this script shows no single hotspot, just boxed values being allocated and copied, plus honest
+      this script shows no single hotspot, just boxed values allocated and copied, plus honest
       filesystem syscalls. And a queued fix for list-append <em>time</em> cost, which matters most
-      outside this article: it is where Hey currently loses, measured on the sibling
+      outside this article: it is where Hey loses today, measured on the sibling
       <code>source-zip</code> port, same day, same box.
     </p>
     <table>
@@ -363,8 +363,8 @@ rm -rf "$HOME/.cache/hey/run"                        # the run cache they poison
       queued and not landed. So the honest scope for Hey today is small-to-medium command-line work,
       where it is several times faster than Ruby and ships as one file &mdash; and not large-list
       batch processing, where Ruby wins and you should let it. The instruments behind every figure
-      here are committed beside the source, which is the only reason I can name the losses with the
-      same confidence as the wins.
+      here are committed beside the source, which is the only reason I can name the losses as
+      confidently as the wins.
     </p>
 
     <h2>Glossary</h2>

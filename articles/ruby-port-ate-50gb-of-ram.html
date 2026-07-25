@@ -78,7 +78,9 @@
         <li>That loop was my bug. Underneath it sat a compiler bug: the idiomatic list append retained every
           intermediate copy. 16,000 appends cost <strong>2,741 MB</strong>; after the fix (v0.99.406a,
           2026-07-25), <strong>5.7 MB</strong> &mdash; <strong>481&times;</strong>. The same defect explained
-          a web server idling at <strong>919 MB</strong>.</li>
+          a web server idling at <strong>919 MB</strong> &mdash; though on the server side the fix bought
+          <strong>12&times;, not 481&times;</strong>, and what remains is still linear. I got that wrong in
+          public first; the correction is in Exhibit B.</li>
         <li>Three more silent classes fell out: a benchmark baseline that was a <em>dead binary</em> timing
           its own death at 2.3 ms, a compiler that deleted statements, and a cache race that published a
           poisoned compiler component &mdash; minting scripts that do nothing, deterministically, keyed by
@@ -144,7 +146,7 @@ while chunk != '' {                  # a record is never equal to ''
 
     <h2>Exhibit B: the ghost of every list that ever existed</h2>
     <p>
-      <strong>SYMPTOM.</strong> Two, believed unrelated for weeks. The port lost badly to Ruby on big
+      <strong>SYMPTOM.</strong> Two, believed unrelated until the night they turned out to be one. The port lost badly to Ruby on big
       trees, memory growing far faster than the data. And a Hey web server sat at <strong>919 MB</strong>
       while idle &mdash; spotted not by a dashboard but by the maintainer looking at Activity Monitor.
     </p>
@@ -160,10 +162,14 @@ while chunk != '' {                  # a record is never equal to ''
       reaches the 50 GB class on its own. Exhibit A was the fast half of the crash, not the whole.
     </p>
     <p>
-      The server was the same bug in office clothes: on a fresh instance, RSS <strong>2 MB &rarr; 577 MB
-      across 99,314 keep-alive requests</strong>, dead linear, <strong>~5.8 KB per request</strong>. The
-      photographed server had served roughly 310,000 requests, and 310,000 &times; 5.8 KB is 919 MB. The
-      screenshot became the acceptance test.
+      The server was the same bug in office clothes: on a fresh instance, memory went <strong>2 MB &rarr;
+      577 MB across 99,314 requests</strong> that reused one connection rather than opening a fresh one each
+      time &mdash; dead linear, <strong>~5.8 KB per request</strong> (v0.99.402a-era trunk, 2026-07-25).
+      That rate is the right order of magnitude for a server idling at 919 MB, but not the tidy arithmetic I
+      first published: I wrote that 310,000 requests &times; 5.8 KB "is exactly 919 MB", and it is not
+      &mdash; that product is about 1.7 GB. The screenshot still became the acceptance test, but the
+      reconciliation was false precision, and both of its numbers came from the measuring method I retract
+      two sections below. A satisfying coincidence nobody checked, in an investigation about exactly that.
     </p>
 
     <div class="aside">
@@ -185,22 +191,37 @@ while chunk != '' {                  # a record is never equal to ''
       harnesses. The lasting guard is the instrument, not the patch: an RSS-versus-N flatness probe that
       fails if memory grows with list size.
     </p>
+    <table>
+      <thead><tr><th>Building a 16,000-item list</th><th>Before (v0.99.402a)</th><th>After (v0.99.406a)</th><th>Factor</th></tr></thead>
+      <tbody>
+        <tr><td>spread form <code>set xs = [...xs, item]</code></td><td class="number">2,741 MB</td><td class="number"><strong>5.7 MB</strong></td><td class="number">481&times;</td></tr>
+        <tr><td>push form <code>set xs = push(xs, item)</code></td><td class="number">3,058 MB</td><td class="number"><strong>7.2 MB</strong></td><td class="number">425&times;</td></tr>
+        <tr><td>web server, per request</td><td class="number">~5.8 KB</td><td class="number">~500 B</td><td class="number">12&times; <span class="muted">(still linear)</span></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Peak memory, <code>/usr/bin/time -l</code> maximum resident, quiet box, 2026-07-25; verified twice on
+      independent harnesses. The server row is measured by the runtime's own in-process reporting, for
+      reasons the next section explains at my expense.
+    </p>
 
     <div class="aside">
-      <h3>Exhibit B has a sixth retraction, and it is mine</h3>
+      <h3>Exhibit B has one more retraction, and it is mine</h3>
       <p>
         I first reported that the server side was cured outright &mdash; that after the fix, two million
         further requests took memory <em>down</em>, a bounded <dfn>working set</dfn> rather than a leak.
         That was an artifact of a bad instrument. Sampling a process's memory with <code>ps</code> after a
         load run measures whatever macOS has finished compressing and reclaiming by the moment you look;
         run the same test twice and you get 3,271 MB and then 1,100 MB, which would imply memory going
-        backwards at 4 KB per request. The correct instrument arrived days later, when the runtime learned
-        to report its own memory from inside the process: <strong>329 MB after 778,040 requests, about 440
-        bytes each</strong> &mdash; matching, independently, what the compiler team measured with a leak
-        checker. So the honest number is that this fix cut per-request retention roughly <strong>12&times;
-        </strong>, from ~5.8 KB to ~500 B. It is still linear. The remaining half is a different bug
-        &mdash; compiled functions never releasing their temporaries &mdash; and its fix is in flight as I
-        write this.
+        backwards at 4 KB per request. The correct instrument arrived the same afternoon &mdash;
+        v0.99.410a, 2026-07-25 &mdash; when the runtime learned to report its own memory from inside the
+        process while serving: <strong>329 MB after 778,040 requests, about 440 bytes each</strong>. The
+        compiler team's leak checker, run separately on a lighter handler, said 490&ndash;514 bytes; two
+        instruments that cannot lie to each other landing within 15% is the closest thing to proof this
+        investigation produced. So the honest number is that this fix cut per-request retention roughly
+        <strong>12&times;</strong>, from ~5.8 KB to ~500 B. It is still linear. The remaining half is a
+        different bug &mdash; compiled functions never releasing their temporaries &mdash; and its fix is
+        in flight as I write this.
       </p>
     </div>
 
@@ -265,12 +286,22 @@ while chunk != '' {                  # a record is never equal to ''
       hypothesis.
     </p>
     <p>
-      <strong>WHAT WAS TRUE.</strong> A <dfn>silent miscompile</dfn>. The native emitter misread a bare
-      module-function call in statement position as the block's implicit return value, and dropped that call
-      along with every statement after it &mdash; the block truncated at compile time. The interpreter got
-      the same shapes <em>wrong</em>, not truncated but wrong: a three-function reproducer printed
-      <strong>900</strong> where the answer is <strong>4</strong>. A wrong answer with a clean exit is the
-      worst outcome in this article. What finally pinned it was Exhibit C's corpse.
+      <strong>WHAT WAS TRUE.</strong> A <dfn>silent miscompile</dfn> &mdash; in the legacy C compiler, not
+      the new one written in Hey itself, which turned out to have been correct the whole time. The old
+      emitter misread a bare module-function call in statement position as the block's implicit return
+      value, and dropped that call along with every statement after it &mdash; the block truncated at
+      compile time. The interpreter got the same shapes <em>wrong</em>, not truncated but wrong: a
+      three-function reproducer printed <strong>900</strong> where the answer is <strong>4</strong>. A wrong
+      answer with a clean exit is the worst outcome in this article. What finally pinned it was Exhibit C's
+      corpse.
+    </p>
+    <p>
+      The exculpatory detail, which I nearly left out because it flatters us: the two components carrying
+      this bug were the two already scheduled for deletion, and the <dfn>self-hosted</dfn> replacement
+      &mdash; the compiler written in the language it compiles &mdash; was right about these shapes
+      throughout. That is either luck or a plan pointed the correct direction before anyone knew the bug
+      existed, and the blast radius was <em>measured</em> across all 1,143 files of the compiler's own test
+      corpus rather than estimated.
     </p>
     <p>
       <strong>WHAT MAKES IT LOUD NOW.</strong> The best answer here, in two releases on one day.
@@ -308,12 +339,13 @@ while chunk != '' {                  # a record is never equal to ''
     <p>
       <strong>WHAT WAS TRUE.</strong> The poisoned-artifact theory was right after all &mdash; one shelf over.
       An unlocked cache publish (a <dfn>TOCTOU race</dfn> &mdash; the file changes between the moment it is
-      checked and the moment it is used) can mint a corrupted entry in the compiler's <em>sidecar cache</em>;
-      anything compiled through that entry silently drops the program body, and the native loader never
-      checks for the empty result. The spooky per-spelling determinism was bookkeeping: each way of typing
+      checked and the moment it is used) can mint a corrupted entry in the compiler's cache of prebuilt
+      components &mdash; its <dfn>sidecar cache</dfn>, which despite the shared word is unrelated to the
+      delegation sidecar that speeds up library calls elsewhere in this story. Anything compiled through
+      that entry silently drops the program body, and the native loader never checks for the empty result. The spooky per-spelling determinism was bookkeeping: each way of typing
       the path hashes to its own cache key, so <code>./x.hey</code> deterministically hit the poisoned key
       while <code>x.hey</code> hit a healthy one. Stranded temp files show the race had been minting corpses
-      for weeks; the output assertions were simply the first instruments honest enough to see them.
+      for days; the output assertions were simply the first instruments honest enough to see them.
     </p>
     <p>
       <strong>WHAT MAKES IT LOUD NOW.</strong> The one not yet fixed: an upstream slice (publish lock,
@@ -340,7 +372,7 @@ while chunk != '' {                  # a record is never equal to ''
         form in every cell.</li>
       <li><strong>"A poisoned compiler binary from a racy publish."</strong> Half right, and that was the
         trap: the preserved binary was byte-identical to a healthy one, so the theory died &mdash; then
-        came back four theories later as a poisoned <em>cache entry</em> from the same racy publish.</li>
+        came back one theory later as a poisoned <em>cache entry</em> from the same racy publish.</li>
       <li><strong>"A path-prefix bug: <code>./x.hey</code> is broken."</strong> Reproducible, believed for
         hours by both of us, and wrong. The prefix only selected which cache key you hit.</li>
       <li><strong>"The server memory leak is fixed; what remains is a bounded working set."</strong> Mine,
@@ -366,7 +398,7 @@ while chunk != '' {                  # a record is never equal to ''
           <td><strong>B.</strong> 919 MB idle server; big trees slow</td>
           <td class="number">0</td>
           <td>nothing; read as slowness</td>
-          <td>weeks, as known slowness</td>
+          <td>a day, filed as known slowness</td>
           <td>RSS-vs-N flatness probe; fixed in 406a</td>
         </tr>
         <tr>
@@ -387,7 +419,7 @@ while chunk != '' {                  # a record is never equal to ''
           <td><strong>E.</strong> Probes silent; cache entry minted anyway</td>
           <td class="number">0</td>
           <td>nothing</td>
-          <td>weeks (stranded temp files prove it)</td>
+          <td>days (stranded temp files prove it)</td>
           <td>Two-layer cache sweep cures it; publish lock + loud guard queued</td>
         </tr>
       </tbody>
@@ -407,12 +439,18 @@ while chunk != '' {                  # a record is never equal to ''
       transformation that compounds.
     </p>
     <p>
-      That is also the answer to "why should I believe your throughput numbers?" &mdash; the question our
-      companion article on
+      That is also the answer to "why should I believe your throughput numbers?" &mdash; and the answer is
+      not "trust us", it is a list. The same output assertion that caught the corpse in Exhibit C later
+      invalidated two published request-rate measurements where a dead listener had been impersonating a
+      very fast server. The same instrument scepticism that produced the retraction above retired our
+      long-standing "Go does 103,000 requests per second" reference for bad provenance &mdash; the real
+      figure, measured properly, was 134,663, which made our own comparison <em>harder</em>. And it threw
+      out an entire "memory ratchet" finding of mine. Those corrections are why
       <a href="hey-web-services-500-to-60000-rps.html">taking three Hey web services from 500 to 60,000
-      requests per second</a> (where the delegation <dfn>sidecar</dfn> and the dispatch fixes do the heavy
-      lifting) has to answer, and the reason this case file was published first. That methodology was
-      beaten into shape by these five bugs.
+      requests per second</a> (where the delegation <dfn>sidecar</dfn> &mdash; a long-lived helper process
+      that replaced per-call process spawning &mdash; and the dispatch fixes do the heavy lifting) and
+      <a href="great-command-line-scripting-with-hey.html">the command-line scripting piece</a> were
+      published after this case file, not before.
     </p>
 
     <h2>The benchmark, since you asked</h2>
@@ -449,9 +487,12 @@ while chunk != '' {                  # a record is never equal to ''
     <p>
       In print rather than in the comments, then: yes, with conditions. You are
       buying a language whose defects tend to be silent, and a team that fixes or guard-blocks them within
-      about a day &mdash; five classes in one night, four fixed or made structurally unshippable within
-      roughly 24 hours, the fifth diagnosed the same morning and bounded by a rule while the fix sits
-      upstream. Weigh that against Ruby's and Go's decades of hardening, which Hey cannot buy at any price
+      about a day. The honest tally of the five: <strong>two fixed at the root</strong> inside 24 hours
+      (the quadratic retention, the statement truncation), <strong>one made structurally unshippable</strong>
+      by a build guard that fails any compile where a statement produces no code, and <strong>two bounded
+      only by rules</strong> &mdash; my own drain-loop mistake, which has a committed reproducer and no
+      guard, and the cache race, whose lock and loud check are written but not landed. Two of five resting
+      on a rule is the true count, and rules are the weakest guard in this article. Weigh that against Ruby's and Go's decades of hardening, which Hey cannot buy at any price
       this year. Against <em>that</em>, a defect filed at 2 a.m. had a guard in the compiler by breakfast.
     </p>
     <p>
@@ -496,8 +537,18 @@ while chunk != '' {                  # a record is never equal to ''
       <dd>Recording the expected result before measuring, so it can falsify the theory.</dd>
       <dt>working set</dt>
       <dd>Memory a program needs in flight; unlike a leak, it comes back down.</dd>
-      <dt>sidecar</dt>
+      <dt>sidecar (delegation)</dt>
       <dd>A long-lived helper process replacing per-call process spawning.</dd>
+      <dt>sidecar cache</dt>
+      <dd>Unrelated to the above: the compiler's store of prebuilt components, reused between builds.</dd>
+      <dt>TOCTOU race</dt>
+      <dd>"Time of check to time of use" &mdash; a file changes between being checked and being used.</dd>
+      <dt>run cache</dt>
+      <dd>Compiled artifacts the toolchain keeps so a script need not be rebuilt each run.</dd>
+      <dt>hyperfine</dt>
+      <dd>A benchmarking tool that repeats a command, discards warm-ups, and reports mean and deviation.</dd>
+      <dt>keep-alive</dt>
+      <dd>Reusing one network connection for many requests instead of opening a fresh one each time.</dd>
       <dt>exit code</dt>
       <dd>The integer a process returns on termination; 0 means success.</dd>
     </dl>
