@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How three Hey web services went from ~500 to 60,000+ requests per second in nine days: measurement-driven app fixes plus the v0.99.394a-409a toolchain ladder.">
+  <title>From 500 to 60,000 Requests per Second with Hey</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: color-mix(in srgb, currentColor 18%, transparent);
+      --muted: color-mix(in srgb, currentColor 68%, transparent);
+      --panel: color-mix(in srgb, canvas 94%, currentColor 6%);
+      --code: color-mix(in srgb, canvas 90%, currentColor 10%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>From 500 to 60,000 Requests per Second</h1>
+    <p class="lede">
+      How three real Hey web services &mdash; a prayer-journal app, a blind-ciphertext sync server, and a
+      church scheduling tool &mdash; went from three-digit to five-digit requests per second in nine days,
+      through measurement, application fixes, and sixteen verified toolchain releases. The last doubling
+      arrived in a single night.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li>We built a load-test harness <em>in Hey itself</em>, cross-checked with <code>oha</code>, and profiled with macOS <code>sample</code> and disassembly.</li>
+        <li>Four mechanisms explained the entire gap to Go: a ~7&nbsp;ms interpreter-delegation tax on stdlib calls, inverse worker scaling, no HTTP keep-alive, and per-request deep-copying in the dispatch path.</li>
+        <li>Application fixes bought 3&ndash;10&times;. The toolchain ladder (v0.99.394a&ndash;409a) bought the rest &mdash; including a memory-leak fix that cut worst-case RAM 500&times; and a dispatch fix that turned the old 8-worker <em>penalty</em> into the new optimum.</li>
+        <li>Result: <strong>the 60,000 req/s target is crossed.</strong> war-room serves <strong>83,300 req/s</strong> at 8 workers (p50 88&nbsp;&micro;s); the scheduling app serves <strong>65,000&ndash;68,200 req/s</strong> (p50 60&nbsp;&micro;s) &mdash; both measured as <em>lower bounds</em> on a busy machine. Hey now beats a tuned 4-worker puma cluster on throughput <em>and</em> latency.</li>
+      </ul>
+    </div>
+
+    <h2>Where we started</h2>
+    <p>
+      On hey v0.99.390a, our fastest service answered a 364-byte JSON health check at about
+      <strong>2,251 req/s</strong> with a median latency of 7&nbsp;ms (16 connections, <code>oha</code>).
+      Page routes in the scheduling app sat near <strong>110&nbsp;ms</strong> per render. A Go
+      <code>net/http</code> baseline on the same machine served the identical payload at 61,972 req/s.
+      The gap was not mysterious after measurement &mdash; it decomposed into four named mechanisms,
+      each with a probe watching it.
+    </p>
+
+    <h3>Finding 1: the delegation tax</h3>
+    <p>
+      Compiled Hey code calling a pure-Hey <code>stdlib:</code> or <code>pkg:</code> function paid
+      ~7&nbsp;ms per call &mdash; each call wrote a temp file and spawned an interpreter subprocess.
+      A handler making one such call caps at ~117 req/s. Killed in two stages: a runtime facade table
+      (397a, ~1,100&times; for tabled calls) and a persistent interpreter sidecar (402a) that took the
+      un-tabled canary from 4,479&nbsp;&micro;s to <strong>56&nbsp;&micro;s</strong>.
+    </p>
+    <h3>Finding 2: inverse worker scaling</h3>
+    <p>
+      More workers made every server slower: 1 worker = 5,977 req/s; 8 workers = 1,589. Two real causes,
+      fixed in sequence: macOS <code>SO_REUSEPORT</code> does not load-balance (396a made accept
+      platform-aware), and the dispatch path deep-cloned route data per request per worker &mdash;
+      including a hidden atomic reference-count fight on one shared cache line, proven by disassembly
+      and fixed in 407a by borrowing instead of copying.
+    </p>
+    <h3>Finding 3: no keep-alive</h3>
+    <p>
+      The runtime hardcoded <code>connection: close</code>; every request paid a fresh TCP connection,
+      and response bytes cost ~0.2&nbsp;ms/KB in a copy-heavy write path. Fixed in 396a.
+    </p>
+    <h3>Finding 4: memory that only fell on idle</h3>
+    <p>
+      Every request quietly retained ~5.8&nbsp;KB (about 6&nbsp;GB per million requests), absorbed by
+      the OS compressor at idle but real pressure under load &mdash; the same clone-and-abandon compiler
+      bug that made list-building quadratic in RAM (16,000 appends: 2.7&nbsp;GB). Fixed in 406a:
+      the same list now costs <strong>4&ndash;6&nbsp;MB</strong>, and a fresh server held a flat
+      ~0.6&nbsp;GB working set across 2.4&nbsp;million served requests where the old model predicted
+      ~14&nbsp;GB.
+    </p>
+
+    <h2>Application-side fixes (what you can do in your own code)</h2>
+    <ul>
+      <li><strong>De-delegate hot paths.</strong> Handlers must not call pure-Hey stdlib per request.
+        Local response helpers from builtins took the scheduling app's health check
+        408 &rarr; 3,933 req/s (9.6&times;) before any toolchain help arrived. (Post-sidecar, this
+        matters ~100&times; less &mdash; but hot paths keep the discipline until the archive work
+        retires the last ~80&nbsp;&micro;s tier.)</li>
+      <li><strong>Right-size workers by measurement, and re-measure every release.</strong> The optimum
+        flipped three times in nine days: 1 worker &rarr; 4 workers &rarr; <strong>8 workers</strong>
+        (now the fastest, at 10,400 req/s <em>per worker</em>). Guessing would have been wrong in every
+        era.</li>
+      <li><strong>Ship fewer bytes.</strong> esbuild-minifying a 35.5&nbsp;KB client bundle to
+        25&nbsp;KB bought +46% throughput on that route.</li>
+      <li><strong>Use native packages, not subprocess fallbacks.</strong> Swapping per-query
+        <code>sqlite3</code> CLI forks for the native <code>hey_sqlite3</code> package took pages from
+        103&nbsp;ms to single-digit milliseconds.</li>
+    </ul>
+
+    <h2>Toolchain-side fixes (the v0.99.394a&ndash;409a ladder)</h2>
+    <table>
+      <thead><tr><th>Release</th><th>Change</th><th>Measured effect here</th></tr></thead>
+      <tbody>
+        <tr><td>394a</td><td>Lock-free shape interning</td><td>The old #1 profile hotspot vanished; formally confirmed dead this week (zero samples under load).</td></tr>
+        <tr><td>396a</td><td>Keep-alive, copy elimination, platform-aware accept</td><td>war-room /health p50 2.6&nbsp;ms &rarr; <strong>79&nbsp;&micro;s</strong>; positive worker scaling begins.</td></tr>
+        <tr><td>397a</td><td>Direct-facade table</td><td>Tabled stdlib calls ~3,400&nbsp;&micro;s &rarr; <strong>~3&nbsp;&micro;s</strong>.</td></tr>
+        <tr><td>399a</td><td>Dispatch-path clone elimination, stage 4c</td><td>Route-count scaling anomaly gone; all apps peak at 4 workers, 24&ndash;29K req/s.</td></tr>
+        <tr><td>402a</td><td>Delegation sidecar</td><td><strong>The delegation tax died</strong>: canary 4,479 &rarr; 56&nbsp;&micro;s; records 28&ndash;31K req/s.</td></tr>
+        <tr><td>406a</td><td>Clone-and-abandon fix (memory)</td><td><strong>The OOM class died</strong>: 16K-item list 2,741&nbsp;MB &rarr; 5.7&nbsp;MB; server per-request leak &rarr; flat working set.</td></tr>
+        <tr><td>407a</td><td>Dispatch deep-clones removed; route scan borrows; stats counters gated</td><td><strong>The 8-worker crater died and 8 workers became the optimum</strong>: war-room 11.7K &rarr; <strong>83.3K req/s</strong> at w8; per-request allocations 287 &rarr; 177. (The gated stats counters alone were worth ~61% throughput.)</td></tr>
+        <tr><td>408a&ndash;409a</td><td>Correctness: zero-IR compile guards + statement-truncation fix</td><td>A silent-miscompile class (found <em>by this benchmarking work</em>) can no longer ship quietly; a toolchain tool compiled to a working native binary for the first time.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>The numbers, before and after</h2>
+    <table>
+      <thead><tr><th>Service / route</th><th>v0.99.390a era</th><th>v0.99.409a (2026-07-25)</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>war-room <code>GET /health</code> (8 workers)</td><td class="number">2,251 req/s, p50 7.0 ms</td><td class="number"><strong>83,348 req/s, p50 88 &micro;s</strong></td><td class="number">37&times; rps, 80&times; latency</td></tr>
+        <tr><td>scheduling app <code>/health</code> (4 workers)</td><td class="number">408 req/s, p50 39 ms</td><td class="number"><strong>64,975&ndash;68,185 req/s, p50 60 &micro;s</strong></td><td class="number">159&times; rps, 650&times; latency</td></tr>
+        <tr><td>sync server <code>/health</code></td><td class="number">5,565 req/s, p50 2.7 ms</td><td class="number">29,196 req/s <span class="muted">(402a cell; 409a re-cell pending)</span></td><td class="number">5.2&times;</td></tr>
+        <tr><td>sync server, authenticated read</td><td class="number">872 req/s, p50 18.2 ms</td><td class="number">4,245 req/s, p50 0.9 ms</td><td class="number">4.9&times;</td></tr>
+        <tr><td>scheduling signup page</td><td class="number">114 req/s, p50 103 ms</td><td class="number">489 req/s, p50 7.8 ms</td><td class="number">13&times; latency</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Methodology: <code>oha -c 16</code>, keep-alive; medians; Apple M-series; byte-for-byte-verified
+      behavior via each app's full test/parity gates before and after every change; every cell asserts
+      output and success-rate, not just exit codes. The headline 409a cells were measured with ambient
+      load averages of 5&ndash;20 (two AI seats sharing the box) &mdash; they are <em>lower bounds</em>,
+      and a quiet-box confirmation pass is scheduled.
+    </p>
+
+    <h2>Where Hey sits between Ruby and Go</h2>
+    <p>
+      Two days ago we published this ladder with Hey at 23.1K &mdash; ahead of WEBrick, behind a tuned
+      puma cluster, 4.5&times; behind Go. One night of toolchain work later:
+    </p>
+    <table>
+      <thead><tr><th>Server</th><th>req/s</th><th>p50 latency</th></tr></thead>
+      <tbody>
+        <tr><td>Ruby 3.4, WEBrick (single process)</td><td class="number">9,589</td><td class="number">1.59 ms</td></tr>
+        <tr><td>Ruby 3.4, puma (4-worker cluster)</td><td class="number">58,146</td><td class="number">0.259 ms</td></tr>
+        <tr><td><strong>Hey v0.99.409a, stdlib Web (compiled, 8 workers)</strong></td><td class="number"><strong>83,348</strong></td><td class="number"><strong>0.088 ms</strong></td></tr>
+        <tr><td>Go 1.26, net/http</td><td class="number">103,070</td><td class="number">0.135 ms</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Ruby and Go rows are the 2026-07-24 same-minute cells; the Hey row is the 2026-07-25 409a cell on
+      the same machine and payload. A fresh same-minute four-lane rerun is queued for the quiet-box pass.
+    </p>
+    <p>
+      The honest read: Hey now <strong>beats the tuned puma cluster on both axes</strong> &mdash;
+      1.4&times; its throughput at a third of its median latency &mdash; and on this payload its median
+      latency reads <em>below Go's</em> while Go keeps a 1.24&times; throughput lead. Nine days ago Hey
+      lost to WEBrick. We are aware that "83K on a busy box" and "beats Go on p50" are the kinds of
+      numbers that deserve suspicion; that is why every cell asserts output bytes and success rate, why
+      the fleet's full behavior gates ran green on the same binaries the same hour, and why the
+      remaining gap items are named in public rather than hand-waved.
+    </p>
+
+    <h2>What it cost: nothing was free, everything was measured</h2>
+    <p>
+      Three habits made the difference between this and a lucky benchmark run:
+    </p>
+    <ul>
+      <li><strong>Pre-registered predictions.</strong> Before each fix landed we wrote down what the
+        probes should read afterward. The 8-worker prediction ("crater dies, per-worker efficiency
+        flattens") was confirmed 16.3/9.4/6.7/1.5 &rarr; 17.5/14.8/14.3/<strong>10.4</strong>&nbsp;K
+        req/s per worker. When a theory failed its pre-registered test (the worker "wake-storm" story),
+        it died in public and the real mechanism was found by disassembly.</li>
+      <li><strong>Output assertions on every cell.</strong> The night's most instructive failure: a
+        "fast baseline" binary that measured 2.3&nbsp;ms turned out to be silently dead &mdash; it
+        compiled, exited 0, and did nothing. Chasing that corpse produced the deterministic reproducer
+        for a silent-miscompile class, which is now structurally impossible to ship thanks to the new
+        compile guards. The performance work paid for correctness fixes it had no right to expect.</li>
+      <li><strong>Two independent measurement lanes.</strong> Every headline number in this article was
+        reproduced by a second session with its own instruments before being written here.</li>
+    </ul>
+
+    <h2>Appendix: the full series, every era</h2>
+    <h3>/health throughput (req/s)</h3>
+    <table>
+      <thead><tr><th>app</th><th>390a start</th><th>+ app fixes</th><th>396a keep-alive</th><th>399a stage-4c</th><th>402a sidecar</th><th>407a&ndash;409a dispatch</th><th>total</th></tr></thead>
+      <tbody>
+        <tr><td>war-room (w8)</td><td class="number">2,251</td><td class="number">5,977</td><td class="number">12,274</td><td class="number">23,862</td><td class="number">28,270</td><td class="number"><strong>83,348</strong></td><td class="number">37&times;</td></tr>
+        <tr><td>scheduling / elders (w4)</td><td class="number">408</td><td class="number">3,933</td><td class="number">9,244</td><td class="number">26,875</td><td class="number">30,896</td><td class="number"><strong>64,975&ndash;68,185</strong></td><td class="number">159&times;</td></tr>
+        <tr><td>sync / vss (w4)</td><td class="number">5,565</td><td class="number">&mdash;</td><td class="number">19,739</td><td class="number">29,001</td><td class="number">29,196</td><td class="number muted">pending</td><td class="number">5.2&times;+</td></tr>
+      </tbody>
+    </table>
+    <h3>/health median latency</h3>
+    <table>
+      <thead><tr><th>app</th><th>390a start</th><th>396a</th><th>399a</th><th>402a</th><th>407a&ndash;409a</th></tr></thead>
+      <tbody>
+        <tr><td>war-room</td><td class="number">7.0 ms</td><td class="number">79 &micro;s</td><td class="number">162 &micro;s</td><td class="number">140 &micro;s</td><td class="number"><strong>88 &micro;s (w8)</strong></td></tr>
+        <tr><td>scheduling</td><td class="number">39 ms</td><td class="number">105 &micro;s</td><td class="number">133 &micro;s</td><td class="number">123 &micro;s</td><td class="number"><strong>60 &micro;s (w4)</strong></td></tr>
+        <tr><td>sync</td><td class="number">2.7 ms</td><td class="number">307 &micro;s</td><td class="number">~160 &micro;s</td><td class="number">123 &micro;s</td><td class="number muted">pending</td></tr>
+      </tbody>
+    </table>
+
+    <h2>How the collaboration worked</h2>
+    <p>
+      Two AI seats shared one machine: a benchmark seat owning harnesses, probes, profiles, and the
+      published numbers; and a compiler-orchestrator seat landing verified toolchain slices (peaking at
+      nine concurrent implementer/red-team/audit agents). They exchanged findings through append-only
+      relay files &mdash; measured claims with reproduction commands, not vibes. Profiles named upstream
+      fixes; landing notes predicted probe readings that were confirmed to the microsecond; wrong theories
+      were killed by pre-registered falsification runs; and when one seat's baseline turned out to be a
+      dead binary, the correction shipped with the same prominence as the original claim. Every number in
+      this article is reproducible from the repos' committed probes and dated evidence logs.
+    </p>
+
+    <h2>What's next</h2>
+    <p>
+      Go's throughput lead is down to 1.24&times; on this payload, and the remaining items are named:
+      big-list construction is still slower than it should be (the memory fix landed; the speed fix is
+      queued), sustained multi-minute saturation surfaced a stability class that is being hardened
+      before we publish soak-duration numbers, and the last ~80&nbsp;&micro;s delegation tier falls to
+      the precompiled stdlib archive. Nine days ago the plan said "60,000 req/s is not speculative."
+      Today it is a measurement. The plan now says Go parity &mdash; and given the week it has had,
+      we are not inclined to argue with it either.
+    </p>
+  </main>
+
+  <footer>
+    <p>Written 2026-07-24; updated 2026-07-25 for v0.99.402a (the delegation sidecar). Rewritten
+    2026-07-25 for v0.99.406a&ndash;409a (memory fix, dispatch fixes, correctness guards) when the
+    60,000 req/s target was crossed &mdash; this page previously told the story only through 20K,
+    under the title "From 500 to 20,000 Requests per Second."
+    Numbers from the war-room-prayer-compass evidence log (docs/PERFORMANCE-FINDINGS.md).</p>
+  </footer>
+</body>
+</html>
