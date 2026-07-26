@@ -106,24 +106,44 @@
     </p>
     <h3>Finding 4: memory that only fell on idle</h3>
     <p>
-      Every request quietly retained ~5.8&nbsp;KB (about 6&nbsp;GB per million requests), absorbed by
-      the OS compressor at idle but real pressure under load &mdash; the same clone-and-abandon compiler
-      bug that made list-building quadratic in RAM (16,000 appends: 2.7&nbsp;GB). Fixed in 406a:
-      the same list now costs <strong>4&ndash;6&nbsp;MB</strong>, and a 2.4&nbsp;million-request soak
-      held 0.6&ndash;1.7&nbsp;GB where the old model predicted ~14&nbsp;GB.
+      Every request quietly retained memory that was never released &mdash; absorbed by the OS compressor
+      while the server idled, which is why it hid for so long, and real pressure the moment load became
+      continuous. The list-building form of the same clone-and-abandon compiler bug is easy to state
+      exactly, because peak memory is straightforward to measure: 16,000 appends cost
+      <strong>2,741&nbsp;MB</strong> before v0.99.406a and <strong>5.7&nbsp;MB</strong> after, a
+      481&times; reduction. The per-request figure took three attempts to measure honestly, and the
+      correction below is that story.
     </p>
     <div class="callout">
-      <h2>Correction (2026-07-25, same day)</h2>
+      <h2>Correction, twice over (2026-07-25)</h2>
       <p>
-        This section first said the fix left a <em>flat</em> working set. That was our inference from
-        sampling memory before and after load; instrumented measurement upstream superseded it. Per-request
-        retention dropped roughly 12&times; &mdash; from ~5.8&nbsp;KB to <strong>~500&nbsp;bytes</strong> per
-        request &mdash; but it is still <strong>linear</strong>, not flat: about 500&nbsp;MB per million
-        requests, concurrency-independent (514&nbsp;B/req at 4 connections, 490&nbsp;B/req at 16). The
-        remaining cause is separate from the one fixed in 406a: compiled functions do not release their
-        boxed temporaries, so every handler call leaves a small allocation behind. That fix is in flight,
-        and the same work opens the single-core performance campaign. Long-running servers should still be
-        restarted periodically until it lands.
+        This section first claimed the fix left a <em>flat</em> working set. It did not. We then corrected
+        that to "about 500 bytes per request, still linear" &mdash; and <em>that was wrong too</em>, by a
+        factor of twenty-five. Both wrong numbers came from measuring memory at the wrong moment: a
+        periodic sample taken while load was intermittent catches the process at a trough, not a peak.
+      </p>
+      <p>
+        Measured properly &mdash; one continuous saturation run per build, memory read at the same kind of
+        moment each time &mdash; the servers in this article were retaining <strong>13,340 bytes per
+        request</strong>, identically across three consecutive toolchain releases. At that rate a server
+        under sustained load exhausts several gigabytes and terminates in well under a minute, which is
+        exactly what ours did once it was finally asked to run for longer than a benchmark cell. The
+        throughput figures above were measured in five-second runs, so they are real numbers &mdash; but
+        the honest statement is that these servers could not have held them for a minute.
+      </p>
+      <p>
+        v0.99.413a fixes it: <strong>13,340 &rarr; 1,255 bytes per request</strong>, a 10.6&times;
+        reduction, and the same server now survives a 35-second saturation run at 100% success while
+        serving twice as many requests as the leaking builds managed before dying. What remains is still
+        linear, and a second fix for the return path is queued.
+      </p>
+      <p class="caveat">
+        Worth stating plainly, since this article is partly about method: the wrong "~500 bytes" figure
+        survived review because two independent measurements agreed on it &mdash; ours from a served
+        server, the compiler team's from a synthetic fixture, within 15% of each other. Both were low by
+        ~25&times;, in the same direction, for unrelated reasons. Agreement between two instruments that
+        are blind in the same way is not corroboration, and it is far more dangerous than a number nobody
+        has checked, because it feels settled.
       </p>
     </div>
 
