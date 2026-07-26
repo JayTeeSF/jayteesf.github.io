@@ -1,0 +1,298 @@
+#!/usr/bin/env hey
+
+import 'stdlib:Cli'
+import 'stdlib:Collections'
+import 'stdlib:Files'
+import 'stdlib:Text'
+
+module ArticlesIndex
+  fn new(articles_dir)
+    return {
+      articles_dir: articles_dir,
+      output_path: Files.join(articles_dir, 'index.html')
+    }
+  end
+
+  fn generate(index)
+    ArticlesIndex.validate_articles_dir!(index)
+    Files.write_text(index.output_path, ArticlesIndex.render_page(index))
+    says "Generated #{index.output_path}"
+  end
+
+  private fn validate_articles_dir!(index)
+    if Files.directory?(index.articles_dir)
+      return
+    end
+
+    fail "Articles directory does not exist: #{index.articles_dir}"
+  end
+
+  # Find `open_marker` in `haystack`, then return everything up to (but not
+  # including) the next `close_marker`. Returns '' if either marker is
+  # missing — callers treat that as "meta not present".
+  private fn find_between(haystack, open_marker, close_marker)
+    let start_index = Text.find(haystack, open_marker)
+    if start_index < 0
+      return ''
+    end
+
+    let value_start = start_index + open_marker.length
+    let remainder_length = haystack.length - value_start
+    let remainder = Text.slice(haystack, value_start, remainder_length)
+
+    let end_index = Text.find(remainder, close_marker)
+    if end_index < 0
+      return ''
+    end
+
+    return Text.slice(remainder, 0, end_index)
+  end
+
+  private fn meta_value(content, name)
+    let marker = '<meta name="' + name + '" content="'
+    return ArticlesIndex.find_between(content, marker, '"')
+  end
+
+  private fn extract_title(content)
+    return ArticlesIndex.find_between(content, '<title>', '</title>')
+  end
+
+  private fn stem(filename)
+    let suffix = '.html'
+    if Text.ends_with?(filename, suffix)
+      return Text.slice(filename, 0, filename.length - suffix.length)
+    end
+    return filename
+  end
+
+  private fn parse_article(path)
+    let content = Files.read_text(path)
+    let filename = Files.basename(path)
+
+    let title = ArticlesIndex.extract_title(content)
+    if title == ''
+      set title = ArticlesIndex.stem(filename)
+    end
+
+    let date = ArticlesIndex.meta_value(content, 'article-date')
+    let series = ArticlesIndex.meta_value(content, 'article-series')
+    let desc = ArticlesIndex.meta_value(content, 'article-desc')
+
+    let missing = []
+    if date == ''
+      set missing = [...missing, 'article-date']
+    end
+    if series == ''
+      set missing = [...missing, 'article-series']
+    end
+    if desc == ''
+      set missing = [...missing, 'article-desc']
+    end
+
+    if missing.length > 0
+      fail filename + ': missing required meta tag(s): ' + Text.join(missing, ', ')
+    end
+
+    if series != 'research' and series != 'campaign'
+      fail filename + ": unknown article-series '" + series + "' (expected research or campaign)"
+    end
+
+    return {
+      filename: filename,
+      title: title,
+      date: date,
+      series: series,
+      desc: desc
+    }
+  end
+
+  private fn article_files(articles_dir)
+    let candidates = Files.files(articles_dir, '.html')
+    let files = []
+
+    for path in candidates
+      if Files.basename(path) != 'index.html'
+        set files = [...files, path]
+      end
+    end
+
+    return files
+  end
+
+  private fn parse_all(articles_dir)
+    let files = ArticlesIndex.article_files(articles_dir)
+    let articles = []
+
+    for path in files
+      let article = ArticlesIndex.parse_article(path)
+      set articles = [...articles, article]
+    end
+
+    return articles
+  end
+
+  # Stable order within a series: newest date first, filename ascending
+  # breaks ties (and gives a deterministic order for same-day articles).
+  private fn compare_entries(left, right)
+    let date_cmp = Collections.compare(right.date, left.date)
+    if date_cmp != 0
+      return date_cmp
+    end
+
+    return Collections.compare(left.filename, right.filename)
+  end
+
+  private fn group_by_series(articles)
+    let research = []
+    let campaign = []
+
+    for article in articles
+      if article.series == 'research'
+        set research = [...research, article]
+      else
+        set campaign = [...campaign, article]
+      end
+    end
+
+    let sorted_research = research.sort(ArticlesIndex.compare_entries)
+    let sorted_campaign = campaign.sort(ArticlesIndex.compare_entries)
+
+    return {
+      research: sorted_research,
+      campaign: sorted_campaign
+    }
+  end
+
+  private fn article_item_lines(article)
+    return [
+      '    <li>',
+      %qq(      <a href="#{article.filename}">#{article.title}</a>),
+      %qq(      <p class="desc">#{article.desc}</p>),
+      %qq(      <span class="date">#{article.date}</span>),
+      '    </li>'
+    ]
+  end
+
+  private fn series_heading(series)
+    if series == 'research'
+      return 'The research series'
+    end
+    return 'The measurement campaign'
+  end
+
+  private fn series_section_lines(series, entries)
+    let heading = ArticlesIndex.series_heading(series)
+    let lines = ['  <h2>' + heading + '</h2>']
+
+    if entries.empty?
+      set lines = [...lines, '  <p class="empty">No articles found.</p>']
+    else
+      set lines = [...lines, '  <ul class="articles">']
+
+      for article in entries
+        let item_lines = ArticlesIndex.article_item_lines(article)
+        for line in item_lines
+          set lines = [...lines, line]
+        end
+      end
+
+      set lines = [...lines, '  </ul>']
+    end
+
+    return lines
+  end
+
+  private fn render_page(index)
+    let articles = ArticlesIndex.parse_all(index.articles_dir)
+    let grouped = ArticlesIndex.group_by_series(articles)
+
+    let research_lines = ArticlesIndex.series_section_lines('research', grouped.research)
+    let campaign_lines = ArticlesIndex.series_section_lines('campaign', grouped.campaign)
+
+    let sections = [
+      '',
+      ...research_lines,
+      '',
+      ...campaign_lines
+    ]
+
+    let lines = [
+      '<!DOCTYPE html>',
+      '<html lang="en">',
+      '<head>',
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<title>Articles — JayTeeSF</title>',
+      '<style>',
+      '  :root {',
+      '    --bg: #fcfcfb; --ink: #0b0b0b; --muted: #52514e;',
+      '    --border: #e1e0d9; --accent: #2a78d6;',
+      '  }',
+      '  @media (prefers-color-scheme: dark) {',
+      '    :root { --bg: #1a1a19; --ink: #ffffff; --muted: #c3c2b7;',
+      '            --border: #2c2c2a; --accent: #3987e5; }',
+      '  }',
+      '  :root[data-theme="dark"] { --bg: #1a1a19; --ink: #ffffff; --muted: #c3c2b7;',
+      '            --border: #2c2c2a; --accent: #3987e5; }',
+      '  :root[data-theme="light"] { --bg: #fcfcfb; --ink: #0b0b0b; --muted: #52514e;',
+      '            --border: #e1e0d9; --accent: #2a78d6; }',
+      '  * { box-sizing: border-box; }',
+      '  body {',
+      '    margin: 0; background: var(--bg); color: var(--ink);',
+      '    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,',
+      '          Helvetica, Arial, sans-serif;',
+      '  }',
+      '  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }',
+      '  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.4rem; }',
+      '  .sub { color: var(--muted); margin: 0 0 2.5rem; }',
+      '  h2 {',
+      '    font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.06em;',
+      '    color: var(--muted); border-bottom: 1px solid var(--border);',
+      '    padding-bottom: 0.4rem; margin: 2.5rem 0 1rem;',
+      '  }',
+      '  ul.articles { list-style: none; margin: 0; padding: 0; }',
+      '  ul.articles li { margin: 0 0 1.4rem; }',
+      '  ul.articles a {',
+      '    color: var(--accent); text-decoration: none; font-weight: 600;',
+      '    font-size: 1.12rem;',
+      '  }',
+      '  ul.articles a:hover { text-decoration: underline; }',
+      '  .desc { color: var(--muted); margin: 0.15rem 0 0; }',
+      '  .date { font-size: 0.85rem; color: var(--muted); }',
+      '  .home { display: inline-block; margin-bottom: 2rem; color: var(--muted);',
+      '          text-decoration: none; font-size: 0.9rem; }',
+      '  .home:hover { color: var(--accent); }',
+      '</style>',
+      '</head>',
+      '<body>',
+      '<main>',
+      '  <a class="home" href="../index.html">&larr; jayteesf.github.io</a>',
+      '  <h1>Articles</h1>',
+      '  <p class="sub">Field notes from building and measuring the Hey programming',
+      '  language — a benchmark campaign with receipts, and the research that',
+      '  steers it.</p>',
+      ...sections,
+      '</main>',
+      '</body>',
+      '</html>',
+      ''
+    ]
+
+    return Text.join(lines, "\n")
+  end
+end
+
+program
+  let args = Cli.args()
+  let articles_dir = './articles'
+
+  if args.length == 1
+    set articles_dir = args[0]
+  end
+
+  if args.length > 1
+    fail 'expected zero or one ARTICLES_DIR argument'
+  end
+
+  ArticlesIndex.generate(ArticlesIndex.new(articles_dir))
+end
