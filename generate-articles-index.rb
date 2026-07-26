@@ -194,6 +194,27 @@ class ArticlesIndex
   end
 end
 
+USAGE = <<~TEXT
+  usage: generate-articles-index [ARTICLES_DIR]
+
+  Regenerates ARTICLES_DIR/index.html from the article-date,
+  article-series and article-desc meta tags of the articles in
+  that directory. Default ARTICLES_DIR: ./articles
+
+    -h, --help   show this help and exit
+TEXT
+
+if ARGV.first == "--help" || ARGV.first == "-h"
+  puts USAGE
+  exit 0
+elsif ARGV.first&.start_with?("-")
+  puts USAGE
+  abort "unknown option: #{ARGV.first}"
+elsif ARGV.length > 1
+  puts USAGE
+  abort "expected zero or one ARTICLES_DIR argument"
+end
+
 articles_dir = ARGV.fetch(0, File.join(__dir__, "articles"))
 
 ArticlesIndex.new(articles_dir).generate
