@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A sourced comparison of per-actor memory cost across BEAM, Pony, Go, and Tokio — 64 bytes to 2,616 bytes, a 41x spread — and what actually transfers to a language built around immutability.">
+  <title>What Makes an Actor Cheap?</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: color-mix(in srgb, currentColor 18%, transparent);
+      --muted: color-mix(in srgb, currentColor 68%, transparent);
+      --panel: color-mix(in srgb, canvas 94%, currentColor 6%);
+      --code: color-mix(in srgb, canvas 90%, currentColor 10%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: color-mix(in srgb, #2a78d6 55%, var(--border)); }
+    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+    details.deep > summary { cursor: pointer; font-weight: 600; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>What Makes an Actor Cheap?</h1>
+    <p class="lede">
+      BEAM, Pony, Go, and Tokio all promise to run huge numbers of lightweight, message-passing
+      workers. Their per-worker cost spans a 41&times; range &mdash; and the reason for that spread is
+      not the one you'd guess. A sourced walk through what each runtime actually pays for, and what
+      of it transfers to a language built around immutability.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>Per-actor memory floor spans 41&times;</strong>: a Tokio task costs
+          <strong>64 bytes</strong>, a Pony actor <strong>~240 bytes</strong>, a Go goroutine
+          <strong>2,048 bytes</strong>, a BEAM process <strong>~2,616 bytes</strong> (327 words on
+          64-bit). Same job &mdash; a lightweight, independently-scheduled, message-passing worker
+          &mdash; four very different price tags.</li>
+        <li><strong>The headline claim: fast is "no stack," not "immutable."</strong> Go is mutable
+          and pays the stack tax; BEAM is immutable and <em>also</em> pays the stack tax. Tokio and
+          Pony are on opposite ends of the mutability question and both dodge it. Stack-or-no-stack
+          is the variable that predicts the cost; the data model does not.</li>
+        <li>BEAM's default process ceiling is <strong>1,048,576</strong> processes (tunable past
+          268 million), and its initial per-process heap is a deliberately tiny
+          <strong>233 words</strong> &mdash; sized, in the runtime's own documentation, "to support
+          Erlang systems with hundreds of thousands or even millions of processes."</li>
+        <li>BEAM's scheduler preempts a running process every <strong>~4,000 reductions</strong>
+          (roughly one per function call) &mdash; a counted, deterministic budget, not a timer
+          interrupt &mdash; which is part of why its context switches are cheap enough to do millions
+          of times a second.</li>
+        <li>Pony gets its ~240-byte actors <em>and</em> zero-copy sharing of mutable objects, but the
+          zero-copy part is not free: it costs an entire compile-time capability type system plus a
+          garbage collector (<strong>ORCA</strong>) built around it. Immutability buys the same
+          zero-copy sharing for nothing extra &mdash; a combination neither BEAM nor Pony gets in one
+          package.</li>
+      </ul>
+    </div>
+
+    <!-- FIGURE: per-actor memory floor, log axis (41x spread is unreadable linear). -->
+    <figure class="viz-root" id="fig-floor">
+      <style>
+        #fig-floor{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --ff-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --ff-border:rgba(11,11,11,0.10);
+          --bar:#2a78d6;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--ff-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-floor{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --ff-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --ff-border:rgba(255,255,255,0.10);
+            --bar:#3987e5;
+          }
+        }
+        :root[data-theme="dark"] #fig-floor{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --ff-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --ff-border:rgba(255,255,255,0.10);
+          --bar:#3987e5;
+        }
+        #fig-floor .ff-head{padding:18px 20px 2px}
+        #fig-floor .ff-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-floor .ff-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-floor .ff-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-floor svg{display:block;width:100%;min-width:480px;height:auto}
+        #fig-floor .ff-grid{stroke:var(--grid);stroke-width:1}
+        #fig-floor .ff-axis{stroke:var(--axis);stroke-width:1}
+        #fig-floor .ff-tick{fill:var(--ff-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-floor .ff-cat{fill:var(--text-primary);font-size:12.5px;font-weight:600}
+        #fig-floor .ff-cat-sub{fill:var(--ff-muted);font-size:10.5px}
+        #fig-floor .ff-val{fill:var(--text-primary);font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+        #fig-floor .ff-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-floor .ff-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--ff-muted)}
+        #fig-floor rect{cursor:default}
+      </style>
+      <div class="ff-head">
+        <p class="ff-title">Per-actor memory floor: four runtimes, one job</p>
+        <p class="ff-sub">Bytes held by one idle, freshly spawned actor/task/process/goroutine. <strong>The axis is logarithmic</strong> &mdash; on a linear scale the 41&times; spread from top to bottom would put three of these four bars inside a single pixel.</p>
+      </div>
+      <div class="ff-plot">
+        <svg id="ff-svg" viewBox="0 0 760 260" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis. Tokio task: 64 bytes. Pony actor: 240 bytes. Go goroutine: 2,048 bytes. BEAM process: 2,616 bytes."></svg>
+      </div>
+      <p class="ff-foot">Direct-labeled bars carry the whole story here, so there's no legend: each bar is its own category. Hover any bar for its source. Go's number is its initial stack only &mdash; it grows on demand; the other three are fixed-size floors.</p>
+    </figure>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'Tokio task',    sub:'no stack — single allocation',        bytes:64,   src:'Tokio Tutorial: Spawning — tokio.rs'},
+        {label:'Pony actor',    sub:'no stack — mailbox + GC bookkeeping', bytes:240,  src:'Pony Runtime FAQ — ponylang.io'},
+        {label:'Go goroutine',  sub:'initial growable stack',              bytes:2048, src:'runtime/stack.go, stackMin — github.com/golang/go'},
+        {label:'BEAM process',  sub:'327 words: stack + heap + GC state',  bytes:2616, src:'Processes — Erlang System Documentation'}
+      ];
+      var W=760,H=260,L=220,R=90,T=26,B=46;
+      var LO=48,HI=6000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      var TICKS=[64,128,256,512,1024,2048,4096];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="ff-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="ff-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v.toLocaleString()+'</text>');
+      });
+      o.push('<text class="ff-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">bytes per actor, at rest — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=20, gapPx=2;
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.bytes)-L,2);
+        o.push('<text class="ff-cat" x="'+(L-12)+'" y="'+(cy-2).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="ff-cat-sub" x="'+(L-12)+'" y="'+(cy+12).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="var(--bar)"><title>'+r.label+': '+r.bytes.toLocaleString()+' bytes — '+r.src+'</title></rect>');
+        o.push('<text class="ff-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+r.bytes.toLocaleString()+' B</text>');
+      });
+      o.push('<line class="ff-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('ff-svg').innerHTML=o.join('');
+    })();
+    </script>
+
+    <div class="aside">
+      <h3>How to read this article</h3>
+      <p>
+        Every number below comes from a primary source &mdash; official docs, runtime source code, or
+        a peer-reviewed paper &mdash; linked inline where it's used, plus a full source list at the
+        end. Technical terms get a definition with an example the first time they show
+        up, boxed like this one. There's a glossary at the bottom if you lose track.
+      </p>
+    </div>
+
+    <h2>1. The goal: millions of actors</h2>
+    <div class="aside term">
+      <h3>Term: what's an actor?</h3>
+      <p>
+        An <dfn>actor</dfn> is a small, independent worker that owns its own private state and talks
+        to other actors only by sending messages &mdash; never by reaching into another actor's data
+        directly. Think of it as a hotel front desk clerk: guests slide requests across the counter
+        (messages), the clerk handles them one at a time from behind the desk (private state), and no
+        guest ever walks behind the counter to grab the ledger themselves. A well-designed
+        actor-based program can run thousands or millions of these clerks at once, each cheap enough
+        that spinning one up costs about as much as allocating a small struct.
+      </p>
+    </div>
+    <p>
+      Four runtimes chase that same goal with different designs: Erlang/OTP's <strong>BEAM</strong>
+      virtual machine (where an actor is called a <dfn>process</dfn>), the <strong>Pony</strong>
+      language (built around actors from the ground up), <strong>Go</strong>'s goroutines (not
+      strictly actors, but the same "spawn a huge number of independently-scheduled workers" pitch),
+      and Rust's <strong>Tokio</strong> async runtime (tasks, not actors, but the same lightweight-unit
+      idea). All four exist because a real OS thread &mdash; megabytes of stack, a kernel-managed
+      scheduling slot &mdash; cannot be spawned by the million. Something cheaper has to sit
+      underneath.
+    </p>
+    <p>
+      Two benchmark efforts try to put a number on "how many, how fast." The
+      <a href="https://github.com/atemerev/skynet">Skynet benchmark</a> spawns one million actors in a
+      10-ary, depth-6 tree, has each leaf return its ordinal, and sums a million values back to the
+      root. Reported numbers (hardware varies per row, so these are not apples-to-apples across
+      languages): Erlang non-HIPE (i.e., without Erlang's now-largely-retired native-code compiler) ran
+      it in 700&ndash;1,100&nbsp;ms on an i7-4771/Ubuntu box and 4,414&nbsp;ms on a 2015 MacBook 12&Prime;
+      (Core&nbsp;M); Go, 200&ndash;224&nbsp;ms on the same i7-4771 and 979&nbsp;ms on the MacBook;
+      Scala/Akka, 4,419&nbsp;ms on an i7-4770 and 6,379&nbsp;ms on the MacBook. Worth flagging plainly:
+      the Skynet repository has directories for Pony, Elixir, and Java/Rust, but its maintained README
+      reports <strong>no timing numbers for any of them</strong> &mdash; so this article won't quote
+      any. That gap is itself informative: a benchmark repo can advertise a language without ever
+      having measured it.
+    </p>
+    <p>
+      The <a href="http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf">Savina
+      benchmark suite</a> (Imam &amp; Sarkar, AGERE! 2014) takes a different approach: 28 benchmarks
+      grouped by what they stress, rather than by raw scale.
+    </p>
+    <table>
+      <thead><tr><th>Stress dimension</th><th>Example Savina benchmarks</th></tr></thead>
+      <tbody>
+        <tr><td>Spawn rate / creation-destruction</td><td>Fork Join, Big (many-to-many mailbox contention), Unbalanced Cobwebbed Tree</td></tr>
+        <tr><td>Mailbox / message throughput</td><td>Ping Pong, Counting Actor, Fork Join throughput, Thread Ring, Chameneos (many-to-one contention)</td></tr>
+        <tr><td>Fairness / priority / deadlock</td><td>A-Star, NQueens (priority); Dining Philosophers, Sleeping Barber, Cigarette Smokers (resource allocation, deadlock)</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Source: Imam &amp; Sarkar, Table 1, via <a href="https://github.com/shamsimam/savina">shamsimam/savina</a>.</p>
+    <p>
+      Both benchmark suites agree on the shape of the question &mdash; spawn cost, message throughput,
+      and fairness under contention &mdash; even though the raw numbers can't be lined up across
+      languages. The decomposition in section 3 below is what actually explains the spread.
+    </p>
+
+    <h2>2. How BEAM does it: reductions, tiny heaps, dirty schedulers</h2>
+    <p>
+      A freshly spawned Erlang process uses <strong>327 words</strong> of memory in total, with a
+      default initial (minimum) heap of just <strong>233 words</strong> &mdash; deliberately small,
+      in the runtime documentation's own words, "to support Erlang systems with hundreds of thousands
+      or even millions of processes." It's tunable system-wide (<code>+h</code>) or per-process
+      (<code>spawn_opt(Fun, [{min_heap_size, N}])</code>), because growing a heap step-by-step during
+      garbage collection is more expensive than just pre-sizing it right &mdash; the 233-word default
+      is a considered floor, not an oversight. &mdash; <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes, Erlang System Documentation</a>
+    </p>
+    <p>
+      Each process is a plain C struct holding heap/stack pointers (growing toward each other in one
+      contiguous block), the current heap size, generational garbage-collection bookkeeping, a
+      reduction counter, and its own message queue. Critically: <strong>no shared heap</strong> &mdash;
+      every process's heap is private to it. &mdash; <a href="https://github.com/happi/theBeamBook/blob/master/chapters/processes.asciidoc">theBeamBook, processes.asciidoc</a>
+    </p>
+    <div class="aside term">
+      <h3>Term: stack vs. heap</h3>
+      <p>
+        A <dfn>call stack</dfn> is the pile of "what do I do when I'm done with this" bookmarks a
+        program keeps as functions call other functions &mdash; think of a stack of sticky notes on
+        your desk, one added every time you get interrupted by a sub-task, popped off when that
+        sub-task finishes. A <dfn>heap</dfn> is separate: the pool of longer-lived data a program
+        allocates, like the actual documents on your desk rather than the sticky notes about them. A
+        worker that can pause and resume mid-function &mdash; waiting on a message part-way through a
+        computation &mdash; needs a real, growable call stack to remember where it was. A worker that
+        only ever runs one message-handler to completion before yielding needs no stack bookmark at
+        all, because there's nothing mid-function to remember.
+      </p>
+    </div>
+    <div class="aside term">
+      <h3>Term: reduction</h3>
+      <p>
+        A <dfn>reduction</dfn> is BEAM's unit of "how much work has this process done," incremented
+        roughly once per function call. It's how the scheduler decides when to pause a process and
+        let another one run &mdash; not by a timer interrupting it mid-flight (the way an operating
+        system preempts a thread), but by counting: after about 4,000 reductions, the scheduler swaps
+        the process out for the next runnable one. Think of a board game where each player's turn
+        ends not after a fixed number of minutes but after a fixed number of moves &mdash; predictable,
+        countable, and cheap to enforce because nobody needs a stopwatch.
+      </p>
+    </div>
+    <p>
+      Concretely: <code>CONTEXT_REDS</code> is 4,000 (raised from 2,000 before OTP 20), and
+      <code>INPUT_REDUCTIONS</code> &mdash; the threshold that also gates system-level checks like I/O
+      polling &mdash; is double that, 8,000. Counted preemption makes context switches deterministic
+      and, because there's no signal or trap involved, cheap. &mdash; <a href="https://github.com/happi/theBeamBook/blob/master/chapters/scheduling.asciidoc">theBeamBook, scheduling.asciidoc</a>
+    </p>
+    <div class="aside term">
+      <h3>Term: work-stealing scheduler</h3>
+      <p>
+        BEAM runs one OS thread per available CPU core by default, each with its own queue of
+        runnable processes (three priority tiers: max, high, and normal/low). When one core's queue
+        runs dry, it <dfn>steals</dfn> work from a busier core's queue rather than sitting idle.
+        Picture four cashiers with separate lines: instead of standing around empty-handed, an idle
+        cashier walks over and takes the next customer from the longest line. &mdash; <a href="https://www.erlang.org/doc/man/erl.html">erl(1) man page</a>, <a href="https://github.com/happi/theBeamBook/blob/master/chapters/scheduling.asciidoc">theBeamBook, scheduling.asciidoc</a>
+      </p>
+    </div>
+    <div class="aside term">
+      <h3>Term: mailbox</h3>
+      <p>
+        A <dfn>mailbox</dfn> is the queue of incoming messages an actor hasn't processed yet &mdash;
+        like a physical inbox on a desk. BEAM's mailbox is delivered as "signals," implemented as a
+        linked list; an <code>off_heap</code> variant lets multiple senders enqueue in parallel
+        without locking against each other, because each has its own separately-locked node. Order is
+        preserved between any one sender and receiver, but not across different senders.
+        <code>msg.save</code> implements <dfn>selective receive</dfn> &mdash; a process can skip past
+        messages it doesn't want yet and leave them in the mailbox for later. &mdash; <a href="https://www.erlang.org/blog/parallel-signal-sending-optimization/">Erlang parallel signal-sending optimization</a>, <a href="https://github.com/happi/theBeamBook/blob/master/chapters/processes.asciidoc">theBeamBook, processes.asciidoc</a>
+      </p>
+    </div>
+    <p>
+      Not every scheduler thread runs at the same rules, either. <strong>Dirty schedulers</strong>
+      keep blocking or slow native work off the reduction-counted pool: dirty CPU schedulers default
+      to the same count as normal schedulers, while dirty I/O schedulers default to a fixed
+      <strong>10</strong>, independent of core count, because I/O-bound work (file access, DNS) doesn't
+      scale with cores the way CPU work does. A NIF (native implemented function &mdash; C code called
+      from Erlang) call that can't finish in about a millisecond, or can't be chunked, has to be marked
+      dirty (<code>ERL_NIF_DIRTY_JOB_CPU_BOUND</code> /
+      <code>..._IO_BOUND</code>) &mdash; because the normal scheduler has no way to preempt native
+      code mid-call the way it preempts BEAM bytecode by counting reductions, so a long native call
+      would otherwise stall an entire scheduler thread. &mdash; <a href="https://www.erlang.org/doc/man/erl.html">erl(1), +SDio/+SDcpu</a>, <a href="https://www.erlang.org/doc/apps/erts/erl_nif.html">erl_nif docs</a>
+    </p>
+    <p>
+      All of this adds up to a default process ceiling of <strong>1,048,576</strong> (<code>+P</code>),
+      settable up to 268,435,456. &mdash; <a href="https://www.erlang.org/doc/system/system_limits.html">System Limits, Erlang docs</a>
+    </p>
+    <p>
+      That's the bill BEAM pays to keep hundreds of thousands of processes alive at once. Set it down
+      next to the other three runtimes chasing the same goal, and it breaks down in a way that has
+      nothing to do with the guess most people would make first.
+    </p>
+
+    <h2>3. The surprising decomposition: the stack is the cost, not the data model</h2>
+    <p>
+      Lay the four floors side by side and a pattern jumps out that has nothing to do with whether
+      the language is functional or imperative, immutable or mutable:
+    </p>
+    <table>
+      <thead><tr><th>Runtime</th><th>Per-actor floor</th><th>Has a real call stack?</th><th>Data model</th></tr></thead>
+      <tbody>
+        <tr><td>Tokio task</td><td class="number"><strong>64 B</strong></td><td>No &mdash; a compiler-generated state machine</td><td>Mutable</td></tr>
+        <tr><td>Pony actor</td><td class="number"><strong>~240 B</strong></td><td>No &mdash; behaviors run to completion</td><td>Mutable (by design)</td></tr>
+        <tr><td>Go goroutine</td><td class="number"><strong>2,048 B</strong> (initial)</td><td>Yes &mdash; real, growable, can suspend anywhere</td><td>Mutable</td></tr>
+        <tr><td>BEAM process</td><td class="number"><strong>~2,616 B</strong> (327 words)</td><td>Yes &mdash; real, growable, can suspend anywhere</td><td>Immutable</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Go is mutable and pays for a stack. BEAM is immutable and <em>also</em> pays for a stack. Tokio
+      is mutable and has no stack. Pony is mutable and has no stack. The variable that predicts cost
+      is "can this worker suspend in the middle of an arbitrary function call," not "is the data
+      immutable." Immutability turns out to be an innocent bystander here &mdash; the stack was the
+      villain all along, and it had been standing in plain sight the whole time.
+      <strong>Tokio's tasks and Pony's actors are cheap for the identical reason: no
+      stack.</strong> A Tokio task is "under the hood... a single allocation and 64 bytes of memory,"
+      explicitly designed so that "spawning thousands, or even millions of tasks" is normal. &mdash; <a href="https://tokio.rs/tokio/tutorial/spawning">Tokio Tutorial: Spawning</a>
+    </p>
+    <p>
+      Go's goroutine tells the other half of the story: its initial stack is <strong>2,048
+      bytes</strong> (<code>stackMin</code> in <code>runtime/stack.go</code>), tuned down over time
+      from 8&nbsp;KB in Go 1.2 to 2&nbsp;KB in Go 1.4. When a function's stack check finds
+      insufficient room, the runtime allocates a new stack at <strong>double the size</strong>,
+      copies the old stack's contents over, and rewrites every internal pointer that pointed into the
+      moved frame &mdash; tractable only because the Go compiler tracks exact stack-frame layouts. It's
+      a moving, copying stack, not a segmented one. &mdash; <a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">golang/go, runtime/stack.go</a>
+    </p>
+    <p>
+      That's the price of letting a worker suspend anywhere: you need a real stack, it has to grow,
+      and growing it is genuinely intricate machinery. BEAM pays the same tax (its heap and stack grow
+      toward each other in one block, per the process layout above) for the same reason: a process can
+      block waiting on a receive in the middle of any function.
+    </p>
+    <p>
+      The rest of the decomposition, briefly:
+    </p>
+    <ul>
+      <li><strong>Mailbox structure</strong> is a wash &mdash; all four use linked-list queues. BEAM's
+        is the most elaborate (off-heap variant, parallel enqueue, selective receive); Pony's is
+        FIFO-only with no selective receive, which is part of how it stays inside 240 bytes.</li>
+      <li><strong>Scheduling state</strong> differs in kind, not obviously in cost: BEAM counts
+        reductions to interrupt long-running code fairly; Pony sidesteps the problem by convention
+        (behaviors are short, so nothing needs interrupting); Tokio polls a state machine. Reduction
+        counting is the one that buys fairness between actors doing arbitrarily long work.</li>
+      <li><strong>What immutable message-passing lets you skip</strong> is the subject of the next
+        section &mdash; and it's the one place the data model actually does matter.</li>
+    </ul>
+
+    <h2>4. The Pony/ORCA story: what mutability costs an actor runtime</h2>
+    <p>
+      Pony's actors are as cheap as Tokio's &mdash; <strong>~240 bytes</strong> on a 64-bit system,
+      covering the message queue header, a per-actor heap header, and garbage-collection bookkeeping.
+      Like Tokio, there's no stack: a Pony <dfn>behavior</dfn> (its term for a message handler) runs
+      to completion. &mdash; <a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a>
+    </p>
+    <p>
+      But Pony also does something BEAM never has to: it shares <em>mutable</em> objects between
+      actors <strong>by reference</strong>, with zero copying, and still keeps memory safe with no
+      stop-the-world pause. That combination is what its garbage collector, <strong>ORCA</strong>, and
+      its type system exist to buy.
+    </p>
+    <div class="aside term">
+      <h3>Term: garbage collection</h3>
+      <p>
+        <dfn>Garbage collection (GC)</dfn> is a runtime automatically finding and reclaiming memory
+        that's no longer reachable, so the programmer doesn't have to track it by hand. The
+        old-fashioned worry is <dfn>stop-the-world GC</dfn>: the whole program freezes while the
+        collector walks memory &mdash; like a store closing entirely to do inventory. Pony's ORCA
+        instead runs GC <em>per actor</em>, only when that actor is idle between messages, so one
+        actor's cleanup never freezes any other actor &mdash; each store does inventory on its own
+        schedule, doors open the whole time for everyone else.
+      </p>
+    </div>
+    <div class="aside term">
+      <h3>Term: capability type system</h3>
+      <p>
+        A <dfn>reference capability</dfn> is a tag the Pony compiler attaches to every reference
+        (<code>iso</code>, <code>val</code>, <code>tag</code>, <code>ref</code>, <code>trn</code>,
+        <code>box</code>) that restricts what you're allowed to do with it &mdash; for example, a
+        <code>val</code> reference means "you may read this, and so may anyone else, but nobody may
+        ever write to it." Think of it as a set of colored wristbands at a venue: an "access-all-areas"
+        band lets you do things a "spectator" band never permits, checked at the door rather than by a
+        guard following you around all night. The payoff: the compiler can guarantee, before the
+        program ever runs, that <strong>at most one actor can mutate a given object at a time</strong>
+        &mdash; so the garbage collector never needs to check at runtime.
+      </p>
+    </div>
+    <p>
+      That static guarantee is what makes ORCA's core trick possible: because data races are ruled out
+      at compile time, the collector needs <strong>no read/write barriers on individual memory
+      accesses</strong> &mdash; no extra check bolted onto every read and write, the way most
+      garbage-collected mutable-data runtimes require. The only synchronization ORCA needs anywhere is
+      on message <em>enqueue</em>, a reference-count update that's trivially atomic. Reclaiming shared
+      objects uses deferred, message-piggybacked reference counting (INC/DEC messages sent alongside
+      normal traffic), specifically because naive reference counting breaks under Pony's asynchronous,
+      causal message delivery. &mdash; <a href="https://dl.acm.org/doi/10.1145/3133896">Clebsch et al., "ORCA: GC and Type System Co-Design for Actor Languages," OOPSLA 2017</a> (full text: <a href="http://janvitek.org/pubs/oopsla17a.pdf">PDF</a>)
+    </p>
+    <p>
+      The paper's own authors are candid about the trade they made:
+    </p>
+    <blockquote style="margin:1.25rem 0;padding:0.4rem 0 0.4rem 1rem;border-left:3px solid var(--border);color:var(--muted);font-style:italic;">
+      "In a purely functional actor language such as Erlang... it would be trivial to implement a
+      collector such as ours... One of the early decisions in the design of Pony was to support
+      mutable data structures and, for efficiency reasons, to implement zero-copy message passing.
+      Mutability introduce[s] challenges..."
+      &mdash; <a href="http://janvitek.org/pubs/oopsla17a.pdf">ORCA, &sect;1&ndash;2</a>
+    </blockquote>
+    <div class="aside term">
+      <h3>Term: zero-copy sharing</h3>
+      <p>
+        <dfn>Zero-copy</dfn> means passing a message by handing over a pointer to the existing data,
+        rather than duplicating it. It's the difference between mailing someone the original document
+        versus photocopying it first: zero-copy is faster and uses less memory, but now two parties
+        can see the same physical page &mdash; which is fine if neither can scribble on it, and
+        dangerous if either can.
+      </p>
+    </div>
+    <p>
+      Pony's real-world failure modes underline how much careful engineering that "efficiency reason"
+      demands. File I/O and DNS resolution are blocking by design (portable async support was judged
+      not worth the complexity), pushed onto the programmer to chunk. Unbounded mailbox growth is a
+      live risk, since recursive or fan-out behavior calls are asynchronous sends with no built-in
+      backpressure &mdash; a producer can simply outrun a consumer. And at extreme scale the
+      implementation has hit real ceilings: one tracked issue reproducibly crashed &mdash; segfaults,
+      GC assertion failures, bus errors &mdash; when spawning <strong>11 million actors and sending 11
+      million messages</strong>, though 1 million actors worked fine. A concrete data point that
+      "millions of actors" has a ceiling in practice, not just in theory. &mdash; <a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a>, <a href="https://github.com/ponylang/ponyc/issues/552">ponylang/ponyc issue #552</a>
+    </p>
+    <p>
+      Pony also detects <dfn>quiescence</dfn> &mdash; the point where every actor's mailbox is empty,
+      no aliases are pending, and no I/O events are outstanding &mdash; and shuts the program down
+      automatically, no explicit signal required. &mdash; <a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a>
+    </p>
+    <p>
+      That's the price of letting mutable data move between actors for free. The next section asks what
+      the equivalent bill looks like when the data was never mutable to begin with.
+    </p>
+
+    <h2>5. The punchline for Hey: immutability makes zero-copy free</h2>
+    <div class="aside term">
+      <h3>Term: immutability</h3>
+      <p>
+        <dfn>Immutability</dfn> means a value, once created, can never be changed &mdash; only
+        replaced by a new value. Think of a printed photograph versus a whiteboard: you can hand the
+        photo to as many people as you like and none of them can alter what the others see; a
+        whiteboard shared the same way needs house rules about who's allowed to write on it and when,
+        or two people's edits collide.
+      </p>
+    </div>
+    <p>
+      BEAM already gets a taste of what immutability buys, in a case the research brief calls
+      "trivial": Erlang deep-copies the transitive closure of every message it sends between
+      processes, because per-process heaps have to stay isolated for BEAM's synchronization-free,
+      per-process garbage collection to work &mdash; and that copy is safe with zero extra machinery
+      purely because Erlang data can't be mutated after the fact. The one deliberate exception is
+      <dfn>refc binaries</dfn>: large binary data is reference-counted instead of copied ("copying
+      them would be too costly"), and that's safe with no locking or cycle-detection at all, because
+      binaries are immutable and pointer-free &mdash; there are no cycles to collect.
+    </p>
+    <p>
+      Pony's alternative &mdash; share mutable objects by reference, zero-copy &mdash; costs the
+      entire capability type system <em>plus</em> ORCA's deferred causal reference counting
+      <em>plus</em> per-actor tracing at every message boundary, as its own authors say plainly above.
+    </p>
+    <p>
+      Put those two facts together and the shape of the opportunity is obvious: <strong>BEAM's special
+      case (large binaries shared by reference, no cycle collector needed) can be Hey's general
+      case</strong> &mdash; if the runtime represents non-trivial immutable values by reference rather
+      than copying them into the receiver's arena. Since nothing can ever mutate a shared immutable
+      value, there's no race to guard against, no reference-counting protocol needed to keep two
+      writers from colliding, and no cycle collector required, for exactly the reason BEAM's refc
+      binaries need none of that today &mdash; generalized to <em>all</em> data, not just binaries. A
+      practical implementation would keep a "copy small, reference large" split &mdash; a size
+      heuristic, not an immutability requirement &mdash; but it's immutability that makes either
+      choice safe with no extra machinery bolted on.
+    </p>
+    <p>
+      None of the no-stack, cheap-scheduling machinery from sections 2&ndash;3 presumes anything about
+      the data model, either: a no-stack fixed-size actor record, reduction-counted or
+      run-to-completion scheduling over one OS thread per core with work-stealing, and dirty-scheduler-
+      style isolation of blocking or native work off the main pool are all orthogonal to whether values
+      are mutable. Hey can take all of it.
+    </p>
+    <p>
+      That's the combination neither existing runtime gets in one package. <strong>BEAM has
+      immutability but pays the stack tax and the (mostly free, but not entirely free) deep-copy tax.
+      Pony has no-stack cheap actors but pays the full capability-and-ORCA tax to make sharing safe
+      under mutability.</strong> A no-stack, fixed-size actor record (tens to low hundreds of bytes),
+      run-to-completion or reduction-counted scheduling with work-stealing, and reference-based
+      zero-copy messages that exploit immutability for free &mdash; that's the target, and it's a
+      target built entirely out of pieces each of these four runtimes has already proven work, just
+      never all four at once.
+    </p>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>actor</dt>
+      <dd>An independent unit of computation with private state that communicates only by passing messages, never by sharing memory.</dd>
+      <dt>process (BEAM)</dt>
+      <dd>Erlang/BEAM's term for what this article otherwise calls an actor.</dd>
+      <dt>call stack</dt>
+      <dd>The pile of "return to here next" bookmarks kept as functions call other functions.</dd>
+      <dt>heap</dt>
+      <dd>The pool of longer-lived allocated data a program holds, separate from the call stack.</dd>
+      <dt>reduction</dt>
+      <dd>BEAM's per-process work counter, incremented roughly once per function call; the basis of its counted preemption.</dd>
+      <dt>work-stealing scheduler</dt>
+      <dd>A scheduler where an idle worker thread takes tasks from a busier thread's queue instead of sitting idle.</dd>
+      <dt>mailbox</dt>
+      <dd>The queue of messages an actor has received but not yet processed.</dd>
+      <dt>selective receive</dt>
+      <dd>Skipping past unwanted messages in a mailbox, leaving them for later.</dd>
+      <dt>dirty scheduler</dt>
+      <dd>A separate BEAM scheduler pool for blocking or long-running native calls, kept off the reduction-counted schedulers.</dd>
+      <dt>garbage collection (GC)</dt>
+      <dd>Automatic reclamation of memory no longer reachable by the program.</dd>
+      <dt>stop-the-world GC</dt>
+      <dd>A garbage collector that pauses the entire program while it runs.</dd>
+      <dt>reference capability</dt>
+      <dd>A compile-time tag on a Pony reference restricting how it may be read or written.</dd>
+      <dt>zero-copy</dt>
+      <dd>Sharing data by passing a reference to it, rather than duplicating it.</dd>
+      <dt>quiescence</dt>
+      <dd>The point at which every actor is idle and no events are pending; Pony auto-terminates here.</dd>
+      <dt>immutability</dt>
+      <dd>A value that, once created, can never be changed &mdash; only replaced.</dd>
+      <dt>refc binaries</dt>
+      <dd>BEAM's reference-counted (not copied) large binary values &mdash; safe with no locking because they're immutable and pointer-free.</dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes &mdash; Erlang System Documentation</a> (per-process memory, 233/327-word heap)</li>
+      <li><a href="https://github.com/happi/theBeamBook/blob/master/chapters/processes.asciidoc">theBeamBook, processes.asciidoc</a> (process layout, mailbox/signals)</li>
+      <li><a href="https://github.com/happi/theBeamBook/blob/master/chapters/scheduling.asciidoc">theBeamBook, scheduling.asciidoc</a> (reductions, scheduler/core counts)</li>
+      <li><a href="https://www.erlang.org/doc/man/erl.html">erl(1) man page</a> (scheduler flags, dirty scheduler defaults)</li>
+      <li><a href="https://www.erlang.org/doc/apps/erts/erl_nif.html">erl_nif docs</a> (dirty NIF scheduling)</li>
+      <li><a href="https://www.erlang.org/blog/parallel-signal-sending-optimization/">Erlang parallel signal-sending optimization</a> (mailbox signal delivery)</li>
+      <li><a href="https://www.erlang.org/doc/system/system_limits.html">System Limits &mdash; Erlang docs</a> (process ceiling)</li>
+      <li><a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a> (scheduling, quiescence, per-actor memory, failure modes)</li>
+      <li><a href="https://dl.acm.org/doi/10.1145/3133896">Clebsch et al., "ORCA: GC and Type System Co-Design for Actor Languages," OOPSLA 2017</a></li>
+      <li><a href="http://janvitek.org/pubs/oopsla17a.pdf">ORCA, full text (PDF)</a></li>
+      <li><a href="https://github.com/ponylang/ponyc/issues/552">ponylang/ponyc issue #552</a> (11M-actor crash)</li>
+      <li><a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">golang/go, runtime/stack.go</a> (goroutine stack sizing)</li>
+      <li><a href="https://tokio.rs/tokio/tutorial/spawning">Tokio Tutorial: Spawning</a> (64-byte task memory)</li>
+      <li><a href="https://github.com/atemerev/skynet">atemerev/skynet</a> (Skynet benchmark)</li>
+      <li><a href="http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf">Imam &amp; Sarkar, "Savina &mdash; An Actor Benchmark Suite," AGERE! 2014</a></li>
+      <li><a href="https://github.com/shamsimam/savina">shamsimam/savina</a> (Savina benchmark repo)</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Sourced from a research brief compiled 2026-07-26 on what makes actors cheap across BEAM, Pony,
+      Go, and Tokio, and what transfers to an immutability-first language design. Primary sources
+      linked inline throughout; full list above.
+    </p>
+  </footer>
+</body>
+</html>

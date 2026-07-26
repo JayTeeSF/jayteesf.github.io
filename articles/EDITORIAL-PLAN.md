@@ -129,3 +129,27 @@ house rules (TL;DR shape, term tiers, density guard, caveat bullet).
 Benchmark lead fact-checks EVERY number against the dated evidence
 log before commit; no number ships without a log citation. A's
 skeleton is banked in this file until its gate fires.
+
+## House rule added 2026-07-26 (maintainer): STORY ARC + HUMOR
+Every editorial pass must also judge: (a) does the article have a
+compelling STORY ARC — a setup, a turn/reveal, and a payoff — rather
+than an annotated catalog of facts? An article whose sections could be
+reordered without loss has no arc; fix the structure, not the prose.
+(b) Is there appropriate HUMOR — light, dry, in service of the point
+(a well-placed aside, a self-deprecating note on our own retractions)
+— and NONE where the material is a correction, a retraction, or a
+user-facing failure? Humor never at the reader's expense, never in
+TL;DRs, never in numbers.
+
+## Humor rules tightened (maintainer, 2026-07-26)
+- NO humor is better than TOO MUCH humor — when in doubt, cut.
+- All humor must be FAMILY-FRIENDLY.
+
+## Attribution rule (maintainer, 2026-07-26)
+The editor pass must verify PROPER ATTRIBUTION: load-bearing claims
+link to their primary source (the paper, the official docs, the repo,
+the original post) at or near first use — not just a sources list at
+the bottom. Named results carry their authors/venue when appropriate
+(e.g. "Perceus (Reinking, Xie, de Moura, Leijen — PLDI 2021)"). Never
+invent a URL; if the source brief lacks one, say so rather than link
+to a guess.

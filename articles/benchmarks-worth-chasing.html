@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A sourced tour of the benchmark suites that matter &mdash; TechEmpower, Skynet, Savina, 1BRC, CLI startup, memory-per-connection &mdash; and the eight-rung goal ladder they add up to for the Hey language.">
+  <title>Benchmarks Worth Chasing</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: color-mix(in srgb, currentColor 18%, transparent);
+      --muted: color-mix(in srgb, currentColor 68%, transparent);
+      --panel: color-mix(in srgb, canvas 94%, currentColor 6%);
+      --code: color-mix(in srgb, canvas 90%, currentColor 10%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: color-mix(in srgb, #2a78d6 55%, var(--border)); }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Benchmarks Worth Chasing</h1>
+    <p class="lede">
+      A sourced tour of the benchmark suites that actually tell you something &mdash; what each one
+      isolates, where each one rots, and the single open goalpost that no immutable-first language has
+      claimed yet. It ends in an eight-rung goal ladder for Hey, with a falsifiable target on every rung.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>TechEmpower Framework Benchmarks was archived March 24, 2026</strong>, after its top
+          tier hit a <strong>~30M requests/second cap imposed by the load-testing client itself</strong>,
+          not by any framework &mdash; a benchmark that outlived its own measuring instrument.</li>
+        <li><strong>No immutable-first language has a competitive One Billion Row Challenge entry.</strong>
+          Java's winner does the job in <strong>~1.5 seconds</strong>; the only Erlang entry, naive and
+          single-threaded, takes <strong>130 seconds</strong>. That gap is an open goalpost, not a settled
+          score.</li>
+        <li><strong>Skynet spawns one million actors</strong> in a tree and sums their replies: Erlang does
+          it in <strong>700&ndash;1,100&nbsp;ms</strong>, Go in <strong>200&ndash;224&nbsp;ms</strong>, on
+          comparable hardware.</li>
+        <li><strong>Hey's CLI startup time (~23&nbsp;ms) sits in the Python/Ruby tier today</strong> &mdash;
+          an order of magnitude slower than Lua and Bash, which start in <strong>0.6&ndash;0.9&nbsp;ms</strong>.</li>
+        <li>Put together, these five suites resolve into <strong>eight goal-ladder rungs for Hey</strong>,
+          from single-core plaintext throughput to memory held per idle actor &mdash; each with a target
+          that can be proven wrong.</li>
+      </ul>
+    </div>
+
+    <!-- FIGURE: CLI startup time across languages, log axis, Hey highlighted.
+         Self-contained: scoped styles + inline SVG. Values from bdrung/startup-time
+         (i5-2400S, hyperfine) and the Hey team's own measured CLI startup.
+         Kept immediately after the TL;DR by editorial decision (2026-07-26 restructure):
+         the chart's position is fixed regardless of where its home section falls. -->
+    <figure class="viz-root" id="fig-startup">
+      <style>
+        #fig-startup{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --su-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --su-border:rgba(11,11,11,0.10);
+          --bar-highlight:#2a78d6; --critical:#d03b3b;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--su-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-startup{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --su-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --su-border:rgba(255,255,255,0.10);
+            --bar-highlight:#3987e5;
+          }
+        }
+        :root[data-theme="dark"] #fig-startup{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --su-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --su-border:rgba(255,255,255,0.10);
+          --bar-highlight:#3987e5;
+        }
+        #fig-startup .su-head{padding:18px 20px 2px}
+        #fig-startup .su-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-startup .su-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-startup .su-legend{display:flex;flex-wrap:wrap;gap:14px;padding:12px 20px 0;font-size:.8rem;color:var(--text-secondary)}
+        #fig-startup .su-key{display:inline-flex;align-items:center;gap:7px}
+        #fig-startup .su-sw{width:14px;height:10px;border-radius:3px;flex:none}
+        #fig-startup .su-sw.line{width:14px;height:2px;border-radius:0;background-image:repeating-linear-gradient(90deg,var(--critical) 0 5px,transparent 5px 8px)}
+        #fig-startup .su-plot{padding:6px 10px 0;overflow-x:auto}
+        #fig-startup svg{display:block;width:100%;min-width:520px;height:auto}
+        #fig-startup .su-grid{stroke:var(--grid);stroke-width:1}
+        #fig-startup .su-axis{stroke:var(--axis);stroke-width:1}
+        #fig-startup .su-tick{fill:var(--su-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-startup .su-cat{fill:var(--text-primary);font-size:12px}
+        #fig-startup .su-cat-hi{fill:var(--text-primary);font-size:12.5px;font-weight:750}
+        #fig-startup .su-val{fill:var(--text-primary);font-size:11.5px;font-weight:650;font-variant-numeric:tabular-nums}
+        #fig-startup .su-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-startup .su-goal-line{stroke:var(--critical);stroke-width:1.5;stroke-dasharray:5 4}
+        #fig-startup .su-goal-text{fill:var(--critical);font-size:11px;font-weight:650}
+        #fig-startup .su-foot{padding:8px 20px 16px;margin:0;font-size:.78rem;color:var(--su-muted)}
+        #fig-startup details{padding:0 20px 16px;font-size:.78rem;color:var(--text-secondary)}
+        #fig-startup summary{cursor:pointer;font-weight:550}
+        #fig-startup table{width:auto;margin:10px 0 0;font-variant-numeric:tabular-nums;font-size:.75rem}
+        #fig-startup th,#fig-startup td{border:1px solid var(--su-border);padding:3px 8px;text-align:right;background:none}
+        #fig-startup th{color:var(--text-primary);font-weight:600;text-align:left}
+        #fig-startup td:first-child{text-align:left}
+      </style>
+      <div class="su-head">
+        <p class="su-title">CLI startup time, seven interpreters &mdash; Hey today vs. its own goal</p>
+        <p class="su-sub"><strong>The horizontal axis is logarithmic</strong> &mdash; startup times here
+          span two orders of magnitude, from 0.63&nbsp;ms to 32.43&nbsp;ms, and a linear axis would flatten
+          the fast end to nothing.</p>
+      </div>
+      <div class="su-legend">
+        <span class="su-key"><span class="su-sw" style="background:var(--text-secondary)"></span>other interpreters</span>
+        <span class="su-key"><span class="su-sw" style="background:var(--bar-highlight)"></span><strong>Hey, today</strong></span>
+        <span class="su-key"><span class="su-sw line"></span>Hey's goal: &lt;5&nbsp;ms</span>
+      </div>
+      <div class="su-plot">
+        <svg id="su-svg" viewBox="0 0 760 330" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis, of CLI startup time in milliseconds. Lua 0.63, Bash 0.71, Perl 0.94, a dashed goal line at 5 milliseconds, Python 2 9.43, Hey today 23 in bold highlighted blue, Python 3 25.84, and Ruby 32.43. Hey's bar is bold and colored, marked additionally with a triangular marker so the highlight does not rely on color alone."></svg>
+      </div>
+      <p class="su-foot" id="su-foot"></p>
+      <details>
+        <summary>Show the numbers</summary>
+        <div id="su-table"></div>
+      </details>
+    </figure>
+    <script>
+    (function(){
+      var G=[
+        {cat:'Lua',        ms:0.63,  hi:false},
+        {cat:'Bash',       ms:0.71,  hi:false},
+        {cat:'Perl',       ms:0.94,  hi:false},
+        {cat:'Python 2',   ms:9.43,  hi:false},
+        {cat:'Hey, today', ms:23,    hi:true},
+        {cat:'Python 3',   ms:25.84, hi:false},
+        {cat:'Ruby',       ms:32.43, hi:false}
+      ];
+      var W=760,H=330,L=118,R=70,T=26,B=48;
+      var LO=0.5,HI=45;
+      function px(v){ if(v<LO)v=LO; return L+(Math.log10(v)-Math.log10(LO))/(Math.log10(HI)-Math.log10(LO))*(W-L-R); }
+      var o=[];
+      [1,10].forEach(function(v){
+        o.push('<line class="su-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="su-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v+' ms</text>');
+      });
+      o.push('<text class="su-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">startup time, milliseconds (log scale)</text>');
+      var bandH=(H-T-B)/G.length, barH=20;
+      var goalX=px(5);
+      G.forEach(function(g,i){
+        var top=T+bandH*i, cy=top+bandH/2, y=cy-barH/2;
+        var w=Math.max(px(g.ms)-L,2);
+        o.push('<text class="'+(g.hi?'su-cat-hi':'su-cat')+'" x="'+(L-12)+'" y="'+(cy+4).toFixed(1)+'" text-anchor="end">'+(g.hi?'▶ ':'')+g.cat+'</text>');
+        o.push('<rect x="'+L+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+barH+'" rx="'+(barH/2)+'" fill="var(--'+(g.hi?'bar-highlight':'text-secondary')+')" opacity="'+(g.hi?'1':'0.55')+'"><title>'+g.cat+': '+g.ms+' ms</title></rect>');
+        o.push('<text class="su-val" x="'+(L+w+9).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'" '+(g.hi?'font-weight="750"':'')+'>'+g.ms+' ms</text>');
+      });
+      o.push('<line class="su-goal-line" x1="'+goalX.toFixed(1)+'" y1="'+(T-4)+'" x2="'+goalX.toFixed(1)+'" y2="'+(H-B)+'"/>');
+      o.push('<text class="su-goal-text" x="'+(goalX-6).toFixed(1)+'" y="'+(T-9)+'" text-anchor="end">goal: &lt;5 ms</text>');
+      o.push('<line class="su-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('su-svg').innerHTML=o.join('');
+      document.getElementById('su-foot').textContent=
+        'Source: bdrung/startup-time, hyperfine-driven, i5-2400S (all rows except Hey). Hey’s own '+
+        'measured CLI startup is ~23 ms on comparable hardware — an order of magnitude above Lua/Bash, '+
+        'ahead of only Ruby.';
+      document.getElementById('su-table').innerHTML=
+        '<table><tr><th>interpreter</th><th>startup time</th></tr>'+
+        G.map(function(g){return '<tr><td>'+(g.hi?'<strong>'+g.cat+'</strong>':g.cat)+'</td><td>'+(g.hi?'<strong>':'')+g.ms+' ms'+(g.hi?'</strong>':'')+'</td></tr>';}).join('')+
+        '<tr><td><em>Hey’s goal</em></td><td><em>&lt; 5 ms</em></td></tr></table>';
+    })();
+    </script>
+
+    <div class="aside">
+      <h3>How to read this article</h3>
+      <p>
+        Every number below comes from a cited primary source &mdash; official benchmark results, project
+        documentation, or a maintainer's own published numbers &mdash; linked inline where it's used, plus
+        a full source list at the end. Technical terms get a definition with an example the first time
+        they show up, boxed like this one. There's a glossary at the bottom if you lose track.
+      </p>
+    </div>
+
+    <h2>What you measure is what you become</h2>
+    <p>
+      A <dfn>benchmark suite</dfn> is a fixed, repeatable set of tasks measured the same way across
+      languages or frameworks, so results are comparable instead of anecdotal &mdash; the point is that
+      anyone can rerun it and get the same answer. What a project chooses to benchmark is what it ends up
+      optimizing, because a number that is visible and embarrassing gets fixed, and a number nobody
+      measures does not. That makes the choice of suite a roadmap decision, not just a reporting one.
+    </p>
+    <p>
+      But a suite is only a roadmap for as long as it keeps measuring something real, and not every suite
+      manages that for its whole lifetime. Three of the ones surveyed here stopped, in three different
+      ways, before this piece gets to the one genuinely open target left standing and the ladder it
+      points to.
+    </p>
+    <div class="aside term">
+      <h3>Term: benchmark suite</h3>
+      <p>
+        <strong>Benchmark suite</strong>: a fixed, repeatable set of programs or tasks, run the same way
+        against every contender, so the results are comparable rather than anecdotal. Example: TechEmpower
+        ran the identical JSON-serialization test against 330+ web frameworks on the same hardware.
+      </p>
+    </div>
+
+    <h2>The benchmark graveyard</h2>
+    <p>
+      A benchmark can die the way TechEmpower did: get outrun by the very instrument built to measure it.
+      It can die the way thread-ring and chameneos-redux did: get quietly dropped from the scoreboard that
+      used to run them. Or it can never really have been alive in the first place, the way WhatsApp's "2
+      million connections" number wasn't: repeated everywhere, verified nowhere. All three still get cited
+      today as if they were live numbers. Chasing any of them means optimizing Hey toward a mirage instead
+      of a competitor.
+    </p>
+
+    <h3>TechEmpower Framework Benchmarks &mdash; outrunning its own instrument</h3>
+    <p>
+      TechEmpower Framework Benchmarks (TFB) exists to answer one question with disclosed, physical
+      hardware instead of vendor marketing: how many <dfn>rps</dfn> can a web framework actually serve?
+      <strong>Rps</strong> (requests per second) is the standard throughput unit for this kind of test
+      &mdash; how many requests a server finishes each second under sustained load. .NET 9 hit roughly
+      <strong>27.5M rps</strong> on the plaintext test in Round 23; Actix Web reached ~7.1M rps on a
+      28-core box. Its <strong>Plaintext</strong> test isolates <dfn>keep-alive</dfn> handling, request
+      routing, and header generation with no serialization and no allocation beyond a static buffer &mdash;
+      this is the test that isolates exactly Hey's accept-loop weakness. Its <strong>JSON serialization</strong>
+      test adds object instantiation and JSON encoding on top of that same pipeline, isolating
+      JSON-construction cost from accept-loop cost &mdash; directly relevant to how Hey's immutable data
+      gets built per request. Further tests (single/multi/cache query, Fortunes, Updates) stress database
+      drivers and templating, weighted by TFB into a composite score that favored the "most realistic"
+      Fortunes test over raw Plaintext.
+    </p>
+    <div class="aside term">
+      <h3>Term: rps &amp; keep-alive</h3>
+      <p>
+        <strong>rps</strong> (requests per second): how many requests a server completes each second under
+        load &mdash; the standard throughput unit for web benchmarks. <strong>Keep-alive</strong>: reusing
+        one network connection for many requests instead of opening a fresh one each time. Example: the
+        TFB Plaintext test isolates keep-alive handling with nothing else in the way &mdash; no database,
+        no serialization, just the accept loop.
+      </p>
+    </div>
+    <p>
+      TFB ran on physical, not cloud, hardware &mdash; an app server, a load-generator running
+      <code>wrk</code> (the HTTP load-generating tool TFB standardized on), and a database server on
+      switched 10GbE, most recently a Dell R440 (Xeon Gold
+      5120, 14/28 cores, 32GB RAM) &mdash; verified with a "preview" pass against unmodified forks before
+      each round counted. That rigor is exactly why its ending is a cautionary tale rather than a footnote:
+      <strong>TFB was archived on March 24, 2026</strong>, after Round 23 (February 2025, 330+ frameworks),
+      because the project had gone stale &mdash; "virtually no changes... in recent years" &mdash; and its
+      own numbers were being called "highly misleading." Two separate rot mechanisms did the damage: top-tier
+      plaintext throughput was effectively <strong>capped near 30M rps by the <code>wrk</code> load-generator
+      itself</strong>, not by any framework under test, and the rules permitted enough low-level overfitting
+      that placement stopped reflecting real-world framework quality. TechEmpower didn't get slower; its
+      stopwatch did. A successor, HttpArena, is emerging
+      (16 test profiles, HTTP/2 and WebSockets, PR-triggered CI runs, an explicit "keep implementations
+      realistic" mandate) but has no comparable history yet. The lesson for anyone building a benchmark
+      ladder: a good instrument can still expire, either because the world outgrows what it measures or
+      because the incentive to game it outlives the incentive to keep it honest. Treat TFB's own numbers as
+      historical reference, not a live target &mdash; the project it measured had already outrun its own
+      load-testing client before anyone pulled the plug &mdash; and note that Elixir/Phoenix's mid-pack-or-below
+      TFB placement is not a clean immutable-language reference either, since Phoenix ran with a smaller
+      database pool and heavier logging than some peers in certain rounds; raw Cowboy (Erlang, no Phoenix
+      layer) would have been the fairer comparator but was never isolated in this pass.
+    </p>
+
+    <h3>Retired and unverifiable: thread-ring and the WhatsApp number</h3>
+    <p>
+      The <strong>CLBG thread-ring and chameneos-redux</strong> tests have been explicitly retired from the
+      Computer Language Benchmarks Game's own summary comparisons; numbers still circulating for them (e.g.,
+      Go 9.4s vs. Erlang 8.5s at M=100/N=100,000) are third-party blog reproductions &mdash; the
+      lowest-credibility figures in this entire survey, useful only as informal context, which is why they
+      sit at rung 8 of the ladder below: lowest priority, context and never an external claim.
+    </p>
+    <p>
+      WhatsApp's famous 2012 claim of 2 million connections per server sits at the opposite end of the same
+      problem: it isn't retired, because it was never verified to begin with. No disclosed, reproducible
+      methodology backs it, so it gets cited here only as folklore, never as a target &mdash; flagged
+      precisely because it keeps circulating as fact everywhere else, not because it deserves to be treated
+      as one.
+    </p>
+
+    <h2>What's still worth measuring</h2>
+    <p>
+      Not everything in this survey has rotted. Some suites are exactly what they claim to be &mdash;
+      self-reported, narrow, or unglamorous, but honest about those limits instead of quietly outliving
+      them. These are the ones the goal ladder below actually draws its rungs from.
+    </p>
+    <h3>Skynet and Savina &mdash; what stresses an actor runtime</h3>
+    <p>
+      An <dfn>actor</dfn> is a lightweight, independent unit of computation that only communicates by
+      passing messages, never by sharing memory &mdash; the concurrency model Erlang, Go's goroutines, and
+      Hey all lean on to different degrees. <strong><a href="https://github.com/atemerev/skynet">Skynet</a></strong> is the sharpest single actor stress
+      test in this survey: a root actor spawns 10 children, six levels deep, for exactly
+      <strong>1,000,000 leaf actors</strong>, each returning its ordinal number, all summed to a known
+      expected total of 499,999,500,000. It measures actor-creation cost, garbage collection, and
+      scheduler fan-in &mdash; deliberately <em>not</em> message throughput. On an i7-4771 under Ubuntu,
+      Erlang finishes in <strong>700&ndash;1,100&nbsp;ms</strong> without its HIPE native compiler (HIPE
+      actually makes it slower here, 2,100&ndash;3,500&nbsp;ms) while Go finishes in
+      <strong>200&ndash;224&nbsp;ms</strong>. On a 2015 MacBook 12&Prime; (Core&nbsp;M) the same test takes
+      Erlang 4,414&nbsp;ms and Go 979&nbsp;ms. There is no official Skynet leaderboard: every number circulating
+      is self-reported on the author's own hardware, which makes it fine for tracking your own regressions but
+      weak as an external claim without rerunning the comparators yourself.
+    </p>
+    <div class="aside term">
+      <h3>Term: actor</h3>
+      <p>
+        <strong>Actor</strong>: an independent unit of computation that communicates only by passing
+        messages, never by sharing memory. Example: Skynet spawns a tree of one million of them and sums
+        the replies that come back up the tree.
+      </p>
+    </div>
+    <p>
+      <strong>Savina</strong> (Imam &amp; Sarkar, AGERE! 2014; <a href="https://github.com/shamsimam/savina">github.com/shamsimam/savina</a>)
+      is the more rigorous complement: 28 benchmarks in three groups (7 micro, 8 concurrency, 13
+      parallelism), of which the 7 micro-benchmarks &mdash; Ping Pong, Counting Actor, Fork Join Throughput,
+      Fork Join Creation, Thread Ring, Chameneos, and Big &mdash; are the subset later actor-runtime papers
+      keep re-citing. Their input parameters are fixed and published in the paper's appendix, so a Savina
+      port is well-defined and its results are independently checkable, unlike Skynet's self-reported
+      numbers. Between them, Big (many-to-many mailbox contention) and Chameneos (many-to-one contention)
+      cover a stress pattern Skynet's tree never touches at all. (Thread-ring and chameneos-redux &mdash;
+      Savina's CLBG-era cousins &mdash; are covered in the benchmark graveyard above.)
+    </p>
+
+    <h3>CLI startup and memory-per-connection: the unglamorous suites</h3>
+    <p>
+      <dfn>Startup time</dfn> is the wall-clock time from launching a program to it being ready to run
+      &mdash; for scripting languages this is dominated by interpreter and runtime initialization, not by
+      whatever the program actually does. There is no single dominant recognized suite here; the closest is
+      <a href="https://github.com/bdrung/startup-time">bdrung/startup-time</a>, a hyperfine-driven,
+      disclosed-hardware comparison. On an i5-2400S: Lua starts in <strong>0.63&nbsp;ms</strong>, Bash in
+      <strong>0.71&nbsp;ms</strong>, Perl in <strong>0.94&nbsp;ms</strong>, Python 2 in
+      <strong>9.43&nbsp;ms</strong>, Python 3 in <strong>25.84&nbsp;ms</strong>, and Ruby in
+      <strong>32.43&nbsp;ms</strong>. On a Raspberry Pi 3 the same ordering holds at roughly an order of
+      magnitude (7.6&times;&ndash;13&times; depending on interpreter; Bash 7.31&nbsp;ms, Ruby
+      421.53&nbsp;ms). Sub-millisecond interpreter differences can
+      still vanish under OS overhead: LuaJIT's first run (85&nbsp;&micro;s) beats plain Lua 5.1.4
+      (155&nbsp;&micro;s), but Linux process and loader overhead alone adds at least
+      <strong>250&nbsp;&micro;s</strong> regardless of interpreter, so that delta barely matters in
+      practice. Modern CPython's own baseline (<code>python -c</code>) runs 54&nbsp;ms, and just adding
+      <code>import requests</code> pushes it to 150&nbsp;ms &mdash; import-graph cost, not interpreter
+      startup, dominates real-world Python init. <strong>Hey's own measured CLI startup, ~23&nbsp;ms, sits
+      in the Python 3/Ruby slow tier</strong> today, an order of magnitude above Bash and Lua.
+    </p>
+    <div class="aside term">
+      <h3>Term: startup time</h3>
+      <p>
+        <strong>Startup time</strong>: the wall-clock time from launching a program to it being ready to
+        run, usually dominated by interpreter or runtime initialization rather than the program's own
+        logic. Example: Bash is ready in 0.71&nbsp;ms; Ruby takes 32.43&nbsp;ms to do nothing at all.
+      </p>
+    </div>
+    <p>
+      Memory-per-connection has no standardized suite at all &mdash; only one-off engineering write-ups,
+      which is itself a finding. An <dfn>idle connection</dfn> is a connection (or actor) sitting open but
+      not actively sending or receiving data, whose memory footprint still counts against total server
+      capacity. Phoenix's "Road to 2 Million Websocket Connections" post reported 2.3M connections on a
+      64GB/20-core box, but per-connection memory was reported <em>inconsistently</em> within that same
+      post: ~1.5KB counting only the process, versus 5&ndash;10KB/idle socket counting the process plus
+      transport buffers &mdash; a methodology gap that has to be resolved before adopting either number.
+      The one rerunnable artifact in this whole category is
+      <a href="https://github.com/dsander/phoenix-connection-benchmark">github.com/dsander/phoenix-connection-benchmark</a>,
+      and it is the best candidate to model Hey's own memory ladder on. On the other side, Go's
+      gorilla/websocket with 8KB buffers runs about 32KB/socket in userland, and goperf.dev cites
+      200&ndash;500K idle connections on a 4-core/8GB box.
+    </p>
+    <div class="aside term">
+      <h3>Term: idle connection &amp; percentile</h3>
+      <p>
+        <strong>Idle connection</strong>: a connection or actor sitting open but not actively sending or
+        receiving data, whose memory footprint still counts against total capacity. Example: a chat server
+        holding two million idle WebSocket connections, each costing some number of kilobytes just to
+        exist, whether or not a message is currently in flight.
+      </p>
+      <p>
+        <strong>p50 / percentile</strong>, since latency numbers appear throughout this piece even where
+        this survey doesn't quote them directly: p50 (the median) is the latency below which half of all
+        requests finish; p99 is the latency below which 99% finish, capturing the slow tail an average can
+        hide. A p50 of 5&nbsp;ms means half of requests returned in 5&nbsp;ms or less, however slow the
+        unlucky few were.
+      </p>
+    </div>
+    <p>
+      Which leaves one benchmark this survey hasn't touched yet &mdash; not because it rotted, and not
+      because it's unglamorous, but because it's the one still waiting on an answer.
+    </p>
+
+    <h2>The one goalpost nobody holds</h2>
+    <p>
+      <strong>1BRC</strong>, the <dfn>One Billion Row Challenge</dfn> (Gunnar Morling, January 2024;
+      <a href="https://github.com/gunnarmorling/1brc">github.com/gunnarmorling/1brc</a>), asks for exactly
+      one thing: parse one billion <code>station;temperature</code> text rows, emit the min/mean/max
+      temperature per station, and verify the answer against a reference output, on a fixed 8-core eval
+      instance. It exists because text parsing and aggregation at real scale exposes I/O strategy, string
+      handling, and memory-allocation discipline all at once, in a way a synthetic microbenchmark cannot.
+      The results form a real leaderboard: Java's fastest entry (Wuerthinger/Mai/Peterssen) does the whole
+      job in about <strong>1.5 seconds</strong>, using memory-mapped I/O (letting the OS page the file into
+      memory instead of read() calls), SIMD scanning (processing many bytes per CPU instruction), and one
+      thread per core. Ben Hoyt's Go series went from 1 minute 45 seconds down to <strong>3.4 seconds</strong> across
+      nine successive optimizations on his own laptop. Community Rust entries land around
+      <strong>1.2&ndash;2.5 seconds</strong>.
+    </p>
+    <p>
+      Now the gap. The only Erlang entry on record
+      (<a href="https://github.com/jesperes/erlang_1brc">jesperes/erlang_1brc</a>) is single-threaded and
+      unoptimized: <strong>130 seconds</strong> on an i7-10610U, with the author noting it spends "almost
+      all the time inside <code>binary:split/3</code>." That is a naive floor, not a competitive entry.
+      Elixir has an open discussion thread with no strong confirmed result, and Haskell has a long-running
+      optimization thread with no confirmed headline number either. <strong>No immutable-first language has
+      a competitive, parallel 1BRC entry</strong> &mdash; which makes 1BRC a live, uncontested goalpost for
+      that entire category of language, rather than a settled score to catch up to. It matters specifically
+      for Hey because 1BRC stresses exactly the immutable-string and accumulation path where Hey's own
+      known quadratic list-append would bite hardest: building up per-station aggregates from a billion
+      lines is precisely the workload that punishes an append implementation that copies more than it
+      needs to. Beating Erlang's naive 130-second floor would be a low bar cleared; landing in Go's or
+      Rust's neighborhood would be a genuine, uncontested first-mover claim for an immutable-first language
+      on this benchmark.
+    </p>
+    <div class="aside term">
+      <h3>Term: 1BRC</h3>
+      <p>
+        <strong>1BRC</strong> (One Billion Row Challenge): parse one billion <code>station;temperature</code>
+        text rows and emit min/mean/max per station, checked against a reference answer. Example: the
+        fastest Java entry does the whole job in about 1.5 seconds; a naive single-threaded Erlang entry
+        takes 130 seconds on the same class of task.
+      </p>
+    </div>
+
+    <h2>The eight-rung goal ladder for Hey</h2>
+    <p>
+      Folding all five suites together, weighted by verification quality and by what each rung would
+      actually expose about Hey's implementation, gives eight ordered targets:
+    </p>
+    <table>
+      <thead><tr><th>Rung</th><th>Suite</th><th>Target</th><th>What it exposes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="number">1</td>
+          <td>TFB-rules plaintext, single core, pinned</td>
+          <td>Hey at 19.5K rps today vs. Go's ~96K matched / ~133K static &mdash; target: <strong>within
+            3% of Go per-core</strong></td>
+          <td>The accept-model defect in isolation, zero JSON confound &mdash; highest information value
+            of any rung</td>
+        </tr>
+        <tr>
+          <td class="number">2</td>
+          <td>TFB-rules JSON serialization</td>
+          <td>Hey's JSON/plaintext ratio <strong>within 10% of Go's own ratio</strong> (relative,
+            falsifiable)</td>
+          <td>JSON-construction cost, separated cleanly from accept-loop cost</td>
+        </tr>
+        <tr>
+          <td class="number">3</td>
+          <td>Skynet, 1M-actor spawn-and-reduce, ported verbatim</td>
+          <td>Erlang's non-HIPE band (~700&ndash;1,100&nbsp;ms) as immutable parity; stretch: <strong>within
+            2&times; of Go's ~200&ndash;224&nbsp;ms</strong></td>
+          <td>Actor creation and GC overhead at the millions-of-actors scale</td>
+        </tr>
+        <tr>
+          <td class="number">4</td>
+          <td>Savina's 7 cited micro-benchmarks, paper-fixed parameters</td>
+          <td>Publish the <strong>full 7-number table</strong></td>
+          <td>Mailbox contention (many-to-many and many-to-one) that Skynet's tree never touches</td>
+        </tr>
+        <tr>
+          <td class="number">5</td>
+          <td>1BRC, single-threaded lane first</td>
+          <td>Beat Erlang's naive <strong>130s</strong>; stretch: same order of magnitude as Go's parallel
+            <strong>3.4s</strong></td>
+          <td>Whether the append/allocation family is dead in a realistic workload; an uncontested
+            first-mover claim for an immutable-first language</td>
+        </tr>
+        <tr>
+          <td class="number">6</td>
+          <td>CLI startup, hyperfine hello-world</td>
+          <td>Hey's ~23&nbsp;ms today &rarr; <strong>sub-5&nbsp;ms</strong> on comparable hardware</td>
+          <td>Falsifies against a rerunnable public suite; matters because Hey markets itself on ergonomic
+            scripting</td>
+        </tr>
+        <tr>
+          <td class="number">7</td>
+          <td>Memory-per-idle-actor at N=100K and N=1M</td>
+          <td><strong>Bracket the 1.5&ndash;10KB/idle band</strong>, reporting both checkpoints, modeled on
+            dsander/phoenix-connection-benchmark</td>
+          <td>Real memory cost per held actor/connection, not the disputed 1.5KB folklore number</td>
+        </tr>
+        <tr>
+          <td class="number">8</td>
+          <td>Thread-ring / chameneos, informal parity check</td>
+          <td>Lowest priority &mdash; retired from the CLBG scoreboard; third-party numbers only</td>
+          <td>Context, never an external claim</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>The numbers again, in one place</h2>
+    <p>
+      TechEmpower archived <strong>March 24, 2026</strong>, after hitting a <strong>~30M rps client-side
+      cap</strong>. No immutable-first language has beaten Erlang's naive <strong>130-second</strong> 1BRC
+      floor against Java's <strong>~1.5-second</strong> winner. Skynet's one million actors take Erlang
+      <strong>700&ndash;1,100&nbsp;ms</strong> and Go <strong>200&ndash;224&nbsp;ms</strong>. Hey's CLI
+      starts in <strong>~23&nbsp;ms</strong> today, against a <strong>&lt;5&nbsp;ms</strong> goal, an order
+      of magnitude above Lua and Bash's <strong>0.6&ndash;0.9&nbsp;ms</strong>. Eight rungs, eight
+      falsifiable targets, above.
+    </p>
+
+    <h2 id="sources">Sources</h2>
+    <ul>
+      <li>TechEmpower Framework Benchmarks (TFB) &mdash; Round 23 results and March 2026 archival notice;
+        successor project HttpArena.</li>
+      <li>Skynet 1M-actor benchmark &mdash; <a href="https://github.com/atemerev/skynet">github.com/atemerev/skynet</a>;
+        self-reported author results, no official leaderboard.</li>
+      <li>Savina benchmark suite &mdash; Imam &amp; Sarkar, AGERE! 2014;
+        <a href="https://github.com/shamsimam/savina">github.com/shamsimam/savina</a>.</li>
+      <li>Computer Language Benchmarks Game (CLBG) &mdash; thread-ring and chameneos-redux, retired from
+        summary comparisons.</li>
+      <li>One Billion Row Challenge &mdash; Gunnar Morling, January 2024;
+        <a href="https://github.com/gunnarmorling/1brc">github.com/gunnarmorling/1brc</a>; Erlang entry
+        <a href="https://github.com/jesperes/erlang_1brc">github.com/jesperes/erlang_1brc</a>; Go entries by
+        Ben Hoyt.</li>
+      <li>CLI startup time &mdash; <a href="https://github.com/bdrung/startup-time">github.com/bdrung/startup-time</a>,
+        hyperfine-driven, disclosed hardware.</li>
+      <li>Memory-per-connection &mdash; Phoenix "Road to 2 Million Websocket Connections";
+        <a href="https://github.com/dsander/phoenix-connection-benchmark">github.com/dsander/phoenix-connection-benchmark</a>;
+        goperf.dev; WhatsApp 2012 (folklore, flagged as such).</li>
+      <li>Full survey and goal-ladder derivation: <code>docs/bench/research/2026-07-26-benchmark-goal-ladder.md</code>
+        (war-room-prayer-compass repository, bench-seat research agent, 2026-07-26).</li>
+    </ul>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>benchmark suite</dt>
+      <dd>A fixed, repeatable set of tasks measured the same way across contenders, so results are
+        comparable rather than anecdotal.</dd>
+      <dt>rps</dt>
+      <dd>Requests per second: how many requests a server completes each second under load.</dd>
+      <dt>p50 / percentile</dt>
+      <dd>The latency below which a given percentage of requests finish; p50 is the median, p99 captures
+        the slow tail.</dd>
+      <dt>keep-alive</dt>
+      <dd>Reusing one network connection for many requests instead of opening a fresh one each time.</dd>
+      <dt>actor</dt>
+      <dd>An independent unit of computation with private state that communicates only by passing messages, never by sharing memory.</dd>
+      <dt>1BRC</dt>
+      <dd>One Billion Row Challenge: parse a billion text rows and emit aggregates per key, checked against
+        a reference answer.</dd>
+      <dt>startup time</dt>
+      <dd>Wall-clock time from launching a program to it being ready to run, usually dominated by
+        interpreter/runtime initialization.</dd>
+      <dt>idle connection</dt>
+      <dd>A connection or actor held open but not actively exchanging data, whose memory still counts
+        against capacity.</dd>
+    </dl>
+  </main>
+
+  <footer>
+    <p>
+      Written 2026-07-26. Every figure sourced from <code>docs/bench/research/2026-07-26-benchmark-goal-ladder.md</code>
+      in the war-room-prayer-compass repository &mdash; a bench-seat research survey conducted under the
+      maintainer's 15-hour research directive. No number in this article was estimated or extrapolated
+      beyond what that survey reports.
+    </p>
+  </footer>
+</body>
+</html>
