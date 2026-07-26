@@ -153,3 +153,9 @@ the bottom. Named results carry their authors/venue when appropriate
 (e.g. "Perceus (Reinking, Xie, de Moura, Leijen — PLDI 2021)"). Never
 invent a URL; if the source brief lacks one, say so rather than link
 to a guess.
+
+## Index rule (maintainer, 2026-07-26)
+articles/index.html must list EVERY published article — updating it is
+a mandatory step of every article commit (new article, retitle, or
+removal). Verify with: every articles/*.html basename (except index)
+appears in index.html. The editor pass checks this.
