@@ -77,10 +77,15 @@
           terminate. The reduced reproducer hit <strong>4.9 GB in ~20 seconds on a ten-file fixture</strong>.</li>
         <li>That loop was my bug. Underneath it sat a compiler bug: the idiomatic list append retained every
           intermediate copy. 16,000 appends cost <strong>2,741 MB</strong>; after the fix (v0.99.406a,
-          2026-07-25), <strong>5.7 MB</strong> &mdash; <strong>481&times;</strong>. The same defect explained
-          a web server idling at <strong>919 MB</strong> &mdash; though on the server side the fix bought
-          <strong>12&times;, not 481&times;</strong>, and what remains is still linear. I got that wrong in
-          public first; the correction is in Exhibit B.</li>
+          2026-07-25), <strong>5.7 MB</strong> &mdash; <strong>481&times;</strong>. That number has held up.</li>
+        <li>The <em>server</em> version of that leak took <strong>five attempts</strong>, and the fourth was
+          a retraction I had to retract in public. It is real, at <strong>~13,200 bytes per request</strong>,
+          flat. It kept looking like it "came back" because macOS <code>resident_size</code> excludes
+          compressed pages &mdash; so the number nearly every tool reports <em>falls</em> while the process
+          keeps growing. On <code>phys_footprint</code> the same server reads 11,991&nbsp;MB while resident
+          claims 709&nbsp;MB. My proudest disproof &mdash; "that rate implies 37&nbsp;GB on an 18&nbsp;GB
+          machine" &mdash; died on a premise I never measured: the box had 5.8&nbsp;GB of swap already in
+          use. Exhibit B.</li>
         <li>Three more silent classes fell out: a benchmark baseline that was a <em>dead binary</em> timing
           its own death at 2.3 ms, a compiler that deleted statements, and a cache race that published a
           poisoned compiler component &mdash; minting scripts that do nothing, deterministically, keyed by
@@ -196,13 +201,129 @@ while chunk != '' {                  # a record is never equal to ''
       <tbody>
         <tr><td>spread form <code>set xs = [...xs, item]</code></td><td class="number">2,741 MB</td><td class="number"><strong>5.7 MB</strong></td><td class="number">481&times;</td></tr>
         <tr><td>push form <code>set xs = push(xs, item)</code></td><td class="number">3,058 MB</td><td class="number"><strong>7.2 MB</strong></td><td class="number">425&times;</td></tr>
-        <tr><td>web server, per request</td><td class="number">~5.8 KB</td><td class="number">~500 B</td><td class="number">12&times; <span class="muted">(still linear)</span></td></tr>
+        <tr><td>web server, per request &mdash; <em>see the note below; measured on <code>phys_footprint</code></em></td><td class="number">&mdash;</td><td class="number">~13,200 B</td><td class="number">unmeasured</td></tr>
       </tbody>
     </table>
     <p class="muted">
       Peak memory, <code>/usr/bin/time -l</code> maximum resident, quiet box, 2026-07-25; verified twice on
-      independent harnesses. The server row is measured by the runtime's own in-process reporting, for
-      reasons the next section explains at my expense.
+      independent harnesses. The two list rows have survived every re-check.
+    </p>
+
+    <!-- FIGURE: the 481x. Log axis, because on a linear one the "after"
+         bars are a third of a pixel. Self-contained; no external requests. -->
+    <figure class="viz-root" id="fig-481">
+      <style>
+        #fig-481{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --f4-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --f4-border:rgba(11,11,11,0.10);
+          --before:#eb6834; --after:#2a78d6;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--f4-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-481{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --f4-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --f4-border:rgba(255,255,255,0.10);
+            --before:#d95926; --after:#3987e5;
+          }
+        }
+        :root[data-theme="dark"] #fig-481{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --f4-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --f4-border:rgba(255,255,255,0.10);
+          --before:#d95926; --after:#3987e5;
+        }
+        #fig-481 .f4-head{padding:18px 20px 2px}
+        #fig-481 .f4-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-481 .f4-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-481 .f4-legend{display:flex;flex-wrap:wrap;gap:14px;padding:12px 20px 0;font-size:.8rem;color:var(--text-secondary)}
+        #fig-481 .f4-key{display:inline-flex;align-items:center;gap:7px}
+        #fig-481 .f4-sw{width:14px;height:10px;border-radius:3px;flex:none}
+        #fig-481 .f4-plot{padding:6px 10px 0;overflow-x:auto}
+        #fig-481 svg{display:block;width:100%;min-width:470px;height:auto}
+        #fig-481 .f4-grid{stroke:var(--grid);stroke-width:1}
+        #fig-481 .f4-axis{stroke:var(--axis);stroke-width:1}
+        #fig-481 .f4-tick{fill:var(--f4-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-481 .f4-cat{fill:var(--text-primary);font-size:12px}
+        #fig-481 .f4-val{fill:var(--text-primary);font-size:11.5px;font-weight:650;font-variant-numeric:tabular-nums}
+        #fig-481 .f4-fac{fill:var(--text-primary);font-size:14px;font-weight:700}
+        #fig-481 .f4-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-481 .f4-foot{padding:8px 20px 16px;margin:0;font-size:.78rem;color:var(--f4-muted)}
+      </style>
+      <div class="f4-head">
+        <p class="f4-title">Building a 16,000-item list, before and after v0.99.406a</p>
+        <p class="f4-sub">Peak resident memory. <strong>The horizontal axis is logarithmic</strong> &mdash; on a linear one the "after" bars would be a third of a pixel wide, which is the entire point.</p>
+      </div>
+      <div class="f4-legend">
+        <span class="f4-key"><span class="f4-sw" style="background:var(--before)"></span>before &mdash; v0.99.402a</span>
+        <span class="f4-key"><span class="f4-sw" style="background:var(--after)"></span>after &mdash; v0.99.406a</span>
+      </div>
+      <div class="f4-plot">
+        <svg id="f4-svg" viewBox="0 0 760 250" role="img"
+             aria-label="Grouped bar chart on a logarithmic axis. The spread form used 2,741 megabytes before the fix and 5.7 megabytes after, a 481-fold reduction. The push form used 3,058 megabytes before and 7.2 megabytes after, a 425-fold reduction."></svg>
+      </div>
+      <p class="f4-foot">Both spellings of the same loop, both fixed by one change to the compiler's reassignment path. What the fix did not touch: the <em>time</em> cost, which is still quadratic in list length &mdash; large accumulations no longer exhaust memory, but they are still slow.</p>
+    </figure>
+    <script>
+    (function(){
+      var G=[
+        {cat:'spread form', code:'set xs = [...xs, item]', before:2741, after:5.7,  factor:'481×'},
+        {cat:'push form',   code:'set xs = push(xs, item)', before:3058, after:7.2, factor:'425×'}
+      ];
+      var W=760,H=250,L=178,R=104,T=22,B=46;
+      var LO=1,HI=10000;
+      function px(v){ if(v<LO)v=LO; return L+(Math.log10(v)-Math.log10(LO))/(Math.log10(HI)-Math.log10(LO))*(W-L-R); }
+      var o=[];
+      [1,10,100,1000,10000].forEach(function(v){
+        o.push('<line class="f4-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="f4-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+(v>=1000?(v/1000)+' GB':v+' MB')+'</text>');
+      });
+      o.push('<text class="f4-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">peak resident memory (logarithmic)</text>');
+      var bandH=(H-T-B)/G.length, barH=17, gap=5;
+      G.forEach(function(g,i){
+        var top=T+bandH*i+(bandH-(barH*2+gap))/2;
+        o.push('<text class="f4-cat" x="'+(L-12)+'" y="'+(top+13).toFixed(1)+'" text-anchor="end">'+g.cat+'</text>');
+        o.push('<text class="f4-tick" x="'+(L-12)+'" y="'+(top+27).toFixed(1)+'" text-anchor="end">'+g.code+'</text>');
+        [['before',g.before,'--before'],['after',g.after,'--after']].forEach(function(p,k){
+          var y=top+k*(barH+gap), w=Math.max(px(p[1])-L,2);
+          o.push('<rect x="'+L+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+barH+'" rx="4" fill="var('+p[2]+')"/>');
+          var lbl=(p[1]>=1000? p[1].toLocaleString()+' MB' : p[1]+' MB');
+          o.push('<text class="f4-val" x="'+(L+w+9).toFixed(1)+'" y="'+(y+12.5).toFixed(1)+'">'+lbl+'</text>');
+        });
+        o.push('<text class="f4-fac" x="'+(W-R+64)+'" y="'+(top+barH+gap).toFixed(1)+'" text-anchor="end">'+g.factor+'</text>');
+      });
+      o.push('<line class="f4-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('f4-svg').innerHTML=o.join('');
+    })();
+    </script>
+    <p class="caveat">
+      <strong>The third row took five attempts, and one of them was a retraction I had to retract.</strong>
+      It read "~5.8 KB &rarr; ~500 B per request, 12&times;"; then a far more alarming 13,340 bytes per
+      request; then &mdash; briefly, and in public &mdash; "there is no per-request leak at all, that
+      figure is the slope of a warm-up ramp." That fourth answer was wrong, and the reason is worth more
+      than the number. <strong>macOS <code>resident_size</code> excludes compressed pages.</strong> When
+      the compressor starts evicting cold garbage, the number nearly every tool reports <em>falls</em>
+      while the process's real commitment keeps climbing. On <code>phys_footprint</code> &mdash; the
+      ledger the kernel actually kills on &mdash; the slope is <strong>13,202 bytes per request</strong>
+      over fourteen consecutive intervals and never once negative, ending at 11,991&nbsp;MB committed
+      against 709&nbsp;MB resident: a 16.9&times; under-report. The leak is real; the instrument was blind;
+      and my disproof of it rested on "the machine never swapped," which I asserted without looking at a
+      box that already had 5.8&nbsp;GB of swap in use.
+    </p>
+    <p class="caveat">
+      Exactly what is measured, and not a word past it: retention is ~13.2&nbsp;KB per request and holds
+      linear to at least <strong>939,000 requests</strong> (~12.4&nbsp;GB); accumulation must bound
+      somewhere at or above that point, and neither the location nor the mechanism of that bound has been
+      measured. Something plainly stopped a 67&nbsp;GB trajectory &mdash; longer runs reached five million
+      requests at flat throughput. But I have measured a floor on where the bound is and nothing else
+      about it, I went looking for a recycler that would explain it and the one candidate in the runtime
+      does not fit, and <strong>a bound whose mechanism nobody can name is not reassuring &mdash; it is
+      suspicious.</strong> This article is a list of four confident numbers that were guesses wearing a
+      number's clothes. I am not adding a fifth to the end of it.
     </p>
 
     <div class="aside">

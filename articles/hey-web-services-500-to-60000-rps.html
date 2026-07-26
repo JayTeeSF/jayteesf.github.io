@@ -69,6 +69,7 @@
         <li>We built a load-test harness <em>in Hey itself</em>, cross-checked with <code>oha</code>, and profiled with macOS <code>sample</code> and disassembly.</li>
         <li>Four mechanisms explained the entire gap to Go: a ~7&nbsp;ms interpreter-delegation tax on stdlib calls, inverse worker scaling, no HTTP keep-alive, and per-request deep-copying in the dispatch path.</li>
         <li>Application fixes bought 3&ndash;10&times;. The toolchain ladder (v0.99.394a&ndash;409a) bought the rest &mdash; including a memory-leak fix that cut worst-case RAM 481&times; (2,741&nbsp;MB &rarr; 5.7&nbsp;MB) and a dispatch fix that turned the old 8-worker <em>penalty</em> into the new optimum.</li>
+        <li><strong>The per-request memory leak took five attempts to measure, and the fourth attempt was a retraction we had to retract.</strong> It is real: <strong>~13,200 bytes per request</strong>, dead flat. It looked like it "came back" because macOS <code>resident_size</code> &mdash; the number almost every tool reports &mdash; <em>excludes compressed pages</em>. Measured on <code>phys_footprint</code>, which includes them, the growth never stops and the same server reads 11,991&nbsp;MB committed while resident says 709&nbsp;MB. Chart and the full sequence below.</li>
         <li>Result: <strong>the 60,000 req/s target is crossed.</strong> war-room serves <strong>83,300 req/s</strong> at 8 workers (p50 88&nbsp;&micro;s); the scheduling app serves <strong>65,000&ndash;68,200 req/s</strong> (p50 60&nbsp;&micro;s) &mdash; both measured as <em>lower bounds</em> on a busy machine. Hey now beats a tuned 4-worker puma cluster on throughput <em>and</em> latency.</li>
       </ul>
     </div>
@@ -104,48 +105,273 @@
       The runtime hardcoded <code>connection: close</code>; every request paid a fresh TCP connection,
       and response bytes cost ~0.2&nbsp;ms/KB in a copy-heavy write path. Fixed in 396a.
     </p>
-    <h3>Finding 4: memory that only fell on idle</h3>
+    <h3>Finding 4: memory, and four wrong answers about it</h3>
     <p>
-      Every request quietly retained memory that was never released &mdash; absorbed by the OS compressor
-      while the server idled, which is why it hid for so long, and real pressure the moment load became
-      continuous. The list-building form of the same clone-and-abandon compiler bug is easy to state
-      exactly, because peak memory is straightforward to measure: 16,000 appends cost
-      <strong>2,741&nbsp;MB</strong> before v0.99.406a and <strong>5.7&nbsp;MB</strong> after, a
-      481&times; reduction. The per-request figure took three attempts to measure honestly, and the
-      correction below is that story.
+      One form of this finding is solid and easy to state exactly, because peak memory is
+      straightforward to measure: a clone-and-abandon compiler bug made list building quadratic in
+      memory, so 16,000 appends cost <strong>2,741&nbsp;MB</strong> before v0.99.406a and
+      <strong>5.7&nbsp;MB</strong> after &mdash; a 481&times; reduction. That number has survived every
+      re-check.
+    </p>
+    <p>
+      The other form &mdash; how much memory each <em>served request</em> retains &mdash; took five
+      attempts, and one of those attempts was a retraction that itself had to be retracted. It is the
+      most instructive part of this article, so the correction below is written at length rather than as
+      a footnote.
     </p>
     <div class="callout">
-      <h2>Correction, twice over (2026-07-25)</h2>
+      <h2>Correction, five attempts deep (2026-07-25) &mdash; including one retraction we had to retract</h2>
       <p>
-        This section first claimed the fix left a <em>flat</em> working set. It did not. We then corrected
-        that to "about 500 bytes per request, still linear" &mdash; and <em>that was wrong too</em>, by a
-        factor of twenty-five. Both wrong numbers came from measuring memory at the wrong moment: a
-        periodic sample taken while load was intermittent catches the process at a trough, not a peak.
+        This section has been wrong four times. Keeping the sequence visible is more useful than the
+        final number, so here it is in order: (1) the fix leaves a <em>flat</em> working set;
+        (2) no &mdash; about <strong>500 bytes per request</strong>, still linear; (3) no &mdash;
+        <strong>13,340 bytes per request</strong>, on a continuous saturation run, identical across four
+        consecutive releases; (4) no &mdash; <strong>there is no leak at all</strong>, that figure is the
+        slope of a warm-up ramp that the runtime's own 6&nbsp;GB self-termination ceiling was cutting
+        short; and now (5) <strong>the leak is real after all, at ~13,200 bytes per request, and
+        step&nbsp;4 was wrong for a reason worth more than the number.</strong>
       </p>
       <p>
-        Measured properly &mdash; one continuous saturation run per build, memory read at the same kind of
-        moment each time &mdash; the servers in this article were retaining <strong>13,340 bytes per
-        request</strong>, identically across three consecutive toolchain releases. At that rate a server
-        under sustained load exhausts several gigabytes and terminates in well under a minute, which is
-        exactly what ours did once it was finally asked to run for longer than a benchmark cell. The
-        throughput figures above were measured in five-second runs, so they are real numbers &mdash; but
-        the honest statement is that these servers could not have held them for a minute.
+        <strong>macOS <code>resident_size</code> excludes compressed pages.</strong> That is the whole
+        mechanism. When the compressor starts evicting cold garbage, resident memory <em>falls</em> while
+        the process's real commitment keeps climbing &mdash; the objects never move, the pages do. The
+        kernel's own ledger, <code>phys_footprint</code>, includes compressed pages, and measured on that
+        quantity the growth simply does not stop:
       </p>
       <p>
-        v0.99.413a fixes it: <strong>13,340 &rarr; 1,255 bytes per request</strong>, a 10.6&times;
-        reduction, and the same server now survives a 35-second saturation run at 100% success while
-        serving twice as many requests as the leaking builds managed before dying. What remains is still
-        linear, and a second fix for the return path is queued.
+        Over a single 30-second run, sampled every 250&nbsp;ms, the footprint slope held at
+        <strong>13,202 bytes per request</strong> (range 12,938&ndash;13,414 across fourteen intervals,
+        never once negative) while the resident slope went <em>negative in half of them</em>. At the end:
+        <strong>11,991&nbsp;MB actually committed, 709&nbsp;MB reported resident</strong> &mdash; a
+        16.9&times; under-report, with the runtime's 8,192&nbsp;MB safety ceiling armed and completely
+        blind to it. The two instruments agree to four significant figures for the first fourteen
+        seconds, and then one of them starts lying.
+      </p>
+      <p>
+        So the "ramp that turns over" in the chart below is exactly what a real leak looks like through
+        an instrument that cannot see compressed memory. The chart is kept, and relabelled, because the
+        shape it shows is the trap itself.
       </p>
       <p class="caveat">
-        Worth stating plainly, since this article is partly about method: the wrong "~500 bytes" figure
-        survived review because two independent measurements agreed on it &mdash; ours from a served
-        server, the compiler team's from a synthetic fixture, within 15% of each other. Both were low by
-        ~25&times;, in the same direction, for unrelated reasons. Agreement between two instruments that
-        are blind in the same way is not corroboration, and it is far more dangerous than a number nobody
-        has checked, because it feels settled.
+        <strong>What each wrong answer teaches, since this article is partly about method.</strong>
+        The "~500 bytes" figure survived review because two independent measurements agreed on it &mdash;
+        ours from a served server, the compiler team's from a synthetic fixture, within 15% of each other.
+        Both were low, in the same direction, for unrelated reasons: agreement between two instruments
+        blind in the same way is not corroboration, and it is more dangerous than a number nobody has
+        checked. The fourth answer &mdash; the retraction &mdash; came from a genuinely good control:
+        re-running the <em>identical build</em> and getting the opposite result, which does prove the
+        difference was not between versions. It was still wrong, because both outcomes were being read
+        through the blind instrument. And the argument I was proudest of was the worst one: "13,335 bytes
+        &times; 3 million requests is 37.6&nbsp;GB on an 18&nbsp;GB machine that never swapped, therefore
+        impossible." The multiplication was fine. <em>The machine had 5.8&nbsp;GB of swap in use before
+        the run started, and I never looked.</em> An arithmetic proof is only ever as good as the premise
+        you didn't measure.
+      </p>
+      <p class="caveat">
+        <strong>What we will state, and nothing beyond it:</strong> per-request retention is
+        ~13.2&nbsp;KB and holds linear to at least <strong>939,000 requests</strong> (~12.4&nbsp;GB);
+        accumulation must bound somewhere at or above that point, and neither the location nor the
+        mechanism of that bound has been measured.
+      </p>
+      <p class="caveat">
+        We are deliberately publishing neither "unbounded" nor "bounded". Something clearly stopped a
+        67&nbsp;GB trajectory &mdash; runs here reached five million requests at flat throughput, and every
+        run's memory curve sits within 6% of every other when matched against request count, so they were
+        all one regime. But we have measured a <em>floor</em> on where the bound is and nothing else about
+        it. <strong>A bound whose mechanism nobody can name is not reassuring; it is suspicious.</strong>
+        It might be a property of the program, or of how much RAM the machine happened to have free that
+        night. We went looking for a recycler that would explain it and the one candidate in the runtime
+        does not fit. This section has already published four confident numbers that turned out to be
+        guesses wearing a number's clothes, and we are not adding a fifth. What none of it changes:
+        ~13,200 bytes retained per request and roughly 85% of allocations never freed, over every request
+        we have measured.
       </p>
     </div>
+
+    <!-- FIGURE: phys_footprint vs resident_size, same process, same run.
+         Self-contained: scoped styles + inline SVG + one inline script.
+         war-room w4, trunk 414a, oha -c16 keep-alive, footprint sampled
+         every 250ms via proc_pid_rusage(RUSAGE_INFO_V4), 100% success. -->
+    <figure class="viz-root" id="fig-mem">
+      <style>
+        #fig-mem{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fm-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --fm-border:rgba(11,11,11,0.10);
+          --series-1:#2a78d6; --series-2:#eb6834;
+          --critical:#d03b3b;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fm-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-mem{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fm-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --fm-border:rgba(255,255,255,0.10);
+            --series-1:#3987e5; --series-2:#d95926;
+          }
+        }
+        :root[data-theme="dark"] #fig-mem{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fm-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --fm-border:rgba(255,255,255,0.10);
+          --series-1:#3987e5; --series-2:#d95926;
+        }
+        #fig-mem .fm-head{padding:18px 20px 0}
+        #fig-mem .fm-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-mem .fm-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-mem .fm-legend{display:flex;flex-wrap:wrap;gap:14px;padding:14px 20px 4px;font-size:.8rem;color:var(--text-secondary)}
+        #fig-mem .fm-key{display:inline-flex;align-items:center;gap:7px}
+        #fig-mem .fm-swatch{width:14px;height:3px;border-radius:2px;flex:none}
+        #fig-mem .fm-plot{padding:4px 10px 0;overflow-x:auto}
+        #fig-mem svg{display:block;width:100%;min-width:520px;height:auto}
+        #fig-mem .fm-grid{stroke:var(--grid);stroke-width:1}
+        #fig-mem .fm-axis{stroke:var(--axis);stroke-width:1}
+        #fig-mem .fm-tick{fill:var(--fm-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-mem .fm-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-mem .fm-line{fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+        #fig-mem .fm-note{fill:var(--text-secondary);font-size:11.5px}
+        #fig-mem .fm-note-strong{fill:var(--text-primary);font-size:11.5px;font-weight:650}
+        #fig-mem .fm-ceil{stroke:var(--critical);stroke-width:1.5;stroke-dasharray:5 4}
+        #fig-mem .fm-ceil-text{fill:var(--critical);font-size:11px;font-weight:650}
+        #fig-mem .fm-cross{stroke:var(--fm-muted);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+        #fig-mem .fm-dot{opacity:0}
+        #fig-mem .fm-foot{padding:2px 20px 14px;margin:0;font-size:.78rem;color:var(--fm-muted)}
+        #fig-mem .fm-wrap{position:relative}
+        #fig-mem .fm-tip{
+          position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-100%);
+          background:var(--surface-1);border:1px solid var(--fm-border);border-radius:7px;
+          padding:8px 10px;font-size:.75rem;line-height:1.5;color:var(--text-primary);
+          box-shadow:0 4px 14px rgba(0,0,0,.13);white-space:nowrap;z-index:5;
+          font-variant-numeric:tabular-nums;
+        }
+        #fig-mem .fm-tip .r{display:inline-block;width:9px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+        #fig-mem details{padding:0 20px 16px;font-size:.78rem;color:var(--text-secondary)}
+        #fig-mem summary{cursor:pointer;font-weight:550}
+        #fig-mem table{width:auto;margin:10px 0 0;font-variant-numeric:tabular-nums;font-size:.75rem}
+        #fig-mem th,#fig-mem td{border:1px solid var(--fm-border);padding:3px 8px;text-align:right;background:none}
+        #fig-mem th{color:var(--text-primary);font-weight:600;text-align:left}
+        #fig-mem td:first-child{text-align:left}
+      </style>
+
+      <div class="fm-head">
+        <p class="fm-title">The same memory, measured two ways &mdash; one of these lines is lying</p>
+        <p class="fm-sub">One process, one 30-second run, both quantities sampled every 250&nbsp;ms. They agree exactly until the compressor starts evicting cold pages at about 5&nbsp;GB. After that <code>resident_size</code> falls while the process's actual commitment keeps climbing at the same unbroken rate. Nothing was released.</p>
+      </div>
+
+      <div class="fm-legend" id="fm-legend"></div>
+
+      <div class="fm-wrap">
+        <div class="fm-plot">
+          <svg id="fm-svg" viewBox="0 0 760 400" role="img"
+               aria-label="Two lines against requests served. Physical footprint climbs in a straight line from zero to 11,991 megabytes across 939,000 requests. Resident size follows it exactly to about 5,200 megabytes at 390,000 requests, then falls away to 709 megabytes while the footprint line continues climbing unchanged."></svg>
+        </div>
+        <div class="fm-tip" id="fm-tip"></div>
+      </div>
+
+      <p class="fm-foot" id="fm-foot"></p>
+
+      <details>
+        <summary>Show the numbers</summary>
+        <div id="fm-table"></div>
+      </details>
+    </figure>
+
+    <script>
+    (function(){
+      var FP=[[0.0,1],[0.0116,146],[0.0231,343],[0.0347,538],[0.0462,747],[0.0625,942],[0.0788,1138],[0.095,1344],[0.1113,1558],[0.1269,1753],[0.1425,1948],[0.1581,2139],[0.1737,2334],[0.1889,2529],[0.2042,2720],[0.2194,2911],[0.2346,3107],[0.2502,3300],[0.2659,3503],[0.2815,3696],[0.2971,3905],[0.3134,4100],[0.3298,4311],[0.3461,4509],[0.3625,4740],[0.3781,4935],[0.3938,5129],[0.4095,5320],[0.4251,5512],[0.4406,5721],[0.4561,5914],[0.4715,6103],[0.487,6292],[0.5023,6480],[0.5175,6683],[0.5328,6875],[0.5481,7064],[0.5633,7252],[0.5785,7442],[0.5938,7634],[0.609,7823],[0.6249,8038],[0.6408,8244],[0.6567,8434],[0.6726,8625],[0.6887,8836],[0.7047,9044],[0.7208,9237],[0.7369,9440],[0.756,9699],[0.7751,9946],[0.7942,10191],[0.8133,10400],[0.8287,10590],[0.8441,10782],[0.8595,10974],[0.8749,11180],[0.891,11369],[0.9071,11590],[0.9232,11785],[0.9393,11991]];
+      var RS=[[0.0,2],[0.0116,146],[0.0231,344],[0.0347,538],[0.0462,748],[0.0625,943],[0.0788,1139],[0.095,1344],[0.1113,1558],[0.1269,1753],[0.1425,1948],[0.1581,2139],[0.1737,2334],[0.1889,2529],[0.2042,2720],[0.2194,2911],[0.2346,3106],[0.2502,3300],[0.2659,3503],[0.2815,3695],[0.2971,3904],[0.3134,4100],[0.3298,4310],[0.3461,4508],[0.3625,4738],[0.3781,4934],[0.3938,5127],[0.4095,5236],[0.4251,5358],[0.4406,5014],[0.4561,4761],[0.4715,4550],[0.487,4346],[0.5023,4137],[0.5175,3841],[0.5328,3560],[0.5481,3300],[0.5633,2953],[0.5785,3092],[0.5938,3055],[0.609,2898],[0.6249,2662],[0.6408,2490],[0.6567,2293],[0.6726,2154],[0.6887,1914],[0.7047,1732],[0.7208,1483],[0.7369,1224],[0.756,867],[0.7751,948],[0.7942,604],[0.8133,654],[0.8287,542],[0.8441,555],[0.8595,468],[0.8749,546],[0.891,564],[0.9071,569],[0.9232,608],[0.9393,709]];
+
+      var S=[
+        {id:'fp',name:'phys_footprint — what the process actually holds',short:'footprint',pts:FP,v:'--series-1'},
+        {id:'rs',name:'resident_size — what almost every tool reports',short:'resident',pts:RS,v:'--series-2'}
+      ];
+
+      var W=760,H=400,L=58,R=18,T=22,B=46,X0=0,X1=0.98,Y1=12600,CEIL=8192;
+      function px(x){return L+(x-X0)/(X1-X0)*(W-L-R);}
+      function py(y){return T+(1-y/Y1)*(H-T-B);}
+      function path(p){return p.map(function(d,i){return (i?'L':'M')+px(d[0]).toFixed(1)+' '+py(d[1]).toFixed(1);}).join(' ');}
+      function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+
+      var svg=document.getElementById('fm-svg'),o=[];
+      [0,2048,4096,6144,8192,10240,12288].forEach(function(y){
+        o.push('<line class="fm-grid" x1="'+L+'" y1="'+py(y).toFixed(1)+'" x2="'+(W-R)+'" y2="'+py(y).toFixed(1)+'"/>');
+        o.push('<text class="fm-tick" x="'+(L-9)+'" y="'+(py(y)+4).toFixed(1)+'" text-anchor="end">'+(y/1024)+' GB</text>');
+      });
+      [0,0.2,0.4,0.6,0.8].forEach(function(x){
+        o.push('<text class="fm-tick" x="'+px(x).toFixed(1)+'" y="'+(H-B+18)+'" text-anchor="middle">'+(x*1000)+'K</text>');
+      });
+      o.push('<line class="fm-axis" x1="'+L+'" y1="'+py(0).toFixed(1)+'" x2="'+(W-R)+'" y2="'+py(0).toFixed(1)+'"/>');
+      o.push('<text class="fm-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">requests served (cumulative)</text>');
+      o.push('<text class="fm-axlabel" transform="translate(13,'+((T+H-B)/2).toFixed(1)+') rotate(-90)" text-anchor="middle">memory</text>');
+
+      o.push('<line class="fm-ceil" x1="'+L+'" y1="'+py(CEIL).toFixed(1)+'" x2="'+(W-R)+'" y2="'+py(CEIL).toFixed(1)+'"/>');
+      o.push('<text class="fm-ceil-text" x="'+(L+8)+'" y="'+(py(CEIL)-7).toFixed(1)+'">⚠ safety ceiling armed at 8 GB — it watches the orange line, so it never fires</text>');
+
+      S.forEach(function(s){o.push('<path class="fm-line" d="'+path(s.pts)+'" stroke="var('+s.v+')"/>');});
+
+      var dvx=0.4095, dvy=5236;
+      o.push('<circle cx="'+px(dvx).toFixed(1)+'" cy="'+py(dvy).toFixed(1)+'" r="4" fill="none" stroke="var(--text-primary)" stroke-width="1.5"/>');
+      o.push('<text class="fm-note-strong" x="'+(px(dvx)-8).toFixed(1)+'" y="'+(py(dvy)-14).toFixed(1)+'" text-anchor="end">compressor engages</text>');
+      o.push('<text class="fm-note" x="'+(px(dvx)-8).toFixed(1)+'" y="'+(py(dvy)).toFixed(1)+'" text-anchor="end">the lines part here</text>');
+      o.push('<text class="fm-note-strong" x="'+(px(0.9393)-6).toFixed(1)+'" y="'+(py(11991)-10).toFixed(1)+'" text-anchor="end" fill="var(--series-1)">11,991 MB</text>');
+      o.push('<text class="fm-note-strong" x="'+(px(0.9393)-6).toFixed(1)+'" y="'+(py(709)-10).toFixed(1)+'" text-anchor="end" fill="var(--series-2)">709 MB — 16.9× apart</text>');
+
+      o.push('<line class="fm-cross" id="fm-cross" y1="'+T+'" y2="'+py(0).toFixed(1)+'"/>');
+      S.forEach(function(s){
+        o.push('<circle class="fm-dot" id="dot-'+s.id+'" r="4.5" fill="var('+s.v+')" stroke="var(--surface-1)" stroke-width="2"/>');
+      });
+      o.push('<rect id="fm-hit" x="'+L+'" y="'+T+'" width="'+(W-L-R)+'" height="'+(H-T-B)+'" fill="transparent"/>');
+      svg.innerHTML=o.join('');
+
+      document.getElementById('fm-legend').innerHTML=S.map(function(s){
+        return '<span class="fm-key"><span class="fm-swatch" style="background:var('+s.v+')"></span>'+esc(s.name)+'</span>';
+      }).join('');
+
+      document.getElementById('fm-foot').textContent=
+        'Footprint slope across fourteen 2-second intervals: 13,202 B/request (range 12,938–13,414), '+
+        'never once negative. Resident slope over the same intervals: negative in half of them, as low as '+
+        '−17,966 B/request. Both numbers describe the same process over the same requests. 100% success, '+
+        'zero failed requests, throughput flat at ~57K/s throughout.';
+
+      document.getElementById('fm-table').innerHTML=
+        '<table><tr><th>requests</th><th>footprint</th><th>resident</th><th>d(footprint)/d(req)</th><th>d(resident)/d(req)</th></tr>'+
+        '<tr><td>109 K</td><td>1,496 MB</td><td>1,497 MB</td><td>13,307 B</td><td>13,302 B</td></tr>'+
+        '<tr><td>424 K</td><td>5,452 MB</td><td>5,450 MB</td><td>12,972 B</td><td>12,967 B</td></tr>'+
+        '<tr><td>485 K</td><td>6,223 MB</td><td>4,738 MB</td><td>13,275 B</td><td>−12,245 B</td></tr>'+
+        '<tr><td>729 K</td><td>9,315 MB</td><td>1,307 MB</td><td>13,296 B</td><td>−14,457 B</td></tr>'+
+        '<tr><td>939 K</td><td>11,991 MB</td><td>709 MB</td><td>13,216 B</td><td>2,642 B</td></tr>'+
+        '</table>';
+
+      var tip=document.getElementById('fm-tip'),cross=document.getElementById('fm-cross'),hit=document.getElementById('fm-hit');
+      var wrap=document.querySelector('#fig-mem .fm-wrap'),plot=document.querySelector('#fig-mem .fm-plot');
+      function near(pts,x){var b=pts[0],bd=1e9;for(var i=0;i<pts.length;i++){var q=Math.abs(pts[i][0]-x);if(q<bd){bd=q;b=pts[i];}}return {p:b,d:bd};}
+      function move(ev){
+        var r=svg.getBoundingClientRect(),sc=W/r.width,sx=(ev.clientX-r.left)*sc;
+        if(sx<L||sx>W-R){hide();return;}
+        var xv=X0+(sx-L)/(W-L-R)*(X1-X0);
+        cross.setAttribute('x1',sx.toFixed(1));cross.setAttribute('x2',sx.toFixed(1));cross.style.opacity=1;
+        var html='<b>'+Math.round(xv*1000)+'K requests served</b>',top=null;
+        S.forEach(function(s){
+          var n=near(s.pts,xv),dot=document.getElementById('dot-'+s.id);
+          if(n.d>0.05){dot.style.opacity=0;return;}
+          dot.setAttribute('cx',px(n.p[0]).toFixed(1));dot.setAttribute('cy',py(n.p[1]).toFixed(1));dot.style.opacity=1;
+          html+='<br><span class="r" style="background:var('+s.v+')"></span>'+esc(s.short)+' &nbsp;<b>'+n.p[1].toLocaleString()+' MB</b>';
+          if(top===null||py(n.p[1])<top)top=py(n.p[1]);
+        });
+        tip.innerHTML=html;tip.style.opacity=1;
+        var pr=plot.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
+        tip.style.left=(ev.clientX-wr.left)+'px';
+        tip.style.top=((top!==null?top/sc:60)+(pr.top-wr.top)-12)+'px';
+      }
+      function hide(){tip.style.opacity=0;cross.style.opacity=0;S.forEach(function(s){document.getElementById('dot-'+s.id).style.opacity=0;});}
+      hit.addEventListener('mousemove',move);
+      hit.addEventListener('mouseleave',hide);
+      hit.addEventListener('touchmove',function(e){if(e.touches[0])move(e.touches[0]);},{passive:true});
+    })();
+    </script>
 
     <h2>Application-side fixes (what you can do in your own code)</h2>
     <ul>
@@ -174,11 +400,11 @@
         <tr><td>397a</td><td>Direct-facade table</td><td>Tabled stdlib calls ~3,400&nbsp;&micro;s &rarr; <strong>~3&nbsp;&micro;s</strong>.</td></tr>
         <tr><td>399a</td><td>Dispatch-path clone elimination, stage 4c</td><td>Route-count scaling anomaly gone; all apps peak at 4 workers, 24&ndash;29K req/s.</td></tr>
         <tr><td>402a</td><td>Delegation sidecar</td><td><strong>The delegation tax died</strong>: canary 4,479 &rarr; 56&nbsp;&micro;s; records 28&ndash;31K req/s.</td></tr>
-        <tr><td>406a</td><td>Clone-and-abandon fix (memory)</td><td><strong>The list-building OOM class died</strong>: 16K-item list 2,741&nbsp;MB &rarr; 5.7&nbsp;MB (481&times;). Per-request server retention was <em>not</em> fixed here, though we believed it was for a day &mdash; see the correction above.</td></tr>
+        <tr><td>406a</td><td>Clone-and-abandon fix (memory)</td><td><strong>The list-building OOM class died</strong>: 16K-item list 2,741&nbsp;MB &rarr; 5.7&nbsp;MB (481&times;). This is the memory fix that is real and stands. The separate <em>per-request</em> retention we spent a day attributing to this release, and then to others, turned out not to exist at all &mdash; see the correction above.</td></tr>
         <tr><td>407a</td><td>Dispatch deep-clones removed; route scan borrows; stats counters gated</td><td><strong>The 8-worker crater died and 8 workers became the optimum</strong>: war-room 11.7K &rarr; <strong>83.3K req/s</strong> at w8; per-request allocations 287 &rarr; 177. (The gated stats counters alone were worth ~61% throughput.)</td></tr>
         <tr><td>408a&ndash;409a</td><td>Correctness: zero-IR compile guards + statement-truncation fix</td><td>A silent-miscompile class (found <em>by this benchmarking work</em>) can no longer ship quietly; a toolchain tool compiled to a working native binary for the first time.</td></tr>
-        <tr><td>410a</td><td>Observability: self-logging, load shedding, loud self-termination</td><td>Servers stopped dying silently. This is what caught the leak below &mdash; and every number in this article after it is trustworthy for the same reason.</td></tr>
-        <tr><td>413a</td><td>Per-request boxed-temporary release</td><td><strong>13,340 &rarr; 1,255 bytes retained per request (10.6&times;)</strong>. The first build in this table that survives a 35-second saturation run.</td></tr>
+        <tr><td>410a</td><td>Observability: self-logging, load shedding, loud self-termination</td><td>Servers stopped dying silently &mdash; every number in this article after it is trustworthy for that reason. With a caveat found the hard way: the ceiling it introduced watches <em>resident</em> memory, which under compression reads far below what the process actually holds. In the run charted above it sat armed at 8&nbsp;GB while the server committed 11,991&nbsp;MB, and never fired. It is being repointed at <code>phys_footprint</code>.</td></tr>
+        <tr><td>413a</td><td>Per-request boxed-temporary release</td><td>Originally credited here with a 10.6&times; cut in per-request retention. <strong>That credit is suspended, in both directions.</strong> The measurement behind it &mdash; and the later measurement that appeared to withdraw it &mdash; were both taken on <code>resident_size</code>, which cannot see compressed pages. The fix is real code; its effect on the leak is simply <em>unmeasured</em> until it is re-run on <code>phys_footprint</code>. Neither credit nor discredit it here.</td></tr>
       </tbody>
     </table>
 

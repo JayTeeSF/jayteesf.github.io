@@ -131,6 +131,94 @@
         <tr><td class="muted">Hey, retired hand-optimized version, 4 workers &mdash; <em>not the headline: tuned Hey against untuned Ruby is not like-for-like</em></td><td class="number muted">18.2 &plusmn; 0.8 ms</td><td class="number muted">6.9&times;</td></tr>
       </tbody>
     </table>
+    <!-- FIGURE: lane comparison. Self-contained; no external requests.
+         hyperfine x30 per lane, quiet box, every lane byte-parity gated. -->
+    <figure class="viz-root" id="fig-lanes">
+      <style>
+        #fig-lanes{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fl-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --fl-border:rgba(11,11,11,0.10);
+          --hey:#2a78d6; --ruby:#eb6834;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fl-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-lanes{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fl-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --fl-border:rgba(255,255,255,0.10);
+            --hey:#3987e5; --ruby:#d95926;
+          }
+        }
+        :root[data-theme="dark"] #fig-lanes{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fl-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --fl-border:rgba(255,255,255,0.10);
+          --hey:#3987e5; --ruby:#d95926;
+        }
+        #fig-lanes .fl-head{padding:18px 20px 2px}
+        #fig-lanes .fl-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-lanes .fl-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-lanes .fl-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-lanes svg{display:block;width:100%;min-width:480px;height:auto}
+        #fig-lanes .fl-grid{stroke:var(--grid);stroke-width:1}
+        #fig-lanes .fl-axis{stroke:var(--axis);stroke-width:1}
+        #fig-lanes .fl-tick{fill:var(--fl-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-lanes .fl-cat{fill:var(--text-primary);font-size:12px}
+        #fig-lanes .fl-cat-sub{fill:var(--fl-muted);font-size:10.5px}
+        #fig-lanes .fl-val{fill:var(--text-primary);font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
+        #fig-lanes .fl-ratio{fill:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-lanes .fl-err{stroke:var(--text-primary);stroke-width:1.5;opacity:.55}
+        #fig-lanes .fl-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-lanes .fl-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fl-muted)}
+      </style>
+      <div class="fl-head">
+        <p class="fl-title">The same program, five ways &mdash; idiomatic Hey against idiomatic Ruby</p>
+        <p class="fl-sub">Wall-clock mean per run, <code>hyperfine</code> &times;30 per lane on a quiet box, every lane byte-parity gated against the Ruby output. Whiskers show &plusmn;1 standard deviation. Shorter is faster.</p>
+      </div>
+      <div class="fl-plot">
+        <svg id="fl-svg" viewBox="0 0 760 300" role="img"
+             aria-label="Horizontal bar chart of mean runtime. Ruby 3.4 with YJIT takes 125.2 milliseconds. The idiomatic Hey port takes 24.2 milliseconds on 4 workers, 31.4 on 1 worker, and 21.1 compiled to a binary. The retired hand-optimized Hey version takes 18.2 milliseconds."></svg>
+      </div>
+      <p class="fl-foot">The row that carries the argument is the second: an idiomatic port, no hand-tuning, at 5.2&times; Ruby. The faded bottom bar is the hand-optimized version we retired &mdash; kept visible because tuned Hey against untuned Ruby is not a like-for-like claim, and the distance to it (24.2 against 18.2&nbsp;ms) is the honest price of readable code.</p>
+    </figure>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'Ruby 3.4 + YJIT',     sub:'idiomatic',                  ms:125.2, sd:2.4, ratio:'baseline', c:'--ruby', dim:false},
+        {label:'Hey, idiomatic port', sub:'script lane, 4 workers',     ms:24.2,  sd:0.9, ratio:'5.2×', c:'--hey', dim:false},
+        {label:'Hey, idiomatic port', sub:'script lane, 1 worker',      ms:31.4,  sd:0.6, ratio:'4.0×', c:'--hey', dim:false},
+        {label:'Hey, idiomatic port', sub:'compiled to a binary',       ms:21.1,  sd:0.9, ratio:'5.9×', c:'--hey', dim:false},
+        {label:'Hey, hand-optimized', sub:'retired — not the headline', ms:18.2, sd:0.8, ratio:'6.9×', c:'--hey', dim:true}
+      ];
+      var W=760,H=300,L=205,R=95,T=26,B=44,XMAX=135;
+      var bandH=(H-T-B)/ROWS.length, barH=19;
+      function px(v){return L+v/XMAX*(W-L-R);}
+      var o=[];
+      [0,25,50,75,100,125].forEach(function(v){
+        o.push('<line class="fl-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="fl-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v+'</text>');
+      });
+      o.push('<text class="fl-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">mean wall-clock per run (milliseconds)</text>');
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=px(r.ms)-L, op=r.dim?0.45:1;
+        o.push('<text class="fl-cat" x="'+(L-12)+'" y="'+(cy-1).toFixed(1)+'" text-anchor="end" opacity="'+op+'">'+r.label+'</text>');
+        o.push('<text class="fl-cat-sub" x="'+(L-12)+'" y="'+(cy+12).toFixed(1)+'" text-anchor="end" opacity="'+op+'">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+barH+'" rx="4" fill="var('+r.c+')" opacity="'+op+'"/>');
+        var e1=px(r.ms-r.sd), e2=px(r.ms+r.sd);
+        o.push('<line class="fl-err" x1="'+e1.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+e2.toFixed(1)+'" y2="'+cy.toFixed(1)+'"/>');
+        o.push('<line class="fl-err" x1="'+e1.toFixed(1)+'" y1="'+(cy-4).toFixed(1)+'" x2="'+e1.toFixed(1)+'" y2="'+(cy+4).toFixed(1)+'"/>');
+        o.push('<line class="fl-err" x1="'+e2.toFixed(1)+'" y1="'+(cy-4).toFixed(1)+'" x2="'+e2.toFixed(1)+'" y2="'+(cy+4).toFixed(1)+'"/>');
+        o.push('<text class="fl-val" x="'+(px(r.ms)+14).toFixed(1)+'" y="'+(cy-1).toFixed(1)+'" opacity="'+op+'">'+r.ms.toFixed(1)+' ± '+r.sd.toFixed(1)+'</text>');
+        o.push('<text class="fl-ratio" x="'+(px(r.ms)+14).toFixed(1)+'" y="'+(cy+12).toFixed(1)+'" opacity="'+op+'">'+r.ratio+'</text>');
+      });
+      o.push('<line class="fl-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('fl-svg').innerHTML=o.join('');
+    })();
+    </script>
     <p>
       The port keeps <code>--workers N</code> (default 4), so fan-out is priced in the table too:
       serial is 31.4 ms, making the worker pool worth roughly a quarter.
