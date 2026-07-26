@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="How Hey is building its actor system deliberately from published research — Pony, Tokio, BEAM, Perceus, ORCA — instead of folklore, and the honest pros and cons of each decision.">
+  <meta name="description" content="How Hey turned actor-runtime research into five concrete design decisions, what each decision improves, and what risks remain.">
   <meta name="article-date" content="2026-07-26">
   <meta name="article-series" content="research">
-  <meta name="article-desc" content="A 4,096-element read costs ~8,198 hidden copies today. How &quot;What Makes an Actor Cheap?&quot; became a literal work order &mdash; five decisions, what each one costs, and the 403-byte actor that resulted.">
+  <meta name="article-desc" content="Hey's actor runtime currently uses about 403 bytes per idle actor. This follow-up explains the five research-backed decisions intended to reduce that cost, remove scheduler bottlenecks, and make immutable messages cheap to share.">
   <title>Designing Hey's Actors</title>
-  <style>
+<style>
     :root {
       color-scheme: light dark;
       --border: color-mix(in srgb, currentColor 18%, transparent);
@@ -76,11 +76,13 @@
   <header>
     <h1>Designing Hey's Actors</h1>
     <p class="lede">
-      Hey wants millions of actors running on a handful of threads. Rather than guess its way there, the
-      team turned its own research into a literal roadmap &mdash; a document titled
-      <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">"What Makes an Actor
-      Cheap?"</a> that named the exact papers and runtimes to crib from. This is the story of what got
-      decided, where each idea was stolen from, and what it costs.
+      Hey's actor runtime is being redesigned around a simple goal: support millions of actors on a
+      small, fixed set of operating-system threads. The design is not based on intuition alone. It
+      follows the research summarized in
+      <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor
+      Cheap?&rdquo;</a>, then turns that research into five concrete engineering decisions. This article
+      explains those decisions, the evidence behind them, the benefits they should provide, and the
+      costs or risks that remain.
     </p>
   </header>
 
@@ -88,35 +90,44 @@
     <div class="tldr">
       <h2>TL;DR</h2>
       <ul>
-        <li><strong>Per-actor memory today: ~403 bytes, measured.</strong> A diet slice in flight targets
-          <strong>~303 bytes</strong>. Both are still short of Pony's <strong>240 bytes</strong> and
-          Tokio's <strong>64 bytes</strong> &mdash; well ahead of Go's <strong>2,048-byte</strong> goroutine
-          and BEAM's <strong>~2,616-byte</strong> process, but the honest gap to the leaders remains open.</li>
-        <li><strong>The founding finding: fast is "no stack," not "immutable."</strong> Tokio (mutable, 64 B)
-          and Pony (mutable, 240 B) get cheap by refusing to let a handler pause mid-call. BEAM (immutable,
-          ~2,616 B) pays a real stack anyway, for the identical reason Go (mutable, 2,048 B) does: both let a
-          worker suspend anywhere.</li>
-        <li><strong>The receive-placement question flipped twice in one working day.</strong> Research
-          recommended Pony's top-only receive; the team briefly planned mid-body multi-receive with its own
-          compiler pass; the final ruling landed back on top-only &mdash; and the abandoned research was kept
-          on file rather than thrown away.</li>
-        <li><strong>Immutability deletes machinery neither Pony nor BEAM got to skip.</strong> No capability
-          type system, no ORCA garbage collector, no per-message deep copy &mdash; sharing a value across
-          actors becomes bumping a reference count, safe by construction because nothing can ever
-          mutate it.</li>
-        <li>A 100,000-actor Skynet-style spawn tree already runs correctly today in roughly
-          <strong>15&ndash;21 seconds</strong>, and the measured bottleneck is a quadratic list-append, not
-          actor-spawn cost &mdash; worth knowing before crediting or blaming the actor design for that number.</li>
-        <li><strong>Disclosed risk:</strong> the reference-counting plan's own source paper measured what
-          happens without its compiler-static optimizations &mdash; naive, atomic-everywhere counting costs
-          <strong>5&ndash;59% slower</strong>, depending on workload. The plan only pays off if the
-          single-owner fast path stays fast.</li>
+        <li>
+          <strong>Hey currently uses about 403 bytes for each idle actor.</strong> A planned cleanup of
+          the actor structure targets about <strong>303 bytes</strong>. That would put Hey below Go's
+          2,048-byte initial goroutine stack and BEAM's roughly 2,616-byte process, but still above
+          Pony's roughly 240-byte actor and Tokio's 64-byte task.
+        </li>
+        <li>
+          <strong>The main way to make an actor cheap is to remove its private call stack.</strong>
+          Tokio and Pony are small because a task or actor does not pause in the middle of an arbitrary
+          function call. Go and BEAM allow that kind of suspension, so each worker needs a real stack.
+        </li>
+        <li>
+          <strong>Hey will only allow <code>receive</code> at the top of the actor loop.</strong> The
+          team briefly planned to support receives in the middle of a handler by compiling handlers
+          into state machines, but rejected that plan after estimating its compiler complexity and
+          memory cost.
+        </li>
+        <li>
+          <strong>The mailbox and scheduler are being redesigned together.</strong> The mailbox will
+          use a lock-free multi-producer, single-consumer queue. The scheduler will use per-worker
+          queues and work stealing instead of routing almost every external message through one global
+          lock.
+        </li>
+        <li>
+          <strong>Large immutable messages should be shared by reference instead of copied.</strong>
+          The proposed design uses reference counting so that sending a value can usually update a
+          counter rather than duplicate the entire value.
+        </li>
+        <li>
+          <strong>The design still has important open risks.</strong> Blocking I/O needs a separate
+          worker pool, mailboxes need a backpressure policy, and reference counting will only be fast
+          enough if the compiler preserves a cheap single-owner path.
+        </li>
       </ul>
     </div>
 
-    <!-- FIGURE: per-actor memory floor, log axis, two Hey rows highlighted (today solid, target dashed). -->
-    <figure class="viz-root" id="fig-floor2">
-      <style>
+<figure class="viz-root" id="fig-floor2">
+<style>
         #fig-floor2{
           color-scheme: light;
           --surface-1:#fcfcfb;
@@ -161,27 +172,26 @@
         #fig-floor2 .ff-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--ff-muted)}
         #fig-floor2 rect{cursor:default}
       </style>
-      <div class="ff-head">
-        <p class="ff-title">Per-actor memory floor: six numbers, one goal</p>
-        <p class="ff-sub"><strong>The axis is logarithmic</strong> &mdash; the spread from 64 bytes to 2,616
+<div class="ff-head">
+<p class="ff-title">Per-actor memory floor: six numbers, one goal</p>
+<p class="ff-sub"><strong>The axis is logarithmic</strong> &mdash; the spread from 64 bytes to 2,616
           bytes covers more than one and a half orders of magnitude, and a linear axis would flatten the
           cheap end to nothing.</p>
-      </div>
-      <div class="ff-legend">
-        <span class="ff-key"><span class="ff-sw" style="background:var(--text-secondary);opacity:.55"></span>other runtimes</span>
-        <span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight)"></span><strong>Hey, today (measured)</strong></span>
-        <span class="ff-key"><span class="ff-sw dash"></span><strong>Hey, diet target (planned)</strong></span>
-      </div>
-      <div class="ff-plot">
-        <svg id="ff-svg2" viewBox="0 0 780 320" role="img"
-             aria-label="Horizontal bar chart, logarithmic axis, of per-actor memory in bytes. Tokio task: 64. Pony actor: 240. Hey, diet target, planned, shown as a dashed outline bar: 303. Hey, today, measured, shown bold and highlighted in blue: 403. Go goroutine: 2,048. BEAM process: 2,616. The two Hey rows are marked additionally with bold text and distinct fill styles so the highlight does not depend on color alone."></svg>
-      </div>
-      <p class="ff-foot">Direct-labeled bars carry the story; hover any bar for its source. Go's number is
+</div>
+<div class="ff-legend">
+<span class="ff-key"><span class="ff-sw" style="background:var(--text-secondary);opacity:.55"></span>other runtimes</span>
+<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight)"></span><strong>Hey, today (measured)</strong></span>
+<span class="ff-key"><span class="ff-sw dash"></span><strong>Hey, diet target (planned)</strong></span>
+</div>
+<div class="ff-plot">
+<svg aria-label="Horizontal bar chart, logarithmic axis, of per-actor memory in bytes. Tokio task: 64. Pony actor: 240. Hey, diet target, planned, shown as a dashed outline bar: 303. Hey, today, measured, shown bold and highlighted in blue: 403. Go goroutine: 2,048. BEAM process: 2,616. The two Hey rows are marked additionally with bold text and distinct fill styles so the highlight does not depend on color alone." id="ff-svg2" role="img" viewbox="0 0 780 320"></svg>
+</div>
+<p class="ff-foot">Direct-labeled bars carry the story; hover any bar for its source. Go's number is
         its initial stack only &mdash; it grows on demand. Hey's "today" bar is solid and bold; its "target"
         bar is a dashed outline, the same visual convention used elsewhere on this site for a goal that
         hasn't been hit yet.</p>
-    </figure>
-    <script>
+</figure>
+<script>
     (function(){
       var ROWS=[
         {label:'Tokio task',        sub:'no stack — single allocation',        bytes:64,   kind:'plain', src:'Tokio Tutorial: Spawning — tokio.rs'},
@@ -223,477 +233,459 @@
     </script>
 
     <div class="aside">
-      <h3>How to read this article</h3>
+      <h3>This article is a follow-up</h3>
       <p>
-        Every number below traces to a sourced research brief written during Hey's stack-removal campaign,
-        or to a primary source those briefs cite &mdash; official docs, runtime source code, or a
-        peer-reviewed paper &mdash; linked inline where it's used, plus a full source list at the end.
-        Technical terms get a definition with an example the first time they show up, boxed like this one.
-        There's a glossary at the bottom if you lose track.
+        The earlier article explains the basic actor model and compares BEAM, Pony, Go, and Tokio in
+        detail. This article assumes that background. It gives short reminders where needed, but does
+        not repeat the earlier article's full explanations of actors, stacks, mailboxes, work stealing,
+        or immutability.
       </p>
     </div>
 
-    <h2>1. The goal: an actor system built from a reading list</h2>
-    <div class="aside term">
-      <h3>Term: what's an actor?</h3>
-      <p>
-        An <dfn>actor</dfn> is a small, independent worker that owns its own private state and talks to
-        other actors only by sending messages &mdash; never by reaching into another actor's data directly.
-        Picture a hotel front desk clerk: guests slide requests across the counter, the clerk handles them
-        one at a time, and nobody walks behind the counter to grab the ledger. A well-designed actor system
-        can run millions of these clerks, each cheap enough to spawn that doing so costs about as much as
-        allocating a small struct.
-      </p>
-    </div>
+    <h2>1. Turning the research into an implementation plan</h2>
     <p>
-      Hey, a young, immutable-first language, wants that: work-stealing over one OS thread per core, actors
-      spawnable by the million, backed by a structural edge no other actor runtime gets for free &mdash;
-      reference-shared immutable messages needing zero copying and zero locking to share safely. That's the
-      goal statement from the team's own synthesis of its research.
+      Hey is an immutable-first language that wants to run millions of actors on roughly one worker
+      thread per CPU core. Actors communicate by sending messages, and the runtime schedules each actor
+      when it has work to do. The difficult part is making each idle actor small enough, and each send
+      cheap enough, that the system still works at very large scale.
     </p>
     <p>
-      What makes this project unusual isn't the goal &mdash; every actor runtime chases some version of it
-      &mdash; it's the discipline behind how Hey is getting there. Before writing a line of the new runtime,
-      the team wrote <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">"What
-      Makes an Actor Cheap?"</a>, a sourced comparison of BEAM, Pony, Go, and Tokio's per-actor cost. That
-      article wasn't published as background reading. It became the literal work-order: a "stack-removal
-      campaign" document divides Hey's actor rework into workstreams, and every one of them names a specific
-      paper or piece of runtime source as its "crib" &mdash; the thing to copy from, not reinvent. This
-      article walks through what that reading list produced: the decisions, where each one came from, and
-      what each one costs.
+      The earlier article compared the memory and scheduling models used by BEAM, Pony, Go, and Tokio.
+      The follow-up work converted that comparison into an engineering program. Each part of the program
+      names an existing runtime, paper, or algorithm to use as a model. Each part also has a measurable
+      completion condition, such as actor size, lock contention, mailbox behavior, or benchmark results.
+    </p>
+    <p>
+      Five decisions define the current design: remove per-actor stacks, restrict where actors may
+      receive messages, replace the mailbox queue, replace the scheduler's global bottleneck, and share
+      immutable values by reference. These choices are related, but they solve different problems and
+      carry different risks.
     </p>
 
-    <h2>2. The reveal: the stack is the cost, not the data model</h2>
-    <div class="aside term">
-      <h3>Term: call stack</h3>
-      <p>
-        A <dfn>call stack</dfn> is the pile of "what do I do when I'm done with this" bookmarks a program
-        keeps as functions call other functions &mdash; sticky notes added every time you get interrupted by
-        a sub-task, popped off when that sub-task finishes. A worker that can pause mid-function to wait on
-        a message needs a real, growable stack to remember where it was. A worker that only ever runs one
-        message handler to completion before yielding needs no stack at all, because there's nothing
-        mid-function left to remember.
-      </p>
-    </div>
+    <h2>2. Why the stack matters more than mutability</h2>
     <p>
-      The founding research laid four runtimes side by side and found a pattern that has nothing to do with
-      whether the language is mutable or immutable. Tokio's tasks cost <strong>64 bytes</strong> and have no
-      stack &mdash; "under the hood, they require only a single allocation," designed explicitly so that
-      "spawning thousands, or even millions of tasks" is normal. &mdash;
-      <a href="https://tokio.rs/tokio/tutorial/spawning">Tokio Tutorial: Spawning</a>. Pony's actors cost
-      <strong>~240 bytes</strong> and also have no stack: "actors do not have individual stacks, rather they
-      use the stack of the OS thread they are scheduled on." &mdash;
-      <a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a>. Both are mutable languages. Go's
-      goroutines, also mutable, cost <strong>2,048 bytes</strong> initially because they carry a real,
-      growable stack that can suspend at any depth &mdash;
-      <a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">runtime/stack.go</a>. And
-      BEAM's Erlang processes, fully <em>immutable</em>, cost <strong>~2,616 bytes</strong> (327 words) for
-      the identical reason Go pays: a process can block on a receive in the middle of any function, so it
-      needs a stack too &mdash;
-      <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Erlang System Documentation</a>.
+      The most important result from the earlier research is that the smallest runtimes do not give
+      every task or actor its own call stack. Tokio tasks use about <strong>64 bytes</strong>, and Pony
+      actors use about <strong>240 bytes</strong>. In both systems, a handler does not pause halfway
+      through an arbitrary call chain and later resume from that exact point.
     </p>
     <p>
-      Restated as the research brief puts it: <strong>"fast is 'no stack,' not 'immutable.'"</strong> That
-      one sentence is the hinge the rest of this article turns on &mdash; it is why Hey's actor redesign
-      spends its effort removing a stack, not chasing a particular data model, and it's why the very first
-      decision below has nothing to do with immutability at all.
+      Go goroutines and BEAM processes do allow that kind of suspension. A Go goroutine begins with a
+      <strong>2,048-byte</strong> growable stack. A BEAM process uses about <strong>2,616 bytes</strong>
+      at its minimum size and includes space for a stack, heap, mailbox, and garbage-collection state.
+      Go uses mutable data and BEAM uses immutable data, yet both pay for a stack. That is why the
+      earlier article concludes that the strongest predictor of per-worker memory is whether the worker
+      can suspend anywhere, not whether its values are mutable.
+    </p>
+    <p>
+      This finding determines the rest of Hey's design. Hey cannot reach the memory range of Pony or
+      Tokio while preserving one operating-system thread and one C stack per actor. The runtime must
+      schedule actors as short pieces of work on a fixed pool of worker threads.
     </p>
 
-    <h2>3. Decision one: no stack, run actors to completion</h2>
+    <h2>3. Decision one: actors run on a fixed worker pool</h2>
     <p>
-      Hey's actors are being moved off individual OS threads entirely. Today, spawning an actor means
-      <code>pthread_create</code> &mdash; one OS thread and one C stack per actor, a design the runtime's own
-      source comment admits is temporary. The replacement already exists in skeleton form: a pooled path that
-      runs actors as short step functions over a fixed worker pool, the same shape Tokio and Pony use.
+      Hey's current thread-per-actor path calls <code>pthread_create</code>, which gives every actor an
+      operating-system thread and a C stack. The runtime source already describes that path as
+      temporary. The replacement is a pooled design: a fixed number of workers repeatedly take runnable
+      actors from queues and execute one step of each actor.
+    </p>
+    <p>
+      A message handler must run to completion before the actor waits for another message. It may call
+      ordinary functions while it runs, using the current worker thread's stack, but the runtime does
+      not preserve that stack after the handler yields. The actor therefore needs state and a mailbox,
+      but not its own suspended call stack.
     </p>
     <div class="pc-grid">
       <div class="pc-pro">
-        <h4>Pro</h4>
-        <p>It's the only design with a shipping proof at the target floor. Pony reaches ~240 bytes and Tokio
-          64 bytes by this exact mechanism; nothing that keeps a per-actor stack has ever hit those numbers.
-          For a goal measured in millions of actors, "proven, not promising" matters more than elegance.</p>
+        <h4>Benefit</h4>
+        <p>
+          This is the only design in the comparison that has already reached the intended memory range.
+          Pony and Tokio both demonstrate that millions of lightweight workers are practical when the
+          runtime does not reserve a stack for each one.
+        </p>
       </div>
       <div class="pc-con">
-        <h4>Con</h4>
-        <p>A handler can't pause mid-work to wait for another message &mdash; there's no stack to suspend
-          into. Code that used to block partway through has to be restructured as self-messaging: finish
-          what you can, send yourself (or another actor) a message, and resume from the top next time. And
-          any call that genuinely blocks &mdash; file I/O, DNS &mdash; can't just sit there occupying a
-          scheduler thread; it needs a separate pool to run on, the same shape as BEAM's
-          <dfn>dirty scheduler</dfn>, a fixed-size pool (BEAM defaults dirty I/O schedulers to
-          <strong>10</strong>, independent of core count) reserved for exactly this kind of work so it never
-          stalls the actors that don't need it. &mdash;
-          <a href="https://www.erlang.org/doc/apps/erts/erl_nif.html">erl_nif docs</a></p>
+        <h4>Cost and risk</h4>
+        <p>
+          A handler cannot block a scheduler worker while waiting for file I/O, DNS, or a long native
+          call. Hey therefore needs a separate, bounded pool for blocking work, similar to Tokio's
+          blocking pool, Go's ability to hand blocked work to another thread, and BEAM's dirty
+          schedulers. Without that bridge, a few blocking handlers could stop all actor progress.
+        </p>
       </div>
     </div>
+    <p>
+      BEAM provides a useful sizing reference: its dirty I/O pool defaults to ten threads regardless
+      of CPU count. Hey does not have to copy that exact number, but it does need the same separation
+      between ordinary actor work and calls that may block for an unpredictable amount of time.
+      &mdash; <a href="https://www.erlang.org/doc/apps/erts/erl_nif.html">Erlang NIF documentation</a>
+    </p>
 
-    <h2>4. Decision two: receive can only appear at the top of the loop</h2>
-    <div class="aside term">
-      <h3>Term: receive &amp; selective receive</h3>
-      <p>
-        <dfn>Receive</dfn> is the operation an actor uses to pull its next message off its own queue.
-        <dfn>Selective receive</dfn> (Erlang's term) lets an actor skip past messages it doesn't want yet,
-        leaving them in the mailbox for later &mdash; like flipping past junk mail to find the one envelope
-        you're waiting on, then going back for the rest afterward. It's expressive, but it means the actor
-        has to be able to pause in the exact middle of a function while it waits for that one right message
-        to show up.
-      </p>
-    </div>
+    <h2>4. Decision two: <code>receive</code> stays at the top of the actor loop</h2>
     <p>
-      This is the decision everything else in Hey's actor redesign sequences behind, and it's also the one
-      that got argued out loud rather than settled quietly. A dedicated research brief laid out a decision
-      table with three options: loop-top-only receive (Pony's model), mid-body suspension via LLVM
-      coroutines, or an emitter-level compiler transform in the style of Rust, Kotlin, or C#. The table's own
-      verdict was blunt: loop-top-only is "the only option with a shipping proof at the target floor," and
-      the cheapest to build &mdash; no new compiler IR, no state-machine pass.
+      This was the most debated decision. The research considered three models:
+    </p>
+    <ul>
+      <li>Allow <code>receive</code> only at the top of the actor loop, as Pony effectively does.</li>
+      <li>Use LLVM coroutine support to suspend a handler in the middle of its body.</li>
+      <li>Compile each handler into an explicit state machine, similar to async implementations in Rust, Kotlin, C#, and Swift.</li>
+    </ul>
+    <p>
+      The initial research recommendation was the first option. It is the smallest design and already
+      has a production example at the target actor size. It also avoids a new compiler intermediate
+      representation and a new transformation pass.
     </p>
     <p>
-      The counter-example is Erlang, and it's a clean one. Selective receive is exactly what forces every
-      BEAM process to carry a growable stack in the first place &mdash; and it isn't free at runtime either:
-      Erlang's own mailbox implements selective receive with a "save queue" that non-matching messages sit
-      in, which means a receive can cost an <strong>O(N) scan</strong> of everything currently queued if the
-      message it wants isn't near the front. &mdash;
-      <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Erlang System Documentation</a>
+      The team briefly chose the more expressive state-machine design instead. Under that plan, every
+      mid-handler <code>receive</code> would become a suspension point. The compiler would record a
+      state number, preserve only local variables that remain in use after the suspension, and resume
+      the handler at the correct state when another message arrived. Rust's coroutine lowering was one
+      of the main references for this approach.
+      &mdash; <a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_mir_transform/coroutine/index.html">rustc coroutine transform</a>
     </p>
     <p>
-      Here's where the story gets interesting rather than settled: the team didn't just read the recommendation
-      and take it. The maintainer initially ruled the other way &mdash; mid-body, multi-receive semantics were
-      declared "planned," with a whole compiler workstream sketched out to support it: a state-machine
-      transform that would turn each <code>receive</code> into a state boundary, hoist only the locals that
-      stay alive across it, and dispatch resumption by state, borrowing liveness-analysis ideas from
-      <a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_mir_transform/coroutine/index.html">rustc's
-      own coroutine pass</a>. That plan was scoped seriously, with its own acceptance gate: a pre-registered
-      ceiling on how many bytes a suspended actor's frame could grow to, aimed squarely at Rust's own
-      cautionary tale &mdash; an early async state machine that ballooned to
-      <strong>400 kilobytes</strong> in one real codebase, and at least one embedded team that reverted async
-      code back to plain blocking calls specifically to cut binary size in half. &mdash;
-      <a href="https://tmandry.gitlab.io/blog/posts/optimizing-await-1/">Mandry, "How Rust optimizes
-      async/await"</a>, <a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust
-      Project Goals 2026</a>
+      That design was not merely discussed in the abstract. It had a proposed memory limit for each
+      suspended frame because compiler-generated async state machines can become unexpectedly large.
+      One documented Rust case produced a state machine of roughly <strong>400 kilobytes</strong>, and
+      embedded developers have sometimes removed async code to reduce binary size.
+      &mdash; <a href="https://tmandry.gitlab.io/blog/posts/optimizing-await-1/">Tyler Mandry, &ldquo;How Rust optimizes async/await&rdquo;</a>,
+      <a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust Project Goals 2026</a>
     </p>
     <p>
-      Then, later the same day, that plan was struck. The final ruling: top-only receive is the design.
-      The multi-receive workstream's gates were withdrawn, and the state-machine research itself wasn't
-      deleted &mdash; it was explicitly kept on file as background material, in case the tradeoff gets
-      revisited later. It's a good example of a team taking a considered swing at more expressive semantics,
-      pricing out what it would actually cost, and choosing to bank the research rather than either force the
-      feature in or throw the work away.
+      Later that day, the decision was reversed. Hey will keep <code>receive</code> at the top of the
+      actor loop. The state-machine research remains available in case the language revisits the trade
+      later, but it is no longer part of the current actor-runtime plan.
     </p>
     <div class="pc-grid">
       <div class="pc-pro">
-        <h4>Pro</h4>
-        <p>Actors stay tiny &mdash; no suspended-frame bookkeeping to size or grow. And causal message
-          ordering falls out for free: because a receive always starts fresh at the top with nothing pinned
-          mid-flight, there's no "half-finished, waiting on a specific reply" state to reason about.</p>
+        <h4>Benefit</h4>
+        <p>
+          Each actor remains a small, fixed record. The runtime does not need to allocate and preserve
+          a different suspended frame for every point at which a handler might wait.
+        </p>
       </div>
       <div class="pc-con">
-        <h4>Con</h4>
-        <p>It's less expressive than Erlang's model. You can't pause mid-flow waiting for one specific
-          reply among several possible messages; a flow that needs that shape has to be re-expressed as
-          explicit state carried between separate top-level receives. That's a real restructuring cost for
-          some programs, not just a syntax change.</p>
+        <h4>Cost and risk</h4>
+        <p>
+          Programs cannot stop halfway through a handler and wait for one particular reply. They must
+          store explicit state and continue in a later handler invocation. This is less convenient than
+          Erlang's receive-anywhere model and may require real program restructuring.
+        </p>
       </div>
     </div>
-
-    <h2>5. Decision three: mailboxes as an intrusive Vyukov queue</h2>
-    <div class="aside term">
-      <h3>Term: MPSC queue</h3>
-      <p>
-        <dfn>MPSC</dfn> stands for multi-producer, single-consumer: many senders can push into the queue at
-        once, but only one reader ever pops from it &mdash; which is exactly an actor's mailbox, since many
-        other actors may message it but only the actor itself ever reads its own queue. An
-        <dfn>intrusive</dfn> queue goes one step further: instead of allocating a separate queue-node wrapper
-        for every message, the message struct itself doubles as the node, so enqueuing costs zero extra
-        allocation.
-      </p>
-    </div>
     <p>
-      Hey's mailbox is moving from a mutex-guarded linked list to an intrusive, lock-free MPSC queue based on
-      the design published by <strong>Dmitry Vyukov</strong>: push is a single atomic exchange plus a plain
-      store, with no retry loop; pop needs no atomics at all on the fast path. &mdash;
-      <a href="https://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue">1024cores,
-      Vyukov's own site</a>, <a href="https://int08h.com/post/ode-to-a-vyukov-queue/">int08h, "Ode to a
-      Vyukov Queue"</a>. It's a proven design elsewhere: Rust's <code>futures-rs</code> channel credits
-      Vyukov directly in its source, and <a href="https://docs.rs/cordyceps/latest/cordyceps/mpsc_queue/struct.MpscQueue.html">cordyceps::MpscQueue</a>
-      is a published intrusive implementation of the same idea. Hey gets an unusually easy migration here: its
-      existing message struct is already shaped as <code>{value, next}</code> &mdash; already an intrusive
-      queue node, just not wired up lock-free yet.
+      Erlang demonstrates the other side of the trade. Selective receive lets a process scan past
+      messages that do not currently match, but the scan may be <strong>O(N)</strong> in the number of
+      queued messages. Supporting that model also requires the process to preserve its suspended
+      execution state.
+      &mdash; <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Erlang process documentation</a>
+    </p>
+
+    <h2>5. Decision three: replace the mailbox lock with a Vyukov MPSC queue</h2>
+    <p>
+      An actor mailbox has many senders but only one reader: many actors may enqueue messages, while
+      only the receiving actor removes them. That makes it a multi-producer, single-consumer queue,
+      usually abbreviated MPSC.
+    </p>
+    <p>
+      Hey's current mailbox is a linked list protected by a mutex. The planned replacement is an
+      intrusive, lock-free MPSC queue based on Dmitry Vyukov's design. &ldquo;Intrusive&rdquo; means the message
+      object contains its own queue link; the runtime does not allocate a second wrapper object merely
+      to put the message in the queue. Hey's existing message structure already contains a value and a
+      next pointer, so it already has the required shape.
+    </p>
+    <p>
+      On the producer side, the algorithm performs one atomic exchange followed by a normal pointer
+      store. It does not use a retry loop. The single consumer usually removes messages without an
+      atomic operation. Rust's <code>futures-rs</code> channel and the published
+      <code>cordyceps::MpscQueue</code> use versions of the same design.
+      &mdash; <a href="https://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue">Vyukov's queue description</a>,
+      <a href="https://int08h.com/post/ode-to-a-vyukov-queue/">&ldquo;Ode to a Vyukov Queue&rdquo;</a>,
+      <a href="https://docs.rs/cordyceps/latest/cordyceps/mpsc_queue/struct.MpscQueue.html">cordyceps documentation</a>
     </p>
     <div class="pc-grid">
       <div class="pc-pro">
-        <h4>Pro</h4>
-        <p>Sends become wait-free &mdash; no lock, no retry, one atomic operation. And because the message
-          struct already has the right shape, there's zero additional per-message allocation: the node the
-          queue needs and the message the actor wanted to send are the same object.</p>
+        <h4>Benefit</h4>
+        <p>
+          Sending no longer requires a mailbox mutex, and the queue adds no separate allocation for a
+          node. The message and the queue node are the same object.
+        </p>
       </div>
       <div class="pc-con">
-        <h4>Con</h4>
-        <p>The algorithm has a known, accepted soft spot: a producer that's been preempted between its atomic
-          exchange and its follow-up store leaves a momentary "hole" that the consumer has to spin past
-          &mdash; "extremely small" in Vyukov's own description, but real, and the consumer's spin is part of
-          the design, not a bug to fix. Separately, an unbounded mailbox is a real hazard on its own: Pony
-          shipped without any backpressure at all, and had to retrofit a mechanism called "muting" &mdash;
-          descheduling senders to an overloaded actor &mdash; only after real production failures surfaced
-          the gap. &mdash; <a href="https://github.com/ponylang/ponyc/pull/2264">ponylang/ponyc PR #2264</a>.
-          Hey has to decide bounded-vs-muting at design time, not retrofit it the way Pony did &mdash; a
-          mailbox with no limit at all is a bit like a group chat nobody ever leaves: fine for a while, and
-          then very much not.</p>
+        <h4>Cost and risk</h4>
+        <p>
+          If a producer is paused after publishing the new tail but before linking the previous node,
+          the consumer can briefly encounter a gap and must wait for the producer to finish. This is a
+          known property of the algorithm. The queue also does not solve overload by itself: an
+          unbounded mailbox can still consume all available memory.
+        </p>
       </div>
     </div>
-
-    <h2>6. Decision four: a work-stealing scheduler, cribbed from Tokio and Go</h2>
-    <div class="aside term">
-      <h3>Term: work-stealing scheduler</h3>
-      <p>
-        A <dfn>work-stealing scheduler</dfn> runs one worker thread per CPU core, each with its own queue of
-        runnable work. When a worker's queue runs dry, it <dfn>steals</dfn> work from a busier worker's queue
-        instead of sitting idle. Picture four cashiers with separate lines: instead of standing around
-        empty-handed, an idle cashier walks over and takes the next customer from the longest line.
-      </p>
-    </div>
     <p>
-      A direct read of Hey's own runtime source shows it's already shaped like this in skeleton: a
-      per-worker-queue-plus-shared-injection-queue design, with spinning/parked/steal counters already being
-      tracked. What it doesn't have yet is the part that makes the shape actually pay off. The measured
-      smoking gun: today, <em>every</em> message sent from outside a worker thread &mdash; effectively all of
-      them under load &mdash; is forced through one single global mutex. One orchestrator trace showed
-      <strong>20,000 out of 20,000</strong> sends routed through that lock, against just 448 handled locally
-      and 2 successful steals, with a park/unpark cycle paid on nearly every message.
+      Hey still needs an explicit backpressure policy. Pony originally allowed mailboxes to grow
+      without limit and later added &ldquo;muting,&rdquo; which temporarily stops scheduling actors that continue
+      sending to an overloaded receiver. Hey should decide in advance whether to use bounded queues,
+      muting, sender suspension, message rejection, or some combination of those behaviors.
+      &mdash; <a href="https://github.com/ponylang/ponyc/pull/2264">Pony muting change</a>
+    </p>
+
+    <h2>6. Decision four: finish the work-stealing scheduler</h2>
+    <p>
+      Hey already has the outline of a work-stealing scheduler: worker-local queues, a shared injection
+      queue for work submitted from elsewhere, and counters for stealing, spinning, parking, and waking.
+      The current implementation does not yet receive the main benefit of that structure because
+      nearly every send made outside a worker thread passes through one global mutex.
     </p>
     <p>
-      The fix is to crib the mechanics that Tokio and Go already proved out: a fixed <strong>256-slot</strong>
-      lock-free ring per worker with a packed atomic head (so the owner popping and a thief stealing never
-      block each other), a <dfn>steal-half</dfn> policy that claims roughly half a victim's queue in one
-      atomic swoop to amortize the synchronization cost, a one-task <dfn>LIFO slot</dfn> for cache-hot
-      handoff between a sender and the actor it just woke, and a searching throttle that caps at most half
-      the workers hunting for work at once so an idle system doesn't wake everyone at once. &mdash;
-      <a href="https://docs.rs/tokio/latest/src/tokio/runtime/scheduler/multi_thread/queue.rs.html">Tokio
-      queue.rs</a>, <a href="https://tokio.rs/blog/2019-10-scheduler">Tokio's 2019 scheduler post</a>. Go's
-      per-P <code>runnext</code> slot is the same idea under a different name, with its own anti-starvation
-      rule: thieves get four tries at a victim's queue, and only the fourth may take its
-      <code>runnext</code>. &mdash; <a href="https://github.com/golang/go/blob/master/src/runtime/proc.go">Go
-      runtime/proc.go</a>
+      In one recorded run, <strong>20,000 of 20,000</strong> external sends used that lock. Only 448
+      tasks were handled locally, only two steals succeeded, and the runtime paid almost one park/wake
+      cycle per message. The scheduler therefore has worker-local data structures, but the hot path
+      still behaves like a centralized scheduler.
+    </p>
+    <p>
+      The replacement follows techniques already used by Tokio and Go:
+    </p>
+    <ul>
+      <li>
+        Each worker receives a fixed <strong>256-slot</strong> lock-free ring buffer for ordinary
+        runnable actors.
+      </li>
+      <li>
+        An idle worker steals roughly half of another worker's queue in one operation instead of
+        synchronizing once per task.
+      </li>
+      <li>
+        Each worker has a one-task LIFO slot for the actor most recently awakened by the current task,
+        improving cache locality for short request-and-response chains.
+      </li>
+      <li>
+        At most about half of the workers search for work at the same time, reducing unnecessary
+        wakeups when the system is mostly idle.
+      </li>
+    </ul>
+    <p>
+      Tokio documents the 256-slot queue, packed head state, steal-half operation, and LIFO slot. Go's
+      per-processor <code>runnext</code> slot serves a similar purpose and includes an anti-starvation
+      rule so that ordinary queued work is not ignored indefinitely.
+      &mdash; <a href="https://docs.rs/tokio/latest/src/tokio/runtime/scheduler/multi_thread/queue.rs.html">Tokio queue source</a>,
+      <a href="https://tokio.rs/blog/2019-10-scheduler">Tokio scheduler article</a>,
+      <a href="https://github.com/golang/go/blob/master/src/runtime/proc.go">Go scheduler source</a>
     </p>
     <div class="pc-grid">
       <div class="pc-pro">
-        <h4>Pro</h4>
-        <p>Cores stay busy without funneling every send through one shared bottleneck &mdash; directly
-          fixing the exact contention the 20,000-to-448 trace exposed, and the counters to prove it
-          (<code>mailbox_lock_wait_ns</code>, <code>steal_attempts</code>) already exist in Hey's runtime
-          today, waiting to be driven to zero.</p>
+        <h4>Benefit</h4>
+        <p>
+          Most scheduling operations become local to one worker. Idle cores can take work from busy
+          cores without forcing every send through a shared lock. Existing runtime counters can show
+          whether the global bottleneck has actually disappeared.
+        </p>
       </div>
       <div class="pc-con">
-        <h4>Con</h4>
-        <p>Work-stealing schedulers have a well-documented trap shelf, which is exactly why cribbing proven
-          implementations rather than inventing one matters: <strong>thundering-herd wakeups</strong> if too
-          many idle workers wake at once for the same bit of new work, and a real, documented
-          <strong>lost-wakeup race</strong> in Tokio's own history &mdash; its unpark path uses an
-          unconditional swap rather than a compare-and-swap specifically because a CAS racing a spurious wake
-          can silently drop a genuine wakeup notification. &mdash;
-          <a href="https://tikv.github.io/doc/src/tokio/runtime/park.rs.html">Tokio park.rs</a>. Getting
-          either wrong doesn't crash anything; it just quietly stalls a worker or wakes a stampede, which is
-          the kind of bug that's brutal to notice and worse to reproduce.</p>
+        <h4>Cost and risk</h4>
+        <p>
+          Scheduler wakeup code is easy to get subtly wrong. Too many wakeups create a thundering herd;
+          a lost wakeup can leave work queued while a worker remains asleep. Tokio has documented why
+          its unpark path uses an unconditional swap rather than a compare-and-swap: the apparently
+          narrower operation can lose a real notification when it races with a spurious wakeup.
+        </p>
       </div>
     </div>
+    <p>
+      These failures often do not crash the program. They appear as unexplained stalls, poor scaling,
+      or excessive CPU usage, which makes them difficult to reproduce. Reusing established algorithms
+      and validating them with stress tests is therefore part of the design, not an optional cleanup.
+      &mdash; <a href="https://tikv.github.io/doc/src/tokio/runtime/park.rs.html">Tokio parking source</a>
+    </p>
 
-    <h2>7. Decision five: zero-copy immutable messages, paid for with a reference count</h2>
-    <div class="aside term">
-      <h3>Term: reference counting</h3>
-      <p>
-        <dfn>Reference counting</dfn> means every shared value carries a small counter of how many places
-        currently hold a pointer to it; sharing the value bumps the counter instead of copying the data, and
-        the value is freed only once the counter hits zero. It's the difference between mailing someone a
-        photocopy of a document versus mailing them a library card that lets them read the same original
-        &mdash; the card is far cheaper to produce, but now the library has to track how many cards are
-        out there.
-      </p>
-    </div>
+    <h2>7. Decision five: share immutable messages by reference</h2>
     <p>
-      This is the decision where immutability actually does the work, rather than being an innocent
-      bystander. Two papers anchor it, for two different reasons.
+      Immutability does not make an actor stack smaller, but it can make message passing much cheaper.
+      If a value cannot change after it is created, two actors may safely point to the same value. A
+      send can therefore share a pointer instead of recursively copying the value and everything it
+      contains.
     </p>
     <p>
-      The reference-counting mechanism itself is modeled on
-      <strong>Perceus (Reinking, Xie, de Moura, Leijen &mdash; PLDI 2021)</strong>, Koka's precise-refcounting
-      scheme. Perceus tracks ownership of every value linearly through the whole program and has the compiler
-      statically insert increment/decrement operations at each use, rather than leaning on a runtime garbage
-      collector. Its headline result: on a 42-million-insertion red-black tree benchmark, purely functional
-      Koka code ran <strong>within 10% of hand-mutated C++'s <code>std::map</code></strong>, while a
-      comparable Java version used roughly <strong>10x the memory</strong> (1.7 GiB vs. 170 MiB) for similar
-      speed. &mdash; <a href="https://xnning.github.io/papers/perceus.pdf">Perceus, PLDI 2021 (PDF)</a>
+      Hey plans to manage those shared values with reference counting. Each heap value records how many
+      live references point to it. Sharing increments the count; releasing a reference decrements it;
+      the value is reclaimed when the count reaches zero.
     </p>
     <p>
-      The other paper explains why Hey gets to use a simpler version of this idea than Pony did. Pony also
-      shares data across actors by reference with zero copying &mdash; but Pony's data is <em>mutable</em>,
-      so it needed an entire compile-time capability type system plus a purpose-built garbage collector,
-      <strong>ORCA (Clebsch et al. &mdash; OOPSLA 2017)</strong>, just to make that safe. In the paper's own
-      words: <em>"In a purely functional actor language such as Erlang... it would be trivial to implement a
-      collector such as ours... One of the early decisions in the design of Pony was to support mutable data
-      structures and, for efficiency reasons, to implement zero-copy message passing. Mutability
-      introduce[s] challenges..."</em> &mdash;
-      <a href="http://janvitek.org/pubs/oopsla17a.pdf">ORCA, &sect;1&ndash;2 (PDF)</a>. Under immutable data,
-      nothing can ever race on a write, so Hey skips the capability system and the collector entirely and
-      still gets the zero-copy sharing &mdash; sending a large value becomes bumping a counter rather than
-      copying anything.
+      The compiler strategy is based on <strong>Perceus</strong>, the precise reference-counting system
+      used by Koka. Perceus tracks ownership through the program and inserts increment, decrement, and
+      reuse operations at compile time. In its red-black-tree benchmark, purely functional Koka code
+      came within roughly <strong>10%</strong> of a hand-mutated C++ <code>std::map</code>, while a
+      comparable Java program used about ten times as much memory for similar speed.
+      &mdash; <a href="https://xnning.github.io/papers/perceus.pdf">Perceus, PLDI 2021</a>
     </p>
     <p>
-      This isn't a hypothetical saving. Hey's own measurements of its current, un-optimized value handling
-      at a modest scale (46-key objects, mostly small integers and short strings) show roughly
-      <strong>124 cloning operations and 204 releases per request</strong> under today's copy-everything
-      approach &mdash; overhead that shows up as a measured throughput gap of about
-      <strong>~47.8 microseconds per request</strong> against Go on the same workload. &mdash; tagged-value
-      representation brief, bench repo, 2026-07-26.
+      Pony's ORCA collector provides the contrasting example. Pony also shares objects between actors
+      without copying them, but its objects may be mutable. It therefore needs reference capabilities
+      to prove which actor may read or modify an object, plus a collector designed around those
+      guarantees. The ORCA paper explicitly notes that immutable actor data makes this problem much
+      simpler. Hey intends to use that simpler case: shared values cannot be modified, so the runtime
+      does not need Pony's capability system merely to prevent concurrent writes.
+      &mdash; <a href="http://janvitek.org/pubs/oopsla17a.pdf">ORCA, OOPSLA 2017</a>
+    </p>
+
+    <h3>What the current copying costs</h3>
+    <p>
+      This change targets measured overhead in Hey's current value representation. On a request using
+      a 46-key object containing mostly small integers and short strings, the current implementation
+      performs about <strong>124 clones and 204 releases per request</strong>. The same benchmark shows
+      a throughput gap of roughly <strong>47.8 microseconds per request</strong> compared with Go.
     </p>
     <p>
-      That request-level number is the everyday case. At the scale that actually motivates paying for a
-      reference-counting rewrite, the same copy-everything approach gets far worse, not just proportionally
-      worse: a dedicated single-threaded probe measured reading one <strong>4,096-element</strong> value out
-      of an object at <strong>~8,198 hidden clone operations per access (about 2 per element &mdash; the
-      deep-clone signature) and ~48.5 microseconds per access</strong>, against just <strong>215
-      nanoseconds and 7.0 clones</strong> for a plain integer access measured on the same probe. Both numbers
-      are real, measured at different scales, and both matter: the 46-key, mostly-small-values case above is
-      what a typical request pays today; the 4,096-element case is the reference-large motivation for why
-      this decision exists at all &mdash; the bigger and more nested the shared value, the worse
-      copy-everything gets, and collapsing "copy" into "bump a counter" is designed to make that curve flat
-      instead of linear. &mdash; bench-repo measurement, PER-ACCESS DECOMPOSITION PROBE, 2026-07-26 ~14:20
-      PDT, <code>bench/probes/access-decomposition.hey</code> (counter-attributed, checksummed; no public
-      URL &mdash; internal bench log).
+      A separate single-threaded probe shows how quickly the cost grows for large values. Reading one
+      4,096-element value from an object triggered about <strong>8,198 clone operations per access</strong>
+      and took roughly <strong>48.5 microseconds</strong>. Reading a plain integer in the same probe took
+      about <strong>215 nanoseconds</strong> and recorded seven clones. The large-value result has the
+      signature of a recursive deep copy: approximately two clone operations per element.
     </p>
     <p>
-      That's the shape of cost the refcounting plan targets directly at both scales: most of those clones
-      exist only because nothing currently distinguishes "share a reference" from "copy the value," and
-      immutability is what makes collapsing that distinction safe.
+      Reference sharing is intended to flatten that cost. The work required to send or read a large,
+      already-existing immutable value should be much closer to the cost of updating ownership metadata
+      than to the cost of walking and copying the full value graph.
     </p>
+
     <div class="pc-grid">
       <div class="pc-pro">
-        <h4>Pro</h4>
-        <p>Sharing a large immutable value across actors goes from "copy the whole thing" to "increment a
-          counter" &mdash; the exact class of overhead measured above (124 clones and ~47.8 &micro;s at
-          46 keys; 8,198 clones and ~48.5 &micro;s reading a single 4,096-element value) becomes close to
-          free, with no type system and no cycle collector required, because immutable data has no mutation
-          to guard against and no cycles a naive counter can't already handle.</p>
+        <h4>Benefit</h4>
+        <p>
+          Large values can be sent between actors without being duplicated. This directly addresses
+          both the request-level clone counts and the 4,096-element deep-copy measurement.
+        </p>
       </div>
       <div class="pc-con">
-        <h4>Con</h4>
-        <p>Every value now carries a counter field &mdash; a real, permanent size and bookkeeping cost on
-          every heap object, not a one-time price. And the fast path has to actually stay fast: Perceus's own
-          authors measured what happens if you skip its compiler-static optimizations (drop specialization,
-          reuse analysis) and count references the naive, always-atomic way &mdash;
-          <strong>5% to 59% slower</strong>, depending on workload, with disabling reuse analysis and drop
-          specialization alone costing more than <strong>2x</strong> on their red-black tree benchmark. The
-          win is real, but only if the single-owner fast path is built with the same care the paper put into
-          it, not bolted on as an afterthought. &mdash;
-          <a href="https://xnning.github.io/papers/perceus.pdf">Perceus &sect;4</a></p>
+        <h4>Cost and risk</h4>
+        <p>
+          Reference counts add space and update work to heap values. The design only wins if the
+          compiler avoids unnecessary atomic updates, recognizes single-owner values, and reuses
+          storage when safe. Perceus measured slowdowns of <strong>5% to 59%</strong> when key static
+          optimizations were removed; disabling reuse analysis and drop specialization more than
+          doubled the time of its red-black-tree benchmark.
+        </p>
       </div>
     </div>
+    <p>
+      Reference counting also requires a clear rule for cycles. Immutability prevents write races, but
+      it does not by itself make cyclic object graphs impossible. If Hey's value model guarantees that
+      shared heap values are acyclic, ordinary reference counting is sufficient. If cycles can be
+      created, the runtime will need a separate strategy for them. The implementation and language
+      rules should state that assumption explicitly rather than treating it as an automatic consequence
+      of immutability.
+    </p>
 
-    <h2>8. The payoff: what immutability buys, and where the campaign stands</h2>
+    <h2>8. Where the actor campaign stands</h2>
     <p>
-      Lay the five decisions next to each other and a shape appears that neither BEAM nor Pony gets in one
-      package. BEAM has immutability but still pays the stack tax (receive-anywhere) and, mostly-but-not-
-      entirely for free, a deep-copy tax on every message. Pony has no-stack, cheap actors, but pays an entire
-      capability-type-system-plus-garbage-collector tax to share mutable data safely. Hey's bet is that a
-      language built immutable-first from day one can take the cheap half of each &mdash; no-stack,
-      run-to-completion actors; a lock-free mailbox; a work-stealing scheduler; and reference-counted,
-      zero-copy sharing &mdash; without paying either runtime's extra tax, because immutability was the thing
-      that made both of those taxes necessary in the first place.
+      Together, the five decisions combine ideas that existing runtimes usually provide separately.
+      BEAM provides immutable data and very scalable processes, but its receive-anywhere semantics
+      require a stack and its isolated heaps usually require messages to be copied. Pony removes the
+      actor stack and supports zero-copy messages, but it needs a capability type system and the ORCA
+      collector because the shared data may be mutable. Hey's design tries to combine stackless actors
+      with reference-shared immutable values.
     </p>
     <p>
-      None of this is finished, and the team isn't pretending otherwise. As of today: the actor record
-      measures <strong>~403 bytes</strong>, with a struct-diet slice in flight targeting
-      <strong>~303 bytes</strong> &mdash; real progress, but still short of Pony's 240 and further still from
-      Tokio's 64. The mailbox migration to the lock-free Vyukov queue and the scheduler's move off its single
-      global injection lock are underway, sequenced so the mailbox work lands first and the scheduler work
-      builds on top of it. A blocking-work bridge pool, sized on BEAM's dirty-scheduler model, is scoped as
-      independent, lower-risk work that can land in parallel with everything else. And the abandoned
-      mid-body-receive research mentioned above is deliberately still on file, not deleted, in case the
-      tradeoff is ever worth revisiting.
+      The runtime is not finished. The current actor record measures about <strong>403 bytes</strong>.
+      A structure-cleanup task targets about <strong>303 bytes</strong>, still above Pony's 240-byte
+      figure and much larger than Tokio's 64-byte task. The mailbox conversion is intended to land
+      before the scheduler conversion so that the scheduler can build on the new queue. A separate
+      blocking-work pool can be developed in parallel because it has fewer dependencies on the other
+      changes.
     </p>
     <p>
-      For a sense of where things stand today, not where they'll land: a 100,000-actor spawn-and-sum tree,
-      in the style of the well-known <a href="https://github.com/atemerev/skynet">Skynet benchmark</a>,
-      already runs and produces correct sums on Hey's current build, completing in roughly
-      <strong>15 to 21 seconds</strong> across repeated runs. The interesting finding isn't the wall-clock
-      number itself &mdash; it's that the measured bottleneck is a quadratic cost in how results get appended
-      back up the tree, not the cost of spawning the actors. That matters for honesty about the campaign
-      above: none of the five decisions in this article are what's currently limiting that number, which
-      means the eventual byte-count and scheduler wins described here haven't been measured against it yet
-      either. The reading list produced a design. It hasn't yet produced a finished runtime.
+      Two design questions should remain visible while the implementation proceeds. First, the blocking
+      bridge must exist before actor handlers can safely call operations that may stop a worker thread.
+      Second, the runtime needs a mailbox-overload policy before an unbounded queue causes production
+      failures. Both are part of a complete actor system even though neither directly reduces the actor
+      record's byte count.
+    </p>
+    <p>
+      The current runtime can already execute a 100,000-actor spawn-and-sum tree based on the
+      <a href="https://github.com/atemerev/skynet">Skynet benchmark</a>. Repeated runs complete in about
+      <strong>15 to 21 seconds</strong> and return the correct result. Measurements indicate that the
+      largest current cost is a quadratic list-append operation while partial results move back up the
+      tree, not actor creation itself.
+    </p>
+    <p>
+      That distinction matters. The benchmark proves that the current actor path works at 100,000
+      actors, but it does not yet measure the expected benefit of the new mailbox, scheduler, actor
+      layout, or reference-sharing design. The research has produced a specific implementation plan.
+      The remaining work is to build each part, measure it independently, and then show that the pieces
+      improve the complete runtime when used together.
     </p>
 
     <h2>Glossary</h2>
     <dl class="glossary">
       <dt>actor</dt>
-      <dd>An independent unit of computation with private state that communicates only by passing messages, never by sharing memory.</dd>
-      <dt>call stack</dt>
-      <dd>The pile of "return to here next" bookmarks kept as functions call other functions; only needed by workers that can suspend mid-function.</dd>
-      <dt>run-to-completion</dt>
-      <dd>A scheduling model where a handler always runs to its end (or to the top of its next loop) before yielding, so it never needs a stack to suspend into.</dd>
+      <dd>An independently scheduled unit with private state that communicates by sending messages.</dd>
+      <dt>run to completion</dt>
+      <dd>A handler finishes its current step before the actor waits for another message.</dd>
       <dt>receive</dt>
-      <dd>The operation an actor uses to pull its next message off its own mailbox.</dd>
+      <dd>The operation that removes a message from an actor's mailbox for processing.</dd>
       <dt>selective receive</dt>
-      <dd>Skipping past unwanted messages in a mailbox and leaving them for later; requires a per-actor stack to pause mid-function.</dd>
+      <dd>A receive operation that scans past messages that do not match and leaves them queued for later.</dd>
       <dt>mailbox</dt>
-      <dd>The queue of messages an actor has received but not yet processed.</dd>
+      <dd>The queue of messages sent to an actor but not yet processed.</dd>
       <dt>MPSC queue</dt>
-      <dd>A queue with many producers (senders) and a single consumer (the actor reading its own mailbox).</dd>
+      <dd>A queue with multiple producers and one consumer, matching an actor mailbox's send/read pattern.</dd>
       <dt>intrusive queue</dt>
-      <dd>A queue where the message itself doubles as the queue's linked-list node, avoiding a separate allocation per message.</dd>
+      <dd>A queue in which the queued object contains its own link field, avoiding a wrapper allocation.</dd>
       <dt>backpressure</dt>
-      <dd>A mechanism that slows or blocks senders to an overloaded receiver, preventing an unbounded queue from growing without limit.</dd>
-      <dt>work-stealing scheduler</dt>
-      <dd>A scheduler where an idle worker thread takes queued work from a busier thread's queue instead of sitting idle.</dd>
+      <dd>A policy that slows, suspends, rejects, or redirects sends when a receiver cannot keep up.</dd>
+      <dt>work stealing</dt>
+      <dd>A scheduling method in which an idle worker takes runnable tasks from another worker's queue.</dd>
+      <dt>LIFO slot</dt>
+      <dd>A one-item fast path that runs the most recently awakened task before returning to the normal queue.</dd>
       <dt>reference counting</dt>
-      <dd>Tracking how many places hold a pointer to a shared value, freeing it only once that count reaches zero, so sharing costs a counter update instead of a copy.</dd>
-      <dt>reference capability</dt>
-      <dd>Pony's compile-time tag on a reference, restricting how it may be read or written, used to guarantee at most one actor can mutate a given object at a time.</dd>
-      <dt>immutability</dt>
-      <dd>A value that, once created, can never be changed &mdash; only replaced &mdash; which removes the need to guard against concurrent mutation when the value is shared.</dd>
-      <dt>dirty scheduler</dt>
-      <dd>BEAM's term for a separate, fixed-size thread pool reserved for blocking or long-running native calls, kept off the main reduction-counted schedulers.</dd>
+      <dd>Memory management that tracks how many live references point to a value and frees it at zero.</dd>
+      <dt>single-owner fast path</dt>
+      <dd>An optimized path for a value known to have one owner, avoiding unnecessary shared-reference updates.</dd>
+      <dt>dirty scheduler / blocking pool</dt>
+      <dd>A separate thread pool for work that may block or run too long for the normal actor workers.</dd>
     </dl>
 
     <h2>Sources</h2>
-    <ul>
-      <li>Hey's own stack-removal campaign synthesis and per-workstream research briefs, 2026-07-26 (internal; the basis for every "today," "planned," and "struck" claim above)</li>
-      <li>Tagged-value representation brief, bench repo, 2026-07-26 (internal; source of the 124-clone/204-release/~47.8&nbsp;&micro;s-per-request figures)</li>
-      <li>PER-ACCESS DECOMPOSITION PROBE, bench repo dated log entry, 2026-07-26 ~14:20 PDT &mdash; <code>bench/probes/access-decomposition.hey</code> (internal, counter-attributed and checksummed; no public URL; source of the 4,096-element and int-access figures)</li>
-      <li><a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">"What Makes an Actor Cheap?"</a> &mdash; the founding article this campaign treats as its roadmap</li>
-      <li><a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a> (per-actor memory, no-stack model, blocking I/O)</li>
-      <li><a href="https://tutorial.ponylang.io/types/actors.html">Pony tutorial: actors</a> (behaviors, no synchronous return)</li>
-      <li><a href="https://github.com/ponylang/ponyc/pull/2264">ponylang/ponyc PR #2264</a> (the "muting" backpressure retrofit)</li>
-      <li><a href="https://github.com/ponylang/ponyc/blob/main/src/libponyrt/sched/scheduler.c">Pony scheduler.c</a></li>
-      <li><a href="https://dl.acm.org/doi/10.1145/3133896">Clebsch et al., "ORCA: GC and Type System Co-Design for Actor Languages," OOPSLA 2017</a> (full text: <a href="http://janvitek.org/pubs/oopsla17a.pdf">PDF</a>)</li>
-      <li><a href="https://tokio.rs/tokio/tutorial/spawning">Tokio Tutorial: Spawning</a> (64-byte task memory)</li>
-      <li><a href="https://docs.rs/tokio/latest/src/tokio/runtime/scheduler/multi_thread/queue.rs.html">Tokio queue.rs</a> (256-slot ring, steal-half, packed head)</li>
-      <li><a href="https://tokio.rs/blog/2019-10-scheduler">Tokio: "A New Tokio Scheduler" (2019)</a></li>
-      <li><a href="https://tokio.rs/blog/2020-04-preemption">Tokio: preemption blog (2020)</a></li>
-      <li><a href="https://tikv.github.io/doc/src/tokio/runtime/park.rs.html">Tokio park.rs</a> (swap-not-CAS unpark)</li>
-      <li><a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">golang/go, runtime/stack.go</a> (goroutine stack sizing)</li>
-      <li><a href="https://github.com/golang/go/blob/master/src/runtime/proc.go">golang/go, runtime/proc.go</a> (runnext, findrunnable)</li>
-      <li><a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes &mdash; Erlang System Documentation</a> (per-process memory, selective receive)</li>
-      <li><a href="https://www.erlang.org/doc/apps/erts/erl_nif.html">erl_nif docs</a> (dirty scheduler defaults)</li>
-      <li><a href="https://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue">1024cores</a> (Dmitry Vyukov's own MPSC queue writeup)</li>
-      <li><a href="https://int08h.com/post/ode-to-a-vyukov-queue/">int08h, "Ode to a Vyukov Queue"</a></li>
-      <li><a href="https://github.com/rust-lang/futures-rs/blob/master/futures-channel/src/mpsc/queue.rs">futures-rs queue.rs</a></li>
-      <li><a href="https://docs.rs/cordyceps/latest/cordyceps/mpsc_queue/struct.MpscQueue.html">cordyceps::MpscQueue docs</a></li>
-      <li><a href="https://xnning.github.io/papers/perceus.pdf">Reinking, Xie, de Moura, Leijen, "Perceus: Garbage Free Reference Counting with Reuse," PLDI 2021 (PDF)</a></li>
-      <li><a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_mir_transform/coroutine/index.html">rustc coroutine (MIR) transform docs</a></li>
-      <li><a href="https://tmandry.gitlab.io/blog/posts/optimizing-await-1/">Mandry, "How Rust optimizes async/await" (parts I &amp; II)</a></li>
-      <li><a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust Project Goals 2026: async state-machine optimisation</a></li>
-      <li><a href="https://doc.rust-lang.org/error_codes/E0733.html">Rust error E0733</a> (recursion requires boxing in async fns)</li>
-      <li><a href="https://llvm.org/docs/Coroutines.html">LLVM Coroutines documentation</a></li>
-      <li><a href="https://llvm.org/devmtg/2021-11/slides/2021-AsyncFunctionsInSwift.pdf">Swift's async functions, LLVM Dev Meeting 2021</a></li>
-      <li><a href="https://github.com/atemerev/skynet">atemerev/skynet</a> (the benchmark shape Hey's own 100K-actor probe follows)</li>
-    </ul>
+<ul>
+<li>Hey's own stack-removal campaign synthesis and per-workstream research briefs, 2026-07-26 (internal; the basis for every "today," "planned," and "struck" claim above)</li>
+<li>Tagged-value representation brief, bench repo, 2026-07-26 (internal; source of the 124-clone/204-release/~47.8 &micro;s-per-request figures)</li>
+<li>PER-ACCESS DECOMPOSITION PROBE, bench repo dated log entry, 2026-07-26 ~14:20 PDT &mdash; <code>bench/probes/access-decomposition.hey</code> (internal, counter-attributed and checksummed; no public URL; source of the 4,096-element and int-access figures)</li>
+<li><a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">"What Makes an Actor Cheap?"</a> &mdash; the founding article this campaign treats as its roadmap</li>
+<li><a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a> (per-actor memory, no-stack model, blocking I/O)</li>
+<li><a href="https://tutorial.ponylang.io/types/actors.html">Pony tutorial: actors</a> (behaviors, no synchronous return)</li>
+<li><a href="https://github.com/ponylang/ponyc/pull/2264">ponylang/ponyc PR #2264</a> (the "muting" backpressure retrofit)</li>
+<li><a href="https://github.com/ponylang/ponyc/blob/main/src/libponyrt/sched/scheduler.c">Pony scheduler.c</a></li>
+<li><a href="https://dl.acm.org/doi/10.1145/3133896">Clebsch et al., "ORCA: GC and Type System Co-Design for Actor Languages," OOPSLA 2017</a> (full text: <a href="http://janvitek.org/pubs/oopsla17a.pdf">PDF</a>)</li>
+<li><a href="https://tokio.rs/tokio/tutorial/spawning">Tokio Tutorial: Spawning</a> (64-byte task memory)</li>
+<li><a href="https://docs.rs/tokio/latest/src/tokio/runtime/scheduler/multi_thread/queue.rs.html">Tokio queue.rs</a> (256-slot ring, steal-half, packed head)</li>
+<li><a href="https://tokio.rs/blog/2019-10-scheduler">Tokio: "A New Tokio Scheduler" (2019)</a></li>
+<li><a href="https://tokio.rs/blog/2020-04-preemption">Tokio: preemption blog (2020)</a></li>
+<li><a href="https://tikv.github.io/doc/src/tokio/runtime/park.rs.html">Tokio park.rs</a> (swap-not-CAS unpark)</li>
+<li><a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">golang/go, runtime/stack.go</a> (goroutine stack sizing)</li>
+<li><a href="https://github.com/golang/go/blob/master/src/runtime/proc.go">golang/go, runtime/proc.go</a> (runnext, findrunnable)</li>
+<li><a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes &mdash; Erlang System Documentation</a> (per-process memory, selective receive)</li>
+<li><a href="https://www.erlang.org/doc/apps/erts/erl_nif.html">erl_nif docs</a> (dirty scheduler defaults)</li>
+<li><a href="https://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue">1024cores</a> (Dmitry Vyukov's own MPSC queue writeup)</li>
+<li><a href="https://int08h.com/post/ode-to-a-vyukov-queue/">int08h, "Ode to a Vyukov Queue"</a></li>
+<li><a href="https://github.com/rust-lang/futures-rs/blob/master/futures-channel/src/mpsc/queue.rs">futures-rs queue.rs</a></li>
+<li><a href="https://docs.rs/cordyceps/latest/cordyceps/mpsc_queue/struct.MpscQueue.html">cordyceps::MpscQueue docs</a></li>
+<li><a href="https://xnning.github.io/papers/perceus.pdf">Reinking, Xie, de Moura, Leijen, "Perceus: Garbage Free Reference Counting with Reuse," PLDI 2021 (PDF)</a></li>
+<li><a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_mir_transform/coroutine/index.html">rustc coroutine (MIR) transform docs</a></li>
+<li><a href="https://tmandry.gitlab.io/blog/posts/optimizing-await-1/">Mandry, "How Rust optimizes async/await" (parts I &amp; II)</a></li>
+<li><a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust Project Goals 2026: async state-machine optimisation</a></li>
+<li><a href="https://doc.rust-lang.org/error_codes/E0733.html">Rust error E0733</a> (recursion requires boxing in async fns)</li>
+<li><a href="https://llvm.org/docs/Coroutines.html">LLVM Coroutines documentation</a></li>
+<li><a href="https://llvm.org/devmtg/2021-11/slides/2021-AsyncFunctionsInSwift.pdf">Swift's async functions, LLVM Dev Meeting 2021</a></li>
+<li><a href="https://github.com/atemerev/skynet">atemerev/skynet</a> (the benchmark shape Hey's own 100K-actor probe follows)</li>
+</ul>
   </main>
 
   <footer>
     <p>
-      Sourced from Hey's stack-removal campaign research, compiled 2026-07-26, and from
-      <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">"What Makes an Actor
-      Cheap?"</a>, the article this campaign used as its own roadmap. Primary sources linked inline
-      throughout; full list above.
+      Based on Hey's stack-removal campaign research, compiled July 26, 2026, and on
+      <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor
+      Cheap?&rdquo;</a>, the comparison that became the campaign's starting point. Primary sources are linked
+      where they are discussed and listed above.
     </p>
   </footer>
 </body>
