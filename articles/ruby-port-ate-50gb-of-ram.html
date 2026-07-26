@@ -372,15 +372,31 @@ while chunk != '' {                  # a record is never equal to ''
     </p>
     <p>
       <strong>WHAT WAS TRUE.</strong> The poisoned-artifact theory was right after all &mdash; one shelf over.
-      An unlocked cache publish (a <dfn>TOCTOU race</dfn> &mdash; the file changes between the moment it is
-      checked and the moment it is used) can mint a corrupted entry in the compiler's cache of prebuilt
-      components &mdash; its <dfn>sidecar cache</dfn>, which despite the shared word is unrelated to the
-      delegation sidecar that speeds up library calls elsewhere in this story. Anything compiled through
-      that entry silently drops the program body, and the native loader never checks for the empty result. The spooky per-spelling determinism was bookkeeping: each way of typing
-      the path hashes to its own cache key, so <code>./x.hey</code> deterministically hit the poisoned key
-      while <code>x.hey</code> hit a healthy one. Stranded temp files show the race had been minting corpses
-      for days; the output assertions were simply the first instruments honest enough to see them.
+      A corrupted entry in the compiler's cache of prebuilt components &mdash; its <dfn>sidecar cache</dfn>,
+      which despite the shared word is unrelated to the delegation sidecar elsewhere in this story &mdash;
+      produces artifacts that silently drop the program body, and the native loader never checks for the
+      empty result. Clearing that cache cures it; clearing every other cache does not. The spooky
+      per-spelling determinism was bookkeeping: each way of typing the path hashes to its own cache key, so
+      <code>./x.hey</code> deterministically hit the poisoned key while <code>x.hey</code> hit a healthy one.
     </p>
+    <div class="aside">
+      <h3>Two theories about <em>how</em> it got poisoned, both wrong</h3>
+      <p>
+        I proposed a concurrency race &mdash; two builds publishing at once &mdash; and offered stranded
+        temporary files in the build directory as evidence it had been happening for days. Both halves were
+        wrong, and it took a purpose-built oracle to establish it: 960 trials of forced concurrent
+        compilation, cold caches, every artifact executed and compared, produced <strong>zero</strong>
+        failures before or after the fix. The publish path was already atomic. And the stranded files were
+        not wreckage at all &mdash; building with <code>-o X</code> also emits <code>X.ll</code>,
+        <code>X.c</code> and <code>X.reflection.json</code>, and only the executable was being moved into
+        place. 304 leftover files, entirely deterministic, entirely innocent. I read a normal build
+        byproduct as a crime scene because I was already looking for one.
+      </p>
+      <p>
+        The oracle earned its cost anyway: it caught a genuine time-of-check race that the fix itself had
+        just introduced, once in 960 trials. The mechanism that actually poisons the cache is still open.
+      </p>
+    </div>
     <p>
       <strong>WHAT MAKES IT LOUD NOW.</strong> The one not yet fixed: an upstream slice (publish lock,
       cache sweeps that cascade to downstream artifacts, and a loud guard at the exact check the loader
@@ -404,6 +420,10 @@ while chunk != '' {                  # a record is never equal to ''
         compared a stale file. Mine.</li>
       <li><strong>"A binding-form spelling regression."</strong> Spelling was confounded with invocation
         form in every cell.</li>
+      <li><strong>"Stranded temp files prove the race has been running for days."</strong> They were
+        ordinary build byproducts &mdash; 304 of them, deterministic, present in every version. A 960-trial
+        concurrency oracle then found zero failures: there was no race. I had built evidence out of
+        litter.</li>
       <li><strong>"A poisoned compiler binary from a racy publish."</strong> Half right, and that was the
         trap: the preserved binary was byte-identical to a healthy one, so the theory died &mdash; then
         came back one theory later as a poisoned <em>cache entry</em> from the same racy publish.</li>
@@ -453,7 +473,7 @@ while chunk != '' {                  # a record is never equal to ''
           <td><strong>E.</strong> Probes silent; cache entry minted anyway</td>
           <td class="number">0</td>
           <td>nothing</td>
-          <td>days (stranded temp files prove it)</td>
+          <td>unknown &mdash; my "for days" evidence was misread</td>
           <td>Two-layer cache sweep cures it; publish lock + loud guard queued</td>
         </tr>
       </tbody>
