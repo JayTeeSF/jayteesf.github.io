@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The nine-day arc from a 490-requests-per-second interpreter tax to a matched-row, 95%-confidence certified win over Go net/http on macOS and Linux, told in ten verified numbers.">
+  <meta name="article-date" content="2026-07-27">
+  <meta name="article-bucket" content="featured">
+  <meta name="article-desc" content="Ten verified numbers, one arc: how Hey's web server went from about 500 requests per second to over 123,000 on a single worker, then past Go net/http itself -- certified on two operating systems.">
+  <title>From 500 to 100,000 Requests per Second</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 1.75rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+    details.deep > summary { cursor: pointer; font-weight: 600; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+
+    .milestone { margin: 1.5rem 0; }
+    .milestone h3 { margin-bottom: 0.3rem; }
+    .milestone .tag {
+      display: inline-block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--muted); border: 1px solid var(--border); border-radius: 0.3rem;
+      padding: 0.05rem 0.4rem; margin-left: 0.4rem; vertical-align: 0.15em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>From 500 to 100,000 Requests per Second</h1>
+    <p class="lede">
+      Nine days ago Hey's fastest web service answered a health check at about
+      <strong>490 requests/second</strong>. Today a single worker sustains
+      <strong>over 123,000</strong> &mdash; and the matched-row comparison against Go's
+      <code>net/http</code> is <strong>CERTIFIED faster, with 95% confidence, on both macOS
+      and Linux</strong>. This is the whole arc, in ten verified numbers, each tagged to the
+      toolchain release that produced it.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li>
+          <strong>The verdict: Hey now beats Go net/http, certified.</strong> A single Hey
+          worker went from ~490 req/s to <strong>123,000&ndash;125,000+ req/s</strong> in
+          nine days, and the matched comparison &mdash; both servers building the identical
+          364-byte JSON document, one core each &mdash; is certified faster than Go with 95%
+          confidence on macOS (paired ratio 1.0218) <em>and</em> Linux (1.0087). Full protocol
+          and the certified table live in <a href="faster-than-go.html">Faster Than Go?</a>;
+          this article does not repeat that table, only the story that got there.
+        </li>
+        <li>
+          <strong>Two early fixes did most of the first climb.</strong> Keep-alive
+          (v0.99.396a) took war-room's <code>/health</code> route from 5,977 to
+          <strong>12,274 req/s</strong>, p50 2.6&nbsp;ms &rarr; <strong>79&nbsp;&micro;s</strong>.
+          A persistent interpreter sidecar (v0.99.402a) then cut the ~4,479&nbsp;&micro;s
+          delegation tax on every standard-library call to <strong>56&nbsp;&micro;s</strong>.
+        </li>
+        <li>
+          <strong>One bug explains the biggest single jump.</strong> The server had been
+          capped at min(open connections, workers) all campaign &mdash; never truly
+          concurrent no matter how fast one request got. Fixing it (v0.99.430a) took the
+          matched-row ratio against Go from <strong>24% to 109% in one working day</strong>.
+        </li>
+        <li>
+          <strong>Disclosed weakness: this campaign has been wrong in public before, twice.</strong>
+          A "memory leak fixed" verdict (v0.99.413a) had to be retracted when the real
+          instrument landed at v0.99.410a &mdash; the leak was real all along, hidden by a
+          macOS memory counter that can't see compressed pages. And today, a second,
+          unrelated retention floor was found still open in the web dispatch layer
+          (v0.99.443a); the fix has not landed yet.
+        </li>
+        <li>
+          <strong>How to falsify any of this:</strong> every number below carries its
+          version tag and traces to a dated, timestamped entry in this project's evidence
+          log (<code>docs/PERFORMANCE-FINDINGS.md</code>); rebuild that tag and rerun the
+          same probe to reproduce it.
+        </li>
+      </ul>
+    </div>
+
+    <!-- FIGURE: the journey, log scale, seven points, static bars via inline data + script.
+         Colors: static hex/rgba only, light-pinned base + dark overrides (no color-mix). -->
+    <figure id="fig-journey-mini">
+      <style>
+        #fig-journey-mini{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fj-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --fj-border:rgba(11,11,11,0.10);
+          --bar:#2a78d6; --bar-hi:#1d5aa3;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fj-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-journey-mini{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fj-muted:#9a9a94;
+            --grid:#2c2c2a; --axis:#383835; --fj-border:rgba(255,255,255,0.10);
+            --bar:#3987e5; --bar-hi:#5ea3f2;
+          }
+        }
+        :root[data-theme="dark"] #fig-journey-mini{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fj-muted:#9a9a94;
+          --grid:#2c2c2a; --axis:#383835; --fj-border:rgba(255,255,255,0.10);
+          --bar:#3987e5; --bar-hi:#5ea3f2;
+        }
+        #fig-journey-mini .fj-head{padding:18px 20px 0}
+        #fig-journey-mini .fj-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-journey-mini .fj-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-journey-mini .fj-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-journey-mini svg{display:block;width:100%;min-width:520px;height:auto}
+        #fig-journey-mini .fj-grid{stroke:var(--grid);stroke-width:1}
+        #fig-journey-mini .fj-axis{stroke:var(--axis);stroke-width:1}
+        #fig-journey-mini .fj-tick{fill:var(--fj-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-journey-mini .fj-cat{fill:var(--text-primary);font-size:12px;font-weight:600}
+        #fig-journey-mini .fj-cat-sub{fill:var(--fj-muted);font-size:10px}
+        #fig-journey-mini .fj-val{fill:var(--text-primary);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+        #fig-journey-mini .fj-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-journey-mini .fj-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fj-muted)}
+        #fig-journey-mini rect{cursor:default}
+      </style>
+      <div class="fj-head">
+        <p class="fj-title">The whole arc, one payload, logarithmic axis</p>
+        <p class="fj-sub">Requests/second on war-room's <code>/health</code> route (or the
+          matched-row equivalent), one worker unless noted. <strong>The axis is
+          logarithmic</strong> &mdash; the 500 &rarr; 123,000 climb spans two and a half
+          orders of magnitude. Hover any bar for its source.</p>
+      </div>
+      <div class="fj-plot">
+        <svg id="fjm-svg" viewBox="0 0 760 340" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis from about 400 to 200,000 requests per second, seven bars: interpreted era 490; pre-keep-alive 5,977; keep-alive lands 12,274; sidecar era 28,270; worker-ladder revival 87,732; accept-model fix 125,819, annotated 109 percent of Go; today 123,322."></svg>
+      </div>
+      <p class="fj-foot" id="fjm-foot"></p>
+    </figure>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'Interpreted era',        sub:'pre-v0.99.396a',        val:490,    src:'2026-07-23 baseline, workers:4, ~490 req/s.'},
+        {label:'Pre-keep-alive (w1)',    sub:'v0.99.390a era',        val:5977,   src:'workers:1 alone: 5,977 req/s, p50 2.6 ms.'},
+        {label:'Keep-alive lands',       sub:'v0.99.396a',            val:12274,  src:'war-room /health: 12,274 req/s, p50 79 µs.'},
+        {label:'Sidecar era',            sub:'v0.99.402a',            val:28270,  src:'delegation sidecar; war-room 28,270 req/s.'},
+        {label:'Worker-ladder revival',  sub:'v0.99.417a, w8',        val:87732,  src:'w8 quiet-box rescan; crater died at 409a (83.3K).'},
+        {label:'Accept-model fix',       sub:'v0.99.430a — 109% of Go', val:125819, src:'matched row 125,819 vs Go 114,870 = 109.5%.'},
+        {label:'Today',                  sub:'v0.99.442a, w1',        val:123322, src:'2026-07-27 quiet box: 123,322 ±82 req/s, p50 125 µs.'}
+      ];
+      var W=760,H=340,L=195,R=90,T=22,B=46;
+      var LO=380,HI=200000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      var TICKS=[500,2000,10000,50000,200000];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="fj-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="fj-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v.toLocaleString()+'</text>');
+      });
+      o.push('<text class="fj-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">requests / second — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=24, gapPx=6;
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.val)-L,2), hi=(i===ROWS.length-2);
+        o.push('<text class="fj-cat" x="'+(L-10)+'" y="'+(cy-2).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="fj-cat-sub" x="'+(L-10)+'" y="'+(cy+11).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="var(--bar'+(hi?'-hi':'')+')"><title>'+r.label+' ('+r.sub+'): '+r.val.toLocaleString()+' req/s — '+r.src+'</title></rect>');
+        o.push('<text class="fj-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+r.val.toLocaleString()+'</text>');
+      });
+      o.push('<line class="fj-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('fjm-svg').innerHTML=o.join('');
+      document.getElementById('fjm-foot').textContent=
+        'The last two bars sit in the same ~123–126K band on the same box the same week — '+
+        'that is normal run-to-run spread after the accept-model fix landed, not a regression. '+
+        'Every value: oha-class load, keep-alive on, output and success-rate asserted before timing.';
+    })();
+    </script>
+
+    <h2>The arc, in ten numbers</h2>
+
+    <div class="milestone">
+      <h3>1. ~490 req/s &mdash; the interpreted-era tax<span class="tag">pre-v0.99.396a</span></h3>
+      <p>
+        Hey's fastest service answered a 364-byte JSON health check at about
+        <strong>490 requests/second</strong>. The cause was structural, not incidental: compiled
+        Hey code calling a pure-Hey standard-library function paid roughly
+        <strong>7&nbsp;ms per call</strong> &mdash; each call wrote a temp file and spawned an
+        interpreter subprocess. A handler making one such call capped out near 117 req/s no
+        matter what else it did.
+      </p>
+    </div>
+
+    <div class="aside term">
+      <h3>Term: the delegation tax &amp; keep-alive</h3>
+      <p>
+        The <dfn>delegation tax</dfn> is that per-call interpreter round-trip &mdash; the price
+        of treating a compiled program's own standard library as a foreign process instead of
+        code it can just call. <dfn>Keep-alive</dfn> is the HTTP feature that reuses one TCP
+        connection for many requests instead of opening and closing a fresh one every time; Hey's
+        runtime hardcoded <code>connection: close</code> for its first year, so every request
+        paid a full handshake on top of whatever the handler itself cost.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>2. Keep-alive lands: 5,977 &rarr; 12,274 req/s<span class="tag">v0.99.396a</span></h3>
+      <p>
+        The same release that stopped closing every connection also removed a stretch of
+        needless per-request copying. War-room's <code>/health</code> route went from
+        <strong>5,977 to 12,274 req/s</strong>, and its median latency fell from
+        <strong>2.6&nbsp;ms to 79&nbsp;&micro;s</strong> &mdash; a single toolchain landing, no
+        application code touched.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>3. The facade table: ~4,400 &micro;s &rarr; 3 &micro;s per call<span class="tag">v0.99.397a</span></h3>
+      <p>
+        Rather than waiting on a full fix to the delegation tax, the toolchain first tabled the
+        common calls directly into compiled code. <code>Text.trim</code> fell from
+        4,355&nbsp;&micro;s to <strong>3&nbsp;&micro;s</strong> (~1,450&times;);
+        <code>Crypto.sha256_text</code> fell from 3,402 to the same 3&nbsp;&micro;s. Calls outside
+        the table stayed exactly where they were &mdash; by design, as the marker for the next fix.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>4. The sidecar kills the tax: 4,479 &rarr; 56 &micro;s<span class="tag">v0.99.402a</span></h3>
+      <p>
+        A persistent interpreter sidecar replaced the spawn-per-call path entirely: the un-tabled
+        canary call fell from <strong>4,479 to 56&nbsp;&micro;s</strong> (~80&times;). All three
+        production apps set new throughput records the same day, reaching
+        <strong>28,270&ndash;30,896 req/s</strong> on their health routes.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>5. Honest instruments: a leak verdict gets retracted<span class="tag">v0.99.410a</span></h3>
+      <p>
+        This release taught the server to report its own memory and terminate loudly instead of
+        dying silently. It also exposed a mistake: an earlier fix (v0.99.413a) had been credited
+        with a 10.6&times; cut in per-request memory retention. The real number came from
+        <code>resident_size</code>, a macOS counter that <strong>excludes compressed
+        pages</strong> &mdash; so it can report memory falling while the process's true footprint
+        keeps climbing. Measured on the counter that includes compression
+        (<code>phys_footprint</code>), the leak was real all along, and the "fix" credit was
+        withdrawn in public, not quietly edited away.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>6. The worker ladder climbs: 83.3K, then 87.7K at w8<span class="tag">v0.99.409a &rarr; 417a</span></h3>
+      <p>
+        More workers used to make every server <em>slower</em> &mdash; the "8-worker crater."
+        It died at v0.99.409a, when 8 workers became the new optimum at
+        <strong>83.3K req/s</strong>. The ladder kept climbing: a quiet-box rescan at
+        v0.99.417a clocked w8 at <strong>87,732 req/s</strong>, with w1 up to 16,617 req/s in the
+        same pass &mdash; a curve that had been flat or inverse since the campaign began.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>7. Killing the quadratic: 2,280 &rarr; 124 clones/request<span class="tag">v0.99.420a&ndash;428a</span></h3>
+      <p>
+        Building a 46-key JSON document cost <strong>2,280 clones per request</strong> &mdash; a
+        quadratic in key count that an earlier representation change had left completely
+        untouched, because it changed how keys were stored, not how each value got copied during
+        construction. The real fix cut that to <strong>124 clones</strong> (18.4&times;), and
+        throughput on that route rose <strong>~3.4&times;</strong>, paired, 100% success across
+        every rep.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>8. The accept model: 24% of Go &rarr; 109% in one day<span class="tag">v0.99.430a</span></h3>
+      <p>
+        The single biggest jump in this whole story came from one bug, not a speedup: Hey's
+        effective concurrency had been pinned near min(offered connections, workers) all
+        campaign, so a 1-worker server could only ever be doing about one thing at a time, no
+        matter how fast that one thing got. Removing the cap took the matched-row ratio against
+        Go from a same-day morning reading of <strong>24.1%</strong> to an evening reading of
+        <strong>109.5%</strong> &mdash; on the same box, the same day.
+      </p>
+    </div>
+
+    <div class="aside term">
+      <h3>Term: effective concurrency</h3>
+      <p>
+        <dfn>Effective concurrency</dfn> is how many connections a server is actually servicing
+        at one instant, as opposed to how many it merely has open. A server can accept 16
+        connections and still process them one at a time if nothing lets the other 15 make
+        progress while the first is being handled &mdash; which is exactly what capped Hey at
+        roughly one in-flight request per worker for most of this campaign, regardless of how
+        fast any single request had gotten.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>9. Certified faster than Go, on two operating systems<span class="tag">v0.99.435a</span></h3>
+      <p>
+        The pre-registered certification protocol &mdash; both servers building the identical
+        JSON document, &ge;8 same-minute paired cells, a 95% confidence interval narrow enough to
+        trust &mdash; passed on Linux (paired ratio <strong>1.0087</strong>, half-width 0.80%)
+        and, independently, on macOS (<strong>1.0218</strong>, half-width 1.39%, 11 clean pairs).
+        Both clear the &le;1.5% precision gate: <strong>faster than Go net/http, with 95%
+        confidence, on both venues.</strong> The full protocol, the clock-screening that made the
+        Linux number trustworthy, and the certified table are in
+        <a href="faster-than-go.html">Faster Than Go? Certified on Linux and Darwin</a>.
+      </p>
+    </div>
+
+    <div class="milestone">
+      <h3>10. Today: ~123K req/s at p50 ~125 &micro;s, one worker<span class="tag">v0.99.442a</span></h3>
+      <p>
+        A quiet-box, pre-registered full-protocol run this week reads a single Hey worker
+        sustaining <strong>122,900&ndash;123,500 req/s</strong> on the health route, median
+        latency <strong>125&nbsp;&micro;s</strong> &mdash; flat across the 1/4/8-worker ladder
+        now, because the accept-model fix removed the reason workers used to matter for
+        concurrency at all.
+      </p>
+    </div>
+
+    <h2>What's still not settled</h2>
+    <p>
+      The campaign's other headline number moved the same way the leak verdict did: per-request
+      memory retention fell from <strong>~76,420 bytes to ~1,445 bytes</strong> (53&times;), a
+      real and durable fix. But a second, unrelated retention floor was found <em>today</em>,
+      v0.99.443a: a pre-registered gate built to confirm a language-level loop fix found instead
+      that the web server's own dispatch layer never releases a handler's response values after
+      serialization &mdash; a separate bug the loop fix cannot reach. It is precisely located,
+      it is not fixed yet, and it is stated here rather than left for the next article to
+      discover. The earlier web-services
+      article carries the fuller retraction history this campaign has already printed at
+      full volume.
+    </p>
+  </main>
+
+  <footer>
+    <p>
+      Written 2026-07-27. Every number above traces to a dated entry in this project's evidence
+      log, <code>docs/PERFORMANCE-FINDINGS.md</code>, and to the certification protocol and table
+      in <a href="faster-than-go.html">Faster Than Go? Certified on Linux and Darwin</a>. This
+      article replaces the earlier "From 500 to
+      60,000 Requests per Second", which carries the full nine-day retraction history for
+      readers who want it at length. Every <a href="glossary.html#slice">slice</a> in this arc
+      shipped small, gated, and one at a time; each cleared its <a href="glossary.html#train">landing</a>
+      gates before the next began. The throughline is this project's <a href="glossary.html#g1">G1
+      goal</a> &mdash; match Go's per-core throughput &mdash; which this arc does not just meet,
+      but beats, on two operating systems.
+    </p>
+  </footer>
+</body>
+</html>
