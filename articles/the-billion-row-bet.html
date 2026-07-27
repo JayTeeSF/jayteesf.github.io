@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A mutable type slipped into Hey by accident during a One Billion Row Challenge attempt. The maintainer's answer: solve 1BRC on immutable, zero-copy primitives alone in five seconds, or the accident stays. Baseline measured: today Hey needs about sixty days. Five of the six pipeline stages already exist.">
+  <meta name="article-date" content="2026-07-27">
+  <meta name="article-bucket" content="almost">
+  <meta name="article-desc" content="A mutable type entered Hey by accident during 1BRC work. The wager: beat the One Billion Row Challenge -- 15 GB, one billion rows -- in five seconds using only immutable, zero-copy primitives, or the accident gets deleted. Baseline measured, the gap named, the plan real.">
+  <title>The Billion-Row Bet</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    .evtag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78em; font-weight: 700; padding: 0.05rem 0.3rem; border: 1px solid var(--border); border-radius: 0.3rem; white-space: nowrap; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; font-variant-numeric: tabular-nums; }
+    .vernote { font-size: 0.85rem; color: var(--muted); }
+    .plan {
+      margin: 0 0 2rem;
+      padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e;
+      border-radius: 0.6rem;
+      background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    .verdict {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid #2a78d6;
+      border-radius: 0.7rem;
+      background: rgba(42,120,214,0.08);
+    }
+    .verdict .rec-tag { display: inline-block; font-weight: 800; letter-spacing: 0.03em; font-size: 0.82rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .verdict { background: rgba(57,135,229,0.12); } .verdict .rec-tag { color: #5ea3f2; } }
+    :root[data-theme="dark"] .verdict { background: rgba(57,135,229,0.12); }
+    :root[data-theme="dark"] .verdict .rec-tag { color: #5ea3f2; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+    /* glossary-term popover: static colors only, --border for the frame, an opaque
+       light-pinned surface + dark override so text underneath never bleeds through. */
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>The Billion-Row Bet</h1>
+    <p class="lede">
+      During an early attempt at the <a href="https://www.morling.dev/blog/one-billion-row-challenge/">One
+      Billion Row Challenge</a> (1BRC), a mutable type slipped into Hey &mdash; a language whose one
+      defining rule is that every value is immutable &mdash; by accident. The maintainer's response
+      wasn't a shrug. It was a wager, on the record, dated today: solve 1BRC &mdash; 15&nbsp;GB, one
+      billion temperature readings &mdash; in five seconds, ideally two, using <strong>nothing but
+      immutable, zero-copy primitives</strong>. Win, and the accidental type gets deleted from the
+      language. <strong>The verdict, up front: the bet is ON.</strong> The starting line is brutal
+      (today's Hey needs about sixty days for the same job) and the win is not guaranteed &mdash; but
+      the gap is arithmetic, not magic, and five of the six pipeline stages the plan needs already
+      exist.
+    </p>
+  </header>
+
+  <main>
+    <div class="plan">
+      <p class="plan-tag">Status: campaign underway &mdash; baseline measured, nothing built or shipped yet</p>
+      <p>
+        This article reports a <strong>measured baseline</strong> and a <strong>design brief</strong>,
+        both dated 2026-07-27. The fast <code>1brc.hey</code> program described in &sect;4 does not
+        exist yet; <code>byte_buffer</code> has not been deleted; nothing here is shipped. What is real:
+        the 15&nbsp;GB / one-billion-row file, timed on this box, against the real reference programs,
+        with every projection method stated so it can be checked or falsified.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>The wager is ON, and it is a real deletion, not a hypothetical:</strong> build
+          1BRC on Hey's existing immutable, zero-copy primitives only, hitting &le;5&nbsp;s (dream:
+          &le;2&nbsp;s) on the real 15&nbsp;GB file. If it lands, <code>byte_buffer</code> &mdash; the
+          only mutable value type in an otherwise immutable language, and the accidental reason this
+          campaign exists &mdash; is deleted, specs and all. The maintainer's ruling, quoted as recorded in the project's coordination log (2026-07-27): <em>"DELETE
+          IT and the specs&hellip;but first get the measurements and then come-up with a
+          <code>1brc.hey</code> program that can pass the 1brc fast (&lt;5s&hellip;preferably
+          &lt;2s); baseline numbers, then dispatch."</em></li>
+        <li><strong>Disclosed weakness, stated first: today's Hey needs ~4.1&nbsp;milliseconds per
+          row</strong> &mdash; a projected <strong>~60&nbsp;days</strong> for the full billion. That's
+          the same box that just <a href="faster-than-go.html">beat Go's net/http throughput with 95%
+          confidence</a> &mdash; on this workload, that language is roughly <strong>a million times</strong>
+          off the 5-second target. The contrast is the point, not an embarrassment: the web path got
+          fast by deleting per-request costs; 1BRC is the identical story at per-row scale.</li>
+        <li><strong>The world bar is high but arithmetic.</strong> The 2024 official 1BRC winners ran
+          in ~1.5&nbsp;s on 8 dedicated server cores &mdash; about 1.1&nbsp;GB/s (gigabytes per second)
+          of scan-and-parse per physical core. Translated to this 12-core Apple M-series box: the
+          5-second target needs the equivalent of only 2&ndash;3 winner-grade cores; the 2-second dream
+          needs 6&ndash;8. High, but not a different universe.</li>
+        <li><strong>The plan already has five of its six stages built.</strong> Memory-mapping the
+          file, scanning it with zero-copy views, parsing temperatures with an unboxed integer
+          intrinsic, and fanning work out to worker actors all exist today as immutable primitives.
+          Exactly <strong>two gaps</strong> stand between today's baseline and the target: a
+          per-worker aggregation step, and the output builder &mdash; <code>byte_buffer</code>'s only
+          real remaining job.</li>
+        <li><strong>Why believe a per-row cost can actually die:</strong> tonight's own receipts.
+          Two fixes landed hours apart cut per-request memory retention <strong>34%</strong>
+          (3,640&nbsp;&rarr;&nbsp;2,388 bytes per request) with the leftover cost named down to the
+          exact functions still holding it. Measured, named, deleted &mdash; the same discipline
+          applies to 1BRC's per-row cost.</li>
+        <li><strong>Falsifiable, and honestly hedged.</strong> Every projection below is a straight-line
+          extrapolation from a measured slice, method stated inline; numbers from other machines are
+          labeled as such; the targets are goals, not promises; and the baseline is reproducible from
+          this repo's own 1BRC harness against the real file.</li>
+      </ul>
+    </div>
+
+    <div class="aside">
+      <h3>How to read this article</h3>
+      <p>
+        Two kinds of number appear below, tagged inline: <span class="evtag">[MEASURED]</span> for
+        anything timed on this box against the real 15&nbsp;GB file today, and <span
+        class="evtag">[RESEARCH]</span> for other people's published results on other hardware, always
+        labeled with that hardware. Every "projected" time is <strong>linear extrapolation</strong>
+        from a small measured sample (per-row or per-10M-row cost &times; one billion) &mdash; a
+        method, not a guarantee, and one billion rows is well past every harness timeout used to
+        measure it, so nobody has actually watched the full run finish yet, on any lane. Nothing in
+        this article has shipped.
+      </p>
+    </div>
+
+    <h2>1. The accident and the wager</h2>
+    <p>
+      Hey's whole design rests on one rule: every value is <a class="gloss" href="glossary.html#i5"
+      data-def="Hey's in-flight plan to share values by reference-counted reference instead of always
+      copying them; the language's biggest remaining speed lever.">immutable</a>. Copy on handoff,
+      never mutate what someone else can see &mdash; the rule that makes the whole in-flight plan to
+      share memory by reference, instead of copying it, safe to build at all. <code>byte_buffer</code>
+      is the one type that breaks it: an append-many-times string builder that mutates its backing
+      memory in place, on purpose, every time. According to the project's own account, it didn't
+      arrive as a deliberate design decision &mdash; it <strong>entered the language by accident during 1BRC work</strong> &mdash; the project's own recorded account &mdash; back when an early attempt at this exact
+      benchmark needed <em>something</em> fast to build output with, and a mutable handle was the
+      quickest way to get one.
+    </p>
+    <p>
+      That accident has been sitting in the language ever since, failing its own value-semantics guard
+      suite by design (the subject of a companion article, <a href="what-should-a-byte-buffer-be.html">"What
+      Should a Byte Buffer Be?"</a>). This week the maintainer turned the open question into a program
+      with a real stake: <strong>"mutable structures are UNWANTED unless truly unavoidable"</strong>
+      &mdash; so prove <code>byte_buffer</code> is unnecessary by building the one workload that
+      supposedly needed it, using nothing but the immutable primitives already in the language. Beat
+      the real 1BRC file in 5&nbsp;seconds (2, ideally), and the accidental type gets deleted. Miss,
+      and it stays &mdash; recharacterized as a deliberate, documented exception instead of an
+      accident nobody chose.
+    </p>
+    <div class="aside term">
+      <h3>Term: 1BRC</h3>
+      <p>
+        The <strong>One Billion Row Challenge</strong> (Gunnar Morling, January 2024;
+        <a href="https://github.com/gunnarmorling/1brc">github.com/gunnarmorling/1brc</a>) asks for
+        exactly one thing: parse one billion <code>station;temperature</code> text rows and emit the
+        min/mean/max temperature per station, verified against a reference answer, as fast as
+        possible. It's a real, played-for-keeps leaderboard &mdash; and, per a companion survey on this
+        site, a goalpost <a href="benchmarks-worth-chasing.html">no immutable-first language has ever
+        won</a>.
+      </p>
+    </div>
+
+    <h2>2. The starting line, unflinching</h2>
+    <p>
+      The measurement is not flattering, and it's stated first on purpose. Timed today
+      <span class="evtag">[MEASURED]</span> against the real 15&nbsp;GB, one-billion-row file, warm
+      page cache, on trunk <abbr class="ver" title="v0.99.445a">445a</abbr>:
+    </p>
+    <table>
+      <thead><tr><th>Lane</th><th class="number">Measured / projected</th><th>Basis</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Hey</strong> (best lane found: actors, 8 workers)</td>
+          <td class="number"><strong>~59.7 days</strong></td>
+          <td>~4.13&ndash;4.24&nbsp;ms per row, measured across every worker/chunk case up to 10K
+            rows &mdash; every case at or beyond that size already exceeds the harness's own 60-second
+            timeout, so nothing crashes; it is simply that slow, projected linearly</td></tr>
+        <tr><td>Ruby (<code>1brc.rb</code>, parallel, ~2.5 cores busy)</td>
+          <td class="number">~12.1 min</td>
+          <td>7.25&nbsp;s per 10M rows, projected &times;100 &mdash; our own parallel port, not a
+            claimed competitive leaderboard entry</td></tr>
+        <tr><td>C reference oracle (plain, unoptimized)</td>
+          <td class="number">~8.3 min</td>
+          <td>~500&nbsp;s, the correctness oracle this project already uses to check output, not a
+            tuned entry</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Source: <code>docs/PERFORMANCE-FINDINGS.md</code>, 2026-07-27 ~12:15&nbsp;PDT, "1BRC BASELINE."
+      <span class="evtag">[MEASURED]</span>
+    </p>
+    <p>
+      Put a single number on the gap and it's arresting: <strong>~5,155,000&nbsp;seconds projected for
+      Hey versus a 5-second target is roughly a million times off.</strong> That arithmetic is worth
+      sitting with, because it's the same box, the same toolchain, that just
+      <a href="faster-than-go.html">certified faster than Go's net/http</a> on matched web throughput
+      with 95% confidence. Nothing about that is a contradiction. The web server got fast by finding
+      and deleting a specific, named set of per-request costs (shape-interning locks, boxed value
+      churn, per-connection threads); 1BRC is not a different kind of problem, it's the identical
+      story scaled down to <em>per row</em> instead of <em>per request</em> &mdash; a billion rows
+      instead of a hundred thousand requests, and today, nothing in that inner loop has had its costs
+      found and deleted yet. That's not unfixable physics. It's a to-do list &mdash; a long one, but a
+      to-do list, and &sect;4 below is most of it already checked off.
+    </p>
+
+    <h2>3. The world bar: high, but arithmetic</h2>
+    <p>
+      Before setting a target, it's worth knowing what the best programs on Earth actually achieve, on
+      hardware whose size is stated plainly. The <a
+      href="https://www.morling.dev/blog/1brc-results-are-in/">official 2024 results</a>
+      <span class="evtag">[RESEARCH]</span> ran on a Hetzner AX161 (32-core AMD EPYC 7502P), using
+      <strong>eight of those 32 cores</strong>: the top three entries (Wuerthinger/Mai/Peterssen,
+      Korzun, Hamala &mdash; all GraalVM native binaries) finished in 1.535&ndash;1.608&nbsp;s. Every
+      top entry used the same handful of mechanisms, cited at their source: <strong>memory-mapped
+      I/O</strong> (letting the OS page the file straight into memory, no <code>read()</code> calls),
+      <strong>SWAR</strong> scanning &mdash; reading eight bytes at a time and using branch-free bit
+      tricks to find the field separator, a technique detailed by merykitty in a
+      <a href="https://questdb.com/blog/1brc-merykittys-magic-swar/">dedicated write-up</a>
+      <span class="evtag">[RESEARCH]</span> &mdash; and <strong>custom hash tables keyed on raw
+      bytes</strong>, skipping string allocation until the very last step
+      (<a href="https://www.infoq.com/news/2024/01/1brc-fast-java-processing">InfoQ summary</a>
+      <span class="evtag">[RESEARCH]</span>).
+    </p>
+    <p>
+      Do the arithmetic on that result and the file's estimated ~13.8&nbsp;GB
+      (<span class="evtag">[RESEARCH]</span>, secondary reporting; the official post doesn't state
+      file size): about <strong>9&nbsp;GB/s aggregate, or ~1.1&nbsp;GB/s per physical core</strong>.
+      Non-Java entries land in the same neighborhood &mdash; Danny van Kooten's C port
+      (<a href="https://www.dannyvankooten.com/blog/2024/1brc/">write-up</a>,
+      <a href="https://github.com/dannyvankooten/1brc">source</a>) does ~0.94&nbsp;GB/s/core on an
+      8-core Ryzen; a Rust port on an 8-core Zen4 desktop lands near 1.2. Across three independent
+      codebases and three CPU generations, roughly <strong>0.9&ndash;1.35&nbsp;GB/s per core</strong> is
+      the practical scan-and-parse ceiling for this workload &mdash; nobody credible reports
+      multi-GB/s per core.
+    </p>
+    <p>
+      Translate that to this box &mdash; a 12-core Apple M-series machine, a 15&nbsp;GB file, no
+      claim that P-cores and the EPYC's server cores run at an identical rate:
+    </p>
+    <ul>
+      <li><strong>5&nbsp;s target = 3.0&nbsp;GB/s aggregate</strong> &mdash; at the winners'
+        0.9&ndash;1.35&nbsp;GB/s/core, that's the equivalent of about <strong>2&ndash;3 of this
+        machine's 12 cores</strong> running at winner-grade efficiency.</li>
+      <li><strong>2&nbsp;s dream = 7.5&nbsp;GB/s aggregate</strong> &mdash; the equivalent of
+        <strong>6&ndash;8 of 12 cores</strong>, essentially every performance core running at the same
+        per-core rate the 1BRC winners get from their AMD server cores.</li>
+    </ul>
+    <p>
+      High, especially for the 2-second dream &mdash; but it is a core count, not a miracle. Page-cache
+      warmth matters here too: every fast time cited above, official and independent, measures with
+      the file already resident in RAM, and this article's own baseline is a warm-cache number for the
+      same reason, stated plainly rather than left implicit.
+    </p>
+
+    <h2>4. The gist, in one chart</h2>
+    <figure class="viz-root" id="fig-bet">
+      <style>
+        #fig-bet{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fb-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --fb-border:rgba(11,11,11,0.10);
+          --bar-ref:#2a78d6; --bar-goal:#1a9e6b; --bar-gap:#d03b3b;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fb-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-bet{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fb-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --fb-border:rgba(255,255,255,0.10);
+            --bar-ref:#3987e5; --bar-goal:#35c98a; --bar-gap:#e8564a;
+          }
+        }
+        :root[data-theme="dark"] #fig-bet{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fb-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --fb-border:rgba(255,255,255,0.10);
+          --bar-ref:#3987e5; --bar-goal:#35c98a; --bar-gap:#e8564a;
+        }
+        #fig-bet .fb-head{padding:18px 20px 2px}
+        #fig-bet .fb-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-bet .fb-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-bet .fb-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-bet svg{display:block;width:100%;min-width:520px;height:auto}
+        #fig-bet .fb-grid{stroke:var(--grid);stroke-width:1}
+        #fig-bet .fb-axis{stroke:var(--axis);stroke-width:1}
+        #fig-bet .fb-tick{fill:var(--fb-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-bet .fb-cat{fill:var(--text-primary);font-size:12.5px;font-weight:600}
+        #fig-bet .fb-cat-sub{fill:var(--fb-muted);font-size:10.5px}
+        #fig-bet .fb-val{fill:var(--text-primary);font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+        #fig-bet .fb-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-bet .fb-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fb-muted)}
+        #fig-bet rect{cursor:default}
+      </style>
+      <div class="fb-head">
+        <p class="fb-title">Projected time for one billion rows, this machine</p>
+        <p class="fb-sub">Log scale &mdash; on a linear axis the Hey-today bar would run off the page while
+          everything else vanished into the origin. All bars this box's 15&nbsp;GB file except where labeled.</p>
+      </div>
+      <div class="fb-plot">
+        <svg id="fb-svg" viewBox="0 0 780 260" role="img"
+             aria-label="Horizontal bar chart, logarithmic time axis. World-record class, 8 dedicated server cores, different hardware: 1.5 seconds. Dream target: 2 seconds. Target: 5 seconds. Naive C reference: about 8.3 minutes. Ruby, parallel: about 12.1 minutes. Hey today: about 59.7 days."></svg>
+      </div>
+      <p class="fb-foot">Direct-labeled bars carry the story; each bar is its own category, so there's no
+        legend. Source: <code>docs/PERFORMANCE-FINDINGS.md</code>, 2026-07-27 ~12:15 PDT (Hey/Ruby/C, this
+        box) and the official 2024 1BRC results (world-record class, different hardware, labeled).</p>
+    </figure>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'World-record class',  sub:'8 dedicated server cores — different hardware', secs:1.5,      color:'var(--bar-ref)'},
+        {label:'Dream',                sub:'this box, aspirational',                          secs:2,        color:'var(--bar-goal)'},
+        {label:'Target',               sub:'this box, the wager’s bar',                    secs:5,        color:'var(--bar-goal)'},
+        {label:'Naive C oracle',       sub:'unoptimized reference, this box',                  secs:500,      color:'var(--bar-ref)'},
+        {label:'Ruby (parallel)',      sub:'our own port, ~2.5 cores busy, this box',          secs:725,      color:'var(--bar-ref)'},
+        {label:'Hey today',            sub:'measured 4.1 ms/row, projected — this box',        secs:5155000,  color:'var(--bar-gap)'}
+      ];
+      var W=780,H=260,L=210,R=90,T=26,B=46;
+      var LO=1,HI=10000000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      function fmt(v){
+        if(v>=86400) return (v/86400).toFixed(1)+' days';
+        if(v>=3600) return (v/3600).toFixed(1)+' hr';
+        if(v>=60) return (v/60).toFixed(1)+' min';
+        return v+' s';
+      }
+      var TICKS=[1,10,100,1000,10000,100000,1000000,10000000];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="fb-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="fb-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+fmt(v)+'</text>');
+      });
+      o.push('<text class="fb-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">projected wall time for 1 billion rows — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=22, gapPx=2;
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.secs)-L,2);
+        o.push('<text class="fb-cat" x="'+(L-12)+'" y="'+(cy-3).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="fb-cat-sub" x="'+(L-12)+'" y="'+(cy+13).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="'+r.color+'"><title>'+r.label+': '+fmt(r.secs)+'</title></rect>');
+        o.push('<text class="fb-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+fmt(r.secs)+'</text>');
+      });
+      o.push('<line class="fb-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('fb-svg').innerHTML=o.join('');
+    })();
+    </script>
+
+    <h2>5. The plan: five of six stages already exist</h2>
+    <p>
+      A design brief written for this campaign inventories Hey's existing primitives against what a
+      2-second-class 1BRC pipeline actually needs, stage by stage, with file-and-line receipts for
+      each claim. The finding: <strong>five of the six stages already exist today, as immutable,
+      zero-copy code</strong> &mdash; nothing new to invent, just to wire together and swap in.
+    </p>
+    <table>
+      <thead><tr><th>#</th><th>Stage</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Memory-map the file as immutable bytes</td><td><strong>Exists</strong> &mdash; a
+          zero-copy runtime intrinsic already used by the current 1BRC program</td></tr>
+        <tr><td>2</td><td>Zero-copy slice / scan</td><td><strong>Exists</strong> &mdash; retained views
+          over the mapped bytes, no allocation per scan</td></tr>
+        <tr><td>3</td><td>Parse each temperature as a raw-bytes integer</td><td><strong>Exists, unused</strong>
+          &mdash; a true unboxed integer parse intrinsic sits in the standard library; today's program
+          hand-rolls the same loop instead. A free swap.</td></tr>
+        <tr><td>4</td><td>Fan work out across worker actors over one shared mapping</td>
+          <td><strong>Exists, already cheap</strong> &mdash; handing the mapping to a worker costs one
+          atomic reference-count bump, not a copy; the 15&nbsp;GB file maps once</td></tr>
+        <tr><td>5</td><td>Per-worker aggregation (accumulate stats per station)</td>
+          <td><strong>The dominant gap</strong> &mdash; today's aggregation step clones its whole
+          accumulator on every update, an O(rows &times; live-keys) cost that is the main reason the
+          per-row time is measured in milliseconds instead of nanoseconds</td></tr>
+        <tr><td>6</td><td>Sort ~10,000 stations and build the output text</td>
+          <td><strong>Exists, minus one piece</strong> &mdash; the sort is negligible; the output builder
+          is <code>byte_buffer</code>'s one remaining real job, and it is off the hot per-row path</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Source: <code>agents/linux/notes/1brc-design-brief.md</code>, 2026-07-27.
+      <span class="evtag">[MEASURED]</span></p>
+    <p>
+      Two real gaps, and both already have a name and a plan. The output builder (stage 6) is
+      small: swap <code>byte_buffer</code> for an array of formatted strings joined once at the
+      end &mdash; the same "retire behind a spec ban" trick this project has already used once before
+      for a different type. The aggregation step (stage 5) is the harder one, and it just got a
+      ruling: rather than wait days for the full reference-counting program's later stages, a scoped
+      <strong>transient accumulator</strong> &mdash; an object the compiler can prove never escapes
+      the scan loop, mutated in place and frozen only once, at the very end &mdash; goes now, using a
+      pattern this project has already shipped once for a different, narrower case. <strong>"S3 GOES
+      NOW"</strong> is the maintainer's own ruling, dated the same day as this baseline: the
+      1BRC campaign and the <code>byte_buffer</code> deletion decision do not have to queue behind a
+      multi-week refactor to get their answer.
+    </p>
+    <div class="aside term">
+      <h3>Term: slice</h3>
+      <p>
+        A <a class="gloss" href="glossary.html#slice" data-def="The project's unit of work: one focused
+        change, built and tested in its own worktree, small enough to land and gate in a single
+        sitting.">slice</a> is this project's unit of work &mdash; one focused change, small enough to
+        build, test, and land in a single sitting. Each row of the table above becomes its own slice;
+        the aggregation gap alone is rated a bigger, multi-day slice than the output-builder swap.
+      </p>
+    </div>
+    <p>
+      When a slice clears every check, the orchestrator merges it to the mainline branch &mdash; a
+      <a class="gloss" href="glossary.html#train" data-def="A slice becomes a landing when the
+      orchestrator merges it to the mainline branch after every gate passes; landings queue and merge
+      one after another in strict order.">landing</a>, one of a strict, ordered queue the project calls
+      the train. The aggregation fix's long-term destination is a broader program called
+      <a class="gloss" href="glossary.html#i5" data-def="Hey's in-flight plan to share values by
+      reference-counted reference instead of always copying them; ranked as the language's single
+      biggest remaining speed lever.">I5</a> &mdash; sharing values by reference count instead of
+      always copying &mdash; and 1BRC's in-place aggregation, done safely, would become that program's
+      first real showcase workload once its later stages land.
+    </p>
+
+    <h2>6. Why believe it: tonight's receipts</h2>
+    <p>
+      The claim that a per-row cost can be found, named, and killed isn't a hope &mdash; it happened
+      today, on a different workload, twice, hours apart. A pre-registered memory gate at
+      <abbr class="ver" title="v0.99.443a">443a</abbr> measured this project's web server's per-request
+      memory retention and found no improvement yet. A follow-up fix landed at
+      <abbr class="ver" title="v0.99.445a">445a</abbr>, and the same gate, re-run, told a different
+      story <span class="evtag">[MEASURED]</span>:
+    </p>
+    <table>
+      <thead><tr><th>Gate check</th><th>Before</th><th>After (445a)</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>Per-request memory retention</td><td>3,640 B/req</td><td>2,388 B/req</td>
+          <td><strong>&minus;34%</strong></td></tr>
+        <tr><td>Object-clone count (the dominant prior cost)</td><td>40,096</td><td>74</td>
+          <td>dead</td></tr>
+        <tr><td>Sustained-load collapse under a request storm</td><td>100% failure</td>
+          <td>100% success, every rung</td><td>gone</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Source: bench outbox, 2026-07-27T19:00:00Z, "445a GATE VERDICT." <span class="evtag">[MEASURED]</span>
+    </p>
+    <p>
+      What makes this the right receipt for a 1BRC bet, specifically, is what happened to the
+      <em>leftover</em> 2,388&nbsp;bytes: it didn't stay a mystery. A live memory census named it down
+      to individual functions &mdash; two value-construction helpers and the string duplication
+      underneath them, byte-identical counts across three separate landings while everything else
+      moved. That's the same discipline 1BRC's per-row cost needs: measure it, name the exact function
+      spending it, delete that function's cost, repeat. It is not a metaphor borrowed from a different
+      part of the project &mdash; it is the same team, the same gates, the same day.
+    </p>
+    <div class="aside">
+      <h3>Pre-registered, on the record</h3>
+      <p>
+        Before any deletion happens, three predictions are staked in writing: swapping in the existing
+        parse intrinsic and the array-based output builder changes zero output bytes and no measurable
+        timing; landing the transient-accumulator fix gets Hey's per-core scan-and-parse rate to the
+        ~0.75&nbsp;GB/s/core needed for the 5-second target on this box's cores; and
+        <code>byte_buffer</code>'s deletion, after that, costs nothing measurable anywhere else in the
+        codebase. Each is falsifiable, each gets a baseline, a prediction, and a named kill condition
+        before it's tested &mdash; and the deletion itself only happens after a receipt shows the
+        immutable replacement genuinely costs nothing at the three places <code>byte_buffer</code> is
+        pinned in specs today.
+      </p>
+    </div>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>1BRC</dt><dd>The One Billion Row Challenge: parse a billion <code>station;temperature</code> text
+        rows and emit min/mean/max per station, checked against a reference answer, as fast as
+        possible.</dd>
+      <dt>byte_buffer</dt><dd>Hey's one mutable value type: an append-many-times output builder that
+        writes to its backing memory in place. Subject of a companion article,
+        <a href="what-should-a-byte-buffer-be.html">"What Should a Byte Buffer Be?"</a></dd>
+      <dt>zero-copy</dt><dd>Reading or slicing data by pointing at existing memory instead of duplicating
+        it &mdash; the difference between handing someone a photocopy and pointing at the original
+        page.</dd>
+      <dt>mmap</dt><dd>Memory-mapping a file: asking the operating system to make a file's bytes appear
+        directly in memory, paged in on demand, with no explicit <code>read()</code> calls.</dd>
+      <dt>SWAR</dt><dd>SIMD-within-a-register: reading several bytes at once as one machine word and using
+        branch-free bit tricks to scan them, instead of a byte-at-a-time loop with a conditional.</dd>
+      <dt>deci-degree</dt><dd>1BRC's temperature format (one decimal place, e.g. <code>-3.2</code>)
+        represented as a plain integer in tenths of a degree, avoiding floating-point parsing entirely.</dd>
+      <dt>slice</dt><dd><a class="gloss" href="glossary.html#slice" data-def="The project's unit of work:
+        one focused change, built and tested in its own worktree, small enough to land and gate in a
+        single sitting.">See the shared glossary.</a></dd>
+      <dt>train / landing</dt><dd><a class="gloss" href="glossary.html#train" data-def="A slice becomes a
+        landing when the orchestrator merges it to the mainline branch after every gate passes;
+        landings queue and merge one after another in strict order.">See the shared glossary.</a></dd>
+      <dt>I5</dt><dd><a class="gloss" href="glossary.html#i5" data-def="Hey's in-flight plan to share
+        values by reference-counted reference instead of always copying them; ranked as the language's
+        single biggest remaining speed lever.">See the shared glossary.</a></dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://github.com/gunnarmorling/1brc">github.com/gunnarmorling/1brc</a> [SOURCE]
+        &mdash; 1BRC rules and official README</li>
+      <li><a href="https://www.morling.dev/blog/1brc-results-are-in/">Morling, "1BRC results are
+        in"</a> [RESEARCH] &mdash; official leaderboard, hardware, winning times</li>
+      <li><a href="https://www.infoq.com/news/2024/01/1brc-fast-java-processing">InfoQ, "1 Billion Row
+        Challenge"</a> [RESEARCH] &mdash; mechanisms summary, file-size estimate</li>
+      <li><a href="https://questdb.com/blog/1brc-merykittys-magic-swar/">QuestDB, "merykitty's magic
+        SWAR"</a> [RESEARCH] &mdash; branchless deci-degree parse and delimiter scan</li>
+      <li><a href="https://questdb.com/blog/billion-row-challenge-step-by-step/">QuestDB, "Billion Row
+        Challenge, step by step"</a> (Marko Topolnik) [RESEARCH]</li>
+      <li><a href="https://benhoyt.com/writings/go-1brc/">Ben Hoyt, "Go solutions to the One Billion Row
+        Challenge"</a> [RESEARCH]</li>
+      <li><a href="https://www.dannyvankooten.com/blog/2024/1brc/">Danny van Kooten, 1BRC in C</a>
+        [RESEARCH] + <a href="https://github.com/dannyvankooten/1brc">source</a> [SOURCE]</li>
+      <li><a href="https://pncnmnp.github.io/blogs/one-billion-row-challenge.html">pncnmnp, 1BRC on M1
+        Pro (Rust)</a> [RESEARCH] &mdash; only Apple-Silicon datapoint found with stated hardware</li>
+      <li>Local receipt: <code>docs/PERFORMANCE-FINDINGS.md</code>, 2026-07-27 ~12:15 PDT, "1BRC
+        BASELINE" [MEASURED]</li>
+      <li>Local receipt: <code>docs/PERFORMANCE-FINDINGS.md</code>, 2026-07-27 ~06:05 PDT, "443a
+        LOOP-RELEASE GATE" [MEASURED]</li>
+      <li>Local receipt (bus): <code>agents/bench/outbox/20260727T190000Z-445a-GATE-VERDICT&hellip;.md</code>
+        [MEASURED]</li>
+      <li>Local receipt (bus): <code>agents/orchestrator/outbox/20260727T171729Z-LANDED-445a&hellip;.md</code>
+        [MEASURED] &mdash; the maintainer's deletion-wager quote</li>
+      <li>Local receipt (bus): <code>agents/orchestrator/outbox/20260727T171052Z-TASKING-1BRC&hellip;.md</code>
+        [MEASURED] &mdash; the "entered the language BY ACCIDENT" quote</li>
+      <li>Local receipt (bus): <code>agents/orchestrator/outbox/20260727T172722Z-RULING-S3-GO&hellip;.md</code>
+        [MEASURED] &mdash; "S3 GOES NOW" ruling</li>
+      <li>Local receipt: <code>agents/linux/notes/1brc-design-brief.md</code>, 2026-07-27 [MEASURED]</li>
+      <li>Companion articles: <a href="benchmarks-worth-chasing.html">"Benchmarks Worth
+        Chasing"</a> (1BRC as goalpost), <a href="faster-than-go.html">"Faster Than Go?"</a> (the web
+        certification), <a href="what-should-a-byte-buffer-be.html">"What Should a Byte Buffer
+        Be?"</a> (the type on the line)</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Baseline measured 2026-07-27 against the real 15&nbsp;GB, one-billion-row file on this box, warm
+      page cache, trunk <abbr class="ver" title="v0.99.445a">445a</abbr>. All "projected" figures are
+      linear extrapolations from a measured sample, stated inline; figures credited to other hardware
+      are labeled as such and are not comparators for this box. Nothing described in &sect;4&ndash;6
+      beyond the baseline itself has landed; the targets in &sect;3 are goals, not promises.
+    </p>
+    <p class="vernote">Version numbers are shown short: <abbr class="ver" title="v0.99.445a">445a</abbr>
+      means v0.99.445a &mdash; the pre-beta series.</p>
+  </footer>
+  <script>
+  (function(){
+    var pop=null, current=null;
+    function closePop(){
+      if(pop){ pop.remove(); pop=null; current=null;
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('click', onDocClick, true); }
+    }
+    function onKey(e){ if(e.key==='Escape') closePop(); }
+    function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
+    function openPop(a){
+      if(current===a){ closePop(); return; }
+      closePop(); current=a;
+      pop=document.createElement('div');
+      pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
+      var def=document.createElement('p');
+      def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
+      var link=document.createElement('a');
+      link.href=a.getAttribute('href'); link.className='gloss-pop-link';
+      link.textContent='Full entry →';
+      pop.appendChild(def); pop.appendChild(link);
+      document.body.appendChild(pop);
+      var r=a.getBoundingClientRect();
+      var top=window.scrollY + r.bottom + 6;
+      var left=window.scrollX + r.left;
+      var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      pop.style.top=top+'px';
+      pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('click', onDocClick, true);
+    }
+    document.querySelectorAll('a.gloss').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
+      a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
+    });
+  })();
+  </script>
+</body>
+</html>
