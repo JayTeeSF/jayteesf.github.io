@@ -107,9 +107,9 @@
     <h1>What Should a Byte Buffer Be?</h1>
     <p class="lede">
       Hey is a value-semantics language: values copy, nobody ever observes your mutations, and that
-      one rule is what makes the language's whole in-flight plan to share memory by
-      <a class="gloss" href="glossary.html#i5" data-def="The plan to share Hey values by reference-counted reference instead of always copying them; ranked as G1's single biggest remaining lever.">reference count (I5)</a>
-      safe to build. One type refuses to fit: <code>byte_buffer</code>, the append-many-times string
+      one rule is what makes the language's whole in-flight
+      <a class="gloss" href="glossary.html#i5" data-def="Hey's in-flight plan to share values by reference-counted reference instead of always copying them; ranked as the language's single biggest remaining speed lever.">reference-counting upgrade</a>
+      (the project internally calls this I5) safe to build. One type refuses to fit: <code>byte_buffer</code>, the append-many-times string
       builder. A falsifiable guard suite built to pin value semantics found the proof that no
       refcount rule can rescue it &mdash; the required behavior is <strong>non-monotonic in the
       refcount itself</strong>. This is a measured walk through five ways the language could resolve
@@ -126,8 +126,8 @@
       <p>
         Nothing in this article is shipped. It analyzes five options for an open language-design
         question &mdash; how <code>byte_buffer</code> should be classified &mdash; that blocks one
-        ticket in Hey's refcount program (I5) and is on the maintainer's open-questions list as item
-        4 (<code>docs/agents/in-progress.md:8-17</code>). Every measured number below is real and
+        ticket in Hey's reference-counting upgrade program and is on the maintainer's open-questions
+        list as item 4 (<code>docs/agents/in-progress.md:8-17</code>). Every measured number below is real and
         reproducible; the choice among the five options is not this article's to make.
       </p>
     </div>
@@ -142,7 +142,7 @@
         challenge's own bar (&le;5&nbsp;s, ideally &le;2&nbsp;s) on the real 15&nbsp;GB file. That
         upgrades a sixth option &mdash; <strong>(vi) DELETE</strong>, added below in &sect;4 &mdash;
         from an omission in this article's original five to the <strong>plan of record, pending
-        receipts</strong>. Option (i) (M3, the mutable handle) is demoted to the <strong>fallback</strong>
+        receipts</strong>. Option (i) (the mutable handle) is demoted to the <strong>fallback</strong>
         if the immutable port can't hold the line. The TL;DR's first bullet and &sect;5's recommendation
         are re-verdicted accordingly, below. This remains a recommendation, not a ruling &mdash; the
         maintainer's direction is disclosed here, not adopted as this article's own conclusion &mdash;
@@ -160,14 +160,14 @@
           <code>byte_buffer</code> entered the language by accident during 1BRC work and set this
           program's direction &mdash; <strong>option (vi), delete <code>byte_buffer</code> entirely,</strong>
           is now the plan of record, contingent on a 1BRC-on-immutable-primitives trial proving the
-          replacement costs nothing at the three pinned sites. <strong>Option (i) (M3, the mutable
+          replacement costs nothing at the three pinned sites. <strong>Option (i) (the mutable
           handle) is demoted to the fallback</strong> if that port can't hold the line. The analysis
           below is the record of how the original recommendation was reached, and stands as the
           fallback's justification.</li>
         <li><strong>No refcount predicate can implement <code>byte_buffer</code>'s measured
           contract.</strong> A direct append must write through at refcount&nbsp;3, a nested append
           one function-call deeper must NOT write through at refcount&nbsp;4, and three appends in a
-          row (spec 926) must all write through at refcounts 3, 3, and 5. Write-through is required
+          row (per the linear-builder spec) must all write through at refcounts 3, 3, and 5. Write-through is required
           at rc&nbsp;3 and rc&nbsp;5 and forbidden at rc&nbsp;4 &mdash; no threshold
           (<code>rc == 1</code>, <code>rc &lt;= n</code>, anything) can express that.</li>
         <li><strong>The mechanism is call depth, not sharing.</strong> <code>Bytes.append</code> is
@@ -177,7 +177,7 @@
           never partially shared; it is already an unconditional mutable handle. The only open
           question is whether the language admits it.</li>
         <li><strong>Always-copying instead is dead on arithmetic alone.</strong> Building the 1BRC
-          product lane's output (spec 936) for 10,000 stations takes 79,999 appends into a
+          product lane's output (per the product-lane contract) for 10,000 stations takes 79,999 appends into a
           &le;&nbsp;1&nbsp;MiB buffer; in place, that moves about the output's own size, ~260&nbsp;KB.
           Copying the whole buffer on every append instead would move <strong>~10.4&nbsp;GB &mdash;
           about 40,000&times; more bytes physically moved</strong> for the identical result.</li>
@@ -208,7 +208,7 @@
         again in the Sources list. The workload used for every performance number is the same one
         throughout: Hey's 1BRC (<a href="https://www.morling.dev/blog/one-billion-row-challenge/">One
         Billion Row Challenge</a>) product example, whose output builder is pinned at exactly
-        <code>Bytes.buffer(1048576)</code> by spec 936.
+        <code>Bytes.buffer(1048576)</code> by the product-lane contract.
       </p>
     </div>
 
@@ -218,9 +218,9 @@
       store a struct in another struct &mdash; nobody downstream can ever observe you mutating what
       you handed them, because what they hold is, semantically, a brand-new copy. That single
       guarantee is what makes Hey's in-flight plan to actually <em>stop</em> copying &mdash; sharing
-      values by reference and a reference count instead, tracked as
-      <a class="gloss" href="glossary.html#i5" data-def="The plan to share Hey values by reference-counted reference instead of always copying them; ranked as G1's single biggest remaining lever.">I5</a>
-      &mdash; safe to build at all: if nobody can observe a mutation, sharing the backing memory
+      values by reference and a reference count instead, the same
+      <a class="gloss" href="glossary.html#i5" data-def="Hey's in-flight plan to share values by reference-counted reference instead of always copying them; ranked as the language's single biggest remaining speed lever.">reference-counting upgrade</a>
+      mentioned above &mdash; safe to build at all: if nobody can observe a mutation, sharing the backing memory
       instead of copying it changes performance, never behavior.
     </p>
     <div class="aside term">
@@ -267,12 +267,12 @@
       <tbody>
         <tr><td>Fixture (A): <code>Bytes.append(buf, 'seed')</code> &mdash; direct call</td><td>MUST write through</td><td class="number"><strong>rc = 3</strong></td></tr>
         <tr><td>Fixture (B): <code>append_to(buf)</code> &mdash; same append, one frame deeper</td><td>MUST NOT write through</td><td class="number"><strong>rc = 4</strong></td></tr>
-        <tr><td>Spec 926's three appends (all write through)</td><td>MUST write through</td><td class="number"><strong>rc = 3, 3, 5</strong></td></tr>
+        <tr><td>The linear-builder spec's three appends (all write through)</td><td>MUST write through</td><td class="number"><strong>rc = 3, 3, 5</strong></td></tr>
       </tbody>
     </table>
     <p class="muted">
       Source: <code>specs/language/1218_byte_buffer_isolation_is_not_an_rc_problem.hey:32&ndash;41</code>,
-      corroborated in the <code>wi5a</code> stage-(a) commit message (<code>b6d11584</code>, "the
+      corroborated in the <code>wi5a</code> first-stage commit message (<code>b6d11584</code>, "the
       refcount field, maintained everywhere, read by nothing") and
       <code>docs/agents/in-progress.md:8&ndash;17</code>. <span class="evtag">[MEASURED]</span>
     </p>
@@ -283,7 +283,7 @@
       shape, that returns true at 3 and 5 and false at 4. Converting receiver-position clones to
       borrows (a Swift-4.2-style change, worth doing on its own merits) shifts every number in the
       table down by the same amount and changes nothing about the ordering
-      <span class="evtag">[MEASURED]</span> (spec 1218:32&ndash;41).
+      <span class="evtag">[MEASURED]</span> (the isolation fixture).
     </p>
     <div class="aside term">
       <h3>Term: call depth vs. ownership</h3>
@@ -314,7 +314,7 @@
       is judged against what it costs each of them:
     </p>
     <ul>
-      <li><strong>Spec 926</strong> (<code>specs/language/926_byte_buffer_linear_builder.hey</code>)
+      <li><strong>The linear-builder spec</strong> (<code>specs/language/926_byte_buffer_linear_builder.hey</code>)
         pins the exact stdout <code>"0\n2\n4\ntrue\nabcd\n8\nabcdabcd\n0\n"</code>. Two things in
         that output are load-bearing: <code>Bytes.append</code> returns the new <strong>length</strong>
         (an int), not a buffer, and the accumulation happens through the <em>same binding</em> across
@@ -322,9 +322,9 @@
         it's the point. Line 14 additionally pins <strong>self-append aliasing</strong>:
         <code>Bytes.append(output, output)</code> must read the pre-append contents and produce
         <code>"abcdabcd"</code>.</li>
-      <li><strong>Spec 936</strong> (the compiler's product-lane contract) pins the literal
+      <li><strong>The product-lane contract</strong> (<code>specs/compiler/936_1brc_product_lane_contract.hey</code>) pins the literal
         <code>Bytes.buffer(1048576)</code> (1&nbsp;MiB) as the "linear byte-buffer output" inside an
-        otherwise pure, immutable-style example (spec 936:36) &mdash; the accumulate idiom is the
+        otherwise pure, immutable-style example (line 36 of that contract) &mdash; the accumulate idiom is the
         deliberate single mutable builder inside a program that is pure everywhere else.</li>
       <li><strong><code>one_brc.hey</code></strong>'s result-formatting function appends into one
         buffer binding, 8 times per station (7 for the first), across a stdlib call boundary, inside
@@ -347,7 +347,7 @@
     <p>
       Make it official: <code>byte_buffer</code> joins <code>HEY_IO_HANDLE</code> and
       <code>HEY_ACTOR</code> as a value kind that was never meant to have value semantics in the
-      first place (spec 1218:53&ndash;58). This is the least invasive option in the strict sense that
+      first place (per the isolation fixture). This is the least invasive option in the strict sense that
       it changes zero runtime behavior &mdash; it just gives a name to what
       <code>hey_value_clone</code> already does.
     </p>
@@ -381,10 +381,12 @@
       today's runtime behavior <em>is</em> option (i)'s behavior; the fixture header says as much
       (lines 6&ndash;13). <strong>Guard suite:</strong> the three <code>BYTE_BUFFER</code> cases retire
       as by-design &mdash; not fixed, not deleted, reclassified, with a one-line doctrine note where
-      spec 1199's expected-red list used to carry them. <strong>Forecloses for I5 (b)/(c): nothing.</strong>
+      the guard suite's original expected-red list used to carry them. <strong>Forecloses for the
+      reference-counting upgrade's later stages (the project calls these I5 stages b and c):
+      nothing.</strong>
       <code>byte_buffer</code> holds no <code>HeyValue</code> fields and so can never form a reference
-      cycle (spec 1217, via spec 1218:65&ndash;67) &mdash; it was never a candidate for I5's
-      cycle-free refcount sharing in the first place. The rest of the value-semantics guard (arrays,
+      cycle (per the cycle-safety spec, via the isolation fixture) &mdash; it was never a candidate for
+      the reference-counting upgrade's cycle-free sharing in the first place. The rest of the value-semantics guard (arrays,
       strings, structs) is untouched.
     </p>
 
@@ -397,7 +399,7 @@
     <p>
       <strong>Consistency:</strong> the project's own working notes are blunt about this one &mdash;
       "novel semantics &mdash; orchestrator prior: no" (<code>docs/agents/in-progress.md:14</code>,
-      spec 1218:53&ndash;58). None of the five languages surveyed for this article &mdash; Swift, Go,
+      the isolation fixture). None of the five languages surveyed for this article &mdash; Swift, Go,
       Clojure, Erlang, Koka/Lean, Rust &mdash; key mutation permission off how many stack frames deep a
       call happens to sit; every one of them keys it off <em>sharing</em> (a uniqueness check, a
       refcount, a compile-time borrow). Tested honestly and rejected: it canonizes a calling-convention
@@ -414,15 +416,15 @@
       happen to sit at the depths the rule expects, which is true today by coincidence, not by design
       &mdash; and the rule itself still has to be built and specified precisely enough to say whether
       the delegation from <code>Bytes.append</code> down to the <code>byte_buffer_append</code>
-      builtin counts as a frame or not (spec 1218:63&ndash;67). <strong>Guard suite:</strong> the three
+      builtin counts as a frame or not (the isolation fixture). <strong>Guard suite:</strong> the three
       cases would need to become <em>enforced</em>, not merely observed &mdash; new machinery, new
-      failure modes. <strong>Forecloses for I5 (b)/(c):</strong> this is the option's sharpest cost.
-      I5's later stages are exactly where Hey has to design a calling convention for borrowed vs. owned
+      failure modes. <strong>Forecloses for the upgrade's later stages:</strong> this is the option's sharpest cost.
+      Those later stages are exactly where Hey has to design a calling convention for borrowed vs. owned
       parameters, and the Linux seat's ownership research names the trap by name: Swift's
       guaranteed-by-default (borrowed) parameters once made its copy-on-write check see refcount&nbsp;2
       at ordinary mutation sites and forced spurious copies, until Swift&nbsp;4.2 moved most parameters
       to owned-by-default to stop it. Canonizing call depth as semantically load-bearing now would
-      pre-commit I5's future calling convention to treat a parameter-passing detail as meaningful
+      pre-commit the upgrade's future calling convention to treat a parameter-passing detail as meaningful
       &mdash; precisely the mistake Swift already paid to unlearn.
     </p>
 
@@ -445,19 +447,19 @@
     <p>
       <strong>Performance:</strong> unchanged asymptotically &mdash; the rebind idiom, done right, is
       still one write per append; the cost is entirely in what it breaks. <strong>Migration cost on
-      the three pinned sites: breaks all three.</strong> Spec 926 pins <code>Bytes.append</code>
+      the three pinned sites: breaks all three.</strong> The linear-builder spec pins <code>Bytes.append</code>
       returning a <strong>length</strong>, not a buffer &mdash; the pinned stdout itself
       (<code>"...2\n4\ntrue\nabcd\n8\n..."</code>) is those lengths printed directly, so this option
-      changes a pinned return type, not an implementation detail. Spec 926's self-append aliasing
+      changes a pinned return type, not an implementation detail. That same spec's self-append aliasing
       (line 14) needs a fresh definition once "append" no longer mutates anything in place. And
       <code>one_brc.hey</code>'s 8-appends-per-station loop, written today as bare statement calls
       whose return values are bound and discarded, would need to become a chain of rebinds through
       every one of those calls &mdash; a user-facing migration across the corpus, not a compiler
       change. <strong>Guard suite:</strong> the three cases become the enforced, intended contract
-      &mdash; but only once the migration lands. <strong>Forecloses for I5 (b)/(c): nothing</strong>
+      &mdash; but only once the migration lands. <strong>Forecloses for the upgrade's later stages: nothing</strong>
       &mdash; and it doesn't have to compete with option (i). The right home for it is as a
-      <strong>future pure-companion API</strong>, offered alongside the handle, if I5 stage (c)
-      surfaces real demand for it.
+      <strong>future pure-companion API</strong>, offered alongside the handle, if the upgrade's final
+      stage surfaces real demand for it.
     </p>
 
     <h3>(iv) Always-copy (value purity by brute force)</h3>
@@ -522,13 +524,13 @@
         <svg id="gc-svg" viewBox="0 0 760 190" role="img"
              aria-label="Horizontal bar chart, logarithmic axis. Handle, in-place: about 260 kilobytes moved. Always-copy: about 10.4 gigabytes moved, roughly 40,000 times more."></svg>
       </div>
-      <p class="gc-foot">Direct-labeled bars carry the story; each bar is its own category, so there's no legend. Source: spec 936 / <code>one_brc.hey</code> arithmetic &mdash; A = 8S&minus;1 = 79,999 appends into a &le;1 MiB buffer, F &asymp; 260 KB; always-copy moves &asymp; A &times; F/2 &asymp; 10.4 GB, &asymp;40,000&times; the in-place cost.</p>
+      <p class="gc-foot">Direct-labeled bars carry the story; each bar is its own category, so there's no legend. Source: the product-lane contract / <code>one_brc.hey</code> arithmetic &mdash; A = 8S&minus;1 = 79,999 appends into a &le;1 MiB buffer, F &asymp; 260 KB; always-copy moves &asymp; A &times; F/2 &asymp; 10.4 GB, &asymp;40,000&times; the in-place cost.</p>
     </div>
     <script>
     (function(){
       var ROWS=[
         {label:'Handle / in-place',  sub:'each byte written once — ≈ the output size',   bytes:260000,      src:'≈260 KB moved, ≈ F'},
-        {label:'Always-copy (M1)',   sub:'whole buffer re-copied on every append',        bytes:10400000000, src:'≈10.4 GB moved, ≈ A × F/2'}
+        {label:'Always-copy',   sub:'whole buffer re-copied on every append',        bytes:10400000000, src:'≈10.4 GB moved, ≈ A × F/2'}
       ];
       var W=760,H=190,L=200,R=90,T=26,B=46;
       var LO=100000,HI=20000000000;
@@ -562,11 +564,12 @@
       At <code>S</code>&nbsp;=&nbsp;10,000, that's <strong>~10.4&nbsp;GB moved to produce a
       ~260&nbsp;KB result &mdash; about 40,000&times; the in-place cost.</strong> Even the small,
       canonical 413-station set pays ~1,600&times; (~18&nbsp;MB moved for a ~10.7&nbsp;KB result)
-      <span class="evtag">[MEASURED]</span> (spec 936 / one_brc.hey arithmetic). <strong>Migration:</strong>
-      deep-copy clone breaks pinned case (A) directly, and with it spec 926 and the spec-936-pinned
+      <span class="evtag">[MEASURED]</span> (the product-lane contract / one_brc.hey arithmetic). <strong>Migration:</strong>
+      deep-copy clone breaks pinned case (A) directly, and with it the linear-builder spec and the
+      product-lane-contract-pinned
       1BRC product lane &mdash; "the accumulate-into-a-buffer idiom is load-bearing and spec-pinned;
-      it is not a corner case" (spec 1218:43&ndash;51). It also converts the builder's O(n) linear
-      cost into O(n&sup2;). <strong>Guard suite / I5:</strong> moot &mdash; the option is dead on
+      it is not a corner case" (per the isolation fixture). It also converts the builder's O(n) linear
+      cost into O(n&sup2;). <strong>Guard suite / the upgrade's later stages:</strong> moot &mdash; the option is dead on
       arithmetic before it reaches either question, though it's a useful negative result: it's the
       concrete demonstration of exactly why a refcount system without a mutable-handle escape hatch
       can't cheaply support a builder workload, which is the argument for option (i) in reverse.
@@ -590,7 +593,7 @@
       "mutates my buffer" and "silently doesn't." That is the textbook definition of a trap.
       <strong>Guard suite:</strong> the three <code>BYTE_BUFFER</code> cases stay expected-red
       forever, by policy rather than by finding &mdash; a permanently red light nobody expects to turn
-      green stops functioning as a signal at all. <strong>Forecloses for I5 (b)/(c):</strong> every
+      green stops functioning as a signal at all. <strong>Forecloses for the upgrade's later stages:</strong> every
       future refcount decision has to keep carving around one deliberately undecided type, with no
       resolved example to build the next stage's calling-convention design against.
     </p>
@@ -606,7 +609,7 @@
       reading this article's five options. Their own account of how the type got here in the first
       place: <code>byte_buffer</code> <strong>"entered the language BY ACCIDENT during 1BRC work"</strong>
       &mdash; not a considered design decision, a shortcut taken under deadline pressure by an earlier
-      attempt at exactly the workload spec 936 still pins today. Their standing rule: <strong>"mutable
+      attempt at exactly the workload the product-lane contract still pins today. Their standing rule: <strong>"mutable
       structures are UNWANTED unless truly unavoidable."</strong> An accidental exception to the
       language's central guarantee is the weakest possible case for keeping it.
     </p>
@@ -618,7 +621,7 @@
       transient accumulator instead of <code>byte_buffer</code> for aggregation &mdash; and times it
       against the real 15&nbsp;GB, one-billion-row file. If it clears the challenge's own bar
       (&le;5&nbsp;s, ideally &le;2&nbsp;s), that is a direct, measured demonstration that
-      <code>byte_buffer</code>'s one genuinely hard workload (spec 936's 1BRC output builder, the
+      <code>byte_buffer</code>'s one genuinely hard workload (the product-lane contract's 1BRC output builder, the
       exact case option (iv) showed always-copy cannot survive) never needed a mutable type at all.
     </p>
     <p>
@@ -631,17 +634,18 @@
       this article was fully measured before publication. Option (vi)'s is not &mdash; it rests on
       the 1BRC trial's receipts, which is exactly why it is a <em>plan of record pending receipts</em>
       and not a ruling. <strong>Migration cost on the three pinned sites: the highest of any surviving
-      option.</strong> All three &mdash; spec 926, spec 936, and <code>one_brc.hey</code>'s own
+      option.</strong> All three &mdash; the linear-builder spec, the product-lane contract, and
+      <code>one_brc.hey</code>'s own
       formatting loop &mdash; are written against <code>byte_buffer</code> today; each needs rewriting
-      onto its replacement, and spec 926 in particular pins behavior (a returned length, self-append
+      onto its replacement, and the linear-builder spec in particular pins behavior (a returned length, self-append
       aliasing) that describes <code>byte_buffer</code> specifically and would need to become a
       different spec entirely, not just a differently-implemented one. <strong>Guard suite:</strong>
       the cleanest possible outcome if the receipts land &mdash; the three <code>BYTE_BUFFER</code>
       cases aren't retired-as-by-design (option (i)'s outcome), they're deleted, because the value
-      kind they describe no longer exists. <strong>Forecloses for I5 (b)/(c): nothing &mdash; and
+      kind they describe no longer exists. <strong>Forecloses for the upgrade's later stages: nothing &mdash; and
       plausibly unlocks something.</strong> The transient accumulator built for 1BRC's aggregation gap
-      is a scoped, compiler-proven no-escape pattern that I5 stage (c)'s later, more general rc==1
-      in-place-put mechanism can subsume once it lands; 1BRC becomes that stage's showcase workload
+      is a scoped, compiler-proven no-escape pattern that the upgrade's final stage can subsume, once
+      its own more general rc==1 in-place-put mechanism lands; 1BRC becomes that stage's showcase workload
       either way.
     </p>
     <div class="aside">
@@ -672,7 +676,7 @@
         Bet"</a> &mdash; building the challenge's real workload on Hey's existing immutable, zero-copy
         primitives alone. Deletion happens only after that trial's port-delta receipt shows the
         replacement costs nothing measurable at the three sites pinned in &sect;3
-        (spec&nbsp;926, spec&nbsp;936, <code>one_brc.hey</code>). Until that receipt exists, nothing is
+        (the linear-builder spec, the product-lane contract, <code>one_brc.hey</code>). Until that receipt exists, nothing is
         deleted and nothing here overrides the guard suite's current behavior.
       </p>
       <p>
@@ -690,14 +694,14 @@
           <span class="evtag">[DOCS]</span>. It's a documented convention today, not a
           compiler-checked one &mdash; the disclosed weakness from the TL;DR.</li>
         <li><strong>Leave option (iii) open</strong> as a future pure-companion API &mdash; an
-          Erlang-iolist-style tree builder &mdash; if I5 stage (c) surfaces real demand for a
+          Erlang-iolist-style tree builder &mdash; if the upgrade's final stage surfaces real demand for a
           value-returning surface alongside the handle, rather than instead of it.</li>
       </ol>
     </div>
     <p>
       The reasoning that rules out trying to patch the refcount predicate instead (option (ii), or
       any future variant of it) comes from Swift, and it's worth stating precisely because it's the
-      same lesson I5's later stages will need directly. Swift's own
+      same lesson the upgrade's later stages will need directly. Swift's own
       <a href="https://github.com/apple/swift-nio/blob/main/Sources/NIOCore/ByteBuffer-core.swift">NIOCore
       <code>ByteBuffer</code></a> avoids the rc==2 copy-on-write trap <em>structurally</em>, not by
       refcount arithmetic: its mutating methods take <code>self</code> as <code>inout</code>
@@ -717,16 +721,16 @@
     <details class="deep">
       <summary>Deeper: why not fix the predicate with a Perceus-style reuse check instead?</summary>
       <p>
-        Koka's Perceus (Reinking, Xie, de Moura, Leijen; PLDI 2021) and Lean's runtime both do
+        Koka's <a href="https://dl.acm.org/doi/10.1145/3453483.3454032">Perceus</a> (Reinking, Xie, de Moura, Leijen; PLDI 2021) and Lean's runtime both do
         get in-place mutation out of a refcount check &mdash; but by checking for
         <strong>runtime rc==1 at the actual mutation site</strong> (a drop-then-reuse token: the
         paired constructor writes in place only if nothing else references the value, else it
         allocates), not by inferring "am I the direct caller or a nested one" from call depth
         <span class="evtag">[PAPER]</span>. That's a genuinely different design axis from options (ii)
-        or (v): it would require I5 to already have precise, per-mutation-site refcount checks with
+        or (v): it would require the upgrade to already have precise, per-mutation-site refcount checks with
         borrowed parameters that don't inflate the count &mdash; exactly the calling-convention
         machinery Swift's lesson says has to be built carefully, not exactly the "count stack frames"
-        shortcut option (ii) proposes. It's a real future direction for I5 stage (b)/(c) in general;
+        shortcut option (ii) proposes. It's a real future direction for the upgrade's later stages in general;
         it is not a fix for <code>byte_buffer</code>'s specific non-monotonic contract measured in
         &sect;2, because that contract was never actually about sharing in the first place.
       </p>
@@ -744,13 +748,14 @@
       <code>HEY_BYTE_BUFFER</code>, a mutable handle kind, company of <code>HEY_IO_HANDLE</code> and
       <code>HEY_ACTOR</code>, and these three cases are retired, not pending. Either way, nothing else
       in the guard suite moves: arrays, strings, structs, every ordinary value kind, stay exactly as
-      load-bearing for I5's later stages as they were before this question was ever raised.
+      load-bearing for the upgrade's later stages as they were before this question was ever raised.
     </p>
 
     <h2>Comparison at a glance</h2>
     <p class="muted"><strong>Updated 2026-07-27:</strong> row (vi) added; (i) is now labeled as the
       fallback rather than the outright pick.</p>
     <table>
+      <caption class="muted" style="text-align:left; caption-side:top; padding:0 0 0.5rem; font-size:0.85rem;">"I5 (b)/(c)" is this article's shorthand for the reference-counting upgrade's later stages (see &sect;1).</caption>
       <thead><tr><th>Option</th><th>Consistency</th><th>Speed</th><th>Migration</th><th>Guard suite</th><th>I5 (b)/(c)</th></tr></thead>
       <tbody>
         <tr><td>(i) Mutable handle <span class="muted">(fallback)</span></td><td>Precedented exception</td><td>Unchanged</td><td>None</td><td>Retires by design</td><td>Untouched</td></tr>
@@ -758,7 +763,7 @@
         <tr><td>(iii) Value-returning append</td><td>Pure, consistent</td><td>Unchanged asymptotically</td><td>Breaks all 3 pinned sites</td><td>Becomes intended contract</td><td>Neutral; future companion</td></tr>
         <tr><td>(iv) Always-copy</td><td>Purest</td><td>~40,000&times; worse (S=10,000)</td><td>Breaks pinned specs</td><td>Moot &mdash; dead on arithmetic</td><td>Moot</td></tr>
         <tr><td>(v) Status quo</td><td>Undecided contradiction</td><td>Unchanged</td><td>None (today)</td><td>Permanent expected-red</td><td>Blocks future design</td></tr>
-        <tr><td>(vi) Delete entirely <span class="muted">(plan of record, pending receipts)</span></td><td>Purest &mdash; no exception, no type</td><td>Contingent on 1BRC trial receipts</td><td>Rewrites all 3 pinned sites</td><td>Deleted, not retired</td><td>Unlocked &mdash; 1BRC transient accumulator becomes I5's showcase</td></tr>
+        <tr><td>(vi) Delete entirely <span class="muted">(plan of record, pending receipts)</span></td><td>Purest &mdash; no exception, no type</td><td>Contingent on 1BRC trial receipts</td><td>Rewrites all 3 pinned sites</td><td>Deleted, not retired</td><td>Unlocked &mdash; 1BRC transient accumulator becomes the showcase</td></tr>
       </tbody>
     </table>
 
@@ -772,7 +777,7 @@
       <dt>copy-on-write (COW)</dt><dd>Share a backing store until the moment of mutation, then copy first if anything else still references it.</dd>
       <dt>transient (Clojure)</dt><dd>A scoped, explicitly mutable builder over an otherwise-persistent data structure, used only inside the function that produced it.</dd>
       <dt>iolist</dt><dd>Erlang's alternative to a mutable builder: nested lists and binaries consed cheaply, flattened once at the output boundary.</dd>
-      <dt>I5</dt><dd><a class="gloss" href="glossary.html#i5" data-def="The plan to share Hey values by reference-counted reference instead of always copying them; ranked as G1's single biggest remaining lever.">See the shared glossary.</a></dd>
+      <dt>The reference-counting upgrade</dt><dd><a class="gloss" href="glossary.html#i5" data-def="Hey's in-flight plan to share values by reference-counted reference instead of always copying them; ranked as the language's single biggest remaining speed lever.">See the shared glossary.</a></dd>
     </dl>
 
     <h2>Sources</h2>
