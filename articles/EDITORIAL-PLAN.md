@@ -422,3 +422,15 @@ record into an existing beat; it never becomes its own section.
 - CITATIONS: named papers get their hyperlink at first mention
   (e.g., Perceus — Reinking, Xie, de Moura, Leijen, PLDI 2021 —
   links its DOI), per the existing attribution rule.
+
+### The rules apply to STATUS UPDATES too (maintainer, 2026-07-27)
+Trigger: bench reported a measurement to the maintainer in dense
+jargon ("47% <=7B", "SSO", "either population") hours after writing
+the plain-English rules for articles. Rule: every rule in this
+document — plain English, no unexplained acronyms, one idea per
+chunk, define at first use — applies to bus messages, summaries,
+and direct replies, not just published pages. An acronym that means
+something else in the wider world (SSO = single sign-on) must never
+appear unexpanded. If a number needs a unit and a population named
+to make sense ("47% of what, measured how"), say them in the same
+sentence.
