@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hey beat Go on the matched throughput comparison, certified on both macOS and Linux the same day. Five releases shipped, a server memory leak was traced to its root cause and half-fixed, and the project caught its own test infrastructure lying four separate times before morning.">
+  <meta name="article-date" content="2026-07-27">
+  <meta name="article-bucket" content="daily">
+  <meta name="article-desc" content="Hey beat Go on the matched throughput comparison, certified on both macOS and Linux the same day. Five releases shipped, a server memory leak was traced to its root cause and half-fixed, and the project caught its own test infrastructure lying four separate times before morning.">
+  <title>Daily: The Day Hey Beat Go — and Found the Leak</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(1.7rem, 5.4vw, 2.9rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+    details.deep > summary { cursor: pointer; font-weight: 600; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+
+    /* honest-status box: same rgba-only recipe as the .gate banner on faster-than-go.html */
+    .status {
+      margin: 0 0 2rem;
+      padding: 1.1rem 1.3rem;
+      border: 3px solid #2a78d6;
+      border-radius: 0.6rem;
+      background: rgba(42,120,214,0.10);
+    }
+    @media (prefers-color-scheme: dark) {
+      .status { border-color: #3987e5; background: rgba(57,135,229,0.16); }
+    }
+    :root[data-theme="dark"] .status { border-color: #3987e5; background: rgba(57,135,229,0.16); }
+    .status .status-tag {
+      display: inline-block;
+      font-weight: 800; letter-spacing: 0.04em;
+      font-size: 0.85rem; text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Daily: The Day Hey Beat Go &mdash; and Found the Leak</h1>
+    <p class="lede">
+      One overnight session, five releases, and a matched-comparison win over Go on two
+      operating systems &mdash; plus the honest, unglamorous second half: a memory leak
+      that's fixed in one place and still sitting, found but not fixed, in another.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>Verdict: ship it, but say the whole truth.</strong> Hey is faster
+          than Go on the matched throughput comparison, certified on macOS <em>and</em>
+          Linux the same day. Five releases landed and deployed overnight. A nasty
+          memory-retention bug was root-caused and fixed in the language's own loop
+          compilation &mdash; but a second copy of that same bug, living in the code
+          that builds web responses, is found and precisely isolated, not yet fixed. Both
+          halves of that sentence matter; neither gets left out.</li>
+        <li><strong>The headline number:</strong> Hey cleared its within-3%-of-Go goal
+          and then beat it &mdash; certified faster on both platforms measured, the same
+          day, not just "close."</li>
+        <li><strong>The disclosed weakness:</strong> the web server's own copy of the
+          retention bug was measured <em>still present</em> after the loop-level fix
+          shipped, in different code than the part that's fixed. It's not vague &mdash;
+          it's named, located, and queued.</li>
+        <li><strong>Infrastructure honesty:</strong> the project caught and fixed its own
+          test/verification tooling lying to it four separate times tonight, on top of
+          the five feature releases.</li>
+        <li><strong>Falsifiability:</strong> the throughput claim's receipts are in
+          <a href="faster-than-go.html">"Faster Than Go? Certified on Linux and
+          Darwin"</a>; the release list and every number below are drawn from this
+          session's own dated records, cited inline.</li>
+      </ul>
+    </div>
+
+    <h2>1. The headline: Hey beat Go, certified on both machines</h2>
+    <p>
+      The short version: Hey's long-standing goal was to get its web throughput within
+      <strong>3% of Go's</strong>, measured per CPU core under matched conditions. That
+      goal wasn't just met tonight &mdash; it was beaten, and beaten on <em>two separate
+      operating systems the same day</em>: certified faster on both the Linux box and the
+      macOS box that host this project's benchmarking. See
+      <a href="faster-than-go.html">"Faster Than Go? Certified on Linux and Darwin"</a>
+      for the full measurement writeup and its own disclosed caveats; this report isn't
+      re-deriving that number, just recording that it landed the same day as everything
+      below.
+    </p>
+    <div class="aside term">
+      <h3>Term: G1</h3>
+      <p>
+        <strong>G1</strong> is the project's standing "fast" goal: within 3% of Go's
+        throughput, per core, under matched conditions &mdash; a ratio the team re-checks
+        every time Go's own number moves, not a number it can just claim once and walk
+        away from. <a href="glossary.html#g1">Full entry &rarr;</a>
+      </p>
+    </div>
+
+    <h2>2. Five releases, back to back</h2>
+    <p>
+      Five versions landed and deployed in this session, <strong>439a through
+      443a</strong>, each going through the project's full <a
+      href="glossary.html#chain">chain</a> of gates before merging:
+    </p>
+    <ul>
+      <li><strong>439a</strong> &mdash; a memory-safety tripwire suite: a new guard that
+        watches value handling across nine operation families, designed to fail loudly
+        the moment a future change breaks an invariant it's protecting.</li>
+      <li><strong>440a</strong> &mdash; two compiler-coverage batches landed together,
+        closing dozens of "the old and new compiler don't yet agree on this shape" gaps
+        toward <a href="glossary.html#r-ladder">the R-ladder</a>.</li>
+      <li><strong>441a</strong> &mdash; a syntax-checker fix: a self-hosting smoke test
+        that had been structurally unable to pass on any base was repaired and folded
+        permanently into <a href="glossary.html#chain">the chain</a>.</li>
+      <li><strong>442a</strong> &mdash; web-server crash and truncation fixes: a
+        server-killing signal-handling bug and a related short-read/short-write edge
+        case, both now pinned by regression tests.</li>
+      <li><strong>443a</strong> &mdash; the loop-release fix: the root-cause repair for
+        half of tonight's big story, below.</li>
+      </ul>
+      <p class="muted">
+        Every one of the five went through <a
+        href="glossary.html#byte-identity">byte-identity</a> verification and <a
+        href="glossary.html#goldens">goldens</a> before it was allowed to <a
+        href="glossary.html#train">land</a>.
+      </p>
+
+    <h2>3. The detective story: chasing K8</h2>
+    <div class="aside term">
+      <h3>Term: K8, the retention bug</h3>
+      <p>
+        <strong>K8</strong> is this project's name for a memory-retention bug: compiled
+        Hey code was creating values inside loops and never freeing them, so a running
+        server's memory grew, request after request, until something gave out.
+        <a href="glossary.html#k8">Full entry &rarr;</a>
+      </p>
+    </div>
+    <p>
+      Servers running compiled Hey code were leaking roughly <strong>1.4 KB per
+      request</strong> on their busiest route &mdash; small enough per request to be
+      easy to miss, large enough that a sustained-traffic server would eventually
+      exhaust its memory and shut itself down. That's the kind of bug that's brutal to
+      chase precisely because nothing crashes right away; the evidence is a slope, not a
+      stack trace.
+    </p>
+    <p>
+      Two independent investigations converged on it from different directions, which is
+      exactly why the diagnosis holds up. One session isolated the <em>mechanism
+      class</em> by running the same loop through Hey's interpreter and through its
+      compiled path side by side: the interpreter released memory correctly and the
+      compiled version didn't, which pointed straight at loop compilation itself rather
+      than at anything the loop's contents were doing. The other session found the
+      <em>exact site</em> the hard way, with an OS-level heap census and a backtrace,
+      the kind of forensic pass that only works because "trust the runtime's own
+      counters" had already been ruled out earlier tonight as its own kind of mistake.
+      Both paths landed on the same bug.
+    </p>
+
+    <h2>4. The honest status: half fixed, half found</h2>
+    <div class="status">
+      <span class="status-tag">Status, plainly stated</span>
+      <p>
+        The <strong>language-loop half of K8 is fixed</strong>, and fixture-verified, in
+        release 443a. The <strong>web server's own copy of the same class of bug is
+        not fixed</strong> &mdash; it lives in different code (the helpers that construct
+        response values, not the loop-compilation path 443a repaired), and a
+        pre-registered, five-part gate battery measured it <em>still present</em> after
+        443a shipped &mdash; on both platforms, isolated down to a single
+        response-building call with everything else stripped away. Its fix is already
+        in flight. That is the whole status; neither
+        half is optional to report.
+      </p>
+    </div>
+    <p>
+      It would be easy to read "the leak is fixed" off the headline alone and stop
+      there. It would be wrong. The loop-release fix in 443a closes the mechanism that
+      was leaking inside ordinary Hey code &mdash; a real, verified fix, not a partial
+      one, for the piece it covers. But the server's response-construction path has its own
+      independent copy of the same class of defect, and that copy was still there,
+      measured, after the fix landed. Calling the whole
+      bug dead tonight would be the kind of overclaim this project's own house rules
+      exist to catch.
+    </p>
+
+    <h2>5. Infrastructure honesty: the project audited itself</h2>
+    <p>
+      Alongside the five feature releases, the project caught and fixed its own
+      test and verification tooling misbehaving four separate times tonight:
+    </p>
+    <ul>
+      <li>A Mac-only test that had never actually run on macOS at all &mdash; it
+        silently crashed before producing a result, and nobody had noticed.</li>
+      <li>A benchmark timer that was charging time it shouldn't have been counting,
+        skewing a threshold it was supposed to measure cleanly.</li>
+      <li>A release-checklist step that had been silently skipped for roughly <strong>58
+        versions</strong> &mdash; the tool responsible for keeping it current had a gap
+        that let the step drift unnoticed release after release.</li>
+      <li>A test assertion that was counting the wrong thing, so it could report success
+        without actually checking what it claimed to check.</li>
+    </ul>
+    <p>
+      On top of fixing all four, the project consolidated its release-verification steps
+      into <strong>one canonical verification script that now travels with the code
+      itself</strong>, rather than living as separately-remembered steps a person has to
+      recall in the right order. A project that finds and fixes its own test
+      infrastructure lying to it, in public, four times in one night, is doing exactly
+      what its own <a href="glossary.html#gate">gate</a> discipline is supposed to
+      produce.
+    </p>
+
+    <h2>6. Two articles, through the full pipeline</h2>
+    <p>
+      Two articles were carried through the project's research &rarr; fact-check &rarr;
+      publish pipeline tonight. The fact-check step wasn't a formality: it caught a draft
+      that had put quotation marks around words nobody had actually said, attributing a
+      paraphrase as if it were a direct quote. The process caught it before publication,
+      not after &mdash; which is the entire point of running a fact-check step instead of
+      trusting a draft on the strength of how confident it reads.
+    </p>
+
+    <h2>7. What's next, and what got rejected</h2>
+    <p><strong>Next up:</strong></p>
+    <ul>
+      <li>The <a href="glossary.html#mux">mux</a> event-core prototype is landing, but
+        opt-in and off by default until more of it is proven under sustained load.</li>
+      <li>Remaining <a href="glossary.html#r-ladder">compiler-coverage gaps</a> in the
+        R-ladder continue closing batch by batch.</li>
+      <li>The next stage of the <a href="glossary.html#i5">refcount program (I5)</a> is
+        queued &mdash; the project's biggest remaining lever on its throughput goal.</li>
+    </ul>
+    <div class="aside term">
+      <h3>Term: the mux</h3>
+      <p>
+        The <strong>mux</strong> is an event-loop-style redesign of the web server's
+        connection handling: a small pool of threads services many open connections,
+        instead of giving each connection its own thread. Measured on both operating
+        systems it wins at the same load using <strong>6 threads instead of
+        70</strong>, with no memory penalty. <a href="glossary.html#mux">Full entry
+        &rarr;</a>
+      </p>
+    </div>
+    <p><strong>Explicitly rejected tonight, and why:</strong></p>
+    <ul>
+      <li><strong>Mid-message actor pausing</strong> &mdash; letting an actor suspend
+        partway through handling a message. Run-to-completion message handling stays the
+        design; nothing gets to interrupt a handler mid-body.</li>
+      <li><strong>Startup snapshots</strong> &mdash; pre-baking a warm startup image.
+        Rejected because startup was measured essentially free on both platforms
+        already, which leaves the sub-5&nbsp;ms CLI target reachable without that
+        complexity.</li>
+      <li><strong>io_uring and other per-platform server designs</strong> &mdash; a
+        single event-loop mechanism is the target shape everywhere, not a different
+        mechanism hand-picked per operating system.</li>
+      <li><strong>Deleting the old C compiler yet</strong> &mdash; the <a
+        href="glossary.html#r-ladder">R-ladder</a> isn't finished; the old compiler stays
+        until its replacement has earned that step rung by rung.</li>
+      <li><strong>Trusting any single measurement instrument</strong> &mdash; the
+        K8 investigation above is itself the argument: it took two independent
+        instruments, not agreement with itself, to trust the diagnosis.</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      This report covers 2026-07-26 evening through 2026-07-27 morning, Pacific time,
+      compiled from the project's own session records: the orchestrator's landing log,
+      the program map, and the bench and Linux seats' measurement notes. It is a status
+      report, not a benchmark claim &mdash; the throughput certification it references
+      carries its own separate methodology and caveats in <a
+      href="faster-than-go.html">its own article</a>.
+    </p>
+  </footer>
+</body>
+</html>
