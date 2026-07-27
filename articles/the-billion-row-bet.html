@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A mutable type slipped into Hey by accident during a One Billion Row Challenge attempt. The maintainer's answer: solve 1BRC on immutable, zero-copy primitives alone in five seconds, or the accident stays. Baseline measured: today Hey needs about sixty days. Five of the six pipeline stages already exist.">
+  <meta name="description" content="A mutable type slipped into Hey by accident during a One Billion Row Challenge attempt. Corrected baseline: the real number is worse than the sixty days first projected -- a one-time cubic sort had masked the true per-row cost -- but a cardinality-pinned control shows Hey's scan substrate is already world-class, buried under roughly a thousandfold allocation tax. Three costed fixes are scheduled.">
   <meta name="article-date" content="2026-07-27">
   <meta name="article-bucket" content="almost">
-  <meta name="article-desc" content="A mutable type entered Hey by accident during 1BRC work. The wager: beat the One Billion Row Challenge -- 15 GB, one billion rows -- in five seconds using only immutable, zero-copy primitives, or the accident gets deleted. Baseline measured, the gap named, the plan real.">
+  <meta name="article-desc" content="A mutable type entered Hey by accident during 1BRC work. The wager: beat the One Billion Row Challenge -- 15 GB, one billion rows -- in five seconds using only immutable, zero-copy primitives, or the accident gets deleted. Corrected baseline: worse than sixty days, for two named reasons -- and a positive control shows the scan substrate itself is already world-class.">
   <title>The Billion-Row Bet</title>
   <style>
     :root {
@@ -111,10 +111,13 @@
       wasn't a shrug. It was a wager, on the record, dated today: solve 1BRC &mdash; 15&nbsp;GB, one
       billion temperature readings &mdash; in five seconds, ideally two, using <strong>nothing but
       immutable, zero-copy primitives</strong>. Win, and the accidental type gets deleted from the
-      language. <strong>The verdict, up front: the bet is ON.</strong> The starting line is brutal
-      (today's Hey needs about sixty days for the same job) and the win is not guaranteed &mdash; but
-      the gap is arithmetic, not magic, and five of the six pipeline stages the plan needs already
-      exist.
+      language. <strong>The verdict, up front: the bet is ON.</strong> The starting line is worse than
+      it first looked: an initial ~60-day projection turned out to be an artifact of a one-time sort,
+      and the honestly corrected picture is <em>worse</em>, not better &mdash; for two precisely named
+      reasons. But buried underneath both is a genuine hope-beat: a cardinality-pinned control shows
+      Hey's own scan substrate is already <strong>world-record class</strong>, smothered under roughly
+      a thousandfold allocation tax this project already knows how to remove. The gap is arithmetic,
+      not magic, and five of the six pipeline stages the plan needs already exist.
     </p>
   </header>
 
@@ -141,23 +144,42 @@
           IT and the specs&hellip;but first get the measurements and then come-up with a
           <code>1brc.hey</code> program that can pass the 1brc fast (&lt;5s&hellip;preferably
           &lt;2s); baseline numbers, then dispatch."</em></li>
-        <li><strong>Disclosed weakness, stated first: today's Hey needs ~4.1&nbsp;milliseconds per
-          row</strong> &mdash; a projected <strong>~60&nbsp;days</strong> for the full billion. That's
-          the same box that just <a href="faster-than-go.html">beat Go's net/http throughput with 95%
-          confidence</a> &mdash; on this workload, that language is roughly <strong>a million times</strong>
-          off the 5-second target. The contrast is the point, not an embarrassment: the web path got
-          fast by deleting per-request costs; 1BRC is the identical story at per-row scale.</li>
+        <li><strong>Correction, stated first: the ~4.1&nbsp;ms/row, ~60-day baseline was an artifact,
+          and the honest number is worse.</strong> Decomposition found that 98% of the small-N
+          measurement's runtime was a one-time, hand-rolled O(stations&sup3;) sort in the output
+          stage &mdash; and at small N, station-cardinality tracks row-count, so a one-time cubic cost
+          disguised itself as a flat per-row rate. The straight-line 59.7-day projection built on that
+          rate was methodologically wrong. The corrected picture is <strong>worse than sixty
+          days</strong>, for two precisely named reasons, both already scheduled for a fix (&sect;2,
+          &sect;5).</li>
+        <li><strong>The hope-beat: a positive control shows Hey's scan substrate is already
+          world-class.</strong> Pin station-cardinality at 50 and the measured floor is
+          <strong>9.6&nbsp;&micro;s/row</strong>, of which 82% is raw malloc/free/memmove/strdup
+          overhead, 13% is clone/release bookkeeping &mdash; and just <strong>0.07%, about
+          6.8&nbsp;nanoseconds</strong>, is the actual scan logic. The 1BRC winners run at roughly
+          13&nbsp;ns/row/core. Hey's scan code is already in that neighborhood; it's buried under
+          roughly a <strong>thousandfold</strong> allocation tax. The bet isn't "make Hey fast" &mdash;
+          it's "stop paying for allocations the algorithm never needed."</li>
+        <li>That's still the same box that just <a href="faster-than-go.html">beat Go's net/http
+          throughput with 95% confidence</a> &mdash; on this workload, today's Hey remains, at minimum,
+          roughly <strong>a million times</strong> off the 5-second target. The contrast is the point,
+          not an embarrassment: the web path got fast by deleting per-request costs; 1BRC is the
+          identical story at per-row scale, and the positive control above is the receipt that the
+          substrate underneath is not the problem.</li>
         <li><strong>The world bar is high but arithmetic.</strong> The 2024 official 1BRC winners ran
           in ~1.5&nbsp;s on 8 dedicated server cores &mdash; about 1.1&nbsp;GB/s (gigabytes per second)
           of scan-and-parse per physical core. Translated to this 12-core Apple M-series box: the
           5-second target needs the equivalent of only 2&ndash;3 winner-grade cores; the 2-second dream
           needs 6&ndash;8. High, but not a different universe.</li>
-        <li><strong>The plan already has five of its six stages built.</strong> Memory-mapping the
-          file, scanning it with zero-copy views, parsing temperatures with an unboxed integer
-          intrinsic, and fanning work out to worker actors all exist today as immutable primitives.
-          Exactly <strong>two gaps</strong> stand between today's baseline and the target: a
-          per-worker aggregation step, and the output builder &mdash; <code>byte_buffer</code>'s only
-          real remaining job.</li>
+        <li><strong>Three costed kills stand between today and the target, and none require inventing
+          anything.</strong> <strong>K1</strong>: swap the hand-rolled output-stage sort for the
+          existing <code>sort</code> builtin &mdash; small effort, kills both the small-N artifact and
+          the real-run sort wall. <strong>K2</strong>: a true zero-copy row path on primitives that
+          already exist (mmap view + slices + fixed-range parse), so a row allocates <em>nothing</em>.
+          <strong>K3</strong>: in-place aggregation at full station-cardinality, riding the already-
+          scheduled transient-accumulator slice. Staged, pre-registered prediction: K1+K2 land a
+          <strong>minutes-class</strong> full run; K3 after that is where "the two-second conversation
+          starts."</li>
         <li><strong>Why believe a per-row cost can actually die:</strong> tonight's own receipts.
           Two fixes landed hours apart cut per-request memory retention <strong>34%</strong>
           (3,640&nbsp;&rarr;&nbsp;2,388 bytes per request) with the leftover cost named down to the
@@ -221,7 +243,12 @@
       </p>
     </div>
 
-    <h2>2. The starting line, unflinching</h2>
+    <h2>2. The starting line, unflinching &mdash; and corrected</h2>
+    <p class="muted">
+      <strong>Correction (2026-07-27):</strong> an earlier draft projected 59.7&nbsp;days linearly
+      from small-N cells. Decomposition showed a one-time, hand-rolled cubic sort dominated those
+      cells &mdash; the corrected picture is below.
+    </p>
     <p>
       The measurement is not flattering, and it's stated first on purpose. Timed today
       <span class="evtag">[MEASURED]</span> against the real 15&nbsp;GB, one-billion-row file, warm
@@ -231,10 +258,10 @@
       <thead><tr><th>Lane</th><th class="number">Measured / projected</th><th>Basis</th></tr></thead>
       <tbody>
         <tr><td><strong>Hey</strong> (best lane found: actors, 8 workers)</td>
-          <td class="number"><strong>~59.7 days</strong></td>
-          <td>~4.13&ndash;4.24&nbsp;ms per row, measured across every worker/chunk case up to 10K
-            rows &mdash; every case at or beyond that size already exceeds the harness's own 60-second
-            timeout, so nothing crashes; it is simply that slow, projected linearly</td></tr>
+          <td class="number"><strong>&gt;60 days</strong> (lower bound)</td>
+          <td>the original ~4.13&ndash;4.24&nbsp;ms/row, ~59.7-day figure, measured up to 10K rows, is
+            now known to be a small-N artifact (below) &mdash; not a corrected replacement number,
+            a floor pending &sect;5's fixes</td></tr>
         <tr><td>Ruby (<code>1brc.rb</code>, parallel, ~2.5 cores busy)</td>
           <td class="number">~12.1 min</td>
           <td>7.25&nbsp;s per 10M rows, projected &times;100 &mdash; our own parallel port, not a
@@ -249,18 +276,73 @@
       Source: <code>docs/PERFORMANCE-FINDINGS.md</code>, 2026-07-27 ~12:15&nbsp;PDT, "1BRC BASELINE."
       <span class="evtag">[MEASURED]</span>
     </p>
+
+    <h3>The artifact, found</h3>
     <p>
-      Put a single number on the gap and it's arresting: <strong>~5,155,000&nbsp;seconds projected for
-      Hey versus a 5-second target is roughly a million times off.</strong> That arithmetic is worth
-      sitting with, because it's the same box, the same toolchain, that just
+      The ~4.1&nbsp;ms/row rate that produced the original 59.7-day projection was never a per-row
+      cost. A decomposition of the small-N harness runs found that <strong>98% of the 1,000-row
+      runtime is a one-time hand-rolled O(stations&sup3;) sort</strong>, sitting in the output stage,
+      not the scan loop. At small N, station-cardinality happens to track row-count almost 1:1
+      (1,000 rows means close to 1,000 distinct stations before the real file's ~10,000-station
+      alphabet saturates) &mdash; so a one-time cubic-in-cardinality cost, paid once at the end of the
+      run, looked, at every sampled size, exactly like a flat per-row rate. It wasn't. The straight-line
+      extrapolation built on that rate was therefore <strong>methodologically wrong</strong>, not just
+      pessimistic.
+    </p>
+
+    <h3>The honest number, and it's worse</h3>
+    <p>
+      Correcting the artifact does not make the picture better. It makes it worse, for two reasons
+      that are now precisely named rather than hidden inside a misleading average. The real 15&nbsp;GB
+      file's station-cardinality <strong>saturates at ~44,693 stations by row 200,000</strong> and
+      stays there for the remaining 999.8&nbsp;million rows. At that plateau: <strong>(a)</strong> the
+      same hand-rolled cubic sort, run once against ~44,693 stations instead of a few hundred, is not
+      slow &mdash; it is astronomical, and <strong>(b)</strong> today's aggregation step clones its
+      entire accumulator on every single row, so once cardinality plateaus, every one of the remaining
+      999.8&nbsp;million rows pays a fresh <strong>44,693-entry map copy</strong>. Reason (a) is a
+      one-time cost that stops being negligible; reason (b) is a per-row cost that was always there,
+      just invisible at small N because a 1,000-entry clone is cheap and a 44,693-entry clone is not.
+      Put together: the honest, corrected statement is <strong>worse than sixty days</strong>, for
+      two precisely named reasons &mdash; and both already have their fixes scheduled (&sect;5).
+    </p>
+
+    <div class="aside term">
+      <h3>The positive control: the hope-beat</h3>
+      <p>
+        Here is the number that makes the bet worth taking. Pin station-cardinality at a constant
+        50 &mdash; small enough that neither the cubic sort nor the map-copy aggregation can dominate
+        &mdash; and re-measure the per-row floor <span class="evtag">[MEASURED]</span>: <strong>9.6
+        &micro;s/row</strong>. Decomposed further: <strong>82%</strong> of that floor is raw
+        <code>malloc</code>/<code>free</code>/<code>memmove</code>/<code>strdup</code> traffic,
+        <strong>13%</strong> is clone/release bookkeeping around Hey's immutability guarantees, and
+        just <strong>0.07%</strong> &mdash; about <strong>6.8&nbsp;nanoseconds</strong> &mdash; is the
+        actual scan-and-compare logic doing 1BRC's real work. The 2024 winners run at roughly
+        <strong>13&nbsp;ns/row/core</strong> (&sect;3). Six-point-eight nanoseconds is already in that
+        class. <strong>Hey's scan substrate is not the problem.</strong> It is sitting under
+        roughly a <strong>thousandfold</strong> allocation tax paid to primitives &mdash;
+        <code>byte_buffer</code>'s own clone-on-mutate discipline chief among them &mdash; that this
+        exact algorithm never needed. The bet was never "make Hey's inner loop fast." It already is.
+        The bet is "stop paying for allocations the algorithm never needed."
+      </p>
+    </div>
+    <p>
+      Put single numbers on both halves of the gap and they tell opposite stories. The corrected,
+      artifact-free baseline is worse than the ~5,155,000&nbsp;seconds (59.7 days) first reported
+      &mdash; call it, at minimum, roughly <strong>a million times</strong> off the 5-second target,
+      and probably more once the real file's cubic-sort wall is counted honestly. The positive
+      control says the opposite: at 6.8&nbsp;ns of real scan work per row, one billion rows of pure
+      scan logic is a <strong>6.8-second</strong> problem, not a 60-day one. Both numbers are true at
+      once, because they are measuring different things &mdash; one measures what today's program
+      actually does, the other measures what the algorithm actually requires. That arithmetic is
+      worth sitting with, because it's the same box, the same toolchain, that just
       <a href="faster-than-go.html">certified faster than Go's net/http</a> on matched web throughput
       with 95% confidence. Nothing about that is a contradiction. The web server got fast by finding
       and deleting a specific, named set of per-request costs (shape-interning locks, boxed value
       churn, per-connection threads); 1BRC is not a different kind of problem, it's the identical
-      story scaled down to <em>per row</em> instead of <em>per request</em> &mdash; a billion rows
-      instead of a hundred thousand requests, and today, nothing in that inner loop has had its costs
-      found and deleted yet. That's not unfixable physics. It's a to-do list &mdash; a long one, but a
-      to-do list, and &sect;4 below is most of it already checked off.
+      story scaled down to <em>per row</em> instead of <em>per request</em> &mdash; and the positive
+      control above is the receipt that, this time, the inner loop itself was never the obstacle. The
+      allocations wrapped around it were. That's not unfixable physics. It's a to-do list &mdash; a
+      long one, but a to-do list, and &sect;5 below names all three items left on it.
     </p>
 
     <h2>3. The world bar: high, but arithmetic</h2>
@@ -311,6 +393,14 @@
       the file already resident in RAM, and this article's own baseline is a warm-cache number for the
       same reason, stated plainly rather than left implicit.
     </p>
+    <p>
+      Restated per row instead of per gigabyte, ~1.1&nbsp;GB/s/core on this file's roughly 34-byte
+      average row works out to roughly <strong>13&nbsp;ns/row/core</strong> for the world's fastest
+      published entries. That's the number the &sect;2 positive control was measured against: Hey's
+      own scan-and-compare logic, isolated from allocation overhead, already runs at
+      <strong>6.8&nbsp;ns/row</strong> &mdash; inside the winners' class, not behind it. The gap this
+      campaign has to close is not the scan; it's everything wrapped around the scan.
+    </p>
 
     <h2>4. The gist, in one chart</h2>
     <figure class="viz-root" id="fig-bet">
@@ -357,15 +447,18 @@
       <div class="fb-head">
         <p class="fb-title">Projected time for one billion rows, this machine</p>
         <p class="fb-sub">Log scale &mdash; on a linear axis the Hey-today bar would run off the page while
-          everything else vanished into the origin. All bars this box's 15&nbsp;GB file except where labeled.</p>
+          everything else vanished into the origin. All bars this box's 15&nbsp;GB file except where labeled.
+          Initial projection corrected: a one-time cubic sort dominated the small-N cells the original
+          estimate was built on.</p>
       </div>
       <div class="fb-plot">
         <svg id="fb-svg" viewBox="0 0 780 260" role="img"
-             aria-label="Horizontal bar chart, logarithmic time axis. World-record class, 8 dedicated server cores, different hardware: 1.5 seconds. Dream target: 2 seconds. Target: 5 seconds. Naive C reference: about 8.3 minutes. Ruby, parallel: about 12.1 minutes. Hey today: about 59.7 days."></svg>
+             aria-label="Horizontal bar chart, logarithmic time axis. World-record class, 8 dedicated server cores, different hardware: 1.5 seconds. Dream target: 2 seconds. Target: 5 seconds. Scan logic alone, cardinality-50 positive control: 6.8 seconds. Naive C reference: about 8.3 minutes. Ruby, parallel: about 12.1 minutes. Hey today: more than 60 days, a lower bound, method note in text."></svg>
       </div>
       <p class="fb-foot">Direct-labeled bars carry the story; each bar is its own category, so there's no
         legend. Source: <code>docs/PERFORMANCE-FINDINGS.md</code>, 2026-07-27 ~12:15 PDT (Hey/Ruby/C, this
-        box) and the official 2024 1BRC results (world-record class, different hardware, labeled).</p>
+        box) and the official 2024 1BRC results (world-record class, different hardware, labeled). Initial
+        projection corrected &mdash; one-time cubic sort dominated small-N cells.</p>
     </figure>
     <script>
     (function(){
@@ -373,9 +466,10 @@
         {label:'World-record class',  sub:'8 dedicated server cores — different hardware', secs:1.5,      color:'var(--bar-ref)'},
         {label:'Dream',                sub:'this box, aspirational',                          secs:2,        color:'var(--bar-goal)'},
         {label:'Target',               sub:'this box, the wager’s bar',                    secs:5,        color:'var(--bar-goal)'},
+        {label:'Scan logic alone',     sub:'positive control, cardinality pinned at 50 — component, not total', secs:6.8, color:'var(--bar-goal)'},
         {label:'Naive C oracle',       sub:'unoptimized reference, this box',                  secs:500,      color:'var(--bar-ref)'},
         {label:'Ruby (parallel)',      sub:'our own port, ~2.5 cores busy, this box',          secs:725,      color:'var(--bar-ref)'},
-        {label:'Hey today',            sub:'measured 4.1 ms/row, projected — this box',        secs:5155000,  color:'var(--bar-gap)'}
+        {label:'Hey today',            sub:'lower bound — small-N figure was a sort artifact',  secs:5155000, valLabel:'>60 days', color:'var(--bar-gap)'}
       ];
       var W=780,H=260,L=210,R=90,T=26,B=46;
       var LO=1,HI=10000000;
@@ -396,10 +490,11 @@
       var bandH=(H-T-B)/ROWS.length, barH=22, gapPx=2;
       ROWS.forEach(function(r,i){
         var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.secs)-L,2);
+        var vtxt=r.valLabel||fmt(r.secs);
         o.push('<text class="fb-cat" x="'+(L-12)+'" y="'+(cy-3).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
         o.push('<text class="fb-cat-sub" x="'+(L-12)+'" y="'+(cy+13).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
-        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="'+r.color+'"><title>'+r.label+': '+fmt(r.secs)+'</title></rect>');
-        o.push('<text class="fb-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+fmt(r.secs)+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="'+r.color+'"><title>'+r.label+': '+vtxt+'</title></rect>');
+        o.push('<text class="fb-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+vtxt+'</text>');
       });
       o.push('<line class="fb-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
       document.getElementById('fb-svg').innerHTML=o.join('');
@@ -427,28 +522,42 @@
           <td><strong>Exists, already cheap</strong> &mdash; handing the mapping to a worker costs one
           atomic reference-count bump, not a copy; the 15&nbsp;GB file maps once</td></tr>
         <tr><td>5</td><td>Per-worker aggregation (accumulate stats per station)</td>
-          <td><strong>The dominant gap</strong> &mdash; today's aggregation step clones its whole
-          accumulator on every update, an O(rows &times; live-keys) cost that is the main reason the
-          per-row time is measured in milliseconds instead of nanoseconds</td></tr>
-        <tr><td>6</td><td>Sort ~10,000 stations and build the output text</td>
-          <td><strong>Exists, minus one piece</strong> &mdash; the sort is negligible; the output builder
-          is <code>byte_buffer</code>'s one remaining real job, and it is off the hot per-row path</td></tr>
+          <td><strong>Corrected: worse than first stated</strong> &mdash; today's aggregation step
+          clones its whole accumulator on every update; at the real file's saturated cardinality
+          (~44,693 stations, reached by row 200,000) that's a fresh ~44,693-entry map copy on
+          <em>every one of the remaining ~999.8&nbsp;million rows</em>, not a bounded small-N cost
+          &mdash; this is <strong>K3</strong> below</td></tr>
+        <tr><td>6</td><td>Sort stations and build the output text</td>
+          <td><strong>Corrected: mischaracterized, not negligible</strong> &mdash; the sort is a
+          hand-rolled O(stations&sup3;) routine, not the builtin; at small N it's the artifact behind
+          &sect;2's original 59.7-day figure, and at the real file's ~44,693-station saturation it
+          would be astronomical, not negligible &mdash; this is <strong>K1</strong> below. The
+          <code>byte_buffer</code> output-builder swap is real but secondary, and off the hot per-row
+          path either way</td></tr>
       </tbody>
     </table>
-    <p class="muted">Source: <code>agents/linux/notes/1brc-design-brief.md</code>, 2026-07-27.
+    <p class="muted">Source: <code>agents/linux/notes/1brc-design-brief.md</code>, 2026-07-27, and the
+      decomposition summary in the project's coordination log, 2026-07-27 18:05Z.
       <span class="evtag">[MEASURED]</span></p>
     <p>
-      Two real gaps, and both already have a name and a plan. The output builder (stage 6) is
-      small: swap <code>byte_buffer</code> for an array of formatted strings joined once at the
-      end &mdash; the same "retire behind a spec ban" trick this project has already used once before
-      for a different type. The aggregation step (stage 5) is the harder one, and it just got a
-      ruling: rather than wait days for the full reference-counting program's later stages, a scoped
+      Three costed kills, each with a name, a mechanism, and a place in the queue &mdash; not two.
+      <strong>K1</strong> swaps the hand-rolled cubic sort for the <code>sort</code> builtin already
+      in the standard library: small effort, and it kills both the small-N artifact that produced the
+      original 59.7-day figure <em>and</em> the real-run sort wall at full cardinality. <strong>K2</strong>
+      is a genuinely zero-copy row path built from primitives that already exist &mdash; the mmap
+      view, retained slices, and a fixed-range integer parse &mdash; wired so that scanning one row
+      allocates <em>nothing</em>. <strong>K3</strong> is the harder one, and it just got a ruling:
+      rather than wait days for the full reference-counting program's later stages, a scoped
       <strong>transient accumulator</strong> &mdash; an object the compiler can prove never escapes
       the scan loop, mutated in place and frozen only once, at the very end &mdash; goes now, using a
-      pattern this project has already shipped once for a different, narrower case. <strong>"S3 GOES
+      pattern this project has already shipped once for a different, narrower case, to carry
+      aggregation to full station-cardinality without the per-row clone. <strong>"S3 GOES
       NOW"</strong> is the maintainer's own ruling, dated the same day as this baseline: the
       1BRC campaign and the <code>byte_buffer</code> deletion decision do not have to queue behind a
-      multi-week refactor to get their answer.
+      multi-week refactor to get their answer. Staged, pre-registered prediction: K1&nbsp;+&nbsp;K2
+      land a <strong>minutes-class</strong> full run &mdash; the cubic-sort wall and the per-row
+      allocation tax both gone, leaving only the O(rows&nbsp;&times;&nbsp;live-keys) aggregation cost
+      standing. K3, landing after, is where <strong>"the two-second conversation starts."</strong>
     </p>
     <div class="aside term">
       <h3>Term: slice</h3>
@@ -579,6 +688,9 @@
       <li>Local receipt (bus): <code>agents/orchestrator/outbox/20260727T172722Z-RULING-S3-GO&hellip;.md</code>
         [MEASURED] &mdash; "S3 GOES NOW" ruling</li>
       <li>Local receipt: <code>agents/linux/notes/1brc-design-brief.md</code>, 2026-07-27 [MEASURED]</li>
+      <li>Local receipt: project coordination log, decomposition summary, 2026-07-27 18:05Z
+        [MEASURED] &mdash; the sort-artifact finding, the 44,693-station saturation point, and the
+        cardinality-50 positive control (9.6&nbsp;&micro;s/row floor; 6.8&nbsp;ns/row scan logic)</li>
       <li>Companion articles: <a href="benchmarks-worth-chasing.html">"Benchmarks Worth
         Chasing"</a> (1BRC as goalpost), <a href="faster-than-go.html">"Faster Than Go?"</a> (the web
         certification), <a href="what-should-a-byte-buffer-be.html">"What Should a Byte Buffer
@@ -589,10 +701,12 @@
   <footer>
     <p>
       Baseline measured 2026-07-27 against the real 15&nbsp;GB, one-billion-row file on this box, warm
-      page cache, trunk <abbr class="ver" title="v0.99.445a">445a</abbr>. All "projected" figures are
-      linear extrapolations from a measured sample, stated inline; figures credited to other hardware
-      are labeled as such and are not comparators for this box. Nothing described in &sect;4&ndash;6
-      beyond the baseline itself has landed; the targets in &sect;3 are goals, not promises.
+      page cache, trunk <abbr class="ver" title="v0.99.445a">445a</abbr>. Corrected 2026-07-27: the
+      original ~59.7-day figure was a small-N sort artifact, not a valid linear extrapolation; &sect;2
+      states the corrected, lower-bound picture and names both real costs behind it. Figures credited
+      to other hardware are labeled as such and are not comparators for this box. Nothing described in
+      &sect;4&ndash;6 beyond the baseline itself has landed; the targets in &sect;3 are goals, not
+      promises.
     </p>
     <p class="vernote">Version numbers are shown short: <abbr class="ver" title="v0.99.445a">445a</abbr>
       means v0.99.445a &mdash; the pre-beta series.</p>
