@@ -332,3 +332,14 @@ section; if nothing, the section is for the author, cut or recast.
    `.aside.term` callout boxes (and their own internal "Full entry →"
    links) are NOT converted — they are already inline definitions, not
    references, and stay as-is.
+
+### Version-number display (maintainer, 2026-07-27)
+Show versions SHORT in prose: 443a, marked up as
+<abbr class="ver" title="v0.99.443a">443a</abbr> (mouse-over gives
+the full form), with one footer note per article ("Version numbers
+are shown short..."). Bare short form inside SVG text/aria-labels;
+verbatim command output in <pre>/<code> stays untouched (it is a
+receipt). Rationale + future-proofing: the project will renumber
+from 0.0.1b at the open beta — keeping display short and the full
+form in one attribute makes that a mechanical retitle, not a prose
+rewrite.
