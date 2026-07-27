@@ -35,6 +35,7 @@ class ArticlesIndex
   def article_files
     Pathname.glob(articles_dir.join("*.html"))
       .reject { |path| path.basename.to_s == "index.html" }
+      .reject { |path| path.basename.to_s.start_with?("DRAFT-") }
       .sort_by { |path| path.basename.to_s }
   end
 
