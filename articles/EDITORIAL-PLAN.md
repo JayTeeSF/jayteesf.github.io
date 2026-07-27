@@ -401,3 +401,24 @@ because the team visibly publishes bets before results and
 corrections in public. Trust is IMPLIED by receipts and links,
 never requested; the phrase "trust us" is banned. Weave the track
 record into an existing beat; it never becomes its own section.
+
+### Plain-English, chart placement, and the word budget (maintainer, 2026-07-27)
+- INTERNAL CODENAMES ARE BANNED from articles: no slice names, no
+  "I5 stage (b)/(c)", no "K1/K2/K3", no R-ladder numbers. Translate:
+  "the first fix (swap the sorting shortcut)", "the planned
+  reference-counting upgrade". Codenames live in the log; readers
+  get plain words.
+- CHARTS: the FIRST chart sits in or immediately after the TL;DR —
+  a reader with two minutes must be hooked by a picture near the
+  top. MORE charts are better (a picture is worth 1K words) with
+  one guard: every chart must restate the ARTICLE'S message. A
+  chart aligned with the text is a free, clearer reiteration; a
+  chart off-message ADDS a thousand words of load. When in doubt,
+  ask: could this figure replace a paragraph? If yes, add it and
+  cut the paragraph.
+- WORD BUDGET: articles are 800-1200 words MAX (prose, excluding
+  chart labels/glossary/sources). Over budget = cut or split;
+  charts are the preferred compression.
+- CITATIONS: named papers get their hyperlink at first mention
+  (e.g., Perceus — Reinking, Xie, de Moura, Leijen, PLDI 2021 —
+  links its DOI), per the existing attribution rule.
