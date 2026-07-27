@@ -159,3 +159,25 @@ articles/index.html must list EVERY published article — updating it is
 a mandatory step of every article commit (new article, retitle, or
 removal). Verify with: every articles/*.html basename (except index)
 appears in index.html. The editor pass checks this.
+
+## CSS compatibility rule (maintainer bug report, 2026-07-26)
+Callout boxes vanished entirely on mobile because box styling depended
+on color-mix()/canvas via custom properties: when var() substitutes an
+unsupported color, the WHOLE declaration is voided (border-style →
+none, background → transparent) — an invisible box, not a degraded
+one. RULES: (1) every custom property used in borders/backgrounds
+gets a universally-parseable rgba() base value, with the color-mix
+version applied ONLY inside @supports (color: color-mix(...)) —
+last-wins means fallback-ordering does NOT work for --custom-props;
+(2) direct color-mix declarations get a plain fallback on the line
+before (normal cascade works there); (3) mobile is most readers'
+platform — verify boxes render with color-mix mentally disabled
+before shipping any new article CSS.
+
+### Correction to the CSS rule (2026-07-26, found by two-engine verification)
+The before-line fallback works ONLY when the color-mix() call contains
+NO nested var() — a var() inside makes the declaration parse-time
+valid everywhere, so the broken version still wins the cascade and
+fails later at computed-value time. Any color-mix that references a
+custom property MUST be @supports-gated. Verify on an engine without
+color-mix support, not just by reading.
