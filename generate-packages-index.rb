@@ -246,7 +246,6 @@ class PackagesIndex
       "      margin: 1.5rem 0;",
       "      padding: 1rem 1.25rem;",
       "      border: 1px solid rgba(128,128,128,0.35);",
-      "      border: 1px solid color-mix(in srgb, currentColor 20%, transparent);",
       "      border-radius: 0.5rem;",
       "    }",
       "",
