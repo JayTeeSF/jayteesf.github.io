@@ -7,10 +7,11 @@ class ArticlesIndex
   BUCKET_HEADINGS = {
     "featured" => "Featured",
     "benchmarks" => "Benchmark stories",
-    "almost" => "Explored, not (yet) shipped"
+    "almost" => "Explored, not (yet) shipped",
+    "daily" => "Daily reports"
   }.freeze
 
-  BUCKET_ORDER = %w[featured benchmarks almost].freeze
+  BUCKET_ORDER = %w[featured benchmarks almost daily].freeze
 
   def initialize(articles_dir)
     @articles_dir = Pathname(articles_dir).expand_path
@@ -35,7 +36,7 @@ class ArticlesIndex
 
   def article_files
     Pathname.glob(articles_dir.join("*.html"))
-      .reject { |path| path.basename.to_s == "index.html" }
+      .reject { |path| ["index.html", "glossary.html"].include?(path.basename.to_s) }
       .reject { |path| path.basename.to_s.start_with?("DRAFT-") }
       .sort_by { |path| path.basename.to_s }
   end

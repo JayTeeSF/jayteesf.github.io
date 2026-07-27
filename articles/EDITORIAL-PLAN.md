@@ -269,3 +269,29 @@ Creating Passionate Users, "Badass: Making Users Awesome"):
 Editor pass adds two line items: (a) skim test (above), (b) "reader
 capability" check — name what a reader can do after each major
 section; if nothing, the section is for the author, cut or recast.
+
+## Daily reports + the common glossary (maintainer, 2026-07-27)
+
+- New bucket `daily` — "Daily reports", rendered last in the index.
+  Source material: the orchestrator's end-of-day plain-English
+  update, delivered raw; bench applies the FULL article process to
+  it (verdict-first TL;DR, story arc not changelog, skim test,
+  Sierra accessibility).
+- THE GLOSSARY IS A REFERENCE, NEVER AN ENTRY POINT. Trigger
+  incident: the first raw daily led with a cast-of-characters +
+  full glossary — accurate and unreadable. Rule: the shared
+  glossary lives at articles/glossary.html (anchored entries,
+  grouped, generator-excluded like index.html). Daily articles
+  link INTO it: the 4-5 load-bearing terms get one-line .aside.term
+  callouts with a "Full entry →" anchor link; everything else is an
+  inline link on first use. Never reproduce glossary content
+  in-body; never open an article with definitions.
+- Glossary maintenance: when an article introduces a term the
+  glossary lacks, the same commit adds the glossary entry (crisp,
+  2-4 sentences, reader-first).
+- Daily accuracy rule: the raw update is written mid-stream and WILL
+  contain claims that moved by publication time (first instance: 
+  "retention bug fixed" landed while bench's gates were proving the
+  web half persisted). The editor pass re-checks every DID/DOING
+  claim against the latest bus/gate state before publishing; the
+  daily states current truth, not end-of-day truth.
