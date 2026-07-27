@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A years-old plan blamed an 18ms CLI's slowness on process startup and runtime init. Two machines wrote down falsifiable predictions before re-measuring, and both watched the prior die in one afternoon: init cost -0.0ms, the workload was 94% of the cell.">
+  <meta name="article-date" content="2026-07-27">
+  <meta name="article-series" content="research">
+  <meta name="article-desc" content="Before re-measuring an 18ms CLI against a sub-5ms goal, both benchmark seats staked falsifiable predictions from the literature. Runtime init came in at -0.0ms on Darwin and near-zero on Linux — the stale plan number and its shelved pre-warm workstream died in one afternoon, on the record.">
+  <title>The Prediction We Got to Kill</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    .plan {
+      margin: 0 0 2rem;
+      padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e;
+      border-radius: 0.6rem;
+      background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    .pc-pro, .pc-con { padding: 0.85rem 1rem; border-radius: 0.55rem; border: 1px solid var(--border); }
+    .pc-pro { background: rgba(47,158,91,0.10); }
+    .pc-con { background: rgba(208,59,59,0.08); }
+    .pc-pro h4, .pc-con h4 { margin: 0 0 0.4rem; font-size: 0.78rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+    .pc-pro h4 { color: #237a47; }
+    .pc-con h4 { color: #d03b3b; }
+    @media (prefers-color-scheme: dark) {
+      .pc-pro h4 { color: #4ec97e; }
+      .pc-con h4 { color: #ff6b60; }
+    }
+    :root[data-theme="dark"] .pc-pro h4 { color: #4ec97e; }
+    :root[data-theme="dark"] .pc-con h4 { color: #ff6b60; }
+    .pc-pro p, .pc-con p { margin: 0; font-size: 0.93rem; }
+    .pc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.25rem 0; }
+    @media (max-width: 640px) { .pc-grid { grid-template-columns: 1fr; } }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+    .evtag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78em; font-weight: 700; padding: 0.05rem 0.3rem; border: 1px solid var(--border); border-radius: 0.3rem; white-space: nowrap; }
+    .verdict { font-weight: 700; }
+    .pass { color: #237a47; }
+    .miss { color: #d03b3b; }
+    @media (prefers-color-scheme: dark) {
+      .pass { color: #4ec97e; }
+      .miss { color: #ff6b60; }
+    }
+    :root[data-theme="dark"] .pass { color: #4ec97e; }
+    :root[data-theme="dark"] .miss { color: #ff6b60; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>The Prediction We Got to Kill</h1>
+    <p class="lede">
+      A years-old plan blamed an 18&nbsp;millisecond command-line binary's distance from a sub-5&nbsp;ms
+      goal on process startup and runtime initialization, and had shelved a "pre-warm" workstream
+      premised on fixing it. Before re-measuring, both benchmark seats wrote down falsifiable
+      predictions &mdash; publicly, with pass/fail bounds &mdash; so a miss would be a finding instead of
+      a quiet retrofit. One of those predictions died within an afternoon, on both machines, and it took
+      the pre-warm workstream's whole premise down with it.
+    </p>
+  </header>
+
+  <main>
+    <div class="plan">
+      <p class="plan-tag">Scope: two boxes, single-machine numbers</p>
+      <p>
+        Every measured number below comes from exactly two machines &mdash; one Darwin (macOS/arm64)
+        box and one Linux box &mdash; run separately, on different hardware, at different times.
+        <strong>Cross-OS numbers are never compared to each other as if they measured the same
+        thing.</strong> What travels between the two boxes is <em>shape and ratios</em> &mdash; is the
+        workload the dominant cost on both platforms, roughly how dominant &mdash; never raw
+        millisecond-for-millisecond magnitude. Where a figure appears from both boxes side by side in
+        this article, it is there to compare percentages, not absolute times.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>The retired hand-tuned binary and its idiomatic replacement both land at
+          18.2&nbsp;ms</strong> on Darwin, against a <strong>sub-5&nbsp;ms</strong> target &mdash; the
+          gap the whole investigation exists to close.</li>
+        <li><strong>Darwin's bare-process control (a C no-op binary, image load + dynamic linking
+          only) measured 1.2&nbsp;ms.</strong> The runtime's own no-op measured 1.1&nbsp;ms &mdash;
+          <em>less</em>, inside noise. Subtracting the two gives runtime init a cost of
+          <strong>&minus;0.0&nbsp;ms</strong>: unmeasurable, free, gone.</li>
+        <li><strong>That was a miss, and it was supposed to be checkable as one.</strong> The
+          pre-registered prediction for that subtraction (P-D2) was 2&ndash;4&nbsp;ms. Actual: &minus;0.0.
+          Stated plainly in the lab notes as MISS, not smoothed over.</li>
+        <li><strong>The workload &mdash; not startup, not init &mdash; is 94% of the cell</strong> on
+          Darwin (17.1 of 18.2&nbsp;ms). Linux, measured independently on different hardware, found the
+          identical shape: <strong>startup+init is 0.9&nbsp;ms of a 13.2&nbsp;ms cell (7%)</strong>, with
+          runtime init inside that 0.9&nbsp;ms reading as effectively zero too.</li>
+        <li><strong>A years-old plan number &mdash; roughly 2.2&nbsp;ms of "runtime init" &mdash; is
+          dead on both platforms</strong>, and the pre-warm workstream that plan justified has nothing
+          left to pre-warm. The sub-5&nbsp;ms road runs through the workload's allocation model instead.</li>
+      </ul>
+    </div>
+
+    <div class="aside">
+      <h3>How to read this article</h3>
+      <p>
+        Claims are tagged by where they came from: <span class="evtag">[PAPER]</span> for
+        peer-reviewed literature, <span class="evtag">[DOCS]</span> for a project or vendor's own
+        documentation, <span class="evtag">[SOURCE]</span> for a named but secondary citation (a blog
+        post, a benchmark repo, a relayed number), and <span class="evtag">[MEASURED]</span> for a
+        number this project produced on one of its own two boxes. Where the literature brief itself
+        flagged something as unverifiable, that flag survives here as its own section rather than
+        being quietly dropped. Terms get a definition with a worked example the first time they show
+        up, in boxes like the one right after this paragraph. Glossary and full source list at the end.
+      </p>
+    </div>
+
+    <h2>1. The setup: an 18&nbsp;ms binary, a sub-5&nbsp;ms goal, and a stale number on the books</h2>
+    <p>
+      The command-line binary at the center of this investigation runs in <strong>18.2&nbsp;ms</strong>
+      on Darwin &mdash; a figure two different implementations now share: a retired, hand-tuned build
+      that used every optimization trick available, and its plain, idiomatic replacement, which matched
+      it exactly once several versions of unrelated toolchain work landed underneath it
+      <span class="evtag">[MEASURED]</span>. Against a <strong>sub-5&nbsp;millisecond</strong> target,
+      that leaves a gap of roughly 13&nbsp;ms to account for and close.
+    </p>
+    <p>
+      For most of this investigation's life, the standing explanation for that gap was a plan document
+      several versions old: process startup and runtime initialization were the suspects, with a figure
+      of roughly <strong>2.2&nbsp;ms</strong> attached to "runtime init" specifically. A workstream had
+      been designed and then shelved around that number &mdash; a <em>pre-warm</em> scheme, the general
+      idea being: if a fixed 2&ndash;plus milliseconds gets paid on every single invocation just to get
+      the runtime's internal machinery on its feet, keep a warm copy of that machinery around and skip
+      paying it again. It is a sensible plan for a real cost. The question this article answers is
+      whether that cost was ever real.
+    </p>
+    <div class="aside term">
+      <h3>Term: pre-registration</h3>
+      <p>
+        <dfn>Pre-registration</dfn> means writing down what you predict a measurement will show &mdash;
+        with numeric pass/fail bounds &mdash; <em>before</em> you run the measurement, and committing
+        that prediction somewhere it can't be quietly edited afterward. Example: instead of running a
+        benchmark and then explaining whatever number comes out, you write "I predict X falls between
+        2 and 4 milliseconds" into a script's comment header, run the benchmark, and report the actual
+        number next to that prediction whether it lands inside the bounds or not. The entire point is
+        that a miss becomes a recorded finding &mdash; something you have to explain and act on &mdash;
+        rather than a number you quietly reinterpret after the fact to fit whatever story you already
+        believed.
+      </p>
+    </div>
+
+    <h2>2. The move: both machines staked a falsifiable claim before measuring</h2>
+    <p>
+      Rather than re-run the timing and write the explanation afterward, both benchmark seats
+      pre-registered predictions sourced from the cold-start literature, before either machine took a
+      single new measurement.
+    </p>
+    <p>
+      The Linux seat commissioned a literature brief first <span class="evtag">[SOURCE]</span> and
+      staked its prediction directly against it: <em>"image load+linking &lt;15% of 18.1ms; runtime
+      init largest block"</em> &mdash; consistent with the brief's own falsifiable prior for a
+      warm-cache, ~3.2&nbsp;MB binary linking roughly five shared libraries on modern hardware:
+    </p>
+    <table>
+      <thead><tr><th>Predicted stage</th><th class="number">Predicted cost</th><th>Basis</th></tr></thead>
+      <tbody>
+        <tr><td>Bare spawn incl. dynamic link</td><td class="number">1&ndash;3&nbsp;ms</td><td>Drepper's dynamic-linking cost model + MatRs bound, O(n&middot;r&middot;log&nbsp;s) <span class="evtag">[PAPER]</span></td></tr>
+        <tr><td>Runtime init</td><td class="number">+2&ndash;6&nbsp;ms</td><td>Largest uncertainty &mdash; OpenSSL constructors + possible table interning</td></tr>
+        <tr><td>Compile lane</td><td class="number">+2&ndash;8&nbsp;ms</td><td>Frontend + LLVM + link, stated as conflated</td></tr>
+        <tr><td>Workload (14 dirs, 29&nbsp;KB out)</td><td class="number">+3&ndash;8&nbsp;ms</td><td>The actual package-index generation work</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Source: <code>agents/linux/notes/research-cli-startup.md</code>, "The prior (falsifiable, from literature only)."</p>
+    <p>
+      The brief was explicit about what would falsify its own prior, in its own words: <em>"bare spawn
+      &gt;4-5ms &rArr; anomalous linking (check readelf -r, BIND_NOW); init-minus-spawn &gt;8ms &rArr;
+      snapshot techniques are the fix and OpenSSL constructor init is suspect #1; compile-lane dominance
+      &rArr; CDS-style caching, not linking work."</em> Every one of those is a number, not a vibe &mdash;
+      exactly the point of pre-registering.
+    </p>
+    <p>
+      The macOS seat did the same thing independently, committing three numbered predictions directly
+      into the header of the benchmark script that would produce the results, dated 2026-07-27 ~00:45
+      PDT, before any timing ran <span class="evtag">[MEASURED]</span>:
+    </p>
+    <pre>P-D1: cell1 (image load + dyld, C no-op control) &lt; 3 ms.
+P-D2: cell2 - cell1 (hey runtime init + say) = 2-4 ms.
+P-D3: cell4 - cell2 (the gpi WORKLOAD) &gt;= 60% of the full cell —
+      i.e. Darwin should REPRODUCE linux's refutation of the
+      init-heavy prior: the mass is the workload, the sub-5ms
+      road is the allocation model (stage c), same door as Q1.
+A miss on any of these is a finding, not a retrofit.</pre>
+    <p class="muted">Source: <code>bench/slope-cells/2026-07-27/cli-decomp/cli-decomp.sh</code>, header comment.</p>
+    <p>
+      Read what that last line already concedes, written before a single hyperfine run: the script's own
+      author expected P-D2 (2&ndash;4&nbsp;ms of runtime init) to fail, and said so in the same breath as
+      predicting it &mdash; because Linux's own decomposition, run earlier the same night, had already
+      found the init-heavy prior false on its own hardware. Darwin's run was staged explicitly as an
+      independent replication of that refutation, not a fresh guess. That is what pre-registration looks
+      like when it is being used honestly: the prediction on paper (2&ndash;4&nbsp;ms, sourced from the
+      literature) and the author's private expectation (it will miss) are allowed to disagree, and both
+      are on the record before the number comes in.
+    </p>
+    <p>
+      The reference points the Linux brief cited for context matter here too, because they establish
+      that the sub-5&nbsp;ms target was never a fantasy <span class="evtag">[SOURCE]</span>: on a 2018
+      i5-2400S, the <a href="https://github.com/bdrung/startup-time">bdrung/startup-time</a> benchmark
+      measured C at 0.26&nbsp;ms, Go at 0.41&nbsp;ms, and Rust at 0.51&nbsp;ms cold-start &mdash; while
+      Python3 took 25.8&nbsp;ms and Ruby 32.4&nbsp;ms. Sub-5&nbsp;ms is comfortably attained by every
+      compiled runtime measured in that survey. The 18.2&nbsp;ms binary under investigation here compiles
+      to native code; if it behaved like the compiled-runtime column, the goal was always reachable. The
+      question was only ever where the extra milliseconds were actually going.
+    </p>
+
+    <h2>3. The kill: both machines watched the same prior die</h2>
+    <p>
+      Linux measured first. Its four-cell decomposition found <strong>startup+init at 0.9&nbsp;ms of a
+      13.2&nbsp;ms cell &mdash; 7%</strong> &mdash; with runtime init specifically, inside that 0.9&nbsp;ms,
+      reading as approximately zero <span class="evtag">[MEASURED]</span>. Not "smaller than expected."
+      Zero. The "runtime init is the largest block" half of its own pre-registered prediction was refuted
+      on its own hardware, the same night the prediction was written.
+    </p>
+    <p>
+      Darwin's run, staged explicitly to check whether that refutation would reproduce independently
+      rather than be a one-machine fluke, ran in its own quiet window &mdash; load1 2.2&ndash;2.3, the
+      first quiet stretch of the night <span class="evtag">[MEASURED]</span>:
+    </p>
+    <table>
+      <thead><tr><th>Cell</th><th>What it measures</th><th class="number">Result</th><th>Prediction</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>cell1</td><td>C no-op: image load + dynamic linking only</td><td class="number">1.2 &plusmn; 0.1&nbsp;ms</td><td>&lt;3&nbsp;ms (P-D1)</td><td class="verdict pass">PASS</td></tr>
+        <tr><td>cell2&minus;cell1</td><td>Runtime init (the runtime's own no-op minus the C control)</td><td class="number"><strong>&minus;0.0&nbsp;ms</strong></td><td>2&ndash;4&nbsp;ms (P-D2)</td><td class="verdict miss">MISS</td></tr>
+        <tr><td>cell4&minus;cell2</td><td>The actual workload (package-index generation)</td><td class="number">17.1&nbsp;ms &mdash; <strong>94%</strong> of the full cell</td><td>&ge;60% (P-D3)</td><td class="verdict pass">PASS</td></tr>
+        <tr><td>cell4</td><td>Full binary invocation</td><td class="number">18.2 &plusmn; 0.3&nbsp;ms</td><td class="muted">anchor, consistent with 18.1</td><td class="muted">&mdash;</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Source: <code>docs/PERFORMANCE-FINDINGS.md</code>, entry dated 2026-07-27 ~03:10 PDT ("QUIET CELLS"). <span class="evtag">[MEASURED]</span></p>
+    <p>
+      Cell1, the bare C no-op that pays only for the operating system loading an executable and the
+      dynamic linker resolving its shared libraries, measured <strong>1.2&nbsp;ms</strong>. Cell2, the
+      runtime's own no-op &mdash; everything cell1 pays, plus whatever the runtime's startup machinery
+      does before it can even print one line &mdash; measured <strong>1.1&nbsp;ms</strong>. Subtracting
+      gives runtime init a cost of essentially nothing: statistically indistinguishable from zero, and
+      if anything slightly negative, which is what "&minus;0.0&nbsp;ms" is reporting &mdash; not a
+      negative cost in any physical sense, but a difference small enough that measurement noise alone
+      explains the sign. Two independently-built binaries, on two different machines, on two different
+      operating systems, agreed: the milliseconds the plan blamed on runtime initialization were never
+      being spent there.
+    </p>
+    <div class="aside">
+      <h3>Why the literature expected otherwise</h3>
+      <p>
+        The 2&ndash;6&nbsp;ms init estimate wasn't invented casually. OpenSSL's default cryptographic
+        provider initializes lazily on first use as of 1.1.0 <span class="evtag">[DOCS]</span> &mdash;
+        <em>unless</em> something in the linked binary forces a constructor to run eagerly at process
+        start, which is exactly what cell2 minus cell1 was built to catch. A FIPS-mode provider's
+        self-tests can cost roughly <strong>15&nbsp;ms per process</strong> when active
+        <span class="evtag">[SOURCE]</span> (cited here only as the scale of what provider
+        initialization <em>can</em> cost, not as a claim this binary uses FIPS &mdash; it doesn't), and
+        Node.js 17 shipped a real-world regression where OpenSSL-3 environment parsing turned an
+        empty-script run from 115&nbsp;ms to 215&nbsp;ms <span class="evtag">[SOURCE]</span>. Eager,
+        expensive init is a documented failure mode elsewhere. It just isn't what's happening here: the
+        measurement says this binary's constructors, OpenSSL's included, are not forcing eager work on
+        the hot path.
+      </p>
+    </div>
+    <p>
+      The stale plan number &mdash; roughly 2.2&nbsp;ms of runtime init &mdash; is now dead on both
+      platforms, measured independently, in the same 24-hour window. And the pre-warm workstream that
+      number justified has nothing left to do its job on: you cannot pre-warm a cost that measures as
+      &minus;0.0&nbsp;ms. The workstream's premise didn't fail an experiment; it evaporated the moment
+      the experiment ran.
+    </p>
+
+    <h2>4. The subtractive four-cell design</h2>
+    <p>
+      None of the above works unless the measurement design is trustworthy on its own terms, so it's
+      worth walking through what actually makes cell2&minus;cell1 mean "runtime init" rather than
+      "whatever noise happened to be on the box that minute."
+    </p>
+    <div class="aside term">
+      <h3>Term: subtractive measurement</h3>
+      <p>
+        <dfn>Subtractive measurement</dfn> means never trusting an absolute timing number on its own,
+        and instead always reporting the <em>difference</em> between two measurements that share every
+        cost except the one you're trying to isolate. Example: instead of asserting "runtime init costs
+        1.1&nbsp;ms" from cell2 alone &mdash; which also includes process spawn and dynamic linking, and
+        would be wrong if the box were under different load than when cell1 ran &mdash; you build a
+        second binary (cell1, the bare C no-op) that pays every cost cell2 pays <em>except</em> runtime
+        init, and report cell2&nbsp;&minus;&nbsp;cell1. If both cells were measured under the same
+        ambient conditions, whatever is common to both (spawn cost, disk cache state, the machine's
+        current load) cancels out of the subtraction, even if you mismeasured the absolute numbers by
+        an identical amount in both directions. The four cells in this investigation (C no-op, runtime
+        no-op, compile-only, full workload) exist specifically so every reported cost is a difference of
+        two adjacent cells, not a raw number trusted on its own.
+      </p>
+    </div>
+    <p>
+      That's also why cell4&minus;cell2, not cell4 alone, is reported as "the workload": cell4 (the full
+      binary) still carries the same spawn-and-init cost cell2 measures, so subtracting cell2 out is what
+      isolates the 17.1&nbsp;ms that the package-index generation logic itself is responsible for. Every
+      number in the table above is a subtraction, by design, for exactly this reason.
+    </p>
+    <div class="aside term">
+      <h3>Term: the dead-binary trap</h3>
+      <p>
+        <dfn>The dead-binary trap</dfn> is what happens when a benchmark measures a binary that exits
+        cleanly (return code 0, no error) without actually doing the work it's supposed to be timing
+        &mdash; producing a fast, clean-looking, completely meaningless number. Example: if the workload
+        binary in cell4 had a stale build, a broken code path, or simply crashed past its first line
+        while still returning exit code 0, hyperfine would report a beautiful, tight, fast timing for a
+        program that generated nothing. The guard against it here is explicit and runs before every
+        timed cell: the workload's output file is deleted, the binary is run once outside the timing
+        loop, and the script hard-fails ("gpi DEAD") if that output file doesn't reappear with non-zero
+        size. Only once liveness is asserted does the actual hyperfine timing run. A fast dead binary is
+        worse than a slow live one, because a slow live one at least tells you something true.
+      </p>
+    </div>
+    <p>
+      That liveness assertion is not decorative caution; it is load-bearing for every claim in
+      &sect;3. The exact guard, taken directly from the benchmark script <span class="evtag">[MEASURED]</span>:
+    </p>
+    <pre># liveness: gpi must recreate its output (dead-binary trap)
+cd "$REPO"; rm -f packages/index.html; "$S/gpi-438a-postmake" &gt;/dev/null 2&gt;&amp;1
+[ -s packages/index.html ] || { echo "gpi DEAD"; exit 1; }</pre>
+    <div class="aside term">
+      <h3>Term: ratio control (the ruby lane)</h3>
+      <p>
+        A <dfn>ratio control</dfn> is a second, unrelated benchmark run alongside the one you actually
+        care about, specifically so ambient drift &mdash; the box getting busier or quieter between runs
+        &mdash; shows up as a moving number you can see, instead of silently contaminating your real
+        result. Example: this project's CLI benchmark always runs a Ruby control lane next to the two
+        Hey lanes it's actually studying. On one occasion, box load jumped from roughly 4 to 12 between
+        two benchmark windows, and the Ruby control's absolute time inflated from 123.8&nbsp;ms to
+        179.3&nbsp;ms right along with it &mdash; but the ratio of the Hey binary lane to the Ruby lane
+        stayed at exactly <strong>0.150</strong> in both windows. Because a completely unrelated,
+        unchanged program moved by the same proportion, the conclusion was "the box got busier," not
+        "the toolchain regressed" &mdash; a call that would have been impossible to make with confidence
+        from the Hey numbers alone. <span class="evtag">[MEASURED]</span>
+      </p>
+    </div>
+    <p class="muted">
+      Source: <code>docs/PERFORMANCE-FINDINGS.md</code>, entry dated 2026-07-26 ~23:32 PDT ("438a
+      POST-MAKE CONFIRMATION"): <em>"CLI absolutes inflated uniformly (ruby control 123.8&rarr;179.3
+      under load1 12.4) with binary/ruby ratio IDENTICAL at 0.150 both cells &rarr; toolchain unchanged,
+      cell load-labeled."</em>
+    </p>
+    <p>
+      Put the three pieces together and the method is what actually earns the right to say "runtime
+      init costs &minus;0.0&nbsp;ms" instead of "our benchmark returned a small number this time": every
+      reported cost is a subtraction of two cells that share their ambient conditions, no cell is trusted
+      until it proves its binary actually ran, and a third, unrelated lane confirms whether any given
+      run's absolute numbers reflect the toolchain or just the moment the box happened to be in.
+    </p>
+
+    <h2>5. What could not be verified</h2>
+    <p>
+      The literature brief that supplied the original prior was explicit about its own sourcing limits,
+      and that disclosure is carried forward here unedited rather than quietly dropped, for the same
+      reason the sibling article in this series makes the same choice: a brief that only reports what
+      it's sure of is not more credible than one that shows its gaps &mdash; it's just quieter about
+      them.
+    </p>
+    <div class="pc-grid">
+      <div class="pc-pro">
+        <h4>Solidly grounded</h4>
+        <p>
+          The bdrung/startup-time compiled-language reference numbers (repo, publicly runnable); the
+          OpenSSL lazy-default-provider behavior as documented since 1.1.0; the FIPS self-test cost
+          scale and the Node 17 OpenSSL-3 regression, both publicly reported incidents; every
+          <span class="evtag">[MEASURED]</span> number in &sect;3 and &sect;4, produced on this
+          project's own two boxes with the liveness and ratio-control guards described above.
+        </p>
+      </div>
+      <div class="pc-con">
+        <h4>Could not be verified this round</h4>
+        <p>
+          Drepper's dynamic-linking cost analysis (the primary source behind the "bare spawn 1&ndash;3ms"
+          line in &sect;2) would not text-extract; its numbers were relayed via a secondary source only.
+          No isolated measurement of non-FIPS default-provider OpenSSL init exists anywhere the brief's
+          author searched &mdash; the &minus;0.0&nbsp;ms figure in this article is this project's own
+          measurement of the whole init path, not a citation of someone else's isolated OpenSSL number.
+          Dart AOT cold-start figures, sought as another compiled-runtime reference point, were not
+          found. Whether this project's glibc build merges libpthread into libc (true from glibc
+          &ge;2.34, which would change the DSO count cell1 is implicitly measuring by one) was flagged
+          as needing a local <code>ldd</code> check that was not confirmed in this pass.
+        </p>
+      </div>
+    </div>
+    <p class="muted">
+      Source: <code>agents/linux/notes/research-cli-startup.md</code>, "Unverified/gaps."
+    </p>
+
+    <h2>6. The payoff: three roads reached the same door</h2>
+    <p>
+      With runtime init dead as a cost center on both platforms, the sub-5&nbsp;ms road can only run
+      through one place: the <strong>94%</strong> of the cell that the workload itself occupies &mdash;
+      the package-index generation logic's allocation model, not process startup. That is not a new
+      idea invented to fill the gap; it is where the pre-registration in &sect;2 already pointed, in the
+      cell script's own words, written before the number came in: <em>"the mass is the workload, the
+      sub-5ms road is the allocation model (stage c), same door as Q1."</em>
+    </p>
+    <p>
+      "Same door as Q1" is the detail worth sitting with. The same night, from a completely different
+      angle &mdash; a per-access allocation probe rather than a process-startup decomposition &mdash;
+      this project's separate access-decomposition work was independently finding that the fixed,
+      per-access boxing machinery inside the runtime, not the container being accessed, dominates
+      lookup and construction cost, with a large 4,096-element case running at clone counts around two
+      per element before optimization <span class="evtag">[MEASURED]</span>. Two investigations, run
+      the same night for different reasons on different instrumentation, arrived at the same
+      destination: the cost worth chasing is what the runtime does per allocation, not what it does at
+      process boundaries. Three roads &mdash; Linux's Q3 decomposition, Darwin's independent replication
+      of it, and the separate access-decomposition probe &mdash; and one door.
+    </p>
+    <p>
+      What made this collapse fast rather than slow is the whole point of the article, not a footnote to
+      it. A wrong prior sitting quietly in a planning document can steer a quarter of a roadmap before
+      anyone re-checks it, because there's no moment at which it's obligated to be tested against a
+      number. Pre-registration removes that grace period: the prediction and its falsification bounds
+      go on the record together, before the measurement exists to argue with, so a wrong prior gets
+      exactly one benchmark run to survive. This one didn't survive its first run on either machine, and
+      the record shows both machines saying so in the same afternoon &mdash; MISS, stated as such, not
+      smoothed into a footnote. The pre-warm workstream is not paused pending further study. It has
+      nothing left to warm.
+    </p>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>pre-registration</dt>
+      <dd>Committing a falsifiable prediction, with numeric pass/fail bounds, before running the measurement that will test it.</dd>
+      <dt>dynamic linking</dt>
+      <dd>Resolving a program's calls into its shared libraries at load time (or lazily, on first use) rather than baking every library's code into the executable at compile time.</dd>
+      <dt>subtractive measurement</dt>
+      <dd>Reporting the difference between two measurements that share every cost except the one under study, so shared measurement error and ambient conditions cancel out.</dd>
+      <dt>the dead-binary trap</dt>
+      <dd>A benchmark measuring a binary that exits cleanly without doing its actual work, producing a fast number that means nothing; guarded against by asserting the binary's output before timing it.</dd>
+      <dt>ratio control</dt>
+      <dd>An unrelated benchmark lane run alongside the lane under study, so ambient load drift shows up as a moving absolute number with an unchanged ratio, rather than contaminating the real result silently.</dd>
+      <dt>runtime init</dt>
+      <dd>Whatever a program's own startup machinery does before user code runs, beyond what the operating system's process spawn and dynamic linker already pay for.</dd>
+      <dt>cold-start cost</dt>
+      <dd>The total wall-clock time from process launch to a program's first useful output, with no warm caches or persistent runtime to amortize the cost across repeated invocations.</dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><code>agents/linux/notes/research-cli-startup.md</code> &mdash; the commissioned literature brief this article draws its prior and unverified-gaps section from <span class="evtag">[SOURCE]</span></li>
+      <li><code>bench/slope-cells/2026-07-27/cli-decomp/cli-decomp.sh</code>, war-room-prayer-compass &mdash; the pre-registered P-D1/P-D2/P-D3 cell script and its liveness/dead-binary guard <span class="evtag">[MEASURED]</span></li>
+      <li><code>docs/PERFORMANCE-FINDINGS.md</code>, war-room-prayer-compass &mdash; entry dated 2026-07-27 ~03:10 PDT ("QUIET CELLS," the four-cell Darwin results and access-decomposition baseline) <span class="evtag">[MEASURED]</span></li>
+      <li><code>docs/PERFORMANCE-FINDINGS.md</code> &mdash; entry dated 2026-07-27 ~03:35 PDT (442a full protocol, 18.2&nbsp;ms binary-lane anchor)  <span class="evtag">[MEASURED]</span></li>
+      <li><code>docs/PERFORMANCE-FINDINGS.md</code> &mdash; entry dated 2026-07-26 ~23:32 PDT (438a post-make confirmation, the ruby-lane ratio-control method) <span class="evtag">[MEASURED]</span></li>
+      <li><code>docs/PERFORMANCE-FINDINGS.md</code> &mdash; entry dated 2026-07-26 ~21:27 PDT (436a re-anchor, idiomatic binary matches retired hand-tuned 18.2&nbsp;ms) <span class="evtag">[MEASURED]</span></li>
+      <li><a href="https://github.com/bdrung/startup-time">bdrung/startup-time</a> &mdash; compiled-language cold-start reference benchmark <span class="evtag">[SOURCE]</span></li>
+      <li>OpenSSL default-provider lazy initialization, documented since 1.1.0 <span class="evtag">[DOCS]</span></li>
+      <li><a href="https://github.com/openssl/openssl/issues/27783">openssl/openssl issue #27783</a> &mdash; FIPS provider self-test cost <span class="evtag">[SOURCE]</span></li>
+      <li>Node.js 17 OpenSSL-3 empty-script regression (NODE_EXTRA_CA_CERTS parsing) <span class="evtag">[SOURCE]</span></li>
+      <li><a href="https://github.com/openssl/openssl/issues/23731">openssl/openssl issue #23731</a>, <a href="https://github.com/openssl/openssl/issues/24020">#24020</a> &mdash; deferred/on-demand provider loading, still-imperfect area <span class="evtag">[SOURCE]</span></li>
+      <li>Drepper, dynamic-linking cost analysis &mdash; PDF would not text-extract this round; numbers relayed via secondary source only, not independently verified</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Draft compiled 2026-07-27 from a commissioned literature brief, a pre-registered benchmark script,
+      and dated lab-notebook entries on the war-room-prayer-compass benchmark project. Measured numbers
+      are single-machine figures from one Darwin box and one Linux box, run separately; shape and ratios
+      travel between them, raw magnitudes do not. This is a draft: figures are receipted as of the dates
+      cited and may be superseded by later re-measurement.
+    </p>
+  </footer>
+</body>
+</html>

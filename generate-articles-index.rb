@@ -4,12 +4,13 @@
 require "pathname"
 
 class ArticlesIndex
-  SERIES_HEADINGS = {
-    "research" => "The research series",
-    "campaign" => "The measurement campaign"
+  BUCKET_HEADINGS = {
+    "featured" => "Featured",
+    "benchmarks" => "Benchmark stories",
+    "almost" => "Explored, not (yet) shipped"
   }.freeze
 
-  SERIES_ORDER = %w[research campaign].freeze
+  BUCKET_ORDER = %w[featured benchmarks almost].freeze
 
   def initialize(articles_dir)
     @articles_dir = Pathname(articles_dir).expand_path
@@ -57,24 +58,24 @@ class ArticlesIndex
     title = path.basename(".html").to_s if title.nil? || title.strip.empty?
 
     date = extract_meta(content, "article-date")
-    series = extract_meta(content, "article-series")
+    bucket = extract_meta(content, "article-bucket")
     desc = extract_meta(content, "article-desc")
 
     missing = []
     missing << "article-date" if date.nil? || date.empty?
-    missing << "article-series" if series.nil? || series.empty?
+    missing << "article-bucket" if bucket.nil? || bucket.empty?
     missing << "article-desc" if desc.nil? || desc.empty?
 
     unless missing.empty?
       abort "#{filename}: missing required meta tag(s): #{missing.join(', ')}"
     end
 
-    unless SERIES_ORDER.include?(series)
-      abort "#{filename}: unknown article-series #{series.inspect} " \
-            "(expected #{SERIES_ORDER.join(' or ')})"
+    unless BUCKET_ORDER.include?(bucket)
+      abort "#{filename}: unknown article-bucket #{bucket.inspect} " \
+            "(expected one of #{BUCKET_ORDER.join(', ')})"
     end
 
-    { filename: filename, title: title, date: date, series: series, desc: desc }
+    { filename: filename, title: title, date: date, bucket: bucket, desc: desc }
   end
 
   def articles
@@ -91,7 +92,7 @@ class ArticlesIndex
   def grouped_articles
     groups = Hash.new { |hash, key| hash[key] = [] }
 
-    articles.each { |article| groups[article[:series]] << article }
+    articles.each { |article| groups[article[:bucket]] << article }
 
     groups.each_value { |entries| entries.sort! { |a, b| compare_entries(a, b) } }
 
@@ -108,8 +109,8 @@ class ArticlesIndex
     ]
   end
 
-  def series_section(series, entries)
-    lines = ["  <h2>#{SERIES_HEADINGS.fetch(series)}</h2>"]
+  def bucket_section(bucket, entries)
+    lines = ["  <h2>#{BUCKET_HEADINGS.fetch(bucket)}</h2>"]
 
     if entries.empty?
       lines << '  <p class="empty">No articles found.</p>'
@@ -125,8 +126,8 @@ class ArticlesIndex
   def render_page
     grouped = grouped_articles
 
-    sections = SERIES_ORDER.flat_map do |series|
-      ["", *series_section(series, grouped.fetch(series, []))]
+    sections = BUCKET_ORDER.flat_map do |bucket|
+      ["", *bucket_section(bucket, grouped.fetch(bucket, []))]
     end
 
     lines = [
@@ -199,8 +200,9 @@ USAGE = <<~TEXT
   usage: generate-articles-index [ARTICLES_DIR]
 
   Regenerates ARTICLES_DIR/index.html from the article-date,
-  article-series and article-desc meta tags of the articles in
-  that directory. Default ARTICLES_DIR: ./articles
+  article-bucket and article-desc meta tags of the articles in
+  that directory (buckets: featured, benchmarks, almost).
+  Default ARTICLES_DIR: ./articles
 
     -h, --help   show this help and exit
 TEXT

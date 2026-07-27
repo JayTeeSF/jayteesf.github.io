@@ -181,3 +181,46 @@ valid everywhere, so the broken version still wins the cascade and
 fails later at computed-value time. Any color-mix that references a
 custom property MUST be @supports-gated. Verify on an engine without
 color-mix support, not just by reading.
+
+### FINAL CSS rule (2026-07-26 late — supersedes BOTH rules above; verified on the maintainer's phone)
+color-mix() is BANNED from articles and the doc-site generator
+entirely. Mechanism: mobile WebKit builds PARSE color-mix (so every
+@supports gate passes) yet fail canvas/currentColor resolution at
+COMPUTED-VALUE time; a var()-carried declaration that dies then
+becomes UNSET (invisible boxes) and no gate can catch it, because
+@supports tests parseability only. Recipe: static rgba()/hex only;
+translucent rgba backgrounds serve both schemes; accent colors get
+explicit @media (prefers-color-scheme: dark) + :root[data-theme]
+overrides (when replacing a color-mix(X, currentColor) you MUST add
+the dark override it silently provided). No canvas keyword, no
+oklch/lab/light-dark, no var() needing post-parse color resolution.
+
+## Article buckets (maintainer, 2026-07-27)
+
+Every article MUST carry `<meta name="article-bucket" content="...">`
+— the index generators HARD-FAIL on a missing or unknown bucket
+(both lanes, parity-gated). `article-series` is retired. Buckets and
+their index headings, in display order:
+
+- `featured` — "Featured". The best, most readable, most helpful
+  pieces; the front-of-site shelf. Curated by the maintainer —
+  additions/removals are their call (seed set per their direction:
+  designing-heys-actors, what-makes-an-actor-cheap; faster-than-go
+  added by editor judgment, flagged for their veto).
+- `benchmarks` — "Benchmark stories". Measurement campaigns and
+  their narratives: something was benchmarked, numbers moved, the
+  story has receipts (e.g. great-command-line-scripting-with-hey,
+  hey-web-services-500-to-60000-rps, ruby-port-ate-50gb-of-ram,
+  benchmarks-worth-chasing).
+- `almost` — "Explored, not (yet) shipped". Research/designs for
+  features that are NOT in the shipping toolchain: measured
+  feasibility studies, plans of record, refutation arcs (e.g.
+  the-jit-was-never-the-problem, sugar-over-fast-immutables). The
+  article itself must ALSO carry its unshipped status in-body (the
+  red status banner pattern); the bucket is navigation, not the
+  disclosure.
+
+Filenames starting with DRAFT- are excluded from the index by both
+generators (drafts live in articles/ untagged-for-index until their
+fact-check clears). New buckets require: maintainer approval, both
+generator lanes updated identically, parity re-verified.

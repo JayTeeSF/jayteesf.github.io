@@ -75,15 +75,15 @@ module ArticlesIndex
     end
 
     let date = ArticlesIndex.meta_value(content, 'article-date')
-    let series = ArticlesIndex.meta_value(content, 'article-series')
+    let bucket = ArticlesIndex.meta_value(content, 'article-bucket')
     let desc = ArticlesIndex.meta_value(content, 'article-desc')
 
     let missing = []
     if date == ''
       set missing = [...missing, 'article-date']
     end
-    if series == ''
-      set missing = [...missing, 'article-series']
+    if bucket == ''
+      set missing = [...missing, 'article-bucket']
     end
     if desc == ''
       set missing = [...missing, 'article-desc']
@@ -93,15 +93,15 @@ module ArticlesIndex
       fail filename + ': missing required meta tag(s): ' + Text.join(missing, ', ')
     end
 
-    if series != 'research' and series != 'campaign'
-      fail filename + ": unknown article-series '" + series + "' (expected research or campaign)"
+    if bucket != 'featured' and bucket != 'benchmarks' and bucket != 'almost'
+      fail filename + ": unknown article-bucket '" + bucket + "' (expected one of featured, benchmarks, almost)"
     end
 
     return {
       filename: filename,
       title: title,
       date: date,
-      series: series,
+      bucket: bucket,
       desc: desc
     }
   end
@@ -132,7 +132,7 @@ module ArticlesIndex
     return articles
   end
 
-  # Stable order within a series: newest date first, filename ascending
+  # Stable order within a bucket: newest date first, filename ascending
   # breaks ties (and gives a deterministic order for same-day articles).
   private fn compare_entries(left, right)
     let date_cmp = Collections.compare(right.date, left.date)
@@ -143,24 +143,31 @@ module ArticlesIndex
     return Collections.compare(left.filename, right.filename)
   end
 
-  private fn group_by_series(articles)
-    let research = []
-    let campaign = []
+  private fn group_by_bucket(articles)
+    let featured = []
+    let benchmarks = []
+    let almost = []
 
     for article in articles
-      if article.series == 'research'
-        set research = [...research, article]
-      else
-        set campaign = [...campaign, article]
+      if article.bucket == 'featured'
+        set featured = [...featured, article]
+      end
+      if article.bucket == 'benchmarks'
+        set benchmarks = [...benchmarks, article]
+      end
+      if article.bucket == 'almost'
+        set almost = [...almost, article]
       end
     end
 
-    let sorted_research = research.sort(ArticlesIndex.compare_entries)
-    let sorted_campaign = campaign.sort(ArticlesIndex.compare_entries)
+    let sorted_featured = featured.sort(ArticlesIndex.compare_entries)
+    let sorted_benchmarks = benchmarks.sort(ArticlesIndex.compare_entries)
+    let sorted_almost = almost.sort(ArticlesIndex.compare_entries)
 
     return {
-      research: sorted_research,
-      campaign: sorted_campaign
+      featured: sorted_featured,
+      benchmarks: sorted_benchmarks,
+      almost: sorted_almost
     }
   end
 
@@ -174,15 +181,18 @@ module ArticlesIndex
     ]
   end
 
-  private fn series_heading(series)
-    if series == 'research'
-      return 'The research series'
+  private fn bucket_heading(bucket)
+    if bucket == 'featured'
+      return 'Featured'
     end
-    return 'The measurement campaign'
+    if bucket == 'benchmarks'
+      return 'Benchmark stories'
+    end
+    return 'Explored, not (yet) shipped'
   end
 
-  private fn series_section_lines(series, entries)
-    let heading = ArticlesIndex.series_heading(series)
+  private fn bucket_section_lines(bucket, entries)
+    let heading = ArticlesIndex.bucket_heading(bucket)
     let lines = ['  <h2>' + heading + '</h2>']
 
     if entries.empty?
@@ -205,16 +215,19 @@ module ArticlesIndex
 
   private fn render_page(index)
     let articles = ArticlesIndex.parse_all(index.articles_dir)
-    let grouped = ArticlesIndex.group_by_series(articles)
+    let grouped = ArticlesIndex.group_by_bucket(articles)
 
-    let research_lines = ArticlesIndex.series_section_lines('research', grouped.research)
-    let campaign_lines = ArticlesIndex.series_section_lines('campaign', grouped.campaign)
+    let featured_lines = ArticlesIndex.bucket_section_lines('featured', grouped.featured)
+    let benchmarks_lines = ArticlesIndex.bucket_section_lines('benchmarks', grouped.benchmarks)
+    let almost_lines = ArticlesIndex.bucket_section_lines('almost', grouped.almost)
 
     let sections = [
       '',
-      ...research_lines,
+      ...featured_lines,
       '',
-      ...campaign_lines
+      ...benchmarks_lines,
+      '',
+      ...almost_lines
     ]
 
     let lines = [
@@ -287,7 +300,7 @@ fn usage()
   says 'usage: generate-articles-index [ARTICLES_DIR]'
   says ''
   says 'Regenerates ARTICLES_DIR/index.html from the article-date,'
-  says 'article-series and article-desc meta tags of the articles in'
+  says 'article-bucket and article-desc meta tags of the articles in'
   says 'that directory. Default ARTICLES_DIR: ./articles'
   says ''
   says '  -h, --help   show this help and exit'
