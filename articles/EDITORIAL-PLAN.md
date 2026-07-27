@@ -391,3 +391,13 @@ multi-goal. Rules for campaign/bet articles:
    serves neither. When work informs a ruling, the site gets the
    STORY of the decision; the full option matrix lives in the log
    or a collapsed appendix.
+
+### The standing secondary goal: earned trust (maintainer, 2026-07-27)
+Every campaign article quietly carries one more job: a developer
+reading it should come away trusting the team — because the
+receipts show BOTH halves of the promise ("we know ergonomic": the
+Ruby-port and CLI stories; "we know fast": the web campaign), and
+because the team visibly publishes bets before results and
+corrections in public. Trust is IMPLIED by receipts and links,
+never requested; the phrase "trust us" is banned. Weave the track
+record into an existing beat; it never becomes its own section.
