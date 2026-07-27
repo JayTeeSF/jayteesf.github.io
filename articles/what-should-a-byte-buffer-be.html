@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hey's byte_buffer breaks its own value-semantics guard suite by design: a falsifiable rc table proves no refcount rule can fix it. Five options, one measured recommendation, and why the maintainer still has to make the call.">
+  <meta name="article-date" content="2026-07-27">
+  <meta name="article-bucket" content="almost">
+  <meta name="article-desc" content="Hey's append-many-times byte_buffer refuses to fit value semantics. A falsifiable guard suite proves no refcount rule can fix it — so what should the language do instead? Five options, weighed and arithmetic-checked, for a decision only the maintainer can make.">
+  <title>What Should a Byte Buffer Be?</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+    details.deep > summary { cursor: pointer; font-weight: 600; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+    .evtag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78em; font-weight: 700; padding: 0.05rem 0.3rem; border: 1px solid var(--border); border-radius: 0.3rem; white-space: nowrap; }
+    .plan {
+      margin: 0 0 2rem;
+      padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e;
+      border-radius: 0.6rem;
+      background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    .verdict {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid #2a78d6;
+      border-radius: 0.7rem;
+      background: rgba(42,120,214,0.08);
+    }
+    .verdict .rec-tag { display: inline-block; font-weight: 800; letter-spacing: 0.03em; font-size: 0.82rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .verdict { background: rgba(57,135,229,0.12); } .verdict .rec-tag { color: #5ea3f2; } }
+    :root[data-theme="dark"] .verdict { background: rgba(57,135,229,0.12); }
+    :root[data-theme="dark"] .verdict .rec-tag { color: #5ea3f2; }
+    /* glossary-term popover: static colors only, --border for the frame, an opaque
+       light-pinned surface + dark override (same recipe as the chart figures) so text
+       underneath never bleeds through. */
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>What Should a Byte Buffer Be?</h1>
+    <p class="lede">
+      Hey is a value-semantics language: values copy, nobody ever observes your mutations, and that
+      one rule is what makes the language's whole in-flight plan to share memory by
+      <a class="gloss" href="glossary.html#i5" data-def="The plan to share Hey values by reference-counted reference instead of always copying them; ranked as G1's single biggest remaining lever.">reference count (I5)</a>
+      safe to build. One type refuses to fit: <code>byte_buffer</code>, the append-many-times string
+      builder. A falsifiable guard suite built to pin value semantics found the proof that no
+      refcount rule can rescue it &mdash; the required behavior is <strong>non-monotonic in the
+      refcount itself</strong>. This is a measured walk through five ways the language could resolve
+      that, arithmetic-checked against the one workload that actually uses it at scale.
+      <strong>The verdict, up front: this is a recommendation, not a ruling &mdash; the decision is
+      the maintainer's.</strong> The team's pick, with high confidence, is to stop pretending
+      <code>byte_buffer</code> is a value at all.
+    </p>
+  </header>
+
+  <main>
+    <div class="plan">
+      <p class="plan-tag">Status: pending maintainer decision</p>
+      <p>
+        Nothing in this article is shipped. It analyzes five options for an open language-design
+        question &mdash; how <code>byte_buffer</code> should be classified &mdash; that blocks one
+        ticket in Hey's refcount program (I5) and is on the maintainer's open-questions list as item
+        4 (<code>docs/agents/in-progress.md:8-17</code>). Every measured number below is real and
+        reproducible; the choice among the five options is not this article's to make.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>RECOMMENDATION, NOT A RULING &mdash; the decision is the maintainer's:</strong>
+          reclassify <code>byte_buffer</code> as a mutable handle, the same family as
+          <code>HEY_IO_HANDLE</code> and <code>HEY_ACTOR</code> (option (i) below), high confidence.
+          It costs nothing extra beyond what the runtime already does, and it breaks none of the
+          three specs that already pin the accumulate-into-a-buffer idiom.</li>
+        <li><strong>No refcount predicate can implement <code>byte_buffer</code>'s measured
+          contract.</strong> A direct append must write through at refcount&nbsp;3, a nested append
+          one function-call deeper must NOT write through at refcount&nbsp;4, and three appends in a
+          row (spec 926) must all write through at refcounts 3, 3, and 5. Write-through is required
+          at rc&nbsp;3 and rc&nbsp;5 and forbidden at rc&nbsp;4 &mdash; no threshold
+          (<code>rc == 1</code>, <code>rc &lt;= n</code>, anything) can express that.</li>
+        <li><strong>The mechanism is call depth, not sharing.</strong> <code>Bytes.append</code> is
+          an ordinary Hey function whose first parameter <em>is</em> the buffer
+          (<code>stdlib/Bytes.hey:64</code>) &mdash; so a direct call and a call through one wrapper
+          function are the identical construct, one stack frame apart. <code>byte_buffer</code> was
+          never partially shared; it is already an unconditional mutable handle. The only open
+          question is whether the language admits it.</li>
+        <li><strong>Always-copying instead is dead on arithmetic alone.</strong> Building the 1BRC
+          product lane's output (spec 936) for 10,000 stations takes 79,999 appends into a
+          &le;&nbsp;1&nbsp;MiB buffer; in place, that moves about the output's own size, ~260&nbsp;KB.
+          Copying the whole buffer on every append instead would move <strong>~10.4&nbsp;GB &mdash;
+          about 40,000&times; more bytes physically moved</strong> for the identical result.</li>
+        <li><strong>Disclosed weakness: the recommendation is a documented convention, not a
+          compiler-enforced one.</strong> Go's <code>strings.Builder</code> panics at runtime if you
+          copy it by value; nothing in this recommendation makes Hey do the equivalent yet. The
+          guard suite retires the three affected cases as by-design, but nothing today stops a
+          <code>byte_buffer</code> from being handed to two actors at once. The two riders in
+          &sect;5 are how that gap gets managed until, or unless, the language decides to enforce
+          it.</li>
+        <li><strong>Falsifiable, and already run twice.</strong> The rc table was measured with both
+          lanes agreeing (the interpreter and the LLVM backend). Reproduce it from
+          <code>specs/language/1218_byte_buffer_isolation_is_not_an_rc_problem.hey</code> and its
+          fixture, <code>test/fixtures/compiler/value_semantics_guard_byte_buffer.hey</code>, in the
+          <code>wi5a</code> worktree.</li>
+      </ul>
+    </div>
+
+    <div class="aside">
+      <h3>How to read this article</h3>
+      <p>
+        Every claim below traces to one of two kinds of evidence, tagged inline: <span
+        class="evtag">[MEASURED]</span> for numbers taken directly off the pinned specs and fixtures
+        in this codebase, and precedent tags &mdash; <span class="evtag">[DOCS]</span>, <span
+        class="evtag">[SOURCE]</span>, <span class="evtag">[PAPER]</span> &mdash; for how other
+        languages have handled the identical problem. Nothing here is a guess about what other
+        languages "probably" do; every precedent claim links to the primary source at first use, and
+        again in the Sources list. The workload used for every performance number is the same one
+        throughout: Hey's 1BRC (<a href="https://www.morling.dev/blog/one-billion-row-challenge/">One
+        Billion Row Challenge</a>) product example, whose output builder is pinned at exactly
+        <code>Bytes.buffer(1048576)</code> by spec 936.
+      </p>
+    </div>
+
+    <h2>1. The type that refused to fit</h2>
+    <p>
+      Every value in Hey copies. Pass an array to a function, get a message back from an actor,
+      store a struct in another struct &mdash; nobody downstream can ever observe you mutating what
+      you handed them, because what they hold is, semantically, a brand-new copy. That single
+      guarantee is what makes Hey's in-flight plan to actually <em>stop</em> copying &mdash; sharing
+      values by reference and a reference count instead, tracked as
+      <a class="gloss" href="glossary.html#i5" data-def="The plan to share Hey values by reference-counted reference instead of always copying them; ranked as G1's single biggest remaining lever.">I5</a>
+      &mdash; safe to build at all: if nobody can observe a mutation, sharing the backing memory
+      instead of copying it changes performance, never behavior.
+    </p>
+    <div class="aside term">
+      <h3>Term: <span>byte_buffer</span></h3>
+      <p>
+        <code>byte_buffer</code> is Hey's append-many-times output builder: you allocate one with a
+        starting capacity, append chunks of bytes to it repeatedly, and flatten it once at the end.
+        It exists because building output byte-by-byte through Hey's normal immutable arrays would
+        mean re-copying the whole growing result on every single append &mdash; the exact
+        <a href="#gist-chart">quadratic cost</a> this article measures for option (iv) below.
+      </p>
+    </div>
+    <p>
+      One type was expected to refuse to cooperate with that plan from the day it was designed: a
+      falsifiable guard suite (the project's internal name is 439a) was built specifically to pin
+      value semantics down as a measurable contract rather than a vibe, and its
+      <code>BYTE_BUFFER</code> family of test cases was <strong>expected-red from day one</strong>
+      &mdash; three fixtures, kept deliberately failing, that record exactly how
+      <code>byte_buffer</code> disagrees with everything else in the language.
+    </p>
+
+    <h2>2. The measurement that sharpened it</h2>
+    <p>
+      The fixture that pins the disagreement lives at
+      <code>test/fixtures/compiler/value_semantics_guard_byte_buffer.hey</code>. Its own header
+      states today's runtime behavior plainly: <code>HEY_BYTE_BUFFER</code> is "the one value kind
+      that is already refcount-shared: <code>hey_value_clone</code> bumps <code>refs</code> and hands
+      back the SAME backing... and append/clear mutate that backing in place"
+      <span class="evtag">[MEASURED]</span> (fixture header, lines 6&ndash;13). The fixture demands
+      three specific, contradictory-looking things: a direct append must be visible afterward (length
+      4 after seeding), the identical append performed one function call deeper must be invisible, and
+      a third case appends through an object-literal field. All three are pinned as
+      <strong>expected-red</strong> &mdash; deliberately failing, on record, because nobody had yet
+      ruled on what they should do instead.
+    </p>
+    <p>
+      What sharpens the story from "one annoying type" into "no fix is possible without a ruling" is
+      an instrumented measurement: reading the actual refcount at the moment each append mutates the
+      buffer, on both compiler lanes (the interpreter and LLVM), agreeing
+      <span class="evtag">[MEASURED]</span>.
+    </p>
+    <table>
+      <thead><tr><th>Site</th><th>Required behavior</th><th class="number">Measured rc</th></tr></thead>
+      <tbody>
+        <tr><td>Fixture (A): <code>Bytes.append(buf, 'seed')</code> &mdash; direct call</td><td>MUST write through</td><td class="number"><strong>rc = 3</strong></td></tr>
+        <tr><td>Fixture (B): <code>append_to(buf)</code> &mdash; same append, one frame deeper</td><td>MUST NOT write through</td><td class="number"><strong>rc = 4</strong></td></tr>
+        <tr><td>Spec 926's three appends (all write through)</td><td>MUST write through</td><td class="number"><strong>rc = 3, 3, 5</strong></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Source: <code>specs/language/1218_byte_buffer_isolation_is_not_an_rc_problem.hey:32&ndash;41</code>,
+      corroborated in the <code>wi5a</code> stage-(a) commit message (<code>b6d11584</code>, "the
+      refcount field, maintained everywhere, read by nothing") and
+      <code>docs/agents/in-progress.md:8&ndash;17</code>. <span class="evtag">[MEASURED]</span>
+    </p>
+    <p>
+      Read that table as a single claim: write-through is required at rc&nbsp;3 <em>and</em> rc&nbsp;5,
+      and forbidden at rc&nbsp;4, sitting strictly between them. That is
+      <strong>non-monotonic in refcount</strong> &mdash; there is no threshold predicate, of any
+      shape, that returns true at 3 and 5 and false at 4. Converting receiver-position clones to
+      borrows (a Swift-4.2-style change, worth doing on its own merits) shifts every number in the
+      table down by the same amount and changes nothing about the ordering
+      <span class="evtag">[MEASURED]</span> (spec 1218:32&ndash;41).
+    </p>
+    <div class="aside term">
+      <h3>Term: call depth vs. ownership</h3>
+      <p>
+        <code>Bytes.append</code> is not a compiler builtin bolted onto the runtime; it's an ordinary
+        Hey function, <code>fn append(buffer, value)</code>, whose first parameter <em>is</em> the
+        buffer (<code>stdlib/Bytes.hey:64</code>), delegating to a <code>byte_buffer_append</code>
+        builtin underneath. So fixture case (A) is "append through one parameter binding" and case
+        (B) is "append through two" &mdash; the identical construct, at different call depths, with
+        the buffer reachable at both mutation sites from exactly one program-visible root (the
+        binding <code>buf</code>) plus the live call chain. It was never a question of who
+        <em>owns</em> the buffer at either site &mdash; it's the same owner both times. The count
+        that changes is stack depth, not sharing.
+      </p>
+    </div>
+    <p>
+      That mechanism reframes the whole question. <code>byte_buffer</code> was never a value with an
+      occasional leak. It already <strong>is</strong> an unconditional mutable handle &mdash; the
+      runtime shares its backing memory and writes through it in place, every time, regardless of
+      refcount. The guard suite isn't broken; it's accurately reporting that the language's surface
+      claims something the runtime doesn't do. The only real question left is whether the language
+      admits that on purpose.
+    </p>
+
+    <h2>3. What any fix has to preserve</h2>
+    <p>
+      Three call sites in the codebase are pinned specs, not incidental usage, and every option below
+      is judged against what it costs each of them:
+    </p>
+    <ul>
+      <li><strong>Spec 926</strong> (<code>specs/language/926_byte_buffer_linear_builder.hey</code>)
+        pins the exact stdout <code>"0\n2\n4\ntrue\nabcd\n8\nabcdabcd\n0\n"</code>. Two things in
+        that output are load-bearing: <code>Bytes.append</code> returns the new <strong>length</strong>
+        (an int), not a buffer, and the accumulation happens through the <em>same binding</em> across
+        calls (lines 10&ndash;11) &mdash; write-through, at the direct-call depth, is not incidental,
+        it's the point. Line 14 additionally pins <strong>self-append aliasing</strong>:
+        <code>Bytes.append(output, output)</code> must read the pre-append contents and produce
+        <code>"abcdabcd"</code>.</li>
+      <li><strong>Spec 936</strong> (the compiler's product-lane contract) pins the literal
+        <code>Bytes.buffer(1048576)</code> (1&nbsp;MiB) as the "linear byte-buffer output" inside an
+        otherwise pure, immutable-style example (spec 936:36) &mdash; the accumulate idiom is the
+        deliberate single mutable builder inside a program that is pure everywhere else.</li>
+      <li><strong><code>one_brc.hey</code></strong>'s result-formatting function appends into one
+        buffer binding, 8 times per station (7 for the first), across a stdlib call boundary, inside
+        a loop (lines 143&ndash;168), flattening once at the end
+        (<code>Bytes.decode(Bytes.freeze(output), 'utf-8')</code>).</li>
+      </ul>
+    <p>
+      Any option that can't reproduce all three, unmodified, is not free &mdash; it's a migration.
+    </p>
+
+    <h2>4. Five options, weighed</h2>
+
+    <h3>(i) Reclassify byte_buffer as a mutable handle</h3>
+    <p>
+      Make it official: <code>byte_buffer</code> joins <code>HEY_IO_HANDLE</code> and
+      <code>HEY_ACTOR</code> as a value kind that was never meant to have value semantics in the
+      first place (spec 1218:53&ndash;58). This is the least invasive option in the strict sense that
+      it changes zero runtime behavior &mdash; it just gives a name to what
+      <code>hey_value_clone</code> already does.
+    </p>
+    <p>
+      <strong>Consistency:</strong> Hey's own course material states the doctrine plainly &mdash;
+      "<a href="https://www.jayteesf.com/hey_docs/docs__course__chapter-05.html">Actors: the only
+      home for changing state</a>" is a chapter-five section heading, not a footnote
+      <span class="evtag">[DOCS]</span>. But the runtime already carves a narrow, explicit exception
+      into that rule for IO handles &mdash; sequential resources that are mutated in place because
+      they represent something external, not actor-owned application state. A builder used inside one
+      call chain, never legitimately shared across two actors at once, fits that same narrow
+      exception; it doesn't open a new one.
+    </p>
+    <p>
+      The external precedent is a mutable handle that <strong>refuses value semantics at runtime</strong>.
+      Go's <code>strings.Builder</code> documents "Do not copy a non-zero Builder" and then enforces
+      it: a <code>copyCheck</code> method stores the receiver's address on first use, and if a later
+      method call runs on a copy instead of the original, it panics with
+      <code>"strings: illegal use of non-zero Builder copied by value"</code>
+      <span class="evtag">[SOURCE]</span>. <code>bytes.Buffer</code> is the plainer version &mdash;
+      "a variable-sized buffer of bytes... ready to use," passed by pointer by convention, no apology
+      offered for being a handle <span class="evtag">[DOCS]</span>. Clojure's <strong>transients</strong>
+      are the second precedent: an officially blessed "mutable builder inside a pure function," explicitly
+      non-value, with a usage discipline instead of a type-system proof &mdash; thread isolation, and
+      "you must capture and use the return value in the next call" <span class="evtag">[DOCS]</span>.
+    </p>
+    <p>
+      <strong>Performance:</strong> unchanged from today, by construction &mdash; option (i) doesn't
+      touch the mutation path, it just stops calling it a defect. <strong>Migration cost on the three
+      pinned sites: zero.</strong> All three already pass under today's runtime behavior, because
+      today's runtime behavior <em>is</em> option (i)'s behavior; the fixture header says as much
+      (lines 6&ndash;13). <strong>Guard suite:</strong> the three <code>BYTE_BUFFER</code> cases retire
+      as by-design &mdash; not fixed, not deleted, reclassified, with a one-line doctrine note where
+      spec 1199's expected-red list used to carry them. <strong>Forecloses for I5 (b)/(c): nothing.</strong>
+      <code>byte_buffer</code> holds no <code>HeyValue</code> fields and so can never form a reference
+      cycle (spec 1217, via spec 1218:65&ndash;67) &mdash; it was never a candidate for I5's
+      cycle-free refcount sharing in the first place. The rest of the value-semantics guard (arrays,
+      strings, structs) is untouched.
+    </p>
+
+    <h3>(ii) A call-depth ownership rule</h3>
+    <p>
+      Take the mechanism in &sect;2 literally: write through at call depth 1 (a direct call), copy or
+      isolate at any depth beyond that. It would satisfy the fixture exactly as measured &mdash; case
+      (A) at depth 1 writes through, case (B) at depth 2 doesn't.
+    </p>
+    <p>
+      <strong>Consistency:</strong> the project's own working notes are blunt about this one &mdash;
+      "novel semantics &mdash; orchestrator prior: no" (<code>docs/agents/in-progress.md:14</code>,
+      spec 1218:53&ndash;58). None of the five languages surveyed for this article &mdash; Swift, Go,
+      Clojure, Erlang, Koka/Lean, Rust &mdash; key mutation permission off how many stack frames deep a
+      call happens to sit; every one of them keys it off <em>sharing</em> (a uniqueness check, a
+      refcount, a compile-time borrow). Tested honestly and rejected: it canonizes a calling-convention
+      artifact. Extract <code>append_to</code>'s three lines into the caller as an inline block, or
+      inline the caller into a one-off helper for readability, and the buffer's mutation semantics
+      flip &mdash; forbidden becomes required, or the reverse &mdash; with the actual data flow
+      completely unchanged. A rule where refactoring for readability silently changes what your
+      program does is not a rule a language should adopt on purpose.
+    </p>
+    <p>
+      <strong>Performance:</strong> identical to (i) at depth 1, but it requires new runtime machinery
+      to actually enforce depth-tracking at every mutation site &mdash; work option (i) needs none of.
+      <strong>Migration:</strong> the three pinned sites survive only if their existing call shapes
+      happen to sit at the depths the rule expects, which is true today by coincidence, not by design
+      &mdash; and the rule itself still has to be built and specified precisely enough to say whether
+      the delegation from <code>Bytes.append</code> down to the <code>byte_buffer_append</code>
+      builtin counts as a frame or not (spec 1218:63&ndash;67). <strong>Guard suite:</strong> the three
+      cases would need to become <em>enforced</em>, not merely observed &mdash; new machinery, new
+      failure modes. <strong>Forecloses for I5 (b)/(c):</strong> this is the option's sharpest cost.
+      I5's later stages are exactly where Hey has to design a calling convention for borrowed vs. owned
+      parameters, and the Linux seat's ownership research names the trap by name: Swift's
+      guaranteed-by-default (borrowed) parameters once made its copy-on-write check see refcount&nbsp;2
+      at ordinary mutation sites and forced spurious copies, until Swift&nbsp;4.2 moved most parameters
+      to owned-by-default to stop it. Canonizing call depth as semantically load-bearing now would
+      pre-commit I5's future calling convention to treat a parameter-passing detail as meaningful
+      &mdash; precisely the mistake Swift already paid to unlearn.
+    </p>
+
+    <h3>(iii) Value-returning append (the rebind idiom)</h3>
+    <p>
+      Redesign the surface so <code>byte_buffer</code> behaves like every other Hey value:
+      <code>set buf = Bytes.append(buf, x)</code>, the buffer flowing through the return value on
+      every call, no binding ever aliased.
+    </p>
+    <p>
+      <strong>Consistency:</strong> the purest option on the table &mdash; it doesn't carve out an
+      exception, it makes <code>byte_buffer</code> conform. The precedent is Erlang's
+      <strong>iolists</strong>: Erlang has no mutable builder at all, because output accumulates as
+      cheap nested cons cells (<code>[Acc, Chunk]</code> instead of <code>Acc ++ Chunk</code>), and
+      the efficiency guide explicitly warns off flattening early when the consumer &mdash; a port, or
+      <code>iolist_to_binary/1</code> &mdash; accepts a deep list as-is <span class="evtag">[DOCS]</span>.
+      Build a tree, flatten once at the boundary: genuinely good engineering, and it's the model a
+      pure companion API would follow.
+    </p>
+    <p>
+      <strong>Performance:</strong> unchanged asymptotically &mdash; the rebind idiom, done right, is
+      still one write per append; the cost is entirely in what it breaks. <strong>Migration cost on
+      the three pinned sites: breaks all three.</strong> Spec 926 pins <code>Bytes.append</code>
+      returning a <strong>length</strong>, not a buffer &mdash; the pinned stdout itself
+      (<code>"...2\n4\ntrue\nabcd\n8\n..."</code>) is those lengths printed directly, so this option
+      changes a pinned return type, not an implementation detail. Spec 926's self-append aliasing
+      (line 14) needs a fresh definition once "append" no longer mutates anything in place. And
+      <code>one_brc.hey</code>'s 8-appends-per-station loop, written today as bare statement calls
+      whose return values are bound and discarded, would need to become a chain of rebinds through
+      every one of those calls &mdash; a user-facing migration across the corpus, not a compiler
+      change. <strong>Guard suite:</strong> the three cases become the enforced, intended contract
+      &mdash; but only once the migration lands. <strong>Forecloses for I5 (b)/(c): nothing</strong>
+      &mdash; and it doesn't have to compete with option (i). The right home for it is as a
+      <strong>future pure-companion API</strong>, offered alongside the handle, if I5 stage (c)
+      surfaces real demand for it.
+    </p>
+
+    <h3>(iv) Always-copy (value purity by brute force)</h3>
+    <p>
+      Give <code>byte_buffer</code> no special classification and no special surface: deep-copy its
+      backing on every append, exactly like every other Hey value clones today.
+    </p>
+    <p>
+      <strong>Consistency:</strong> purest by construction, no exception anywhere in the type system.
+      <strong>Performance is where this option dies.</strong> <code>one_brc.hey</code>'s result
+      builder makes <code>A = 8S&minus;1</code> appends into a buffer capped at 1&nbsp;MiB, for
+      <code>S</code> stations. In place, each byte gets written once, so total bytes moved is about
+      the final output size, <code>F</code>. Copying the whole buffer on every append instead moves
+      roughly <code>&Sigma; current-length &asymp; A &times; F / 2</code>:
+    </p>
+    <div id="gist-chart" class="viz-root">
+      <style>
+        #gist-chart{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --gc-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --gc-border:rgba(11,11,11,0.10);
+          --bar-good:#2a78d6; --bar-bad:#d03b3b;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--gc-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #gist-chart{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --gc-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --gc-border:rgba(255,255,255,0.10);
+            --bar-good:#3987e5; --bar-bad:#e8564a;
+          }
+        }
+        :root[data-theme="dark"] #gist-chart{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --gc-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --gc-border:rgba(255,255,255,0.10);
+          --bar-good:#3987e5; --bar-bad:#e8564a;
+        }
+        #gist-chart .gc-head{padding:18px 20px 2px}
+        #gist-chart .gc-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #gist-chart .gc-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #gist-chart .gc-plot{padding:8px 10px 0;overflow-x:auto}
+        #gist-chart svg{display:block;width:100%;min-width:480px;height:auto}
+        #gist-chart .gc-grid{stroke:var(--grid);stroke-width:1}
+        #gist-chart .gc-axis{stroke:var(--axis);stroke-width:1}
+        #gist-chart .gc-tick{fill:var(--gc-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #gist-chart .gc-cat{fill:var(--text-primary);font-size:12.5px;font-weight:600}
+        #gist-chart .gc-cat-sub{fill:var(--gc-muted);font-size:10.5px}
+        #gist-chart .gc-val{fill:var(--text-primary);font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+        #gist-chart .gc-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #gist-chart .gc-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--gc-muted)}
+        #gist-chart rect{cursor:default}
+      </style>
+      <div class="gc-head">
+        <p class="gc-title">The price of purity at the hot site: bytes physically moved building the 1BRC output</p>
+        <p class="gc-sub">S = 10,000 stations (1BRC's spec maximum uniques), log scale &mdash; on a linear axis the always-copy bar would be off the page while the in-place bar vanished into the origin.</p>
+      </div>
+      <div class="gc-plot">
+        <svg id="gc-svg" viewBox="0 0 760 190" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis. Handle, in-place: about 260 kilobytes moved. Always-copy: about 10.4 gigabytes moved, roughly 40,000 times more."></svg>
+      </div>
+      <p class="gc-foot">Direct-labeled bars carry the story; each bar is its own category, so there's no legend. Source: spec 936 / <code>one_brc.hey</code> arithmetic &mdash; A = 8S&minus;1 = 79,999 appends into a &le;1 MiB buffer, F &asymp; 260 KB; always-copy moves &asymp; A &times; F/2 &asymp; 10.4 GB, &asymp;40,000&times; the in-place cost.</p>
+    </div>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'Handle / in-place',  sub:'each byte written once — ≈ the output size',   bytes:260000,      src:'≈260 KB moved, ≈ F'},
+        {label:'Always-copy (M1)',   sub:'whole buffer re-copied on every append',        bytes:10400000000, src:'≈10.4 GB moved, ≈ A × F/2'}
+      ];
+      var W=760,H=190,L=200,R=90,T=26,B=46;
+      var LO=100000,HI=20000000000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      function fmt(v){
+        if(v>=1000000000) return (v/1000000000).toFixed(0)+' GB';
+        if(v>=1000000) return (v/1000000).toFixed(0)+' MB';
+        return (v/1000).toFixed(0)+' KB';
+      }
+      var TICKS=[100000,1000000,10000000,100000000,1000000000,10000000000];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="gc-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="gc-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+fmt(v)+'</text>');
+      });
+      o.push('<text class="gc-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">bytes physically moved — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=26, gapPx=2;
+      var colors=['var(--bar-good)','var(--bar-bad)'];
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.bytes)-L,2);
+        o.push('<text class="gc-cat" x="'+(L-12)+'" y="'+(cy-3).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="gc-cat-sub" x="'+(L-12)+'" y="'+(cy+13).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="'+colors[i]+'"><title>'+r.label+': '+r.src+'</title></rect>');
+        o.push('<text class="gc-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+fmt(r.bytes)+'</text>');
+      });
+      o.push('<line class="gc-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('gc-svg').innerHTML=o.join('');
+    })();
+    </script>
+    <p>
+      At <code>S</code>&nbsp;=&nbsp;10,000, that's <strong>~10.4&nbsp;GB moved to produce a
+      ~260&nbsp;KB result &mdash; about 40,000&times; the in-place cost.</strong> Even the small,
+      canonical 413-station set pays ~1,600&times; (~18&nbsp;MB moved for a ~10.7&nbsp;KB result)
+      <span class="evtag">[MEASURED]</span> (spec 936 / one_brc.hey arithmetic). <strong>Migration:</strong>
+      deep-copy clone breaks pinned case (A) directly, and with it spec 926 and the spec-936-pinned
+      1BRC product lane &mdash; "the accumulate-into-a-buffer idiom is load-bearing and spec-pinned;
+      it is not a corner case" (spec 1218:43&ndash;51). It also converts the builder's O(n) linear
+      cost into O(n&sup2;). <strong>Guard suite / I5:</strong> moot &mdash; the option is dead on
+      arithmetic before it reaches either question, though it's a useful negative result: it's the
+      concrete demonstration of exactly why a refcount system without a mutable-handle escape hatch
+      can't cheaply support a builder workload, which is the argument for option (i) in reverse.
+    </p>
+
+    <h3>(v) Status quo &mdash; leave it undecided</h3>
+    <p>
+      Make no ruling. Keep <code>byte_buffer</code> nominally a value, keep the runtime doing exactly
+      what it does today (refcount-shared, mutated in place), and keep the three guard cases
+      permanently expected-red.
+    </p>
+    <p>
+      <strong>Consistency:</strong> none &mdash; this isn't a design, it's an unresolved contradiction
+      left standing. <strong>Performance:</strong> identical to today, because nothing changes.
+      <strong>Migration: zero, right now</strong> &mdash; which is exactly what makes this option
+      look cheaper than it is. The rc table in &sect;2 is the argument that it's worse than it sounds:
+      whether an append writes through depends on how many stack frames deep the call happens to sit,
+      which means correctness depends on an implementation detail &mdash; call depth &mdash; that no
+      programmer has any reason to track and no compiler warning surfaces. Refactor a call site,
+      extract or inline a helper for ordinary readability reasons, and behavior silently flips between
+      "mutates my buffer" and "silently doesn't." That is the textbook definition of a trap.
+      <strong>Guard suite:</strong> the three <code>BYTE_BUFFER</code> cases stay expected-red
+      forever, by policy rather than by finding &mdash; a permanently red light nobody expects to turn
+      green stops functioning as a signal at all. <strong>Forecloses for I5 (b)/(c):</strong> every
+      future refcount decision has to keep carving around one deliberately undecided type, with no
+      resolved example to build the next stage's calling-convention design against.
+    </p>
+
+    <h2>5. The recommendation</h2>
+    <div class="verdict">
+      <p class="rec-tag">Recommendation, not a ruling &mdash; the decision is the maintainer's</p>
+      <p>
+        <strong>Option (i): reclassify <code>byte_buffer</code> as a mutable handle</strong>, high
+        confidence. It costs nothing the runtime doesn't already pay, breaks none of the three pinned
+        specs, and matches two independent external precedents (Go's handle types, Clojure's
+        transients) plus Hey's own existing carve-out for IO handles. Two riders come with it:
+      </p>
+      <ol>
+        <li><strong>Adopt a transients-style usage discipline in the docs</strong>: a
+          <code>byte_buffer</code> has a single logical owner at a time, the same spirit as Clojure's
+          rule that "it is an error if more than one thread manipulates a transient at once"
+          <span class="evtag">[DOCS]</span>. It's a documented convention today, not a
+          compiler-checked one &mdash; the disclosed weakness from the TL;DR.</li>
+        <li><strong>Leave option (iii) open</strong> as a future pure-companion API &mdash; an
+          Erlang-iolist-style tree builder &mdash; if I5 stage (c) surfaces real demand for a
+          value-returning surface alongside the handle, rather than instead of it.</li>
+      </ol>
+    </div>
+    <p>
+      The reasoning that rules out trying to patch the refcount predicate instead (option (ii), or
+      any future variant of it) comes from Swift, and it's worth stating precisely because it's the
+      same lesson I5's later stages will need directly. Swift's own
+      <a href="https://github.com/apple/swift-nio/blob/main/Sources/NIOCore/ByteBuffer-core.swift">NIOCore
+      <code>ByteBuffer</code></a> avoids the rc==2 copy-on-write trap <em>structurally</em>, not by
+      refcount arithmetic: its mutating methods take <code>self</code> as <code>inout</code>
+      (exclusive access), so the caller's binding is never counted as a second reference at the
+      mutation site, and the uniqueness check that decides copy-vs-in-place
+      (<code>isKnownUniquelyReferenced</code>) runs against the backing class under that exclusive
+      borrow, not against the value's own binding count <span class="evtag">[SOURCE]</span>. Swift
+      learned this the hard way at the language level: guaranteed-by-default (borrowed) parameters
+      once made copy-on-write checks see refcount&nbsp;2 at ordinary mutation sites and forced
+      spurious copies, until Swift&nbsp;4.2 moved most parameters to owned-by-default specifically to
+      stop it (Linux seat's ownership research notes, <code>research-rc-ownership.md:43&ndash;47</code>).
+      Under Hey's current calling convention &mdash; where <code>Bytes.append</code>'s "ownership" of
+      its buffer parameter is indistinguishable, at the refcount level, from an accidental extra
+      reference &mdash; that class of rc-predicate fix cannot be rescued cheaply. Option (i)
+      sidesteps the whole predicate design space instead of trying to patch it.
+    </p>
+    <details class="deep">
+      <summary>Deeper: why not fix the predicate with a Perceus-style reuse check instead?</summary>
+      <p>
+        Koka's Perceus (Reinking, Xie, de Moura, Leijen; PLDI 2021) and Lean's runtime both do
+        get in-place mutation out of a refcount check &mdash; but by checking for
+        <strong>runtime rc==1 at the actual mutation site</strong> (a drop-then-reuse token: the
+        paired constructor writes in place only if nothing else references the value, else it
+        allocates), not by inferring "am I the direct caller or a nested one" from call depth
+        <span class="evtag">[PAPER]</span>. That's a genuinely different design axis from options (ii)
+        or (v): it would require I5 to already have precise, per-mutation-site refcount checks with
+        borrowed parameters that don't inflate the count &mdash; exactly the calling-convention
+        machinery Swift's lesson says has to be built carefully, not exactly the "count stack frames"
+        shortcut option (ii) proposes. It's a real future direction for I5 stage (b)/(c) in general;
+        it is not a fix for <code>byte_buffer</code>'s specific non-monotonic contract measured in
+        &sect;2, because that contract was never actually about sharing in the first place.
+      </p>
+    </details>
+
+    <h2>6. What the guard suite becomes</h2>
+    <p>
+      Under option (i), the <code>BYTE_BUFFER</code> family in the value-semantics guard suite flips
+      from <strong>expected-red</strong> to <strong>retired-by-design</strong>: the same three cases
+      stay in the fixture file as a record of the reasoning, with a one-line doctrine note in place of
+      the open question &mdash; <code>byte_buffer</code> is <code>HEY_BYTE_BUFFER</code>, a mutable
+      handle kind, company of <code>HEY_IO_HANDLE</code> and <code>HEY_ACTOR</code>, and these three
+      cases are retired, not pending. Nothing else in the guard suite moves. The rest of it &mdash;
+      arrays, strings, structs, every ordinary value kind &mdash; stays exactly as load-bearing for
+      I5's later stages as it was before this question was ever raised.
+    </p>
+
+    <h2>Comparison at a glance</h2>
+    <table>
+      <thead><tr><th>Option</th><th>Consistency</th><th>Speed</th><th>Migration</th><th>Guard suite</th><th>I5 (b)/(c)</th></tr></thead>
+      <tbody>
+        <tr><td>(i) Mutable handle</td><td>Precedented exception</td><td>Unchanged</td><td>None</td><td>Retires by design</td><td>Untouched</td></tr>
+        <tr><td>(ii) Call-depth rule</td><td>Unprecedented</td><td>Unchanged at depth 1</td><td>New runtime machinery</td><td>Needs new enforcement</td><td>Pre-commits the Swift trap</td></tr>
+        <tr><td>(iii) Value-returning append</td><td>Pure, consistent</td><td>Unchanged asymptotically</td><td>Breaks all 3 pinned sites</td><td>Becomes intended contract</td><td>Neutral; future companion</td></tr>
+        <tr><td>(iv) Always-copy</td><td>Purest</td><td>~40,000&times; worse (S=10,000)</td><td>Breaks pinned specs</td><td>Moot &mdash; dead on arithmetic</td><td>Moot</td></tr>
+        <tr><td>(v) Status quo</td><td>Undecided contradiction</td><td>Unchanged</td><td>None (today)</td><td>Permanent expected-red</td><td>Blocks future design</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>byte_buffer</dt><dd>Hey's append-many-times output builder; allocate once, append repeatedly, flatten once.</dd>
+      <dt>value semantics</dt><dd>Every Hey value copies on handoff; nobody downstream can ever observe a mutation you make to what you passed them.</dd>
+      <dt>refcount (rc)</dt><dd>A count of how many live references point at the same backing memory; the basis for deciding whether a mutation can happen in place.</dd>
+      <dt>write-through</dt><dd>A mutation to shared backing memory that is visible through every binding pointing at it, not just the one that made the change.</dd>
+      <dt>call depth</dt><dd>How many nested function calls separate a mutation site from the original binding that holds the value.</dd>
+      <dt>copy-on-write (COW)</dt><dd>Share a backing store until the moment of mutation, then copy first if anything else still references it.</dd>
+      <dt>transient (Clojure)</dt><dd>A scoped, explicitly mutable builder over an otherwise-persistent data structure, used only inside the function that produced it.</dd>
+      <dt>iolist</dt><dd>Erlang's alternative to a mutable builder: nested lists and binaries consed cheaply, flattened once at the output boundary.</dd>
+      <dt>I5</dt><dd><a class="gloss" href="glossary.html#i5" data-def="The plan to share Hey values by reference-counted reference instead of always copying them; ranked as G1's single biggest remaining lever.">See the shared glossary.</a></dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://github.com/apple/swift-nio/blob/main/Sources/NIOCore/ByteBuffer-core.swift">Swift NIO <code>ByteBuffer-core.swift</code></a> [SOURCE] &mdash; COW via <code>isKnownUniquelyReferenced</code>, exclusive-borrow mutation</li>
+      <li><a href="https://clojure.org/reference/transients">Clojure Reference: Transients</a> [DOCS] &mdash; scoped mutability, thread isolation, return-value discipline</li>
+      <li><a href="https://dl.acm.org/doi/10.1145/3453483.3454032">Reinking, Xie, de Moura, Leijen, "Perceus: Garbage Free Reference Counting with Reuse," PLDI 2021</a> [PAPER]</li>
+      <li><a href="https://koka-lang.github.io/koka/doc/book.html">The Koka Book</a> [DOCS] &mdash; FBIP, <code>fip</code>/<code>fbip</code></li>
+      <li><a href="https://arxiv.org/abs/1908.05647">Ullrich &amp; de Moura, "Counting Immutable Beans," IFL 2019</a> [PAPER] &mdash; Lean's rc==1 in-place update</li>
+      <li><a href="https://www.erlang.org/doc/efficiency_guide/listhandling">Erlang Efficiency Guide: List Handling</a> [DOCS] &mdash; iolists / deep lists</li>
+      <li><a href="https://doc.rust-lang.org/std/string/struct.String.html">Rust <code>std::string::String</code></a> [DOCS] &mdash; ownership/borrow-checked mutable builder, no refcounts</li>
+      <li><a href="https://pkg.go.dev/bytes#Buffer">Go <code>bytes.Buffer</code></a> [DOCS]</li>
+      <li><a href="https://pkg.go.dev/strings#Builder">Go <code>strings.Builder</code></a> [DOCS] &mdash; "Do not copy a non-zero Builder"</li>
+      <li><a href="https://go.dev/src/strings/builder.go">Go <code>strings/builder.go</code></a> [SOURCE] &mdash; the <code>copyCheck</code> panic</li>
+      <li><a href="https://www.jayteesf.com/hey_docs/docs__course__chapter-05.html">Hey course, Chapter 5: The Concurrency Model</a> [DOCS] &mdash; "Actors: the only home for changing state"</li>
+      <li>Local receipt: <code>specs/language/1218_byte_buffer_isolation_is_not_an_rc_problem.hey:26-41,43-51,53-58,63-67,80-82</code> [MEASURED]</li>
+      <li>Local receipt: <code>test/fixtures/compiler/value_semantics_guard_byte_buffer.hey:6-13,56-78</code> [MEASURED]</li>
+      <li>Local receipt: <code>specs/language/926_byte_buffer_linear_builder.hey:8-16</code> [MEASURED]</li>
+      <li>Local receipt: <code>specs/compiler/936_1brc_product_lane_contract.hey:36</code> [MEASURED]</li>
+      <li>Local receipt: <code>examples/lib/one_brc.hey:143-168</code> [MEASURED]</li>
+      <li>Local receipt: <code>stdlib/Bytes.hey:64</code> [MEASURED]</li>
+      <li>Local receipt: <code>docs/agents/in-progress.md:8-17</code> [MEASURED]</li>
+      <li>Local receipt: commit <code>b6d11584</code>, "I5 stage (a): the refcount field, maintained everywhere, read by nothing" [MEASURED]</li>
+      <li>Local receipt: <code>agents/linux/notes/research-rc-ownership.md:13-47</code> (Linux seat, 2026-07-27) [MEASURED]</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Evidence gathered 2026-07-27 from the <code>wi5a</code> worktree of the Hey compiler's tree and
+      the Linux seat's ownership research notes. The rc table was measured on both compiler lanes
+      (interpreter and LLVM) agreeing. This article analyzes options; it does not rule. The decision
+      is the maintainer's.
+    </p>
+  </footer>
+  <script>
+  (function(){
+    var pop=null, current=null;
+    function closePop(){
+      if(pop){ pop.remove(); pop=null; current=null;
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('click', onDocClick, true); }
+    }
+    function onKey(e){ if(e.key==='Escape') closePop(); }
+    function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
+    function openPop(a){
+      if(current===a){ closePop(); return; }
+      closePop(); current=a;
+      pop=document.createElement('div');
+      pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
+      var def=document.createElement('p');
+      def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
+      var link=document.createElement('a');
+      link.href=a.getAttribute('href'); link.className='gloss-pop-link';
+      link.textContent='Full entry →';
+      pop.appendChild(def); pop.appendChild(link);
+      document.body.appendChild(pop);
+      var r=a.getBoundingClientRect();
+      var top=window.scrollY + r.bottom + 6;
+      var left=window.scrollX + r.left;
+      var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      pop.style.top=top+'px';
+      pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('click', onDocClick, true);
+    }
+    document.querySelectorAll('a.gloss').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
+      a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
+    });
+  })();
+  </script>
+</body>
+</html>
