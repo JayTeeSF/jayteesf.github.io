@@ -343,3 +343,24 @@ receipt). Rationale + future-proofing: the project will renumber
 from 0.0.1b at the open beta — keeping display short and the full
 form in one attribute makes that a mechanical retitle, not a prose
 rewrite.
+
+### Campaign articles are RESULTS SHELLS (maintainer, 2026-07-27)
+Trigger: the first billion-row-bet draft was dense, cryptic, and
+multi-goal. Rules for campaign/bet articles:
+- ONE goal per article, stated plainly (this one: getting FAST).
+  Everything not serving it gets cut or linked.
+- Plain English first; numbers earn their place (a handful that
+  carry the story, not an evidence dump — the log holds the rest).
+- STRUCTURE AS A SHELL FOR FUTURE DATA: the top chart shows the
+  bet (targets), the starting line, and clearly-labeled PENDING
+  slots that fill in as measured results land (never invented
+  data; the faster-than-go [CERT]-table pattern). Story beats:
+  (1) what we're betting — sun-shot framing, landing-spot
+  tolerance stated ("aim 1s, landing near 10s still wins the
+  argument"); (2) a brief aside on the challenge itself; (3) why
+  we think we can make it; (4) what we actually did — dated
+  entries appended as achieved.
+- Write knowing results KEEP IMPROVING after publication (web RPS
+  kept climbing long after 500->100K was written): the results
+  section is an open ledger with dated rows, not a one-time
+  verdict.
