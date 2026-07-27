@@ -224,3 +224,48 @@ Filenames starting with DRAFT- are excluded from the index by both
 generators (drafts live in articles/ untagged-for-index until their
 fact-check clears). New buckets require: maintainer approval, both
 generator lanes updated identically, parity re-verified.
+
+## Verdict clarity + accessible writing (maintainer, 2026-07-27)
+
+Trigger incident: the maintainer — the best-informed possible reader —
+read "The JIT Was Never the Problem" and came away with the INVERTED
+conclusion (JIT too costly to bother) when the article's finding was
+the opposite (JIT nearly free; the plan is on). Rules:
+
+1. VERDICT FIRST, STATED, NEVER IMPLIED. The TL;DR's FIRST bullet
+   states the bottom-line conclusion in decision language ("X is
+   worth building because...", "we are NOT doing Y because...").
+   If the article informs a go/no-go, say which one it is. A clever
+   title may gesture; the verdict bullet may not.
+2. THE SKIM TEST (mandatory editor-pass item). Read ONLY the title,
+   headings, and bolded phrases. If that skim can produce a wrong or
+   inverted conclusion, restructure — headings and bold must carry
+   the true story on their own, because that is all most readers
+   read. (Today's failure: title + "unshipped plan" banner skimmed
+   as "JIT rejected".)
+3. AMBIGUITY IS A DEFECT, not a style choice. Negation-based titles
+   ("X was never the problem") REQUIRE an explicit early
+   counter-statement of what IS true.
+
+### Kathy Sierra style (maintainer-directed model for accessibility)
+
+Model the writing on Kathy Sierra's approach (Head First series,
+Creating Passionate Users, "Badass: Making Users Awesome"):
+- READER-FIRST: the article exists to make the READER capable, not
+  to showcase the work. Every section answers "what can the reader
+  now understand or do?" — "what can you help your users kick ass
+  at" is the framing question.
+- Get readers past the "Suck Threshold" FAST: an early, concrete win
+  (the one-sentence takeaway, a runnable example, the verdict) before
+  any deep machinery. Nobody is passionate about feeling stupid.
+- BRAIN-FRIENDLY CHUNKS: one idea per section; concrete example
+  before abstraction; narrative and visual anchors (our inline
+  charts/term-boxes serve this) over walls of prose.
+- Conversational and direct ("you"), zero academic hedging-fog —
+  hedge PRECISELY (state exactly what is uncertain) rather than
+  diffusely.
+- Curiosity gaps are good; unresolved ambiguity is not. Open a
+  question early, ANSWER it on the page.
+Editor pass adds two line items: (a) skim test (above), (b) "reader
+capability" check — name what a reader can do after each major
+section; if nothing, the section is for the author, cut or recast.
