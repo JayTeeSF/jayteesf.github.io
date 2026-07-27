@@ -295,3 +295,40 @@ section; if nothing, the section is for the author, cut or recast.
   web half persisted). The editor pass re-checks every DID/DOING
   claim against the latest bus/gate state before publishing; the
   daily states current truth, not end-of-day truth.
+
+## Visual + accessibility rules (maintainer, 2026-07-27)
+
+1. **Every article must carry at least one chart/graphic capturing
+   its gist.** This is the skim-reader's entry point — someone who
+   never reads past the TL;DR should still walk away with the shape
+   of the finding from a single figure. Reference pages (glossary.html,
+   index.html) are exempt; every narrative article is not. The figure
+   must be self-contained (inline SVG, static rgba/hex colors per the
+   CSS compatibility rule above, light-pinned base + dark overrides),
+   carry a title, a subtitle, and a figcaption/foot line stating data
+   provenance (dated log entry or article it was measured for), and
+   stay readable at mobile width (wide content scrolls in its own
+   overflow-x:auto container; it never forces the page to scroll
+   sideways).
+2. **First use of µs is written "µs (microseconds)."** Extend the
+   same courtesy to any unit a general reader may not immediately
+   parse on first use in a given article — the expansion goes exactly
+   once, at the first textual occurrence in the body (not in meta
+   tags, not in an SVG's accessible name/title), and never again
+   after that.
+3. **Glossary references use the popover pattern.** An inline link to
+   a `glossary.html#anchor` term in body prose is marked up as
+   `<a class="gloss" href="glossary.html#anchor" data-def="...">term</a>`,
+   where `data-def` is a compressed 1-2 sentence version of the
+   glossary's own entry. A small shared script (added once per
+   article) intercepts the click/Enter, shows a dismissible popover
+   near the term with the definition and a "Full entry →" link to the
+   real anchor, and closes on Escape or an outside click; the popover
+   is styled from the article's own `--panel`/`--border` variables (or
+   an equivalently theme-aware static palette) so it reads in both
+   light and dark. The href is never removed or hijacked to a
+   javascript: no-op — with JavaScript disabled the link degrades to
+   an ordinary navigation to `glossary.html#anchor`. The existing
+   `.aside.term` callout boxes (and their own internal "Full entry →"
+   links) are NOT converted — they are already inline definitions, not
+   references, and stay as-is.

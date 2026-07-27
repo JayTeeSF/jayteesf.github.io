@@ -69,6 +69,25 @@
       padding: 0.05rem 0.4rem; margin-left: 0.4rem; vertical-align: 0.15em;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
+
+    /* glossary-term popover: static colors only, --border for the frame, an opaque
+       light-pinned surface + dark override (same recipe as the chart figures) so text
+       underneath never bleeds through. */
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
   </style>
 </head>
 <body>
@@ -93,14 +112,15 @@
           worker went from ~490 req/s to <strong>123,000&ndash;125,000+ req/s</strong> in
           nine days, and the matched comparison &mdash; both servers building the identical
           364-byte JSON document, one core each &mdash; is certified faster than Go with 95%
-          confidence on macOS (paired ratio 1.0218) <em>and</em> Linux (1.0087). Full protocol
-          and the certified table live in <a href="faster-than-go.html">Faster Than Go?</a>;
-          this article does not repeat that table, only the story that got there.
+          confidence on macOS (paired ratio 1.0218) <em>and</em> Linux (1.0087). This
+          article's own chart, right below, plots the whole climb; the certification
+          protocol and the full certified table live in
+          <a href="faster-than-go.html">Faster Than Go?</a> and are not re-printed here.
         </li>
         <li>
           <strong>Two early fixes did most of the first climb.</strong> Keep-alive
           (v0.99.396a) took war-room's <code>/health</code> route from 5,977 to
-          <strong>12,274 req/s</strong>, p50 2.6&nbsp;ms &rarr; <strong>79&nbsp;&micro;s</strong>.
+          <strong>12,274 req/s</strong>, p50 2.6&nbsp;ms &rarr; <strong>79&nbsp;&micro;s (microseconds)</strong>.
           A persistent interpreter sidecar (v0.99.402a) then cut the ~4,479&nbsp;&micro;s
           delegation tax on every standard-library call to <strong>56&nbsp;&micro;s</strong>.
         </li>
@@ -168,10 +188,13 @@
         #fig-journey-mini .fj-val{fill:var(--text-primary);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
         #fig-journey-mini .fj-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
         #fig-journey-mini .fj-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fj-muted)}
+        #fig-journey-mini .fj-divider{margin:14px 20px 0;padding-top:14px;border-top:1px dashed var(--grid)}
+        #fig-journey-mini .fj-panel-title{margin:0 0 2px;font-size:.85rem;font-weight:650;color:var(--text-primary)}
+        #fig-journey-mini .fj-panel-sub{margin:2px 0 0;font-size:.78rem;color:var(--fj-muted)}
         #fig-journey-mini rect{cursor:default}
       </style>
       <div class="fj-head">
-        <p class="fj-title">The whole arc, one payload, logarithmic axis</p>
+        <p class="fj-title">The whole arc: throughput up ~250&times;, memory retained per request down 53&times;</p>
         <p class="fj-sub">Requests/second on war-room's <code>/health</code> route (or the
           matched-row equivalent), one worker unless noted. <strong>The axis is
           logarithmic</strong> &mdash; the 500 &rarr; 123,000 climb spans two and a half
@@ -182,6 +205,16 @@
              aria-label="Horizontal bar chart, logarithmic axis from about 400 to 200,000 requests per second, seven bars: interpreted era 490; pre-keep-alive 5,977; keep-alive lands 12,274; sidecar era 28,270; worker-ladder revival 87,732; accept-model fix 125,819, annotated 109 percent of Go; today 123,322."></svg>
       </div>
       <p class="fj-foot" id="fjm-foot"></p>
+      <div class="fj-divider">
+        <p class="fj-panel-title">Companion: bytes retained per request, same route &amp; instrument</p>
+        <p class="fj-panel-sub">Logarithmic axis. A 53&times; reduction, measured by the same
+          kill-pressure slope instrument at two points in the campaign.</p>
+      </div>
+      <div class="fj-plot" style="padding-top:2px">
+        <svg id="fjm-mem-svg" viewBox="0 0 760 150" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis, two bars: version 0.99.418a, 76,420 bytes retained per request; version 0.99.435a, 1,445 bytes retained per request — a 53x reduction."></svg>
+      </div>
+      <p class="fj-foot" id="fjm-mem-foot"></p>
     </figure>
     <script>
     (function(){
@@ -218,6 +251,35 @@
         'The last two bars sit in the same ~123–126K band on the same box the same week — '+
         'that is normal run-to-run spread after the accept-model fix landed, not a regression. '+
         'Every value: oha-class load, keep-alive on, output and success-rate asserted before timing.';
+    })();
+    (function(){
+      var ROWS=[
+        {label:'v0.99.418a', sub:'Darwin reference cell', val:76420, src:'kill_pressure slope, 418a Darwin reference: 76,420 B/req.'},
+        {label:'v0.99.435a', sub:'trunk, self-log',        val:1445,  src:'kill_pressure slope, self-log, 90,000/90,000 200s: 1,445 B/req — 53x improved.'}
+      ];
+      var W=760,H=150,L=195,R=90,T=14,B=40;
+      var LO=1000,HI=100000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      var TICKS=[1000,3000,10000,30000,100000];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="fj-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="fj-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v.toLocaleString()+'</text>');
+      });
+      o.push('<text class="fj-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">bytes retained / request — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=26, gapPx=6;
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.val)-L,2), hi=(i===ROWS.length-1);
+        o.push('<text class="fj-cat" x="'+(L-10)+'" y="'+(cy-2).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="fj-cat-sub" x="'+(L-10)+'" y="'+(cy+11).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="var(--bar'+(hi?'-hi':'')+')"><title>'+r.label+' ('+r.sub+'): '+r.val.toLocaleString()+' B/req — '+r.src+'</title></rect>');
+        o.push('<text class="fj-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+r.val.toLocaleString()+' B</text>');
+      });
+      o.push('<line class="fj-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('fjm-mem-svg').innerHTML=o.join('');
+      document.getElementById('fjm-mem-foot').textContent=
+        'Same war-room /health route, same kill-pressure-slope instrument, two points in the same '+
+        'campaign — not a different metric swapped in partway through. Source: docs/PERFORMANCE-FINDINGS.md.';
     })();
     </script>
 
@@ -387,12 +449,49 @@
       in <a href="faster-than-go.html">Faster Than Go? Certified on Linux and Darwin</a>. This
       article replaces the earlier "From 500 to
       60,000 Requests per Second", which carries the full nine-day retraction history for
-      readers who want it at length. Every <a href="glossary.html#slice">slice</a> in this arc
-      shipped small, gated, and one at a time; each cleared its <a href="glossary.html#train">landing</a>
-      gates before the next began. The throughline is this project's <a href="glossary.html#g1">G1
+      readers who want it at length. Every <a class="gloss" href="glossary.html#slice" data-def="The project's unit of work: one focused change, built and tested in its own worktree, small enough to land and gate in a single sitting.">slice</a> in this arc
+      shipped small, gated, and one at a time; each cleared its <a class="gloss" href="glossary.html#train" data-def="A slice becomes a landing when it merges to mainline after every gate passes; landings queue and merge one after another in strict order (the train).">landing</a>
+      gates before the next began. The throughline is this project's <a class="gloss" href="glossary.html#g1" data-def="The project's speed goal: get Hey's web throughput within 3% of Go's, per CPU core, under matched conditions -- now beaten, not just met, on two operating systems.">G1
       goal</a> &mdash; match Go's per-core throughput &mdash; which this arc does not just meet,
       but beats, on two operating systems.
     </p>
   </footer>
+  <script>
+  (function(){
+    var pop=null, current=null;
+    function closePop(){
+      if(pop){ pop.remove(); pop=null; current=null;
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('click', onDocClick, true); }
+    }
+    function onKey(e){ if(e.key==='Escape') closePop(); }
+    function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
+    function openPop(a){
+      if(current===a){ closePop(); return; }
+      closePop(); current=a;
+      pop=document.createElement('div');
+      pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
+      var def=document.createElement('p');
+      def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
+      var link=document.createElement('a');
+      link.href=a.getAttribute('href'); link.className='gloss-pop-link';
+      link.textContent='Full entry →';
+      pop.appendChild(def); pop.appendChild(link);
+      document.body.appendChild(pop);
+      var r=a.getBoundingClientRect();
+      var top=window.scrollY + r.bottom + 6;
+      var left=window.scrollX + r.left;
+      var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      pop.style.top=top+'px';
+      pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('click', onDocClick, true);
+    }
+    document.querySelectorAll('a.gloss').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
+      a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
+    });
+  })();
+  </script>
 </body>
 </html>
