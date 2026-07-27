@@ -364,3 +364,30 @@ multi-goal. Rules for campaign/bet articles:
   kept climbing long after 500->100K was written): the results
   section is an open ledger with dated rows, not a one-time
   verdict.
+
+### Editor's gleaned insights (bench, 2026-07-27 — from the dense-draft failure)
+1. ARTICLES INHERIT THE SHAPE OF THEIR INPUTS unless forced not to.
+   The dense drafts were assembled from taskings + evidence files +
+   briefs, and read like four documents flattened into one. The
+   articles that worked (500->100K, actor-cheap) were written from
+   ONE story sentence. Rule: every writer brief leads with a single
+   story sentence; source documents are raw material, never outline.
+2. RECENCY IS NOT IMPORTANCE. The just-discovered correction cycle
+   got headline space because it was fresh — readers want the
+   destination, not our epistemology journey at full resolution.
+   The dated log holds the journey. Rule: the newer a fact, the
+   harder it must argue for article space.
+3. WRITE FOR THE READER TWO YEARS OUT. A "today we are X" snapshot
+   decays the week results improve; the bet, the reasons, and dated
+   ledger rows age gracefully. Campaign articles freeze NOTHING in
+   the present tense except the bet itself.
+4. DENSITY IS A COMPRESSION FAILURE, not a length property. The
+   brief was dense because every sentence carried maximum load with
+   zero redundancy — brains need one idea per chunk with air.
+   Editor test: each paragraph makes ONE point the reader could
+   repeat after a single read (the one-breath test).
+5. ONE AUDIENCE PER DOCUMENT. A maintainer decision brief and a
+   public article have different jobs; serving both in one page
+   serves neither. When work informs a ruling, the site gets the
+   STORY of the decision; the full option matrix lives in the log
+   or a collapsed appendix.
