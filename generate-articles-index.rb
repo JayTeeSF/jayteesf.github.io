@@ -178,7 +178,7 @@ class ArticlesIndex
       "</head>",
       "<body>",
       "<main>",
-      '  <a class="home" href="../index.html">&larr; jayteesf.github.io</a>',
+      '  <a class="home" href="../index.html">&larr; www.jayteesf.com</a>',
       "  <h1>Articles</h1>",
       '  <p class="sub">Field notes from building and measuring the Hey programming',
       "  language — a benchmark campaign with receipts, and the research that",

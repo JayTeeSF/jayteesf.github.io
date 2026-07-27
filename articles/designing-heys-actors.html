@@ -6,7 +6,7 @@
   <meta name="description" content="How Hey turned actor-runtime research into five concrete design decisions, what each decision improves, and what risks remain.">
   <meta name="article-date" content="2026-07-26">
   <meta name="article-series" content="research">
-  <meta name="article-desc" content="Hey's actor runtime currently uses about 403 bytes per idle actor. This follow-up explains the five research-backed decisions intended to reduce that cost, remove scheduler bottlenecks, and make immutable messages cheap to share.">
+  <meta name="article-desc" content="Hey's actor runtime dropped from 403 to 258 bytes per idle actor the same day the struct-diet slice landed. This follow-up explains the five research-backed decisions behind that cut, the scheduler bottlenecks still being removed, and the plan to make immutable messages cheap to share.">
   <title>Designing Hey's Actors</title>
 <style>
     :root {
@@ -79,7 +79,7 @@
       Hey's actor runtime is being redesigned around a simple goal: support millions of actors on a
       small, fixed set of operating-system threads. The design is not based on intuition alone. It
       follows the research summarized in
-      <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor
+      <a href="https://www.jayteesf.com/articles/what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor
       Cheap?&rdquo;</a>, then turns that research into five concrete engineering decisions. This article
       explains those decisions, the evidence behind them, the benefits they should provide, and the
       costs or risks that remain.
@@ -91,10 +91,13 @@
       <h2>TL;DR</h2>
       <ul>
         <li>
-          <strong>Hey currently uses about 403 bytes for each idle actor.</strong> A planned cleanup of
-          the actor structure targets about <strong>303 bytes</strong>. That would put Hey below Go's
-          2,048-byte initial goroutine stack and BEAM's roughly 2,616-byte process, but still above
-          Pony's roughly 240-byte actor and Tokio's 64-byte task.
+          <strong>Hey now uses about 258 bytes for each idle actor, down from 403 bytes that same
+          morning.</strong> The struct-diet slice landed the same day it was cut, beating its own
+          ~303-byte target. That puts the measured footprint below Go's 2,048-byte initial goroutine
+          stack and BEAM's roughly 2,616-byte process, and essentially at Pony's roughly 240-byte actor
+          &mdash; and the bare <code>sizeof(HeyActor)</code> struct, 192 bytes, is already below Pony's
+          figure, though the two numbers measure different things: struct size versus full measured
+          footprint. Tokio's 64-byte task is still about 4x smaller.
         </li>
         <li>
           <strong>The main way to make an actor cheap is to remove its private call stack.</strong>
@@ -133,7 +136,7 @@
           --surface-1:#fcfcfb;
           --text-primary:#0b0b0b; --text-secondary:#52514e; --ff-muted:#898781;
           --grid:#e1e0d9; --axis:#c3c2b7; --ff-border:rgba(11,11,11,0.10);
-          --bar-highlight:#2a78d6; --target:#2a78d6;
+          --bar-highlight:#2a78d6;
           margin:1.75rem 0 2rem; padding:0; max-width:100%;
           background:var(--surface-1); border:1px solid var(--ff-border);
           border-radius:0.7rem; overflow:hidden; line-height:1.5;
@@ -143,14 +146,14 @@
             color-scheme:dark; --surface-1:#1a1a19;
             --text-primary:#fff; --text-secondary:#c3c2b7; --ff-muted:#898781;
             --grid:#2c2c2a; --axis:#383835; --ff-border:rgba(255,255,255,0.10);
-            --bar-highlight:#3987e5; --target:#3987e5;
+            --bar-highlight:#3987e5;
           }
         }
         :root[data-theme="dark"] #fig-floor2{
           color-scheme:dark; --surface-1:#1a1a19;
           --text-primary:#fff; --text-secondary:#c3c2b7; --ff-muted:#898781;
           --grid:#2c2c2a; --axis:#383835; --ff-border:rgba(255,255,255,0.10);
-          --bar-highlight:#3987e5; --target:#3987e5;
+          --bar-highlight:#3987e5;
         }
         #fig-floor2 .ff-head{padding:18px 20px 2px}
         #fig-floor2 .ff-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
@@ -158,7 +161,6 @@
         #fig-floor2 .ff-legend{display:flex;flex-wrap:wrap;gap:14px;padding:12px 20px 0;font-size:.8rem;color:var(--text-secondary)}
         #fig-floor2 .ff-key{display:inline-flex;align-items:center;gap:7px}
         #fig-floor2 .ff-sw{width:14px;height:10px;border-radius:3px;flex:none}
-        #fig-floor2 .ff-sw.dash{background:none;border:1.5px dashed var(--target);border-radius:3px}
         #fig-floor2 .ff-plot{padding:8px 10px 0;overflow-x:auto}
         #fig-floor2 svg{display:block;width:100%;min-width:520px;height:auto}
         #fig-floor2 .ff-grid{stroke:var(--grid);stroke-width:1}
@@ -180,26 +182,28 @@
 </div>
 <div class="ff-legend">
 <span class="ff-key"><span class="ff-sw" style="background:var(--text-secondary);opacity:.55"></span>other runtimes</span>
-<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight)"></span><strong>Hey, today (measured)</strong></span>
-<span class="ff-key"><span class="ff-sw dash"></span><strong>Hey, diet target (planned)</strong></span>
+<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight)"></span><strong>Hey, now (measured)</strong></span>
+<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight);opacity:.35"></span><strong>Hey, one day earlier (measured)</strong></span>
 </div>
 <div class="ff-plot">
-<svg aria-label="Horizontal bar chart, logarithmic axis, of per-actor memory in bytes. Tokio task: 64. Pony actor: 240. Hey, diet target, planned, shown as a dashed outline bar: 303. Hey, today, measured, shown bold and highlighted in blue: 403. Go goroutine: 2,048. BEAM process: 2,616. The two Hey rows are marked additionally with bold text and distinct fill styles so the highlight does not depend on color alone." id="ff-svg2" role="img" viewbox="0 0 780 320"></svg>
+<svg aria-label="Horizontal bar chart, logarithmic axis, of per-actor memory in bytes. Tokio task: 64. Pony actor: 240. Hey, now, measured after the struct-diet slice, shown bold and highlighted in blue: 258. Hey, one day earlier, measured before the diet, shown bold with a faded highlight: 403. Go goroutine: 2,048. BEAM process: 2,616. The two Hey rows are marked additionally with bold text and distinct fill styles so the highlight does not depend on color alone." id="ff-svg2" role="img" viewbox="0 0 780 320"></svg>
 </div>
 <p class="ff-foot">Direct-labeled bars carry the story; hover any bar for its source. Go's number is
-        its initial stack only &mdash; it grows on demand. Hey's "today" bar is solid and bold; its "target"
-        bar is a dashed outline, the same visual convention used elsewhere on this site for a goal that
-        hasn't been hit yet.</p>
+        its initial stack only &mdash; it grows on demand. The campaign's ~303-byte target was set in the
+        morning and beaten by evening, so the dashed-target convention used elsewhere on this site is
+        retired for this figure. Hey's two bars mark the same struct one day apart: 403 bytes that
+        morning, faded to show it is superseded, and 258 bytes solid and bold the same evening, after the
+        struct-diet slice landed.</p>
 </figure>
 <script>
     (function(){
       var ROWS=[
-        {label:'Tokio task',        sub:'no stack — single allocation',        bytes:64,   kind:'plain', src:'Tokio Tutorial: Spawning — tokio.rs'},
-        {label:'Pony actor',        sub:'no stack — mailbox + GC bookkeeping', bytes:240,  kind:'plain', src:'Pony Runtime FAQ — ponylang.io'},
-        {label:'Hey, diet target', sub:'planned — struct-diet slice in flight', bytes:303, kind:'target', src:'Stack-removal campaign synthesis, 2026-07-26'},
-        {label:'Hey, today',       sub:'measured — HeyActor, current build',  bytes:403,  kind:'today', src:'Benchmark-seat idle-actor baseline, 2026-07-26'},
-        {label:'Go goroutine',     sub:'initial growable stack',              bytes:2048, kind:'plain', src:'runtime/stack.go, stackMin — github.com/golang/go'},
-        {label:'BEAM process',     sub:'327 words: stack + heap + GC state',  bytes:2616, kind:'plain', src:'Processes — Erlang System Documentation'}
+        {label:'Tokio task',           sub:'no stack — single allocation',          bytes:64,   kind:'plain',  src:'Tokio Tutorial: Spawning — tokio.rs'},
+        {label:'Pony actor',           sub:'no stack — mailbox + GC bookkeeping',   bytes:240,  kind:'plain',  src:'Pony Runtime FAQ — ponylang.io'},
+        {label:'Hey, now',             sub:'measured — after the struct-diet slice', bytes:258, kind:'today',  src:'actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins both 403 and 258)'},
+        {label:'Hey, one day earlier', sub:'measured — before the diet',            bytes:403,  kind:'before', src:'actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins both 403 and 258)'},
+        {label:'Go goroutine',         sub:'initial growable stack',                bytes:2048, kind:'plain',  src:'runtime/stack.go, stackMin — github.com/golang/go'},
+        {label:'BEAM process',         sub:'327 words: stack + heap + GC state',    bytes:2616, kind:'plain',  src:'Processes — Erlang System Documentation'}
       ];
       var W=780,H=320,L=230,R=90,T=26,B=46;
       var LO=48,HI=6000;
@@ -215,16 +219,12 @@
       ROWS.forEach(function(r,i){
         var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.bytes)-L,2);
         var hi = r.kind!=='plain';
-        var marker = r.kind==='today' ? '▶ ' : (r.kind==='target' ? '◇ ' : '');
+        var marker = r.kind==='today' ? '▶ ' : '';
         o.push('<text class="'+(hi?'ff-cat-hi':'ff-cat')+'" x="'+(L-12)+'" y="'+(cy-2).toFixed(1)+'" text-anchor="end">'+marker+r.label+'</text>');
         o.push('<text class="ff-cat-sub" x="'+(L-12)+'" y="'+(cy+12).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
-        if (r.kind==='target') {
-          o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="none" stroke="var(--target)" stroke-width="2" stroke-dasharray="5 4"><title>'+r.label+': '+r.bytes.toLocaleString()+' bytes (planned) — '+r.src+'</title></rect>');
-        } else {
-          var fill = r.kind==='today' ? 'var(--bar-highlight)' : 'var(--text-secondary)';
-          var op = r.kind==='today' ? '1' : '0.55';
-          o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="'+fill+'" opacity="'+op+'"><title>'+r.label+': '+r.bytes.toLocaleString()+' bytes — '+r.src+'</title></rect>');
-        }
+        var fill = (r.kind==='today' || r.kind==='before') ? 'var(--bar-highlight)' : 'var(--text-secondary)';
+        var op = r.kind==='today' ? '1' : (r.kind==='before' ? '0.35' : '0.55');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="'+fill+'" opacity="'+op+'"><title>'+r.label+': '+r.bytes.toLocaleString()+' bytes — '+r.src+'</title></rect>');
         o.push('<text class="ff-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'" '+(hi?'font-weight="750"':'')+'>'+r.bytes.toLocaleString()+' B</text>');
       });
       o.push('<line class="ff-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
@@ -268,6 +268,8 @@
       every task or actor its own call stack. Tokio tasks use about <strong>64 bytes</strong>, and Pony
       actors use about <strong>240 bytes</strong>. In both systems, a handler does not pause halfway
       through an arbitrary call chain and later resume from that exact point.
+      &mdash; <a href="https://tokio.rs/tokio/tutorial/spawning">Tokio Tutorial: Spawning</a>,
+      <a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a>
     </p>
     <p>
       Go goroutines and BEAM processes do allow that kind of suspension. A Go goroutine begins with a
@@ -276,6 +278,8 @@
       Go uses mutable data and BEAM uses immutable data, yet both pay for a stack. That is why the
       earlier article concludes that the strongest predictor of per-worker memory is whether the worker
       can suspend anywhere, not whether its values are mutable.
+      &mdash; <a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">golang/go, runtime/stack.go</a>,
+      <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes &mdash; Erlang System Documentation</a>
     </p>
     <p>
       This finding determines the rest of Hey's design. Hey cannot reach the memory range of Pony or
@@ -334,7 +338,10 @@
     <p>
       The initial research recommendation was the first option. It is the smallest design and already
       has a production example at the target actor size. It also avoids a new compiler intermediate
-      representation and a new transformation pass.
+      representation and a new transformation pass. The language documentation shows the canonical
+      shape: an actor is a loop that receives a message at its top &mdash; see the simplest example in
+      the Hey docs.
+      &mdash; <a href="https://www.jayteesf.com/hey_docs/docs__humans__features__05-actors-and-mailboxes.html">Hey docs: Actors and mailboxes</a>
     </p>
     <p>
       The team briefly chose the more expressive state-machine design instead. Under that plan, every
@@ -586,12 +593,18 @@
       with reference-shared immutable values.
     </p>
     <p>
-      The runtime is not finished. The current actor record measures about <strong>403 bytes</strong>.
-      A structure-cleanup task targets about <strong>303 bytes</strong>, still above Pony's 240-byte
-      figure and much larger than Tokio's 64-byte task. The mailbox conversion is intended to land
-      before the scheduler conversion so that the scheduler can build on the new queue. A separate
-      blocking-work pool can be developed in parallel because it has fewer dependencies on the other
-      changes.
+      The runtime is not finished, but the actor record already got smaller. The struct-diet slice
+      landed the same day it was cut: the measured actor footprint at N=100K went from <strong>403 to
+      258 bytes</strong>, beating the slice's own ~303-byte target, and <code>sizeof(HeyActor)</code>
+      itself dropped from 288 to 192 bytes. 258 bytes is essentially at Pony's 240-byte figure and well
+      below Go's 2,048-byte stack and BEAM's roughly 2,616-byte process; Tokio's 64-byte task is now
+      about 4x away. The mutex-and-condition-variable pair remaining in the struct accounts for 112
+      bytes, 58% of the current footprint, and is the next argued slice. The mailbox conversion is
+      intended to land before the scheduler conversion so that the scheduler can build on the new
+      queue. A separate blocking-work pool can be developed in parallel because it has fewer
+      dependencies on the other changes.
+      &mdash; actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins
+      both 403 and 258)
     </p>
     <p>
       Two design questions should remain visible while the implementation proceeds. First, the blocking
@@ -648,9 +661,10 @@
     <h2>Sources</h2>
 <ul>
 <li>Hey's own stack-removal campaign synthesis and per-workstream research briefs, 2026-07-26 (internal; the basis for every "today," "planned," and "struck" claim above)</li>
+<li>actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins both 403 and 258 bytes at N=100K, and the 288-to-192-byte <code>sizeof(HeyActor)</code> change; no public URL)</li>
 <li>Tagged-value representation brief, bench repo, 2026-07-26 (internal; source of the 124-clone/204-release/~47.8 &micro;s-per-request figures)</li>
 <li>PER-ACCESS DECOMPOSITION PROBE, bench repo dated log entry, 2026-07-26 ~14:20 PDT &mdash; <code>bench/probes/access-decomposition.hey</code> (internal, counter-attributed and checksummed; no public URL; source of the 4,096-element and int-access figures)</li>
-<li><a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">"What Makes an Actor Cheap?"</a> &mdash; the founding article this campaign treats as its roadmap</li>
+<li><a href="https://www.jayteesf.com/articles/what-makes-an-actor-cheap.html">"What Makes an Actor Cheap?"</a> &mdash; the founding article this campaign treats as its roadmap</li>
 <li><a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a> (per-actor memory, no-stack model, blocking I/O)</li>
 <li><a href="https://tutorial.ponylang.io/types/actors.html">Pony tutorial: actors</a> (behaviors, no synchronous return)</li>
 <li><a href="https://github.com/ponylang/ponyc/pull/2264">ponylang/ponyc PR #2264</a> (the "muting" backpressure retrofit)</li>
@@ -671,6 +685,7 @@
 <li><a href="https://docs.rs/cordyceps/latest/cordyceps/mpsc_queue/struct.MpscQueue.html">cordyceps::MpscQueue docs</a></li>
 <li><a href="https://xnning.github.io/papers/perceus.pdf">Reinking, Xie, de Moura, Leijen, "Perceus: Garbage Free Reference Counting with Reuse," PLDI 2021 (PDF)</a></li>
 <li><a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_mir_transform/coroutine/index.html">rustc coroutine (MIR) transform docs</a></li>
+<li><a href="https://www.jayteesf.com/hey_docs/docs__humans__features__05-actors-and-mailboxes.html">Hey docs: Actors and mailboxes</a> (the canonical <code>actor echo</code> / <code>receive msg</code> example)</li>
 <li><a href="https://tmandry.gitlab.io/blog/posts/optimizing-await-1/">Mandry, "How Rust optimizes async/await" (parts I &amp; II)</a></li>
 <li><a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust Project Goals 2026: async state-machine optimisation</a></li>
 <li><a href="https://doc.rust-lang.org/error_codes/E0733.html">Rust error E0733</a> (recursion requires boxing in async fns)</li>
@@ -683,7 +698,7 @@
   <footer>
     <p>
       Based on Hey's stack-removal campaign research, compiled July 26, 2026, and on
-      <a href="https://jayteesf.github.io/articles/what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor
+      <a href="https://www.jayteesf.com/articles/what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor
       Cheap?&rdquo;</a>, the comparison that became the campaign's starting point. Primary sources are linked
       where they are discussed and listed above.
     </p>
