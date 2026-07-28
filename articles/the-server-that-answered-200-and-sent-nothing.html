@@ -73,17 +73,16 @@
           <code>Web.serve(routes, options)</code> as <em>exactly</em>
           <code>Web.start(Web.service(routes, options))</code>. Calling it serves the page.
           Writing out its own body does not.</li>
-        <li><strong>Cause traced to source</strong>, still true at 0.99.464a: both spellings
+        <li><strong>Cause measured, not guessed:</strong> the documented form's listening socket
+          is owned by a <em>helper process</em> that has never seen your routes. Both spellings
           compile into a delegation that round-trips values through JSON, and that mechanism's
-          own written rule excludes live sockets and thread pools &mdash; which is precisely
-          what the service descriptor holds.</li>
-        <li><strong>Disclosed weakness: this cost me a whole performance table.</strong> Every
-          framework-layer number I published was taken against a server returning nothing,
-          because my gate asserted status&nbsp;200 and a zero error rate. Both were true. Both
-          are blind to an empty body.</li>
+          own written rule excludes exactly the live sockets the service descriptor holds.</li>
+        <li><strong>Disclosed weakness: this cost me a whole performance table.</strong> My gate
+          asserted status&nbsp;200 and a zero error rate. Both were true, and both are blind to
+          an empty body.</li>
         <li><strong>Reproduce it in two files</strong> that differ only in how the server is
-          started, then read <code>content-length</code> rather than the status line. That is
-          the whole test, and it is the one I did not have.</li>
+          started, then read <code>content-length</code> instead of the status line. That is the
+          whole test, and it is the one I did not have.</li>
       </ul>
     </div>
 
@@ -110,17 +109,16 @@
 
     <h2>A number too good to be true</h2>
     <p>
-      The job was ordinary: what does the web framework package cost compared with using the
-      standard library's HTTP support directly? I ran both lanes at matched load, asserted that
-      every request came back 200 with a success rate of 1.000, and read off the difference.
-      0.2%. I nearly wrote it up.
+      The job was ordinary: what does the web framework package cost against the standard
+      library's HTTP support? I ran both lanes at matched load, asserted 200 with a success rate
+      of 1.000, and read off the difference. 0.2%. I nearly wrote it up.
     </p>
     <p>
-      What saved it was the control lane &mdash; the bare standard-library server, same route,
-      same payload. It returned 364 bytes. The framework lane returned
-      <code>content-length: 0</code>. I had spent the morning comparing something doing the work
-      against something doing none of it, and my gate waved it through, because a server that
-      does nothing is extremely good at returning 200.
+      The control lane saved it &mdash; the bare standard-library server, same route, same
+      payload, 364 bytes. The framework lane returned <code>content-length: 0</code>. I had spent
+      the morning comparing something doing the work against something doing none of it, and my
+      gate waved it through, because a server that does nothing is extremely good at returning
+      200.
     </p>
     <div class="aside term">
       <h3>Body assertion</h3>
@@ -147,9 +145,9 @@
       </tbody>
     </table>
     <p>
-      That last row is the tell. Adding error-recovery middleware does not cause the failure; it
-      makes an already-failing path <em>audible</em>. And here is the part that reads like a typo:
-      the standard library defines the working call in terms of the broken pair.
+      That last row is the tell: error-recovery middleware does not cause the failure, it makes
+      an already-failing path <em>audible</em>. And here is the part that reads like a typo. The
+      standard library defines the working call in terms of the broken pair:
     </p>
 <pre><code>fn serve(routes, options)
   return Web.start(Web.service(routes, options))
@@ -180,40 +178,60 @@ let pool = Net.worker_pool(listener, workers, options)
 return {kind: 'web_service', listener: listener, worker_pool: pool, ...}</code></pre>
     <p>
       Live handles are the one thing the rule excludes, and they are on the delegated lists
-      anyway. Two details sharpen it. There are two lists, emitted through the same delegation
-      function; the rule is written above the second, while <code>Web.service</code> sits on the
-      first, which carries no comment at all &mdash; they share the mechanism without sharing the
-      warning. And the list the rule <em>does</em> govern contains <code>Net.worker_pool</code>: a
-      live thread pool, on the list whose stated precondition forbids exactly that.
+      anyway. There are two such lists sharing one delegation function; the rule is written above
+      the second, while <code>Web.service</code> sits on the first, which carries no comment at
+      all. They share the mechanism without sharing the warning &mdash; and the governed list
+      holds a live thread pool of its own.
     </p>
     <p>
       <code>Web.serve</code> is on the same list and is fine, because it hands back the result of
-      serving rather than a live handle for someone to use later. The difference is not which list
-      you are on. It is whether anything living has to survive the trip.
+      serving rather than a live handle for someone to use later. The question was never which
+      list you are on. It is whether anything living has to survive the trip.
+    </p>
+    <h2>Who is actually answering the request</h2>
+    <p>
+      For a day that was where the trail ended. Everything above is read out of the source; the
+      last step &mdash; that the violated precondition is what empties the response &mdash; was
+      an inference, and nobody had watched a listener die in transit.
+    </p>
+    <p>
+      Nothing dies in transit. The listener is never in your program at all. Delegated calls run
+      in a helper process, so when <code>Web.service</code> is delegated the socket is created and
+      held <em>there</em>. Ask the operating system who owns the listening port:
+    </p>
+<pre><code>broken lane, port 8840        200, content-length 0
+  heyc  24808  TCP *:8840 (LISTEN)      &lt;- the helper process owns it
+  24803 ./svc_8840.bin
+  24808 └ heyc stdlib-sidecar-loop
+
+working lane, port 8841       200, content-length 364
+  serve_8841.bin  24892  TCP *:8841 (LISTEN)   &lt;- your program owns it
+  24892 ./serve_8841.bin
+  24897 └ heyc stdlib-sidecar-loop      &lt;- exists, holds no socket</code></pre>
+    <p>
+      Your program receives JSON: a descriptor whose listener and worker pool are now inert data.
+      The process accepting connections is the helper, which has never heard of your routes. A
+      200 with nothing in it is exactly what that arrangement should produce.
     </p>
     <div class="aside">
-      <h3>Fact and inference, kept apart</h3>
-      Facts, checked in the source on both platforms: the delegation, the written precondition,
-      the list membership, and the live handles in the returned descriptor. <strong>Inference:</strong>
-      that the violation is what produces the empty 200 &mdash; nobody has yet watched a listener
-      die in transit. If that inference falls, the fix stays right anyway: a documented
-      precondition is being violated either way.
+      <h3>The control that makes it mean something</h3>
+      The working lane spawns the same helper process and serves the full 364 bytes. So
+      &ldquo;delegation is running&rdquo; does not predict the failure &mdash; only
+      <em>which process ends up holding the socket</em> does. Written down before the run: if the
+      program itself owned the socket in both lanes, this explanation was dead. Two replicates,
+      both lanes, one machine, version 0.99.465a.
     </div>
 
     <h2>Why this is worse than a bug report</h2>
     <p>
-      The standard library's own documentation teaches the broken form <em>first</em>: build the
-      descriptor with <code>Web.service</code>, consume it with <code>Web.start</code>, and
-      &mdash; further down &mdash; &ldquo;for the common case, use the equivalent convenience
-      call.&rdquo; A developer reading top to bottom writes the failing version. The page even
-      asserts the exact property the implementation no longer has: <em>&ldquo;Web.service is not
-      decorative metadata. Web.start validates and executes it.&rdquo;</em>
-    </p>
-    <p>
-      It reaches further than one page. The web framework package built on the standard library
-      starts its servers with the composed form, so as shipped it does not serve real responses.
-      Our three production apps are unaffected &mdash; all three use the shorthand &mdash; which
-      is exactly why this survived: everything anyone actually ran was on the working path.
+      The documentation teaches the broken form <em>first</em> &mdash; build the descriptor, then
+      consume it, with the shorthand offered further down &ldquo;for the common case&rdquo; &mdash;
+      so a developer reading top to bottom writes the failing version. The page even asserts the
+      exact property the implementation lacks: <em>&ldquo;Web.service is not decorative metadata.
+      Web.start validates and executes it.&rdquo;</em> And the web framework package built on the
+      standard library starts its servers the same way, so as shipped it does not serve real
+      responses. Our three production apps all use the shorthand, which is why this survived:
+      everything anyone actually ran was on the working path.
     </p>
 
     <h2>What we withdrew</h2>
@@ -238,18 +256,19 @@ return {kind: 'web_service', listener: listener, worker_pool: pool, ...}</code><
       server does a superb impression of a quick one.
     </p>
     <p>
-      <strong>A rule in a comment is not a check.</strong> The precondition here was written down,
-      accurately, by someone who understood it &mdash; and then three functions were added to the
-      list that violate it. Membership in that list is mechanically checkable: every name on it
-      could be required to survive a JSON round-trip in a test, and the check would have refused
-      <code>Web.service</code> at the moment it was added. That gate does not exist yet. It is the
-      fix I would want before the one that makes this particular call work.
+      <strong>A rule in a comment is not a check.</strong> The precondition was written down
+      accurately by someone who understood it &mdash; and then functions that violate it were
+      added to the list anyway. Membership is mechanically checkable: require every delegated
+      name to survive a JSON round-trip in a test, and the check refuses <code>Web.service</code>
+      the moment it is added. That gate does not exist yet, and I want it before the fix that
+      makes this particular call work.
     </p>
     <p class="muted">
-      Behaviour measured at versions 0.99.459a and 0.99.460a on macOS (Apple silicon) and Linux
-      (kernel 7.1.4, i7-1165G7); source facts re-verified at 0.99.464a. Found on the measurement
-      seat, mechanism traced jointly with the Linux seat, each half confirmed on the other's
-      machine.
+      Behaviour measured at 0.99.459a and 0.99.460a on macOS (Apple silicon) and Linux
+      (kernel 7.1.4, i7-1165G7); source facts and the socket-ownership cell re-run at 0.99.465a
+      on macOS, two replicates per lane. The ownership half has not been run on Linux; one
+      command would settle it there. Found on the measurement seat, traced jointly with the Linux
+      seat, each half confirmed on the other's machine.
     </p>
   </main>
 
