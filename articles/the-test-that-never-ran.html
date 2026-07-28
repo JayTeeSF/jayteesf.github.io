@@ -102,9 +102,9 @@
       <h2>TL;DR</h2>
       <ul>
         <li><strong>Verdict: the design stands &mdash; stop relying on the loader.</strong> Hand the
-          compiler the host's function addresses directly. No link flags, and it fails at
-          <em>compile</em> time when a runtime function is renamed rather than at the first call in
-          a live session.</li>
+          compiler the host's function addresses directly: measured working with no link flag at
+          all, on a host the loader could not see into. Demonstrated on one symbol; covering the
+          whole runtime that way is the proposal, not yet the receipt.</li>
         <li><strong>The test that "verified" this never verified it.</strong> The probe defined its
           own function in generated code and resolved against that. The mechanism the design rests
           on &mdash; reaching a function in the host program &mdash; was switched on and never used.</li>
@@ -114,9 +114,9 @@
         <li><strong>We published the untested claim; this corrects it.</strong> Our earlier article
           listed host-function resolution among things a probe had measured. It had not. That
           article now carries a dated correction.</li>
-        <li><strong>A sourced prediction was wrong.</strong> Per-thread variables do fail across the
-          boundary &mdash; but not for the predicted reason, and they fail loudly rather than
-          silently returning a wrong address.</li>
+        <li><strong>A sourced prediction was wrong.</strong> On the Linux box measured, per-thread
+          variables do fail across the boundary &mdash; but not for the predicted reason, and they
+          fail loudly rather than silently returning a wrong address.</li>
         <li><strong>Reproduce it:</strong> four small C programs, two link lanes each, pass/fail
           outcomes rather than timings &mdash; a busy machine cannot change the answer.</li>
       </ul>
@@ -200,7 +200,8 @@ LANE B  -rdynamic    returned 4242                                  PASS</code><
       table that a program does not publish itself into by default. The
       <a href="https://sourceware.org/binutils/docs/ld/Options.html">GNU linker documentation</a>
       says exactly this about <code>--export-dynamic</code>. A control program containing no JIT at
-      all showed the same split, ruling out the local compiler quietly adding the flag.
+      all showed the same split &mdash; on the default link line it published no user function at
+      all &mdash; which rules out the local toolchain exporting these symbols for you.
     </p>
     <p>
       The macOS half is the mirror image, and it is what turns a platform anecdote into a rule.
@@ -219,11 +220,11 @@ LANE B  -rdynamic    returned 4242                                  PASS</code><
       it and got the expected value, while the loader still could not see the symbol at all.
     </p>
     <p>
-      That wins on four counts: nothing added to the published symbol table, no loader involvement,
-      a whole class of name-mangling bugs gone, and &mdash; the one that matters most &mdash; the
-      list of 571 functions becomes an explicit table that <strong>fails to build</strong> when a
-      runtime function is renamed. The flag-based version compiles fine and fails later, in front of
-      a user, at the first call.
+      Be precise about what that demonstrates: it was measured on <strong>one</strong> symbol. The
+      mechanism works; a table covering all 571 is a proposal that follows from it, not something
+      anyone has built or costed. The case for preferring it is reasoning, not measurement &mdash;
+      it adds nothing to the published symbol table, keeps the loader out entirely, and could fail
+      at build time rather than in front of a user.
     </p>
 
     <h2>5. The prediction that was wrong &mdash; and failed loudly, not silently</h2>
@@ -233,17 +234,19 @@ LANE B  -rdynamic    returned 4242                                  PASS</code><
       need. It was checked rather than assumed. It was wrong.
     </p>
     <p>
-      They <em>do</em> break &mdash; but the failure names a different missing piece. The generated
-      code uses an <em>emulated</em> scheme for per-thread storage while the host, built by the same
-      compiler, uses the processor's native one. They cannot meet. It fails <strong>loudly</strong>,
-      as a missing name, rather than silently reading a wrong address &mdash; the outcome genuinely
-      worth fearing. But neither the link flag nor the fix above repairs it: there is no address in
-      the host to hand over.
+      They <em>do</em> break &mdash; but the failure names a different missing piece. On that box and
+      that build of LLVM, the generated code used an <em>emulated</em> scheme for per-thread storage
+      while the host, built by the same compiler, used the processor's native one. They cannot meet.
+      It fails <strong>loudly</strong>, as a missing name, rather than silently reading a wrong
+      address &mdash; the outcome genuinely worth fearing. But neither the link flag nor the fix
+      above repairs it: there is no address in the host to hand over.
     </p>
     <p>
       So the design gains a rule rather than a patch: fragments never touch a per-thread variable
       directly; they call a host function that returns what they need. Why the emulated scheme is on
-      at all is still unanswered, and nobody has invented an answer to fill the gap.
+      at all is unanswered, and nobody has invented an answer to fill the gap &mdash; it may yet
+      prove to be one distribution's packaging rather than anything wider, which would make this
+      finding narrower than it reads.
     </p>
 
     <h2>6. What changed: the plan stands, with two new rules</h2>
@@ -268,8 +271,8 @@ LANE B  -rdynamic    returned 4242                                  PASS</code><
     <p>
       Four C programs of a few dozen lines each, built against <code>llvm-config</code> on
       LLVM&nbsp;22.1.8: a JIT-free control, the host-function lookup in two link lanes, the
-      direct-address version, and the per-thread-variable pair. Every outcome is a pass/fail or a
-      symbol name rather than a timing, so a loaded machine cannot change the answer. One trap:
+      direct-address version, and the per-thread pair. Every outcome is a pass/fail or a symbol name
+      rather than a timing, so a loaded machine cannot change the answer. One trap:
       <code>LLVMOrcThreadSafeContextGetContext</code> is <strong>gone in LLVM&nbsp;22</strong>.
     </p>
 
