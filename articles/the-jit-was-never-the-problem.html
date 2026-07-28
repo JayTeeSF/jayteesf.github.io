@@ -237,8 +237,9 @@
     <p>
       Hey's runtime and compiler tooling are C11 by rule; a C++ dependency would be a real cost.
       The probe exercised the complete needed surface through <code>llvm-c</code> headers only
-      <span class="evtag">[MEASURED]</span>: creating the JIT, ingesting textual IR, resolving the
-      ~571 <code>hey_*</code> runtime symbols a fragment declares against the host process itself,
+      <span class="evtag">[MEASURED]</span>: creating the JIT, ingesting textual IR,
+      <s>resolving the ~571 <code>hey_*</code> runtime symbols a fragment declares against the host
+      process itself</s> <strong>[retracted &mdash; see the correction below]</strong>,
       calling across fragments (fragment&nbsp;2 calling fragment&nbsp;1's function worked on the
       first try), and redefinition via resource trackers &mdash; remove the old module, add the new
       one, observe the new answer (the probe checks 222 replaces 111).
@@ -301,6 +302,33 @@
       estimate. If it fails, the fix is runtime work, not JIT work. The JIT, for once, is the part
       that is already proven.
     </p>
+
+    <div class="callout">
+      <h2>Correction &mdash; 2026-07-28</h2>
+      <p>
+        <strong>One capability listed above as measured had not been measured.</strong> &sect;4 said
+        the probe resolved the ~571 <code>hey_*</code> runtime symbols &ldquo;against the host
+        process itself.&rdquo; It did not. The probe <em>defined</em> its test function in JIT'd IR
+        and then resolved a second fragment against the first &mdash; JIT-to-JIT, never
+        JIT-to-host. The process-symbol lookup the design depends on was attached and never
+        exercised, so the probe could not have failed on it.
+      </p>
+      <p>
+        When the missing test was finally written, it <strong>failed on Linux</strong>: without
+        <code>-rdynamic</code> the host's symbols are not published for runtime lookup and the JIT
+        reports &ldquo;Symbols not found.&rdquo; macOS passes by default, which is why this went
+        unnoticed here. The design survives with a better mechanism &mdash; registering the host's
+        addresses directly, no link flag &mdash; and it gains one new constraint: JIT'd fragments
+        must not touch a <code>_Thread_local</code> directly.
+      </p>
+      <p>
+        Full account, with both platforms' receipts:
+        <a href="the-test-that-never-ran.html"><strong>The Test That Never Ran</strong></a>.
+        <span class="muted">The latency measurements in this article are unaffected &mdash; the
+        error was one entry in a capability list, not a timing. The open runtime re-entry question
+        (&sect;6) also stands.</span>
+      </p>
+    </div>
 
     <h2>Glossary</h2>
     <dl class="glossary">

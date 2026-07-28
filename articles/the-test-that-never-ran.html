@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A probe proved that just-in-time compiled code could call the host program's functions. It never tested that. Running the missing test on Linux changed the design — and produced a better mechanism than the one being tested.">
+  <meta name="article-date" content="2026-07-28">
+  <meta name="article-bucket" content="almost">
+  <meta name="article-desc" content="The green test that never exercised the thing it was testing, what Linux said when someone finally ran it, and the two design changes that came out of one afternoon of small C programs.">
+  <title>The Test That Never Ran</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    .plan {
+      margin: 0 0 2rem;
+      padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e;
+      border-radius: 0.6rem;
+      background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+    .evtag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78em; font-weight: 700; padding: 0.05rem 0.3rem; border: 1px solid var(--border); border-radius: 0.3rem; white-space: nowrap; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    figure { margin: 1.75rem 0 2rem; }
+    figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+    .figwrap { overflow-x: auto; }
+    figcaption { margin-top: 0.6rem; font-size: 0.9rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>The Test That Never Ran</h1>
+    <p class="lede">
+      Hey's plan for a faster interactive session rests on one thing: code compiled on the fly must
+      be able to call the runtime functions already loaded in the running program. A test said that
+      worked. It never tested it. <strong>Verdict up front: the plan survives, the mechanism
+      changes.</strong> Someone finally ran the missing test on Linux, where it fails outright
+      &mdash; and the chase produced something better than what it replaced.
+    </p>
+  </header>
+
+  <main>
+    <div class="plan">
+      <p class="plan-tag">Status: measured research, unshipped plan</p>
+      <p>
+        Everything below was <strong>measured</strong> &mdash; Arch Linux x86-64 and an Apple
+        M-series Mac, both LLVM&nbsp;22.1.8. The just-in-time interactive session is a
+        <strong>design, not shipped software</strong>; unshipped means not-yet-built, not rejected.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>Verdict: the design stands &mdash; stop relying on the loader.</strong> Hand the
+          compiler the host's function addresses directly. No link flags, and it fails at
+          <em>compile</em> time when a runtime function is renamed rather than at the first call in
+          a live session.</li>
+        <li><strong>The test that "verified" this never verified it.</strong> The probe defined its
+          own function in generated code and resolved against that. The mechanism the design rests
+          on &mdash; reaching a function in the host program &mdash; was switched on and never used.</li>
+        <li><strong>Same mechanism, opposite defaults.</strong> On Linux you add a linker flag to
+          make it work; on macOS you add one to make it <em>fail</em>. Not a platform quirk: one
+          rule, seen from two sides.</li>
+        <li><strong>We published the untested claim; this corrects it.</strong> Our earlier article
+          listed host-function resolution among things a probe had measured. It had not. That
+          article now carries a dated correction.</li>
+        <li><strong>A sourced prediction was wrong.</strong> Per-thread variables do fail across the
+          boundary &mdash; but not for the predicted reason, and they fail loudly rather than
+          silently returning a wrong address.</li>
+        <li><strong>Reproduce it:</strong> four small C programs, two link lanes each, pass/fail
+          outcomes rather than timings &mdash; a busy machine cannot change the answer.</li>
+      </ul>
+    </div>
+
+    <figure>
+      <div class="figwrap">
+        <svg viewBox="0 0 720 300" role="img" aria-labelledby="figtitle figdesc">
+          <title id="figtitle">One rule, two defaults: whether compiled-on-the-fly code can call a host function</title>
+          <desc id="figdesc">On Linux the default link fails and adding a flag makes it work. On macOS the default link works and adding a flag makes it fail.</desc>
+          <rect x="0" y="0" width="720" height="300" fill="rgba(128,128,128,0.06)"/>
+          <text x="24" y="34" font-size="17" font-weight="700" fill="#222">One rule, seen from two sides</text>
+          <text x="24" y="56" font-size="13" fill="#555">Can code compiled at runtime call a function in the host program?</text>
+
+          <text x="250" y="92" font-size="13" font-weight="700" fill="#333">Default link line</text>
+          <text x="500" y="92" font-size="13" font-weight="700" fill="#333">One linker flag added</text>
+
+          <text x="24" y="140" font-size="14" font-weight="700" fill="#333">Linux</text>
+          <text x="24" y="158" font-size="11" fill="#666">ELF</text>
+          <rect x="230" y="112" width="220" height="58" rx="8" fill="rgba(179,38,30,0.13)" stroke="#b3261e" stroke-width="2"/>
+          <text x="340" y="137" font-size="14" font-weight="700" fill="#b3261e" text-anchor="middle">NOT FOUND</text>
+          <text x="340" y="156" font-size="11" fill="#555" text-anchor="middle">symbol invisible to the loader</text>
+          <rect x="480" y="112" width="220" height="58" rx="8" fill="rgba(27,120,60,0.13)" stroke="#1b783c" stroke-width="2"/>
+          <text x="590" y="137" font-size="14" font-weight="700" fill="#1b783c" text-anchor="middle">RESOLVED</text>
+          <text x="590" y="156" font-size="11" fill="#555" text-anchor="middle">exports it (&ndash;rdynamic)</text>
+
+          <text x="24" y="222" font-size="14" font-weight="700" fill="#333">macOS</text>
+          <text x="24" y="240" font-size="11" fill="#666">Mach-O</text>
+          <rect x="230" y="194" width="220" height="58" rx="8" fill="rgba(27,120,60,0.13)" stroke="#1b783c" stroke-width="2"/>
+          <text x="340" y="219" font-size="14" font-weight="700" fill="#1b783c" text-anchor="middle">RESOLVED</text>
+          <text x="340" y="238" font-size="11" fill="#555" text-anchor="middle">exported by default</text>
+          <rect x="480" y="194" width="220" height="58" rx="8" fill="rgba(179,38,30,0.13)" stroke="#b3261e" stroke-width="2"/>
+          <text x="590" y="219" font-size="14" font-weight="700" fill="#b3261e" text-anchor="middle">NOT FOUND</text>
+          <text x="590" y="238" font-size="11" fill="#555" text-anchor="middle">hides it (unexported_symbol)</text>
+
+          <text x="24" y="286" font-size="11" fill="#666">Identical error text in both failing cells: &ldquo;Symbols not found&rdquo;.</text>
+        </svg>
+      </div>
+      <figcaption>
+        Measured 2026-07-28 on Arch Linux x86-64 and Apple M-series, both LLVM&nbsp;22.1.8. Each cell
+        is one small C program, built twice and run. Source: the project's dated measurement log,
+        entries of 2026-07-28.
+      </figcaption>
+    </figure>
+
+    <h2>1. What the design needs</h2>
+    <p>
+      Hey's interactive session is slow because every turn builds a real executable and launches it.
+      The plan is to skip that: compile each new line straight to machine code inside the running
+      program and call it. For that to work, the fresh fragment must reach roughly 571 runtime
+      functions already in the host program &mdash; string handling, memory, actors. It does not
+      contain them. It only names them, and expects someone to fill in the addresses.
+    </p>
+    <div class="aside term">
+      <h3>The mechanism in one line</h3>
+      <p>
+        The compiler was told to look up unknown names in the running program itself &mdash; the
+        same lookup a plugin system uses to find a function by name.
+      </p>
+    </div>
+
+    <h2>2. The test was green &mdash; and it never ran</h2>
+    <p>
+      The probe backing the design attached that lookup and reported success. Read closely, it
+      <em>defined</em> its test function in generated code, then had a second fragment call it: one
+      piece of generated code calling another. The lookup into the host program was switched on and
+      never once needed. Nothing in the output separates "the mechanism works" from "the mechanism
+      was never asked to do anything."
+    </p>
+
+    <h2>3. What Linux says when you finally ask</h2>
+    <p>
+      Written properly &mdash; a function that exists <em>only</em> in the host program, named but
+      not defined in the generated code &mdash; the Linux answer is immediate:
+    </p>
+<pre><code>LANE A  no flag      Symbols not found: [ hey_probe_host_answer ]   FAIL
+LANE B  -rdynamic    returned 4242                                  PASS</code></pre>
+    <p>
+      This is the classic dynamic-symbol-table problem: a program's own functions land in a table
+      the debugger reads, but name-based lookup at runtime searches a <em>different</em>, smaller
+      table that a program does not publish itself into by default. The
+      <a href="https://sourceware.org/binutils/docs/ld/Options.html">GNU linker documentation</a>
+      says exactly this about <code>--export-dynamic</code>. A control program containing no JIT at
+      all showed the same split, ruling out the local compiler quietly adding the flag.
+    </p>
+    <p>
+      The macOS half is the mirror image, and it is what turns a platform anecdote into a rule.
+      Mach-O publishes those symbols by default, so it works with no flag &mdash; but link the
+      identical source with <code>-Wl,-unexported_symbol</code> and it fails with the same message
+      Linux gives. One variable changed, both directions observed. The mechanism is
+      <strong>publication of the symbol</strong> on both systems; only the default differs.
+    </p>
+
+    <h2>4. The better fix: hand over the addresses, skip the loader</h2>
+    <p>
+      The obvious fix is to add <code>-rdynamic</code> and move on. The better one is to stop asking
+      the loader anything. LLVM's just-in-time library lets you register a name and an address
+      directly &mdash; and the host already knows where its own functions live, for free, at compile
+      time. Measured with the host built <em>without</em> any export flag: the generated code called
+      it and got the expected value, while the loader still could not see the symbol at all.
+    </p>
+    <p>
+      That wins on four counts: nothing added to the published symbol table, no loader involvement,
+      a whole class of name-mangling bugs gone, and &mdash; the one that matters most &mdash; the
+      list of 571 functions becomes an explicit table that <strong>fails to build</strong> when a
+      runtime function is renamed. The flag-based version compiles fine and fails later, in front of
+      a user, at the first call.
+    </p>
+
+    <h2>5. The prediction that was wrong &mdash; and failed loudly, not silently</h2>
+    <p>
+      Commissioned research predicted that per-thread variables would break for a specific,
+      well-sourced reason: the linker layer implements only one of the machine-level patterns they
+      need. It was checked rather than assumed. It was wrong.
+    </p>
+    <p>
+      They <em>do</em> break &mdash; but the failure names a different missing piece. The generated
+      code uses an <em>emulated</em> scheme for per-thread storage while the host, built by the same
+      compiler, uses the processor's native one. They cannot meet. It fails <strong>loudly</strong>,
+      as a missing name, rather than silently reading a wrong address &mdash; the outcome genuinely
+      worth fearing. But neither the link flag nor the fix above repairs it: there is no address in
+      the host to hand over.
+    </p>
+    <p>
+      So the design gains a rule rather than a patch: fragments never touch a per-thread variable
+      directly; they call a host function that returns what they need. Why the emulated scheme is on
+      at all is still unanswered, and nobody has invented an answer to fill the gap.
+    </p>
+
+    <h2>6. What changed: the plan stands, with two new rules</h2>
+    <p>
+      Both changes &mdash; register the host's addresses directly, keep per-thread variables behind
+      a function call &mdash; are far cheaper now than after the session is built around them.
+    </p>
+    <p>
+      One correction belongs here at the same volume as the original claim. Our earlier article
+      listed resolving the runtime's functions against the host program among the things a probe had
+      <em>measured</em>. It had not; the claim was carried over from the probe's own framing without
+      checking which lines did what. That article now carries a dated correction pointing here. Its
+      latency numbers stand &mdash; the error was one entry in a capability list, not a timing.
+    </p>
+    <p>
+      The reusable lesson is not about linkers. A test that cannot fail reports exactly the same
+      green as a test that passes, and the only way to tell them apart is to make one fail on
+      purpose. The most valuable twenty minutes here were spent breaking something that worked.
+    </p>
+
+    <h2>Reproduce it</h2>
+    <p>
+      Four C programs of a few dozen lines each, built against <code>llvm-config</code> on
+      LLVM&nbsp;22.1.8: a JIT-free control, the host-function lookup in two link lanes, the
+      direct-address version, and the per-thread-variable pair. Every outcome is a pass/fail or a
+      symbol name rather than a timing, so a loaded machine cannot change the answer. One trap:
+      <code>LLVMOrcThreadSafeContextGetContext</code> is <strong>gone in LLVM&nbsp;22</strong>.
+    </p>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>Just-in-time compilation (JIT)</dt><dd>Turning code into machine instructions inside the running program and calling it immediately, with no file, linker, or new process in between.</dd>
+      <dt>Dynamic symbol table</dt><dd>The smaller list of names a program publishes for lookup while it runs. Distinct from the fuller table used by debuggers — and the reason a function can exist, be callable directly, and still be "not found" by name.</dd>
+      <dt>Per-thread variable</dt><dd>A variable with a separate copy for each thread. Reaching one requires machine-level cooperation that generated code and the host program must agree on.</dd>
+      <dt>Linker flag</dt><dd>An option controlling how a program is assembled and what it publishes — here, the single variable that decides whether the lookup succeeds.</dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://llvm.org/docs/ORCv2.html">LLVM ORCv2 documentation</a> [DOCS]</li>
+      <li><a href="https://llvm.org/docs/JITLink.html">LLVM JITLink documentation</a> [DOCS]</li>
+      <li><a href="https://sourceware.org/binutils/docs/ld/Options.html">GNU linker options (<code>--export-dynamic</code>)</a> [DOCS]</li>
+      <li>Local probes, Arch Linux x86-64 and Apple M-series, LLVM 22.1.8 — all measured results [MEASURED]</li>
+      <li><a href="the-jit-was-never-the-problem.html">The JIT Was Never the Problem</a> — the earlier article this one corrects</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Linux measurements by the project's Linux measurement seat; the macOS half measured
+      independently on the development machine, both 2026-07-28, LLVM&nbsp;22.1.8. Results are
+      pass/fail symbol-resolution outcomes rather than timings. Version numbers are shown short
+      (<abbr class="ver" title="v0.99.456a">456a</abbr> means v0.99.456a). The just-in-time session
+      is a plan of record, not shipped software.
+    </p>
+  </footer>
+</body>
+</html>
