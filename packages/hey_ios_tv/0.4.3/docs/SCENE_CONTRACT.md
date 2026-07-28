@@ -1,0 +1,99 @@
+# Scene contract (tvOS renderer)
+
+`hey_tv` owns the target-neutral scene document. This file documents the parts
+the **tvOS renderer** owns: the live-data declarations (`tick`, `fetch`), the
+`data` event they produce, and the bootstrap fallback that keeps a display
+recoverable. The widget vocabulary is in `GETTING_STARTED.md`.
+
+An app exports two functions:
+
+```hey
+fn tv_scene_init()             # -> initial scene document (JSON string)
+fn tv_scene_step(scene, event) # (current doc, event doc) -> next doc
+```
+
+## Live data
+
+A scene opts into the renderer's clock and socket by carrying either key:
+
+```json
+{
+  "tick":  {"ms": 1000},
+  "fetch": {"id": "room", "url": "https://host/tv/rooms/ABCD", "ms": 2000, "mode": "scene"}
+}
+```
+
+- The timer period is `tick.ms`, else `fetch.ms`, else `2000`, floored at
+  `250`. One repeating timer serves both.
+- `tick` delivers `{"kind":"tick","ms":<epoch ms>}` to `tv_scene_step`.
+- `fetch` issues one GET per period. Requests never stack: while one is in
+  flight the next period is skipped.
+- `fetch.mode == "scene"`: the fetched body **is** the next scene and the
+  renderer installs it directly. This is what lets a display project
+  server-rendered state without the Hey app parsing JSON (the tvOS LLVM subset
+  builds documents by string concatenation and cannot decode them).
+- Any other `fetch.mode`: the result arrives through the normal event funnel as
+  `{"kind":"data","id":<fetch.id>,"status":<http status>,"body":<string>}`.
+  A transport failure reports `"status": 0`.
+
+Networking is `NSURLSession` inside the renderer, never `stdlib:Http` from Hey:
+`tools/hey_tvos_link_stubs.c` replaces the whole OpenSSL surface with `abort()`
+traps, so an HTTPS request issued from Hey on tvOS terminates the app.
+
+Only a `200` response with a non-empty body may replace the scene. A failed
+poll leaves whatever is on screen untouched.
+
+## Re-arming, and the bootstrap fallback
+
+Because a fetched scene carries its own `fetch` declaration, a `"scene"` poll
+can move the renderer onto a **different** url. That is the Jackbox-style room
+handoff: an Apple TV pack bakes ONE generic bootstrap url
+(`https://host/tv/displays/new`), the server answers with a scene whose
+`fetch.url` is room-specific, and the renderer follows it.
+
+The hazard is that the move is one-way. If that room later goes away — session
+expiry, server restart, deploy — every poll fails, nothing is ever installed,
+and the screen sits on its last frame forever. The server cannot fix it,
+because the TV is no longer asking the server anything it can answer.
+
+So the renderer keeps a way home:
+
+- **The baked url is remembered.** The `fetch.url` present in the very first
+  scene, the one returned by `tv_scene_init`, is captured at launch and kept
+  separately from the url the poll is currently armed on.
+- **Consecutive scene-poll failures are counted.** A failure is anything that
+  did not produce an installable document: transport error, timeout, non-2xx
+  status, or an empty body. The count resets to zero on every successful
+  install.
+- **At 5 consecutive failures the poll returns to the baked url.** Only
+  `fetch.url` is rewritten; the widgets on screen are left alone, so the
+  display keeps showing its last good frame until the bootstrap url answers.
+  The counter resets, giving the bootstrap url a full budget of its own.
+- **No thrash.** If the poll is already on the baked url, it simply keeps
+  retrying it on the normal cadence. There is no back-off: the cadence is
+  already the app's declared `fetch.ms` and requests never stack.
+- **Scene mode only.** In any other mode the Hey app owns the scene and already
+  sees the failure as a `data` event, so the renderer does not overrule it.
+- One `NSLog` line is emitted when the fallback fires, naming the abandoned url
+  and the bootstrap url it returned to.
+
+At the default 2000ms cadence, 5 failures is roughly ten seconds of a dead
+screen before recovery is attempted: long enough that one Wi-Fi hiccup or a
+single slow response does not throw away a healthy room, short enough that
+nobody has time to walk over and restart the app. The threshold is a count, not
+a duration (`kHeySceneFetchFailureLimit` in
+`tools/hey_native_tv_runtime.m`), so a slower poll waits proportionally longer.
+
+### What this does not cover
+
+The renderer uses `NSURLSession.sharedSession` with its default request
+timeout. A server that accepts a connection and then hangs is therefore counted
+as one failure only after that default timeout elapses, which is much longer
+than a typical poll period. Servers that are down, unreachable, or answering
+4xx/5xx fail fast and recover on the schedule above.
+
+## Compatibility
+
+The fallback is purely additive. A pack whose polls always succeed never
+increments the counter and behaves exactly as before; a pack that bakes no
+`fetch.url` into its first scene has no bootstrap url and is left alone.
