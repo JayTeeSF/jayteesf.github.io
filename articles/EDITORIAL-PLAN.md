@@ -443,18 +443,20 @@ generalises. These are binding on every writer and every editor pass.
 
 **1. THE TEST IS COMPOSITION, NOT NOUNS.** Not "did I name the thing" but
 **"does this piece, PLUS what is already published, equal the finding?"** A
-live article had already told readers that the runtime spawns a helper process
-and how to find it. The draft added only the *shape* of the defect — a lookup
-that returns a default when its candidates fail — and that was enough: the
-attacker's question collapsed to one line, and the withheld nouns were the last
-10%. Before shipping anything about an unfixed issue, re-read the already-live
-pieces and ask what the new one completes.
+draft was refused in review although it contained no filename, no variable and
+no directory — because an already-live article supplied one half of the picture
+and the draft supplied the other. The withheld nouns turned out to be the last
+10%, not the protection. Before shipping anything about an unfixed issue,
+re-read the already-live pieces and ask what the new one *completes*. Note that
+this applies to verbs and shapes as much as to names: a mechanism described in
+synonyms is still the mechanism.
 
-**2. NEVER PAIR OBSERVABILITY WITH REACHABILITY.** A performance number can be
-a **detection oracle**. "Roughly 150x slower when it fires" tells a reader both
-that the bad path is reachable by removing the expected thing, and that a
-stopwatch reveals when it fired — which turns a benchmark into a scanner
-against a closed-source binary. Symptom sizes are not colour. Cut them.
+**2. NEVER PAIR OBSERVABILITY WITH REACHABILITY.** A symptom size can be a
+**detection oracle**: state how large an effect is and how it is triggered, and
+you have told a reader both that a bad path is reachable and how to confirm they
+reached it — which turns an ordinary benchmark into a scanner against software
+whose source they cannot read. Symptom sizes feel like colour and are not. Cut
+them from anything about an unfixed issue.
 
 **3. STATE-FREE PHRASING ABOUT UNFIXED ISSUES.** "Will be published once anyone
 affected has a version to move to" **confirms in print that the shipped release
@@ -491,3 +493,12 @@ clean.
 description is not an approval of the file. Two people can both be honest — one
 describing intent, the other reading it as a report on the bytes — and the
 defect sails through between them. Whoever approves, reads the file.
+
+
+**9. THIS DOCUMENT IS PUBLISHED TOO.** `articles/` is served: every file in it,
+including this one and every `.md` beside the articles, is reachable at a public
+URL. A rules file explaining an embargo is exactly where a mechanism hides,
+because rules want worked examples and the sharpest worked example is always the
+live defect. Rules 1-8 were each written here with the real mechanism as their
+illustration, and each had to be rewritten. **Illustrate with the SHAPE of the
+mistake, never with the instance**, until the instance is fixed and public.
