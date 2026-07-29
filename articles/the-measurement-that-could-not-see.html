@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="For months we reported that our server won on latency. A literature review we commissioned about something else predicted our load generator was blind to the tail. It was.">
+  <meta name="article-date" content="2026-07-29">
+  <meta name="article-bucket" content="benchmarks">
+  <meta name="article-desc" content="Our load generator stopped sending requests exactly when the server stalled, so the stalls never appeared in the results. Correcting it kept the median claim, killed the p99 claim, and surfaced a tail we had never measured.">
+  <title>The Measurement That Could Not See What It Was Measuring</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem; padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border); border-radius: 0.7rem; background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    .fixed { border-color: #1b783c; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    figure { margin: 1.75rem 0 2rem; }
+    figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+    .figwrap { overflow-x: auto; }
+    figcaption { margin-top: 0.6rem; font-size: 0.9rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+<article>
+
+  <h1>The Measurement That Could Not See the Thing It Was Measuring</h1>
+
+  <p class="lede">
+    We told you our web server beat Go on latency. That claim survives correction at the median,
+    becomes a tie at p99, and at the far tail produced a number we are not yet willing to call &mdash; two runs, disagreeing by 3.2x.
+  </p>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>We are correcting our own latency claim.</strong> Measured
+        open-loop at an offered 60,000 requests per second, Hey's median still
+        beats Go &mdash; 642 vs 738&nbsp;&micro;s (microseconds). But the
+        p99 win is <strong>gone</strong> (1,686 vs 1,612&nbsp;&micro;s, 4.6% apart: a
+        tie), and at p99.9 Hey measured <strong>2.4x worse</strong> (22,874 vs
+        9,716&nbsp;&micro;s).</li>
+      <li><strong>The cause was our instrument, not our server.</strong> Our load
+        generator was closed-loop: it sends a request only when an earlier one
+        finishes, so when the server stalls the client stalls too and the stall never
+        reaches the results. That failure has a name &mdash; <strong>coordinated
+        omission</strong> (Gil Tene, &ldquo;How NOT to Measure Latency&rdquo;, QCon
+        San Francisco 2015).</li>
+      <li><strong>The prediction came before the measurement.</strong> A literature
+        review commissioned for an unrelated reason predicted this, on these numbers,
+        and named the three conditions it requires.</li>
+      <li><strong>Disclosed weakness: the p99.9 row is a lead, not a finding.</strong>
+        Two repetitions per lane, and Hey's two disagree by 3.2x (34,853 and
+        10,896&nbsp;&micro;s). We print the values, not a verdict; more repetitions
+        on a quiet machine are owed before anyone cites that number, us included.</li>
+      <li><strong>Check it yourself in ten seconds:</strong> run <code>oha --help</code>
+        and read the <code>--latency-correction</code> line. The correction <em>is
+        ignored</em> unless you also pass <code>-q</code>, a fixed request rate: the fix
+        ships in the tool and does nothing until you change the experiment.</li>
+    </ul>
+  </div>
+
+  <figure class="viz-root" id="fig-corrected">
+    <div style="overflow-x:auto">
+      <svg viewBox="0 0 880 330" width="880" style="max-width:100%;min-width:560px;height:auto"
+           role="img" aria-labelledby="figct figcd" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+        <title id="figct">Corrected latency percentiles, Hey versus Go, at 60,000 requests per second</title>
+        <desc id="figcd">Horizontal bars on a logarithmic microsecond scale. At p50 Hey is 642 and Go is 738.
+          At p99 Hey is 1,686 and Go is 1,612. At p99.9 Hey is 22,874 and Go is 9,716. Diamond markers show the
+          two individual repetitions behind each p99.9 bar: Hey 34,853 and 10,896, Go 10,849 and 8,584. Hey's
+          two repetitions differ by 3.2x, which is why the p99.9 row is labelled a lead rather than a finding.</desc>
+
+        <rect x="0" y="0" width="880" height="330" fill="#f7f7f5" stroke="#d9d9d4" stroke-width="1"/>
+
+        <text x="24" y="30" font-size="16" font-weight="700" fill="#22242a">Corrected latency: the median claim survives, the tail claim does not</text>
+        <text x="24" y="50" font-size="12" fill="#55585f">Open-loop, coordinated-omission-corrected. Offered 60,000 req/s, 30 s, 32 connections, 2 reps per lane. Log scale.</text>
+
+        <line x1="184" y1="66" x2="184" y2="252" stroke="#dedeD8" stroke-width="1"/>
+        <line x1="271" y1="66" x2="271" y2="252" stroke="#dedeD8" stroke-width="1"/>
+        <line x1="357" y1="66" x2="357" y2="252" stroke="#dedeD8" stroke-width="1"/>
+        <line x1="472" y1="66" x2="472" y2="252" stroke="#dedeD8" stroke-width="1"/>
+        <line x1="559" y1="66" x2="559" y2="252" stroke="#dedeD8" stroke-width="1"/>
+        <line x1="645" y1="66" x2="645" y2="252" stroke="#dedeD8" stroke-width="1"/>
+        <line x1="760" y1="66" x2="760" y2="252" stroke="#dedeD8" stroke-width="1"/>
+
+        <text x="184" y="270" font-size="11" fill="#55585f" text-anchor="middle">500</text>
+        <text x="271" y="270" font-size="11" fill="#55585f" text-anchor="middle">1,000</text>
+        <text x="357" y="270" font-size="11" fill="#55585f" text-anchor="middle">2,000</text>
+        <text x="472" y="270" font-size="11" fill="#55585f" text-anchor="middle">5,000</text>
+        <text x="559" y="270" font-size="11" fill="#55585f" text-anchor="middle">10,000</text>
+        <text x="645" y="270" font-size="11" fill="#55585f" text-anchor="middle">20,000</text>
+        <text x="760" y="270" font-size="11" fill="#55585f" text-anchor="middle">50,000</text>
+        <text x="440" y="292" font-size="12" fill="#22242a" text-anchor="middle">latency, microseconds (log scale)</text>
+
+        <line x1="120" y1="252" x2="800" y2="252" stroke="#9a9a94" stroke-width="1"/>
+
+        <text x="112" y="100" font-size="13" font-weight="600" fill="#22242a" text-anchor="end">p50</text>
+        <rect x="120" y="80" width="95" height="16" fill="#c2410c"/>
+        <text x="223" y="93" font-size="11" fill="#22242a">642 &mdash; Hey</text>
+        <rect x="120" y="100" width="113" height="16" fill="#1d4ed8"/>
+        <text x="241" y="113" font-size="11" fill="#22242a">738 &mdash; Go</text>
+
+        <text x="112" y="156" font-size="13" font-weight="600" fill="#22242a" text-anchor="end">p99</text>
+        <rect x="120" y="136" width="216" height="16" fill="#c2410c"/>
+        <text x="344" y="149" font-size="11" fill="#22242a">1,686 &mdash; Hey</text>
+        <rect x="120" y="156" width="210" height="16" fill="#1d4ed8"/>
+        <text x="338" y="169" font-size="11" fill="#22242a">1,612 &mdash; Go &nbsp;<tspan fill="#55585f">(4.6% apart: a tie)</tspan></text>
+
+        <text x="112" y="212" font-size="13" font-weight="600" fill="#22242a" text-anchor="end">p99.9</text>
+        <rect x="120" y="192" width="542" height="16" fill="#c2410c"/>
+        <rect x="120" y="212" width="435" height="16" fill="#1d4ed8"/>
+        <text x="120" y="244" font-size="11" fill="#8a3208">Hey 22,874 &bull; Go 9,716 &bull; diamonds are individual reps; Hey's differ by 3.2x &mdash; this row is a LEAD, not a finding</text>
+        <polygon points="715,200 721,206 715,212 709,206" fill="#5c1f04" stroke="#f7f7f5" stroke-width="1"/>
+        <polygon points="569,200 575,206 569,212 563,206" fill="#5c1f04" stroke="#f7f7f5" stroke-width="1"/>
+        <polygon points="569,220 575,226 569,232 563,226" fill="#0b2a86" stroke="#f7f7f5" stroke-width="1"/>
+        <polygon points="540,220 546,226 540,232 534,226" fill="#0b2a86" stroke="#f7f7f5" stroke-width="1"/>
+
+        <rect x="620" y="74" width="12" height="12" fill="#c2410c"/>
+        <text x="638" y="85" font-size="12" fill="#22242a">Hey</text>
+        <rect x="686" y="74" width="12" height="12" fill="#1d4ed8"/>
+        <text x="704" y="85" font-size="12" fill="#22242a">Go</text>
+      </svg>
+    </div>
+    <figcaption>
+      Measured 2026-07-29, Darwin arm64, Hey <abbr class="ver" title="v0.99.468a">468a</abbr> at one worker vs Go at
+      <code>GOMAXPROCS=1</code>, <code>/health</code>, keep-alive on, server restarted between runs, response body
+      asserted, offered rate asserted achieved within 5% or the run is voided. Provenance: the corrected-latency
+      run of 2026-07-29 in the benchmark evidence log.
+    </figcaption>
+  </figure>
+
+  <h2>What we said before was the instrument talking</h2>
+
+  <p>
+    For months this site published latency figures showing our server ahead of Go &mdash;
+    p50 65&nbsp;&micro;s against 233, 121&ndash;122 against 136&ndash;137, and two more pairs in
+    the certification table. Every one of them came from a closed-loop generator with no target
+    rate and no latency correction. As of today <strong>all of them are withdrawn</strong>, in a
+    correction block on that article. This piece is about how we found out, and what the corrected
+    measurement says.</p>
+
+  <h2>A closed-loop client stops asking exactly when you stall</h2>
+
+  <p>
+    A closed-loop load generator holds a fixed number of requests in flight &mdash; ours held 32
+    &mdash; and issues the next only when a response comes back. It is the most considerate customer
+    you will ever have: the moment you get busy, it stops asking.
+  </p>
+
+  <p>
+    That politeness is the bug. Suppose the server stalls for ten milliseconds. Real traffic does not
+    pause out of courtesy; arrivals keep coming, queue behind the stall, and wear it in their response
+    times. Those are the samples a tail percentile exists to report, and a closed-loop client sends
+    none of them: it records 32 slow responses instead of the hundreds that should have piled up,
+    then takes percentiles over what it sent. The stall was real, users would have felt it, and the
+    graph is clean.
+  </p>
+
+  <p>
+    This is <strong>coordinated omission</strong>, named and scoped by Gil Tene in
+    &ldquo;How NOT to Measure Latency&rdquo; (QCon San Francisco, 2015) and corrected in the
+    <a href="https://github.com/HdrHistogram/HdrHistogram">HdrHistogram project</a> by
+    <code>recordValueWithExpectedInterval</code>. It is a <em>sibling</em> of, not the same as, the
+    older result that a bounded-concurrency generator can be its own throughput ceiling &mdash;
+    Schroeder, Wierman and Harchol-Balter,
+    <a href="https://www.usenix.org/events/nsdi06/tech/full_papers/schroeder/schroeder.pdf">&ldquo;Open Versus Closed: A Cautionary Tale&rdquo;</a>,
+    NSDI 2006. One is about capacity, the other about statistics.
+  </p>
+
+  <h2>Why we were looking, and what the looking missed</h2>
+  <p>
+    The review that predicted this was not about latency. We had spent a week accumulating nine
+    separate failures of our own measurement tools &mdash; not of the software being measured, of
+    the tools &mdash; and commissioned a literature search to find whether any of them had names.
+    Four did, and had for decades: a gate that passes without being able to fail is
+    <em>vacuity</em> (Beer, Ben-David, Eisner &amp; Rodeh, CAV 1997); a timed loop the compiler
+    deletes because its result goes unused is <em>dead-code elimination</em>, which the Java
+    Microbenchmark Harness ships a <code>Blackhole</code> object specifically to prevent. Two of
+    the nine we could find no name for at all.
+  </p>
+  <p>
+    The search then predicted a tenth, in the harness we were using to check the other nine, and
+    it was right. <strong>That is the flattering half, so here is the other one.</strong> The
+    closed-loop cells were published and stood for months. Nobody inside the team caught them. It
+    took an outside literature review, commissioned about something else entirely, to notice that
+    our latency numbers could not see the thing they were named after &mdash; and the review only
+    got commissioned because we had already made nine other mistakes worth writing down. This was
+    not vigilance. It was a lucky consequence of keeping receipts.
+  </p>
+
+  <h2>What changed when the bias was removed</h2>
+
+  <table>
+    <thead><tr><th>Percentile</th><th class="number">Hey (1 worker)</th><th class="number">Go (GOMAXPROCS=1)</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>p50</td><td class="number">642&nbsp;&micro;s</td><td class="number">738&nbsp;&micro;s</td><td>Hey wins; stable in both lanes</td></tr>
+      <tr><td>p99</td><td class="number">1,686&nbsp;&micro;s</td><td class="number">1,612&nbsp;&micro;s</td><td>A tie, 4.6% apart, slightly favouring Go</td></tr>
+      <tr><td>p99.9</td><td class="number">22,874&nbsp;&micro;s</td><td class="number">9,716&nbsp;&micro;s</td><td><strong>Lead only:</strong> Hey 2.4x worse, n=2</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The median claim survives, as the review predicted: the bias hit both sides equally, so a real
+    difference comes through it. The p99 claim does not &mdash; our old numbers implied a Hey win
+    there, and that implication is withdrawn. And p99.9 is the number the old harness could not see
+    at all, on any day.
+  </p>
+
+  <h2>The tail row is a lead, not a finding</h2>
+
+  <p>
+    Hey's two repetitions at p99.9 were 34,853&nbsp;&micro;s and 10,896&nbsp;&micro;s &mdash; a 3.2x
+    spread. Go's were 10,849 and 8,584, a 1.26x spread. An average of two samples that disagree by
+    3.2x summarises nothing, and two runs support a direction at best. The table prints the mean
+    because the row must hold a value; this paragraph tells you not to quote it.
+  </p>
+
+  <p>
+    One obvious suspect: other builds started running on the same machine partway through the sweep
+    (none at the pre-run check, two at the post-run check). We checked rather than assumed. If that
+    drove the tail, the later repetitions should be the worse ones &mdash; but Hey's worst p99.9 is
+    its <em>first</em>, taken on the quiet end. So it does not explain the instability, and is not
+    exonerated either. What is owed before any tail verdict, ours first, is more repetitions on a
+    quiet box. The p50 and p99 rows can correct the record. The p99.9 row is a lead.
+  </p>
+
+  <h2>The fix was a different experiment, not a flag</h2>
+
+  <p>
+    This part generalises past us. Our generator, <code>oha</code>, ships a
+    <code>--latency-correction</code> option, and its help text states the catch in one sentence: the
+    correction is <em>ignored</em> unless <code>-q</code>, a fixed request rate, is also set. The flag
+    alone changes nothing and reports no error &mdash; with no target rate there is no intended send
+    time to correct against.
+  </p>
+
+  <p>
+    So the fix is not a flag; it is a different experiment. A closed-loop run asks &ldquo;how fast can
+    this server go if I push as hard as it will accept?&rdquo; A corrected run asks &ldquo;at 60,000
+    requests per second arriving whether you are ready or not, what do users experience?&rdquo;
+    Different questions, different answers &mdash; which is why our new 642&nbsp;&micro;s median and
+    our old 231&nbsp;&micro;s median are neither a regression nor comparable (different question, and different builds &mdash; 467a against 468a), and no longer share a
+    table. A defensible tail number means offering a rate and voiding the run if it is missed.
+  </p>
+
+  <h2>What you can take to your own harness</h2>
+
+  <p>
+    Three questions. Does your load generator wait for a response before sending the next request?
+    Do the real arrivals it models wait for you? Do your percentiles correct for missed send times?
+    Yes, no, no means your tail is optimistic by an unmeasured amount &mdash; and that error is
+    exactly the size of the stalls you most wanted to know about. The cheaper second lesson: a
+    correction that silently does nothing without a companion setting looks, in a log file, precisely
+    like one that worked.
+  </p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li>Gil Tene, &ldquo;How NOT to Measure Latency&rdquo;, QCon San Francisco 2015 (video and slides via InfoQ),
+      and the <a href="https://github.com/HdrHistogram/HdrHistogram">HdrHistogram project documentation</a>
+      &mdash; the primary source for coordinated omission and its scope.</li>
+    <li>Schroeder, Wierman, Harchol-Balter,
+      <a href="https://www.usenix.org/events/nsdi06/tech/full_papers/schroeder/schroeder.pdf">&ldquo;Open Versus Closed: A Cautionary Tale&rdquo;</a>, NSDI 2006.</li>
+    <li>Ivan Prisyazhnyy, &ldquo;On Coordinated Omission&rdquo;, ScyllaDB engineering blog, 22 April 2021, and
+      Marc Brooker, &ldquo;Open and Closed, Omission and Collapse&rdquo;, brooker.co.za, 10 May 2023 &mdash; both
+      sharpen the three-condition scope. (Cited by title and date; we do not have permanent links for either post.)</li>
+    <li>Mytkowicz, Diwan, Hauswirth, Sweeney, &ldquo;Producing Wrong Data Without Doing Anything Obviously Wrong!&rdquo;,
+      ASPLOS 2009, <a href="https://doi.org/10.1145/1508284.1508275">doi:10.1145/1508284.1508275</a> &mdash; the general
+      case that the setup, not the system, can produce the number.</li>
+  </ul>
+
+  <p class="muted">
+    Version numbers are shown short: <abbr class="ver" title="v0.99.468a">468a</abbr> is v0.99.468a.
+  </p>
+
+</article>
+
+  </main>
+
+</body>
+</html>
