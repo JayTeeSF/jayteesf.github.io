@@ -65,9 +65,14 @@
     <div class="callout fixed">
       <h2>Status: fixed before publication</h2>
       <p class="muted" style="margin:0">
-        Both paths described here are closed in <abbr class="ver" title="v0.99.468a">468a</abbr>. This
-        piece was written while they were open and held until a fixed version existed — the reason it
-        can name the mechanism is that naming it no longer helps anyone.
+        The two paths that could be reached without the environment&rsquo;s cooperation are closed in
+        <abbr class="ver" title="v0.99.468a">468a</abbr>: the working-directory fallback and a
+        bare-name lookup through <code>PATH</code>. A third — an <em>absolute</em> path named by an
+        environment variable — still works, deliberately, and is documented below as a trust
+        boundary rather than a hole. This piece was written while the first two were open and held
+        until a fixed version existed; it can name the mechanism because naming it no longer helps
+        anyone. Verified against a 468a binary by the author, not taken from the fix&rsquo;s own
+        report.
       </p>
     </div>
 
@@ -81,6 +86,10 @@
           working directory, our stand-in binary <strong>executed — twice</strong>, because the
           runtime respawns its helper on death. The program reported a delegation error and carried
           on.</li>
+        <li><strong>An environment variable holding an ABSOLUTE path still runs what it names, on
+          purpose.</strong> If you can set a process&rsquo;s environment you are already trusted;
+          the fix draws the line there and says so, rather than guessing at runtime whether it is a
+          development build.</li>
         <li><strong>One cause, three bug reports.</strong> The same ladder produced a ~150x
           slowdown, a wrong answer, and this. Three people filed three tickets over one week and
           nobody saw it was one defect until the third arrived.</li>
@@ -128,17 +137,16 @@
 
     <h2>What a program does when it runs out of ideas</h2>
     <p>
-      Hey compiles to a native binary, and that binary sometimes needs a helper process for
-      standard-library calls the compiler cannot yet emit directly. To start the helper it has to find
-      it, so it works through a list: an environment variable, a path derived from another environment
-      variable, a location beside the running executable, the current directory.
+      A compiled Hey binary sometimes needs a helper process for standard-library calls the compiler
+      cannot yet emit directly, so it works through a list of places to look: an environment variable,
+      a path derived from another, a location beside the running executable, the current directory.
     </p>
     <p>
-      Every one of those is a defensible place to look. The defect was in the line after the list.
-      When all four came up empty, the function did not stop — it returned a default: a path relative
-      to wherever the process happened to be running. On a developer's machine one of the earlier
-      candidates always matched, so nobody saw the last line. On a customer's machine, running a
-      binary you shipped them with no toolchain installed, the search fell all the way through.
+      Every one is defensible. The defect was the line <em>after</em> the list: when all four came up
+      empty the function did not stop, it returned a default relative to wherever the process happened
+      to be running. On a developer's machine an earlier candidate always matched, so nobody ever saw
+      that line. On a customer's machine — your binary, no toolchain installed — the search fell all
+      the way through.
     </p>
     <div class="aside term">
       <h3>Fail-open</h3>
@@ -166,17 +174,12 @@
 
     <h2>How bad is it, honestly</h2>
     <p>
-      It is not a remote hole and it does not cross a user boundary by itself. Someone who can already
-      set your environment can usually do worse. What it does is upgrade a weak primitive into a
-      strong one: <strong>"an attacker can create a file in the directory this service runs from"
-      &mdash; normally a low-severity finding &mdash; becomes "an attacker runs code as this
-      service."</strong> No user interaction, no toolchain on the target, and the application's own
-      logs say only that a library call failed.
-    </p>
-    <p>
-      Working directories are not exotic. Services get started from data directories, containers mount
-      volumes at the working directory, CI runners execute in workspaces that job configuration can
-      write to.
+      Not a remote hole, and it crosses no user boundary by itself. What it does is upgrade a weak
+      primitive into a strong one: <strong>"an attacker can create a file in the directory this service
+      runs from" — normally low severity — becomes "an attacker runs code as this service."</strong>
+      No user interaction, no toolchain on the target, and the logs say only that a library call
+      failed. Working directories are not exotic: services start from data directories, containers
+      mount volumes there, CI runners execute in writable workspaces.
     </p>
 
     <h2>The fix we proposed first, and why it was wrong</h2>
@@ -201,11 +204,21 @@
       also moved from the <code>PATH</code>-searching call to the one that does not search, which
       removes the second path by construction rather than by checking.
     </p>
+    <h2>The line we chose not to move, and why</h2>
+    <p>
+      An environment variable holding an <em>absolute</em> path still starts what it names. That is a
+      decision, not a leftover: <strong>a program cannot reliably tell at runtime whether it is a
+      development build or a shipped one.</strong> Sniffing the build type would replace a clear rule
+      with a heuristic, and a boundary resting on a heuristic about your own binary is worse than one
+      resting on a stated rule. So the rule is stated: whoever controls a Hey process's environment is
+      trusted to choose its helper, and the path must be absolute. Everything reachable
+      <em>without</em> that cooperation is gone.
+    </p>
 
     <h2>Three tickets, one defect</h2>
     <p>
-      The part we would most like to have back is not the bug, it is the week. The same ladder had
-      already produced two other failures:
+      The part we would most like back is not the bug, it is the week. The same ladder had already
+      produced two other failures:
     </p>
     <table>
       <thead><tr><th>Reported as</th><th>Actually</th></tr></thead>
@@ -217,9 +230,9 @@
     </table>
     <p>
       Three reports, three categories, three owners, one cause — and it took the third to see the
-      first two. That is not carelessness; it is that our categories are shaped like symptoms. A
-      stopwatch, a wrong answer and a threat model are three instruments pointed at the same place,
-      and none of them is built to say <em>this is the other two</em>.
+      first two. Our categories are shaped like symptoms: a stopwatch, a wrong answer and a threat
+      model are three instruments pointed at the same place, and none is built to say <em>this is the
+      other two</em>.
     </p>
 
     <h2>What we would ask you to check</h2>
