@@ -434,3 +434,46 @@ something else in the wider world (SSO = single sign-on) must never
 appear unexpanded. If a number needs a unit and a population named
 to make sense ("47% of what, measured how"), say them in the same
 sentence.
+
+## EMBARGO RULES FOR SECURITY MATERIAL (2026-07-29, ruled after a draft was stopped in review)
+
+Trigger: a daily draft was refused by the editor pass although it named no
+file, no variable and no directory. The refusal was correct, and the reason
+generalises. These are binding on every writer and every editor pass.
+
+**1. THE TEST IS COMPOSITION, NOT NOUNS.** Not "did I name the thing" but
+**"does this piece, PLUS what is already published, equal the finding?"** A
+live article had already told readers that the runtime spawns a helper process
+and how to find it. The draft added only the *shape* of the defect — a lookup
+that returns a default when its candidates fail — and that was enough: the
+attacker's question collapsed to one line, and the withheld nouns were the last
+10%. Before shipping anything about an unfixed issue, re-read the already-live
+pieces and ask what the new one completes.
+
+**2. NEVER PAIR OBSERVABILITY WITH REACHABILITY.** A performance number can be
+a **detection oracle**. "Roughly 150x slower when it fires" tells a reader both
+that the bad path is reachable by removing the expected thing, and that a
+stopwatch reveals when it fired — which turns a benchmark into a scanner
+against a closed-source binary. Symptom sizes are not colour. Cut them.
+
+**3. STATE-FREE PHRASING ABOUT UNFIXED ISSUES.** "Will be published once anyone
+affected has a version to move to" **confirms in print that the shipped release
+is unpatched right now**. Write "is being fixed first and will be described in
+full with its fix" — no state, no timing, no implied window.
+
+**4. SCRUB THE METADATA FIRST — IT OUTLIVES RETRACTIONS.** `<meta
+name="description">`, `article-desc`, glossary entries and index blurbs are
+indexed by search engines and are NOT reached by a later edit to the article
+body. A glossary entry is a permanent reference page. When cutting embargoed
+material, cut it from the metadata and the glossary BEFORE the prose, not after.
+
+**5. PUBLISH THE MISSES WITH THE HITS.** A review that caught something is a
+story; the same review's misses are an absence, so the story writes itself and
+the absence must be **deliberately put back**. A draft that reported a
+red-team's catch while omitting the two errors the same review missed was
+inverting the house's disclosed-weakness rule inside an article about honest
+reporting. If a section praises a process, it names what that process missed.
+
+**6. BANKED, NOT SPENT.** Material held for a fix-day piece is not lost — it is
+better later, because the fix-day version can name the thing. Cutting it is a
+trade, not a sacrifice.
