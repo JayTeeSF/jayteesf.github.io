@@ -477,3 +477,17 @@ reporting. If a section praises a process, it names what that process missed.
 **6. BANKED, NOT SPENT.** Material held for a fix-day piece is not lost — it is
 better later, because the fix-day version can name the thing. Cutting it is a
 trade, not a sacrifice.
+
+**7. A DEFINITION IS NOT A SAFE HARBOUR.** Abstracting a mechanism makes it more
+*transferable*, not less *disclosing*. Removing the nouns is what makes a
+mechanism readable, not what makes it safe. Glossary entries, "what we learned"
+sections and pattern names get the composition test at FULL strength, not a
+relaxed one — and they are the hardest place to see it, because a definition
+feels like abstraction by construction. Caught the hard way: a glossary entry
+survived its author's own scrub while the article body and both meta tags were
+clean.
+
+**8. REVIEW THE ARTEFACT, NOT THE ACCOUNT OF IT.** An approval based on a
+description is not an approval of the file. Two people can both be honest — one
+describing intent, the other reading it as a report on the bytes — and the
+defect sails through between them. Whoever approves, reads the file.
