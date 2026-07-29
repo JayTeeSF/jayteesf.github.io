@@ -1,0 +1,310 @@
+#!/usr/bin/env hey
+
+import 'stdlib:Cli'
+import 'stdlib:Collections'
+import 'stdlib:Files'
+import 'stdlib:Text'
+
+# Generates dailies/index.html from the files inside the dailies directory.
+# Sibling of generate-articles-index.hey, with dailies-appropriate rules:
+# no meta tags are REQUIRED — the date comes from the filename's
+# YYYY-MM-DD- prefix (falling back to an article-date meta tag if one
+# exists), the title from <title> (falling back to the filename stem),
+# and the description from article-desc when present. The existing
+# index.html is DELETED before regeneration (no backup: the directory
+# lives in a git repo).
+
+module DailiesIndex
+  fn new(dailies_dir)
+    return {
+      dailies_dir: dailies_dir,
+      output_path: Files.join(dailies_dir, 'index.html')
+    }
+  end
+
+  fn generate(index)
+    DailiesIndex.validate_dailies_dir!(index)
+    DailiesIndex.delete_existing_index!(index)
+    Files.write_text(index.output_path, DailiesIndex.render_page(index))
+    says "Generated #{index.output_path}"
+  end
+
+  private fn validate_dailies_dir!(index)
+    if Files.directory?(index.dailies_dir)
+      return
+    end
+
+    fail "Dailies directory does not exist: #{index.dailies_dir}"
+  end
+
+  # Explicit requirement: remove the old index before writing the new one.
+  # No backup — the directory is inside a git repo.
+  private fn delete_existing_index!(index)
+    if Files.exists?(index.output_path)
+      Files.remove_tree(index.output_path)
+      says "Deleted #{index.output_path}"
+    end
+  end
+
+  private fn find_between(haystack, open_marker, close_marker)
+    let start_index = Text.find(haystack, open_marker)
+    if start_index < 0
+      return ''
+    end
+
+    let value_start = start_index + open_marker.length
+    let remainder_length = haystack.length - value_start
+    let remainder = Text.slice(haystack, value_start, remainder_length)
+
+    let end_index = Text.find(remainder, close_marker)
+    if end_index < 0
+      return ''
+    end
+
+    return Text.slice(remainder, 0, end_index)
+  end
+
+  private fn meta_value(content, name)
+    let marker = '<meta name="' + name + '" content="'
+    return DailiesIndex.find_between(content, marker, '"')
+  end
+
+  private fn extract_title(content)
+    return DailiesIndex.find_between(content, '<title>', '</title>')
+  end
+
+  private fn stem(filename)
+    let suffix = '.html'
+    if Text.ends_with?(filename, suffix)
+      return Text.slice(filename, 0, filename.length - suffix.length)
+    end
+    return filename
+  end
+
+  # A daily is named YYYY-MM-DD-some-slug.html; the first ten characters
+  # are the date. Validate the shape loosely (digits and dashes in the
+  # right places) rather than parsing a calendar.
+  private fn date_from_filename(filename)
+    if filename.length < 10
+      return ''
+    end
+
+    let candidate = Text.slice(filename, 0, 10)
+    let dash_a = Text.slice(candidate, 4, 1)
+    let dash_b = Text.slice(candidate, 7, 1)
+    if dash_a == '-' and dash_b == '-'
+      return candidate
+    end
+
+    return ''
+  end
+
+  private fn parse_daily(path)
+    let content = Files.read_text(path)
+    let filename = Files.basename(path)
+
+    let title = DailiesIndex.extract_title(content)
+    if title == ''
+      set title = DailiesIndex.stem(filename)
+    end
+
+    let date = DailiesIndex.date_from_filename(filename)
+    if date == ''
+      set date = DailiesIndex.meta_value(content, 'article-date')
+    end
+
+    let desc = DailiesIndex.meta_value(content, 'article-desc')
+
+    return {
+      filename: filename,
+      title: title,
+      date: date,
+      desc: desc
+    }
+  end
+
+  private fn daily_files(dailies_dir)
+    let candidates = Files.files(dailies_dir, '.html')
+    let files = []
+
+    for path in candidates
+      let name = Files.basename(path)
+      if name != 'index.html' and not Text.starts_with?(name, 'DRAFT-')
+        set files = [...files, path]
+      end
+    end
+
+    return files
+  end
+
+  private fn parse_all(dailies_dir)
+    let files = DailiesIndex.daily_files(dailies_dir)
+    let dailies = []
+
+    for path in files
+      let daily = DailiesIndex.parse_daily(path)
+      set dailies = [...dailies, daily]
+    end
+
+    return dailies
+  end
+
+  # Newest date first; filename ascending breaks ties (deterministic for
+  # several dailies on one day). Undated files sort last, by filename.
+  private fn compare_entries(left, right)
+    let date_cmp = Collections.compare(right.date, left.date)
+    if date_cmp != 0
+      return date_cmp
+    end
+
+    return Collections.compare(left.filename, right.filename)
+  end
+
+  private fn daily_item_lines(daily)
+    let lines = [
+      '    <li>',
+      %qq(      <a href="#{daily.filename}">#{daily.title}</a>)
+    ]
+
+    if daily.desc != ''
+      set lines = [...lines, %qq(      <p class="desc">#{daily.desc}</p>)]
+    end
+
+    if daily.date != ''
+      set lines = [...lines, %qq(      <span class="date">#{daily.date}</span>)]
+    end
+
+    set lines = [...lines, '    </li>']
+    return lines
+  end
+
+  private fn listing_lines(entries)
+    if entries.empty?
+      return ['  <p class="empty">No dailies found.</p>']
+    end
+
+    let lines = ['  <ul class="articles">']
+
+    for daily in entries
+      let item_lines = DailiesIndex.daily_item_lines(daily)
+      for line in item_lines
+        set lines = [...lines, line]
+      end
+    end
+
+    set lines = [...lines, '  </ul>']
+    return lines
+  end
+
+  private fn render_page(index)
+    let dailies = DailiesIndex.parse_all(index.dailies_dir)
+    let sorted = dailies.sort(DailiesIndex.compare_entries)
+    let listing = DailiesIndex.listing_lines(sorted)
+
+    let lines = [
+      '<!DOCTYPE html>',
+      '<html lang="en">',
+      '<head>',
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<title>Dailies — JayTeeSF</title>',
+      '<style>',
+      '  :root {',
+      '    --bg: #fcfcfb; --ink: #0b0b0b; --muted: #52514e;',
+      '    --border: #e1e0d9; --accent: #2a78d6;',
+      '  }',
+      '  @media (prefers-color-scheme: dark) {',
+      '    :root { --bg: #1a1a19; --ink: #ffffff; --muted: #c3c2b7;',
+      '            --border: #2c2c2a; --accent: #3987e5; }',
+      '  }',
+      '  :root[data-theme="dark"] { --bg: #1a1a19; --ink: #ffffff; --muted: #c3c2b7;',
+      '            --border: #2c2c2a; --accent: #3987e5; }',
+      '  :root[data-theme="light"] { --bg: #fcfcfb; --ink: #0b0b0b; --muted: #52514e;',
+      '            --border: #e1e0d9; --accent: #2a78d6; }',
+      '  * { box-sizing: border-box; }',
+      '  body {',
+      '    margin: 0; background: var(--bg); color: var(--ink);',
+      '    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,',
+      '          Helvetica, Arial, sans-serif;',
+      '  }',
+      '  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }',
+      '  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.4rem; }',
+      '  .sub { color: var(--muted); margin: 0 0 2.5rem; }',
+      '  ul.articles { list-style: none; margin: 0; padding: 0; }',
+      '  ul.articles li { margin: 0 0 1.4rem; }',
+      '  ul.articles a {',
+      '    color: var(--accent); text-decoration: none; font-weight: 600;',
+      '    font-size: 1.12rem;',
+      '  }',
+      '  ul.articles a:hover { text-decoration: underline; }',
+      '  .desc { color: var(--muted); margin: 0.15rem 0 0; }',
+      '  .date { font-size: 0.85rem; color: var(--muted); }',
+      '  .home { display: inline-block; margin-bottom: 2rem; color: var(--muted);',
+      '          text-decoration: none; font-size: 0.9rem; }',
+      '  .home:hover { color: var(--accent); }',
+      '</style>',
+      '</head>',
+      '<body>',
+      '<main>',
+      '  <a class="home" href="../index.html">&larr; www.jayteesf.com</a>',
+      '  <h1>Dailies</h1>',
+      '  <p class="sub">Day-by-day working documents from the Hey language',
+      '  program — status pages, ladders, and running records.</p>',
+      ...listing,
+      '</main>',
+      '</body>',
+      '</html>',
+      ''
+    ]
+
+    return Text.join(lines, "\n")
+  end
+end
+
+fn usage()
+  says 'usage: generate-dailies-index [DAILIES_DIR]'
+  says ''
+  says 'Deletes DAILIES_DIR/index.html and regenerates it from the .html'
+  says 'files in that directory. Dates come from YYYY-MM-DD- filename'
+  says 'prefixes (or an article-date meta tag); titles from <title>;'
+  says 'descriptions from article-desc when present. No meta tags are'
+  says 'required. Default DAILIES_DIR: ./dailies'
+  says ''
+  says '  -h, --help   show this help and exit'
+  return 0
+end
+
+program
+  let args = Cli.args()
+  let dailies_dir = './dailies'
+  let run = 1
+
+  if args.length == 1
+    let first = args[0]
+    if first == '--help'
+      let u1 = usage()
+      set run = 0
+    else
+      if first == '-h'
+        let u2 = usage()
+        set run = 0
+      else
+        if Text.starts_with?(first, '-')
+          let u3 = usage()
+          fail 'unknown option: ' + first
+        else
+          set dailies_dir = first
+        end
+      end
+    end
+  end
+
+  if args.length > 1
+    let u4 = usage()
+    fail 'expected zero or one DAILIES_DIR argument'
+  end
+
+  if run == 1
+    DailiesIndex.generate(DailiesIndex.new(dailies_dir))
+  end
+end
