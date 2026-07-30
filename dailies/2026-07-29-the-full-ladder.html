@@ -317,19 +317,23 @@ workers=8   134,870 req/s      <span class="c"># the plateau is the SERVER —
 </details></div>
 
 <div class="hz"><details>
-  <summary><h3>4 · Tight loops — fannkuch</h3><span class="expand"> <span class="closed-label">▸</span><span class="open-label">▾</span></span>
-  <p class="gist">The raw-loop bar. Blocked on array stores; 471a removed half the blocker.</p></summary>
+  <summary><h3>4 · Tight loops — fannkuch</h3> <span class="mono">first real numbers tonight</span><span class="expand"> <span class="closed-label">▸</span><span class="open-label">▾</span></span>
+  <p class="gist">Fannkuch runs and is CORRECT in Hey for the first time. The asymptotic wall is gone; a harsh constant remains — and it's now precisely localised.</p></summary>
   <div class="body">
 <pre><span class="c"># fannkuch-redux is permutation flipping — its inner loop is array stores:</span>
-set t = a[i]
-set a = put(a, i, a[j])   <span class="c"># 471a: 2,915 → 52 ns/store (moves, no copy)</span>
-set a = put(a, j, t)
-<span class="c"># next (wsetidx): the natural spelling over the same fast path —</span>
-a[i] = a[j]               <span class="c"># today: binary refuses; script SILENTLY drops it</span>
+set a = put(a, i, a[j])   <span class="c"># the swap; 471a made this MOVE instead of copy</span>
 
-<span class="c"># standing number, one loop shape that already lowers (Linux, 1e8 iters):</span>
-Hey 394 ms · C -O2 373 ms (<span class="good">within 6%</span>) · Go 316 ms (25% behind — codegen, not the loop)</pre>
-      <p>When <span class="mono">wsetidx</span> lands (next in the queue after the correctness slices), fannkuch runs for real — with C, Go, and Ruby columns, per the north star.</p>
+<span class="c"># The wall, measured against the same box's own prior numbers (ns/put):</span>
+N=8    194 → <span class="good">33</span>      N=64   1,018 → <span class="good">34</span>      N=512   7,369 → <span class="good">33</span>
+<span class="c"># was LINEAR in N (an O(n) copy per store) — now FLAT: 223× at N=512</span>
+
+<span class="c"># First full run — correct at n=7 AND n=10 against the published reference:</span>
+n=10:   C -O2 151 ms  ·  Go 161 ms  ·  Hey <span class="bad">24,354 ms  (161× C)</span>
+
+<span class="c"># The finding is the CONTRAST — same box, same compiled lane:</span>
+registers-only loop (no arrays):   Hey/C = <span class="good">1.058×</span>  <span class="c"># re-cut at 471a</span>
+array-touching loop (fannkuch):    Hey/C = <span class="bad">161×</span></pre>
+      <p>Both rows are 471a, same box, same session — between 6% and 161×, the only thing that changed is touching array elements: a 33 ns element store against C's sub-nanosecond one compounds through fannkuch's store-heavy reversal. So 471a fixed the <em>asymptotics</em> and left the <em>constant</em> — the gap is no longer a complexity bug that grows with N, it's a fixed per-element cost, now the single largest measured Hey-vs-C gap. Next: a measured profile of where the 33 ns goes (bounds check? refcount? boxing? shim call?) before anyone optimizes anything; <span class="mono">wsetidx</span> (the natural <span class="mono">a[i] = v</span> spelling) is now pure ergonomics over a proven fast path; Darwin and Ruby columns complete the public table.</p>
   </div>
 </details></div>
 
