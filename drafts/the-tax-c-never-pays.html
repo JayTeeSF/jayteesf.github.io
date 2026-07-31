@@ -1,0 +1,742 @@
+<!doctype html>
+<!-- EDITOR NOTE (not for publication): this draft runs ~3,400 words of prose,
+     deliberately over the 800-1200 word budget in EDITORIAL-PLAN.md, per the
+     commission ("research piece like what-makes-an-actor-cheap, ~3,000-4,500
+     words acceptable; note the deviation"). If the budget ruling wins, the
+     natural split is sections 1-4 (the measurement story) and sections 5-7
+     (the fix and its gate).
+     Second note: the commission's bucket wasn't specified; "benchmarks" is
+     used below because the centerpiece is a measurement campaign, but the
+     closing section describes a designed-not-landed change — if the editor
+     prefers "almost" plus the red status banner, that's a defensible call.
+     Third note: source links to ../dailies/ assume this file ships from
+     articles/; adjust if it ships elsewhere. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hey's arithmetic already runs at 1.056x of C — yet an array-shuffling benchmark runs 161x slower. The measured bill of materials for one array read, the fix that removed half the cost, and the pre-registered plan for the other half.">
+  <meta name="article-date" content="2026-07-30">
+  <meta name="article-bucket" content="benchmarks">
+  <meta name="article-desc" content="When your arithmetic is already as fast as C's, the whole gap is what an access costs. Two heap allocations per element store, measured by counting — and the function call that survives them.">
+  <title>The Tax C Never Pays</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+    details.deep > summary { cursor: pointer; font-weight: 600; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    /* glossary-term popover: static colors only, --border for the frame, an opaque
+       light-pinned surface + dark override so text underneath never bleeds through. */
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>The Tax C Never Pays</h1>
+    <p class="lede">
+      When an array read is a function call. Hey's raw arithmetic already runs within 6% of C
+      &mdash; yet a benchmark that does nothing but shuffle a small array runs 161&times; slower.
+      Those two numbers cannot both be about "a slow language." They are both about what one
+      <em>access</em> costs: a bill of materials, measured by counting, with a fix that removed
+      exactly half of it and a pre-registered plan for the rest.
+    </p>
+  </header>
+
+  <main>
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>Verdict: Hey's speed gap on array-heavy code is the price of the access, not
+          the arithmetic &mdash; so the next fix inlines the access, and it ships only through
+          pre-registered measurement gates. It is designed, priced, and not yet built.</strong>
+          On a registers-only integer recurrence Hey runs at <strong>1.056&times;</strong> of C;
+          on fannkuch-redux, which is all array reads and writes, the quiet-box figure is
+          <strong>161&times;</strong> (n=10, linux i7-1165G7, <abbr class="ver" title="v0.99.471a">471a</abbr>).</li>
+        <li><strong>The honest ladder</strong> (fannkuch-redux n=10, same linux box, same session,
+          lanes interleaved, medians of 5, answers oracle-checked, Hey at
+          <abbr class="ver" title="v0.99.473a">473a</abbr>): C&nbsp;-O2 <strong>185.5&nbsp;ms (milliseconds)</strong>,
+          Go <strong>191.3&nbsp;ms</strong>, Ruby&nbsp;4.0.6 <strong>2,492&nbsp;ms</strong>, Hey
+          <strong>32,215&nbsp;ms</strong>. This includes a correction that goes against us: the
+          previously published "~3&times; behind Ruby" was measured against end-of-life Ruby 2.6;
+          against current Ruby the honest number is <strong>12.93&times;</strong>.</li>
+        <li><strong>The bill of materials, measured by counting:</strong> every element store buys
+          <strong>two</strong> heap allocations of a 32-byte value box. A fusion fix removed one of
+          them exactly &mdash; allocations per store <strong>2.000&nbsp;&rarr;&nbsp;1.000</strong>,
+          <strong>&minus;22.7%</strong> on the store path (linux, branch-ready 2026-07-30).</li>
+        <li><strong>That fix scored its own prediction as a MISS, and the miss re-priced the
+          story:</strong> removing one allocation pair bought ~9&nbsp;ns (nanoseconds) of a
+          ~38&nbsp;ns per-store budget, not the predicted half. Allocation is about
+          <em>half</em> the cost;
+          the other <strong>~20&nbsp;ns is the call itself</strong> &mdash; dispatch, defensive
+          checks, and bookkeeping C never executes, because C's <code>a[j]</code> is one load
+          instruction.</li>
+        <li><strong>Disclosed weaknesses:</strong> half of the 38&nbsp;ns decomposition rests on an
+          assumption (the second allocation site is <em>assumed</em> to cost the same ~9&nbsp;ns as
+          the first; it was never measured directly). And fresh counting on a second machine found
+          that the compare shape <code>if a[1] &gt; a[2]</code> <strong>leaks 64 bytes per
+          iteration</strong> on that venue (Darwin, <abbr class="ver" title="v0.99.474a">474a</abbr>)
+          &mdash; and fannkuch's flip test is exactly that shape.</li>
+        <li><strong>Falsifiability:</strong> the allocation counts reproduce with a three-shape
+          counting probe under <code>HEY_ALLOC_STATS=1</code> (evidence archived in the project's
+          dated benchmark cells, 2026-07-30, run twice with identical counts), and the coming fix
+          carries published predictions &mdash; including the result that would prove it wrong
+          &mdash; written down before it is built.</li>
+      </ul>
+    </div>
+
+    <!-- FIGURE 1: the fannkuch ladder, log axis (a 174x spread is unreadable linear). -->
+    <figure class="viz-root" id="fig-ladder">
+      <style>
+        #fig-ladder{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fl-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --fl-border:rgba(11,11,11,0.10);
+          --bar:#2a78d6;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fl-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-ladder{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fl-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --fl-border:rgba(255,255,255,0.10);
+            --bar:#3987e5;
+          }
+        }
+        :root[data-theme="dark"] #fig-ladder{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fl-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --fl-border:rgba(255,255,255,0.10);
+          --bar:#3987e5;
+        }
+        #fig-ladder .fl-head{padding:18px 20px 2px}
+        #fig-ladder .fl-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-ladder .fl-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-ladder .fl-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-ladder svg{display:block;width:100%;min-width:480px;height:auto}
+        #fig-ladder .fl-grid{stroke:var(--grid);stroke-width:1}
+        #fig-ladder .fl-axis{stroke:var(--axis);stroke-width:1}
+        #fig-ladder .fl-tick{fill:var(--fl-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-ladder .fl-cat{fill:var(--text-primary);font-size:12.5px;font-weight:600}
+        #fig-ladder .fl-cat-sub{fill:var(--fl-muted);font-size:10.5px}
+        #fig-ladder .fl-val{fill:var(--text-primary);font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+        #fig-ladder .fl-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-ladder .fl-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fl-muted)}
+        #fig-ladder rect{cursor:default}
+      </style>
+      <div class="fl-head">
+        <p class="fl-title">fannkuch-redux, n=10: four languages, one array-shuffling job</p>
+        <p class="fl-sub">Milliseconds to finish, lower is better. <strong>The axis is logarithmic</strong> &mdash; on a linear scale the 173.7&times; spread would put three of these four bars inside a few pixels. C and Go are effectively tied; the story is the two jumps to their right.</p>
+      </div>
+      <div class="fl-plot">
+        <svg id="fl-svg" viewBox="0 0 760 260" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis. C with O2: 185.5 milliseconds. Go: 191.3 milliseconds. Ruby 4.0.6: 2,492 milliseconds. Hey at 473a: 32,215 milliseconds."></svg>
+      </div>
+      <p class="fl-foot">Same linux box (i7-1165G7), same session, lanes interleaved, medians of 5, every answer checked against the reference output before timing counted. Hey at 473a; dated log entry 2026-07-30. The Ruby lanes shared the box in this cell (fair within a rep, contended across cells); on a quiet box the Hey/C ratio measured 161&times; (471a cell). Direct-labeled bars, one series, so no legend; hover a bar for its condition line.</p>
+    </figure>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'C -O2',      sub:'the reference',                          ms:185.5, disp:'185.5 ms', src:'linux i7-1165G7, medians of 5, dated log 2026-07-30'},
+        {label:'Go',         sub:'1.03× of C',                        ms:191.3, disp:'191.3 ms', src:'linux i7-1165G7, medians of 5, dated log 2026-07-30'},
+        {label:'Ruby 4.0.6', sub:'13.4× of C — corrected row',   ms:2492,  disp:'2,492 ms', src:'current stable Ruby; the corrected row — see section 2'},
+        {label:'Hey 473a',   sub:'every array access is a call',           ms:32215, disp:'32,215 ms', src:'173.7× of C on this shared-box cell; 161× on the quiet-box 471a cell'}
+      ];
+      var W=760,H=260,L=220,R=95,T=26,B=46;
+      var LO=150,HI=45000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      var TICKS=[200,500,1000,2000,5000,10000,20000,40000];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="fl-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="fl-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v.toLocaleString()+'</text>');
+      });
+      o.push('<text class="fl-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">milliseconds to finish, fannkuch-redux n=10 — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=20, gapPx=2;
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.ms)-L,2);
+        o.push('<text class="fl-cat" x="'+(L-12)+'" y="'+(cy-2).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="fl-cat-sub" x="'+(L-12)+'" y="'+(cy+12).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="var(--bar)"><title>'+r.label+': '+r.disp+' — '+r.src+'</title></rect>');
+        o.push('<text class="fl-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+r.disp+'</text>');
+      });
+      o.push('<line class="fl-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('fl-svg').innerHTML=o.join('');
+    })();
+    </script>
+
+    <div class="aside">
+      <h3>How to read these numbers</h3>
+      <p>
+        Every timing in this article names its box, its version, and its instrument, because the
+        numbers do not transfer without them. The linux figures come from a 4-core i7-1165G7;
+        timings are medians of 5 with the competing lanes interleaved (run A, B, C, A, B, C&hellip;
+        rather than all of A then all of B), and no timing counts unless the program's output first
+        matches the reference answer. The Darwin (macOS) figures are allocation <em>counts</em>, not
+        timings &mdash; counts don't care about load, which is why they could be taken on a busy
+        machine. Cross-machine numbers are never merged: where the two venues disagree below, the
+        disagreement is stated, not averaged. "Quiet box" means nothing else was running;
+        "shared box" cells say so.
+      </p>
+    </div>
+
+    <h2>1. Two numbers that should not coexist: 1.056&times; and 161&times;</h2>
+    <p>
+      Hey is usually benchmarked against Go and Ruby on web serving and scripting, where it does
+      well. This article is about the benchmark where it does worst.
+      <a href="https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/fannkuchredux.html">fannkuch-redux</a>
+      is a classic from the Computer Language Benchmarks Game: take a small array of integers,
+      repeatedly reverse prefixes of it, count the flips. No I/O, no strings, no memory growth
+      &mdash; just reads, writes, and compares against one tiny array, tens of millions of times.
+      It is the purest measurement of one question a benchmark can ask: <strong>what does it cost
+      this language to touch an element of a collection?</strong>
+    </p>
+    <p>
+      Here is the pair of measurements that frames everything else. On a registers-only integer
+      recurrence &mdash; arithmetic that never touches an array &mdash; compiled Hey runs at
+      <strong>1.056&times; the speed of C</strong>: within 6%, close enough that nobody would
+      bother optimizing it (linux box, value-representation research note, 2026-07-30). On
+      fannkuch, the quiet-box figure is <strong>161&times;</strong> of C
+      (<abbr class="ver" title="v0.99.471a">471a</abbr>, same linux box).
+    </p>
+    <p>
+      <strong>The same compiler cannot be both "6% behind C" and "161&times; behind C" unless the
+      two benchmarks are buying different things.</strong> They are. The recurrence spends its time
+      on arithmetic, which Hey compiles to the same machine instructions C uses. fannkuch spends
+      its time on array accesses &mdash; and in Hey today, every one of those is a function call
+      into the runtime. The entire gap lives in that difference. The rest of this article is the
+      receipts.
+    </p>
+
+    <h2>2. The honest ladder &mdash; including the correction that goes against us</h2>
+    <p>
+      First, the ladder itself, because an earlier version of it was wrong in Hey's favor and the
+      correction is part of the record. The project had published that Hey ran "about 3&times;
+      behind Ruby" on this benchmark. That cell was real, but it was measured against the macOS
+      <em>system</em> Ruby &mdash; version 2.6, end-of-life, three major versions old &mdash; on a
+      busy box. Re-measured on 2026-07-30 against current stable Ruby 4.0.6, same box, same
+      session, lanes interleaved: the honest number is <strong>12.93&times; behind Ruby</strong>.
+      Nothing about Hey changed between the two cells. The bar we had published was artificially
+      low, and modern Ruby is a much faster interpreter than the folklore says.
+    </p>
+    <p>
+      The corrected ladder (fannkuch-redux n=10, linux i7-1165G7, Hey at
+      <abbr class="ver" title="v0.99.473a">473a</abbr>, medians of 5, interleaved, oracle-checked;
+      dated log 2026-07-30): <strong>C&nbsp;-O2 185.5&nbsp;ms &middot; Go
+      191.3&nbsp;ms &middot; Ruby&nbsp;4.0.6 2,492&nbsp;ms &middot; Hey 32,215&nbsp;ms</strong>
+      &mdash; Hey/C 173.7&times; on this shared-box cell, 161&times; on the quiet-box
+      <abbr class="ver" title="v0.99.471a">471a</abbr> cell. Two side measurements from the same
+      session sharpen the picture: Ruby's YJIT bought 1.0002&times; &mdash; nothing &mdash; on this
+      shape, and its brand-new ZJIT made the workload 2.06&times; <em>slower</em>, so the Ruby
+      column stays plain interpreter, its best mode here. This shape defeats JITs and interpreters
+      alike for the same reason it exposes Hey: it is nothing but accesses.
+    </p>
+    <p class="muted">
+      One more disclosed cost riding on this ladder: a float-correctness landing
+      (<abbr class="ver" title="v0.99.472a">472a</abbr>) made fannkuch <strong>+11.0% &plusmn;
+      1.4% slower</strong> (linux, interleaved A/B, C control flat) &mdash; correctness paid for
+      with per-operation allocation, localized to the boxed-arithmetic change, corroborated by a
+      matching rise in allocation counts. Every Hey cell in this article brackets its version for
+      exactly this reason.
+    </p>
+    <p>
+      Why publish a correction that makes our own number four times worse? Because the whole
+      argument that follows &mdash; the bill of materials, the fix, the miss, the plan &mdash;
+      rests on measurement, and a measurement is only worth citing if it gets published whichever
+      way it lands. Every future Ruby row prints its interpreter version.
+    </p>
+
+    <h2>3. What one array read buys: a function call and a 32-byte box</h2>
+    <p>
+      In C, <code>a[j]</code> compiles to one load instruction: base address plus offset, done. In
+      compiled Hey today, the same expression compiles to a call into the runtime &mdash; a real C
+      function, one per read, no exceptions. Neither of Hey's two code generators knows the memory
+      layout of a runtime value; every collection access goes through the front door. Here is what
+      that front door does on the <em>hot</em> path &mdash; an ordinary in-range integer read from
+      an ordinary array (runtime source, trunk of the
+      <abbr class="ver" title="v0.99.474a">474a</abbr> era):
+    </p>
+    <ul>
+      <li><strong>A range probe, first.</strong> Before the array case is even considered, a helper
+        call checks whether the collection is a range like <code>1..10</code> &mdash; on every
+        read, including the tens of millions where it never is.</li>
+      <li><strong>Type dispatch and a two-sided bounds check.</strong> This part is legitimate and
+        cheap; C skips it, but safe languages shouldn't.</li>
+      <li><strong>A clone of the element.</strong> For an integer this is just a copy &mdash; but
+        it unconditionally runs profiling-counter bookkeeping and a statistics hook on the way
+        through.</li>
+      <li><strong>A fresh 32-byte heap allocation.</strong> The element is returned inside a newly
+        allocated <dfn>transport box</dfn> &mdash; a 32-byte tagged container (4-byte type tag plus
+        a 24-byte value union, padded) whose only job is to carry the value back to the caller.</li>
+      <li><strong>An unboxing call.</strong> The caller, which usually wanted a plain 64-bit
+        integer all along, calls another helper to take the value back <em>out</em> of the box
+        &mdash; and should then free the box.</li>
+    </ul>
+    <p>
+      Allocating a fresh box to read a number you are about to immediately unwrap is paying for
+      gift-wrap on something you open in the same aisle. And the "should then free" is not
+      rhetorical: one of the project's own pinned code-generator outputs shows <strong>6 read calls
+      but only 5 release calls</strong> &mdash; the free is not always emitted, which becomes
+      measurable in section 5.
+    </p>
+    <p>
+      Writes are worse. The measured <strong>budget of record is ~38&nbsp;ns per
+      element store</strong> (linux, -O2-corrected cell, 2026-07-30), and counting &mdash; not
+      profiling, counting &mdash; showed each store performs <strong>two</strong> of those 32-byte
+      box allocations: one to carry the value in, one inside the store machinery itself. Two
+      mallocs and two frees, per element, per store, in a benchmark that stores elements tens of
+      millions of times. Meanwhile the fannkuch inner loop's arithmetic compiles inline: a census
+      of the compiled loop body (linux, measured) counts <strong>9 element-read calls, 5 unboxing
+      calls, 8 boxing calls, and zero arithmetic helper calls</strong>. The math is already free.
+      The touching is not.
+    </p>
+
+    <h2>4. The fix that worked &mdash; and the prediction it killed</h2>
+    <p>
+      The obvious first fix: fuse the swap. fannkuch's hottest write is
+      <code>set a = put(a, dst, a[src])</code> &mdash; read an element, store it elsewhere. A fused
+      runtime helper does the read half and the store half in one call, so the transport box that
+      only existed to carry the value between the two calls is never allocated at all. That fix is
+      built and branch-ready (linux, 2026-07-30), and its receipt is exact:
+      <strong>allocations per store went from 2.000 to 1.000</strong> &mdash; not roughly,
+      <em>exactly</em>, by count &mdash; and the store path got <strong>22.7% faster</strong>.
+    </p>
+    <p>
+      Here is the part that makes this article worth writing. Before that fix ran, the team wrote
+      down what the result would mean either way &mdash;
+      <a class="gloss" href="glossary.html#pre-registration" data-def="Publishing a prediction and the specific result that would prove it wrong before running the experiment, so the outcome can be judged either way.">pre-registration</a>,
+      borrowed from clinical trials. The registered prediction: if allocation is the whole story,
+      removing one of two allocation pairs should roughly halve the per-store budget. The
+      registered contingency: if it does not halve, <em>allocation is not the whole cost &mdash;
+      stop and re-decompose before building the next allocation fix</em>.
+    </p>
+    <p>
+      <strong>It did not halve. The prediction was scored a MISS</strong> &mdash; removing the pair
+      bought ~9&nbsp;ns, not the ~19 the halving story required &mdash; <strong>and the miss
+      re-priced the story.</strong> One malloc/free pair of this size costs ~9&nbsp;ns on that box.
+      Two pairs, if the second costs the same (an assumption, flagged below), account for
+      ~18&nbsp;ns of the ~38. The remaining <strong>~20&nbsp;ns is everything else in section 3's
+      list: the call itself, the range probe, the dispatch, the clone bookkeeping.</strong>
+      Allocation is about half the tax. The function call is the other half.
+    </p>
+
+    <!-- FIGURE 2: the ~38 ns budget decomposition. Static SVG, single stacked bar,
+         segment identity carried by direct labels + lightness (not hue alone);
+         the assumed segment additionally carries a dashed outline. -->
+    <figure class="viz-root" id="fig-budget">
+      <style>
+        #fig-budget{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fb-muted:#898781;
+          --fb-border:rgba(11,11,11,0.10);
+          --seg-a:#2a78d6; --seg-b:#7fb0e8; --seg-c:#8a8880; --bracket:#c3c2b7;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fb-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-budget{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fb-muted:#898781;
+            --fb-border:rgba(255,255,255,0.10);
+            --seg-a:#3987e5; --seg-b:#6d9fd8; --seg-c:#a5a39b; --bracket:#383835;
+          }
+        }
+        :root[data-theme="dark"] #fig-budget{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fb-muted:#898781;
+          --fb-border:rgba(255,255,255,0.10);
+          --seg-a:#3987e5; --seg-b:#6d9fd8; --seg-c:#a5a39b; --bracket:#383835;
+        }
+        #fig-budget .fb-head{padding:18px 20px 2px}
+        #fig-budget .fb-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-budget .fb-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-budget .fb-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-budget svg{display:block;width:100%;min-width:520px;height:auto}
+        #fig-budget .fb-lab{fill:var(--text-primary);font-size:12.5px;font-weight:650}
+        #fig-budget .fb-lab-sub{fill:var(--fb-muted);font-size:10.5px}
+        #fig-budget .fb-brk{stroke:var(--bracket);stroke-width:1.5;fill:none}
+        #fig-budget .fb-brklab{fill:var(--text-secondary);font-size:11.5px;font-weight:600}
+        #fig-budget .fb-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fb-muted)}
+      </style>
+      <div class="fb-head">
+        <p class="fb-title">Where the ~38 ns per element store goes</p>
+        <p class="fb-sub">The fusion fix removed the left segment &mdash; measured, exactly one allocation pair. The middle segment is an <strong>assumption</strong> (drawn with a dashed edge): the second pair is assumed to cost the same and was never measured directly. The right segment is what this article is about.</p>
+      </div>
+      <div class="fb-plot">
+        <svg viewBox="0 0 760 250" role="img"
+             aria-label="Single stacked horizontal bar totaling about 38 nanoseconds per element store. Allocation pair one: about 9 nanoseconds, measured by removing it. Allocation pair two: about 9 nanoseconds, assumed equal, never measured. The call itself: about 20 nanoseconds, by subtraction.">
+          <!-- brackets: allocation ~18 ns (half) vs the call ~20 ns (half) -->
+          <path class="fb-brk" d="M 20 66 L 20 58 L 360.4 58 L 360.4 66"/>
+          <text class="fb-brklab" x="190.2" y="48" text-anchor="middle">allocation: ~18 ns &mdash; about half</text>
+          <path class="fb-brk" d="M 364.4 66 L 364.4 58 L 738.8 58 L 738.8 66"/>
+          <text class="fb-brklab" x="551.6" y="48" text-anchor="middle">the call: ~20 ns &mdash; the other half</text>
+          <!-- the bar: 18.8 px per ns, 2 px surface gaps between segments -->
+          <rect x="20"    y="80" width="169.2" height="34" rx="4" fill="var(--seg-a)"><title>Allocation pair 1: ~9 ns &mdash; measured by removing it (linux, 2026-07-30)</title></rect>
+          <rect x="191.2" y="80" width="169.2" height="34" rx="4" fill="var(--seg-b)" stroke="var(--text-secondary)" stroke-width="1.5" stroke-dasharray="5 4"><title>Allocation pair 2: ~9 ns &mdash; ASSUMED equal to pair 1; never measured directly</title></rect>
+          <rect x="364.4" y="80" width="374.4" height="34" rx="4" fill="var(--seg-c)"><title>The call itself: ~20 ns residual, by subtraction &mdash; dispatch, range probe, clone bookkeeping</title></rect>
+          <!-- per-segment labels below, anchored at segment centers -->
+          <line x1="104.6" y1="118" x2="104.6" y2="130" stroke="var(--bracket)" stroke-width="1"/>
+          <text class="fb-lab" x="104.6" y="146" text-anchor="middle">pair #1 &middot; ~9 ns</text>
+          <text class="fb-lab-sub" x="104.6" y="161" text-anchor="middle">measured, by removing it</text>
+          <line x1="275.8" y1="118" x2="275.8" y2="176" stroke="var(--bracket)" stroke-width="1"/>
+          <text class="fb-lab" x="275.8" y="192" text-anchor="middle">pair #2 &middot; ~9 ns</text>
+          <text class="fb-lab-sub" x="275.8" y="207" text-anchor="middle">assumed equal &mdash; never measured</text>
+          <line x1="551.6" y1="118" x2="551.6" y2="130" stroke="var(--bracket)" stroke-width="1"/>
+          <text class="fb-lab" x="551.6" y="146" text-anchor="middle">the call itself &middot; ~20 ns</text>
+          <text class="fb-lab-sub" x="551.6" y="161" text-anchor="middle">dispatch + range probe + clone bookkeeping, by subtraction</text>
+        </svg>
+      </div>
+      <p class="fb-foot">Budget of record: ~38 ns per element store, linux i7-1165G7, -O2-corrected cell, dated log 2026-07-30. Pair #1's ~9 ns was measured by building a version without it (the fusion fix, allocations/store 2.000 &rarr; 1.000 exact). Pair #2 was never isolated; the ~20 ns residual is a subtraction, and inherits pair #2's uncertainty. Segment identity is carried by the labels, not by color.</p>
+    </figure>
+
+    <p>
+      Why did the whole benchmark barely move when the fusion fix ran (about &minus;0.7% on
+      fannkuch, linux)? Because after earlier store work, fannkuch's time is dominated by exactly
+      the accesses the fusion does <em>not</em> cover: the flip-count loop's compares, the probe
+      reads, the reads feeding arithmetic &mdash; the census from section 3. The fusion fix is a
+      real 22.7% on the path it covers. The story's center of gravity just isn't on that path.
+      It's on the call.
+    </p>
+
+    <h2>5. Counting on a second machine: an exact 1.000 &mdash; and a leak</h2>
+    <p>
+      Before building the next fix, the project priced the problem on a second venue &mdash; a
+      Darwin (macOS) box &mdash; using pure allocation counts, which don't care whether the machine
+      is busy. Three one-line shapes, one million iterations each, a 64-element integer array, Hey
+      <abbr class="ver" title="v0.99.474a">474a</abbr>, script lane, counters on via
+      <code>HEY_ALLOC_STATS=1</code>. The probe ran twice; the counts were identical to the digit.
+    </p>
+    <table>
+      <thead><tr><th>Shape (per iteration)</th><th class="number">Allocations</th><th class="number">Bytes</th><th class="number">Frees</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td><code>let x = a[1]</code></td><td class="number"><strong>1.000</strong></td><td class="number">32</td><td class="number">1.000</td><td>balanced &mdash; one transport box per bare read, exactly</td></tr>
+        <tr><td><code>let x = a[1] + 1</code></td><td class="number"><strong>3.000</strong></td><td class="number">96</td><td class="number">3.000</td><td>balanced &mdash; but <strong>three</strong> boxes to read one number and add one to it</td></tr>
+        <tr><td><code>if a[1] &gt; a[2]</code></td><td class="number"><strong>2.000</strong></td><td class="number">64</td><td class="number"><strong>0</strong></td><td><strong>leak &mdash; 64 bytes per compare, this venue</strong></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Darwin box, 474a, script (driver) lane, M=1,000,000 per shape, N=64 integer array,
+      integer-literal index, <code>HEY_ALLOC_STATS=1</code>; evidence archived in the project's
+      dated benchmark cells (2026-07-30), two runs, identical counts.
+    </p>
+    <p>
+      Three findings travel with their conditions. First, the bare read's cost is <strong>exactly
+      one 32-byte box</strong> &mdash; 1.000, not 1.02 &mdash; which gives the coming fix a
+      beautifully falsifiable target: 0.000. Second, <strong>the compare shape leaks both of its
+      boxes</strong>: two allocations, zero frees, 64 bytes gone per iteration, on this venue
+      &mdash; the missing-release defect from section 3's pinned output, now measured. fannkuch's
+      innermost test, "is this element bigger than that one," is <em>exactly this shape</em>. The
+      linux box independently found a member of the same leak family on arithmetic shapes with a
+      completely different instrument (a malloc-interposing library, compiled lane); different
+      venue, different instrument, both stated here, deliberately not merged. Third, read-plus-add
+      costs <strong>three</strong> boxes on this venue where linux's instrument reports one
+      allocation and zero frees for the same spelling &mdash; a cross-venue divergence that is
+      flagged, not reconciled. The honest sentence is "we measured different things on different
+      machines and wrote both down."
+    </p>
+    <div class="aside">
+      <h3>Sidebar: the instrument that reads zero</h3>
+      <p>
+        The allocation counters that produced the table above are compiled in but <em>gated</em>:
+        without <code>HEY_ALLOC_STATS=1</code> in the environment, every counter reads zero. A
+        counter that reports zero allocations is either very good news or a counter that isn't
+        plugged in, and the two feel identical right up until you publish. The probe therefore
+        carries a blindness arm: shapes that are <em>known</em> to allocate (string building,
+        array append) run alongside as a <dfn>positive control</dfn> &mdash; if they ever read
+        zero, the instrument is blind and the whole cell is discarded, the mirror image of a
+        <a class="gloss" href="glossary.html#negative-control" data-def="A check designed to come out empty if your worry is unfounded, so that an empty result is evidence rather than absence of effort.">negative control</a>.
+        Both arms are archived with the cell. An instrument is trusted only after it has been seen
+        reading both something and nothing, for known reasons.
+      </p>
+    </div>
+
+    <h2>6. The lever every fast language pulled: inline the access</h2>
+    <p>
+      None of this is a novel disease, and the cure has a long literature &mdash; surveyed at
+      length in this site's companion piece,
+      <a href="boxed-values-and-fast-languages.html">"Boxed Values and Fast Languages,"</a> so
+      here is just the shape of it. Every dynamic language that got fast at array code did it by
+      making the common-case element access stop being a call into a general-purpose runtime
+      function. PyPy's <em>storage strategies</em>
+      (<a href="https://doi.org/10.1145/2509136.2509531">Bolz, Diekmann, Tratt &mdash; OOPSLA
+      2013</a>) keep a list of integers as a flat machine-integer array and specialize the access
+      to a direct load. V8 tracks
+      <a href="https://v8.dev/blog/elements-kinds">"elements kinds"</a> per array so a JavaScript
+      array of small integers reads with a raw indexed load, no boxing anywhere. Julia's
+      <a href="https://docs.julialang.org/en/v1/devdocs/isbitsunionarrays/"><code>isbits</code>
+      layout rules</a> (<a href="https://doi.org/10.1137/141000671">Bezanson, Edelman, Karpinski,
+      Shah &mdash; SIAM Review 2017</a>) make an <code>Array{Int64}</code> literally a block of
+      integers, accessed like C's.
+    </p>
+    <p>
+      The project's own value-representation research note (linux, 2026-07-30) ranks this lever
+      first and calls the shim-call barrier <strong>"the term they never pay"</strong> &mdash;
+      the one cost in Hey's access bill with no counterpart in any of the fast systems above, and
+      the one C never pays either, because C's access <em>is</em> the load. It is also, unusually
+      for a rank-one lever, low-risk in Hey's case: reads don't mutate anything, so the change is
+      neutral to the language's immutability guarantees, and it needs no speculative guards and no
+      deoptimization machinery of the kind JITs pay for &mdash; the type knowledge it relies on is
+      already computed by the compiler for other purposes.
+    </p>
+
+    <h2>7. The punchline for Hey: two steps, and the gate the first one must pass</h2>
+    <p>
+      <strong>Status, stated plainly: what follows is designed and priced, not built.</strong>
+      The measurements above are real; the fix is a plan with published predictions, and this
+      article ends on the gate, not on results that don't exist yet.
+    </p>
+    <p>
+      <strong>Step one: a read helper that returns the bare integer.</strong> Today's read helper
+      always returns a freshly allocated box. The designed change adds a sibling that returns the
+      raw 64-bit integer directly &mdash; no box, no unboxing call, no clone bookkeeping &mdash;
+      and the compiler emits it only where it can already prove the consumer wants an integer
+      (a compare, arithmetic, an integer binding), using type knowledge both code generators
+      already maintain. There is precedent in the tree: the string-keyed lookup already has
+      exactly such an unboxed twin; the array-indexed lookup simply never got one. Per covered
+      read this deletes the 32-byte allocation and free, the unboxing call, and the clone
+      preamble &mdash; and where no box is ever allocated, section 5's compare-shape leak has
+      nothing left to leak. What it keeps: one call, the range probe, the type dispatch.
+    </p>
+    <p>
+      <strong>Step two &mdash; maybe: the true inline.</strong> Emit the type guard, the bounds
+      check, and the direct element load as machine code at the call site, with the general helper
+      kept as the slow path. That is C's price, and it is what "the term they never pay"
+      ultimately means. It is also a bigger bet: it requires teaching both code generators the
+      memory layout of a runtime value, which today neither knows &mdash; there is no precedent
+      for it in the tree. Whether step two is worth building is precisely what step one's
+      measurement decides: step one removes the box while keeping the call, so the difference it
+      measures <em>is</em> the price of the box, and what remains <em>is</em> the price of the
+      call.
+    </p>
+    <p>
+      And that measurement is already committed to, in writing, before any code. The pricing
+      protocol is pre-registered, and it runs a measurement-only prototype (a hand-patched probe,
+      the same method that priced the fusion fix) before the compiler change is built:
+    </p>
+    <ul>
+      <li><strong>Prediction 1:</strong> allocations per covered read go from exactly 1.000 to
+        exactly <strong>0.000</strong>, flat across array sizes.</li>
+      <li><strong>Prediction 2:</strong> the timing delta between the stock and patched versions
+        <em>is</em> the Darwin price of box-plus-unbox-plus-bookkeeping per read. No magnitude is
+        predicted &mdash; this cell exists to produce that number, and the linux ~9&nbsp;ns pair
+        cost is not assumed to transfer across operating systems.</li>
+      <li><strong>Prediction 3:</strong> both versions stay flat as the array grows (8, 64, 512
+        elements) &mdash; size-independence preserved.</li>
+      <li><strong>Prediction 4:</strong> whole-benchmark movement on fannkuch is <em>measured
+        when the compiler change lands, never projected</em> from the prototype &mdash; the same
+        house rule that already caught one optimistic projection this week.</li>
+      <li><strong>The registered contingency:</strong> if Prediction 1 holds but the timing delta
+        is small, then dispatch and call overhead dominate even without the box &mdash; step one
+        alone is not the fix, step two rises, and the budget gets re-decomposed before either is
+        built. This is the same contingency structure that scored the fusion fix's MISS, doing
+        its job a second time.</li>
+      <li><strong>The falsification arm:</strong> deliberately patch the <em>wrong</em> call site
+        (a string-keyed read) &mdash; the output-checking oracle must break; and turning the
+        change off must restore the binary byte-for-byte. A
+        <a class="gloss" href="glossary.html#gate" data-def="A test wrapper that prints one plain green-or-red line; a commit requires every gate green. A gate that can never turn red isn't testing anything.">gate</a>
+        is trusted only after it has been seen returning <em>both</em> verdicts.</li>
+    </ul>
+    <p>
+      That is where this story ends today: not with a benchmark bar shrinking, but with the
+      predictions that will judge the attempt already published, misses scored at the same volume
+      as hits, and the one number that decides everything &mdash; what the call itself costs once
+      the box is gone &mdash; queued to be measured rather than guessed. The last fix's prediction
+      died in public and left behind a better map. This one was written down first on purpose.
+    </p>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>boxed value / transport box</dt>
+      <dd>A value wrapped in a heap-allocated tagged container (in Hey, 32 bytes: type tag plus
+        value union) so generic runtime code can handle any type through one shape. "Unboxing" is
+        taking the raw value back out.</dd>
+      <dt>malloc / free</dt>
+      <dd>The C runtime's heap allocation and deallocation calls. "Two mallocs per store" means
+        two heap allocations happen for every element written.</dd>
+      <dt>ms / ns</dt>
+      <dd>Milliseconds (thousandths of a second) and nanoseconds (billionths). A modern CPU core
+        executes a few instructions per nanosecond, which is why a ~38 ns store is expensive: it
+        is roughly a hundred instruction-times for what C does in one.</dd>
+      <dt>interleaved (runs)</dt>
+      <dd>Alternating the competing programs rep by rep (A, B, C, A, B, C&hellip;) instead of
+        running each in a block, so slow drift in the machine's state hits all lanes equally.</dd>
+      <dt>median of 5</dt>
+      <dd>Run five times, report the middle value &mdash; robust against a single unlucky rep.</dd>
+      <dt>oracle-checked</dt>
+      <dd>The program's output is compared against a known-correct reference answer before its
+        timing is allowed to count. Fast and wrong scores zero.</dd>
+      <dt>quiet box</dt>
+      <dd>A machine verified to be running nothing else during the measurement. Cells from a
+        shared (busy) box say so explicitly.</dd>
+      <dt>lane</dt>
+      <dd>How the program was executed: the script lane runs via the toolchain driver; the
+        compiled lane runs a standalone built binary. Numbers name their lane because the two
+        differ.</dd>
+      <dt>positive control</dt>
+      <dd>A case that must produce a non-zero reading if the instrument works at all &mdash; run
+        alongside the real measurement so "zero" can be distinguished from "blind."</dd>
+      <dt>pre-registration</dt>
+      <dd>Publishing a prediction, and the result that would prove it wrong, before running the
+        experiment &mdash; so the outcome is judgeable either way. See the
+        <a href="glossary.html#pre-registration">shared glossary</a>.</dd>
+      <dt>residual (by subtraction)</dt>
+      <dd>The part of a measured total left over after the directly measured parts are subtracted.
+        It inherits the uncertainty of every assumption in the subtraction &mdash; which is why
+        this article flags the ~20 ns as such.</dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="../dailies/2026-07-30-the-full-ladder.html">Daily report, 2026-07-30: "The Full
+        Ladder,"</a> section "Tight loops &mdash; fannkuch, and the Ruby correction" &mdash; the
+        corrected same-box ladder (C 185.5 / Go 191.3 / Ruby 2,492 / Hey 32,215 ms), the Ruby
+        2.6&rarr;4.0.6 correction, the YJIT/ZJIT cells, the +11.0% &plusmn; 1.4% cost of the
+        <abbr class="ver" title="v0.99.472a">472a</abbr> landing, and the fusion-fix receipt
+        (2.000&rarr;1.000, &minus;22.7%)</li>
+      <li><a href="boxed-values-and-fast-languages.html">"Boxed Values and Fast Languages"</a>
+        &mdash; this site's literature survey on value representation; the primary sources for
+        section 6 are drawn from its verified reference list</li>
+      <li>Carl Friedrich Bolz, Lukas Diekmann, Laurence Tratt. "Storage Strategies for Collections
+        in Dynamically Typed Languages." OOPSLA 2013. DOI:
+        <a href="https://doi.org/10.1145/2509136.2509531">10.1145/2509136.2509531</a></li>
+      <li>V8 team. <a href="https://v8.dev/blog/elements-kinds">"Elements Kinds in V8,"</a> V8
+        Blog</li>
+      <li>Julia contributors,
+        <a href="https://docs.julialang.org/en/v1/devdocs/isbitsunionarrays/">"isbits Union
+        Optimizations,"</a> Julia Developer Documentation; Jeff Bezanson, Alan Edelman, Stefan
+        Karpinski, Viral B. Shah. "Julia: A Fresh Approach to Numerical Computing." SIAM Review
+        59(1), 2017. DOI: <a href="https://doi.org/10.1137/141000671">10.1137/141000671</a></li>
+      <li><a href="https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/fannkuchredux.html">fannkuch-redux
+        description</a> &mdash; the Computer Language Benchmarks Game</li>
+      <li>Local receipt: the Hey runtime source (trunk of the
+        <abbr class="ver" title="v0.99.474a">474a</abbr> era) &mdash; the indexed-read helper's
+        hot path and the 32-byte value-box layout read directly from the tree; the pinned
+        code-generator output with 6 read calls and 5 release calls</li>
+      <li>Local receipt: the three-shape allocation-count cells, Darwin box,
+        <abbr class="ver" title="v0.99.474a">474a</abbr>, 2026-07-30 &mdash; archived in the
+        project's dated benchmark evidence, including both instrument-blindness arms</li>
+      <li>Local receipts: dated linux log entries, 2026-07-30 &mdash; the ~38 ns per-store budget
+        of record and its decomposition, the pre-registered contingency and its MISS scoring, the
+        fannkuch inner-loop call census, and the value-representation lever table ("the term they
+        never pay")</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Sourced from the bench seat's research brief of 2026-07-30 on the cost of an indexed read in
+      compiled Hey, the dated measurement logs it cites, and this site's value-representation
+      literature survey. Timings and counts carry their box, version, lane, and instrument
+      throughout; cross-machine numbers are reported separately, never merged. The inline-the-access
+      change described in section 7 is designed and pre-registered, not built; its results will be
+      published with the same conditions attached, whichever way they land.
+    </p>
+    <p class="vernote">Version numbers are shown short: <abbr class="ver" title="v0.99.473a">473a</abbr>
+      means v0.99.473a &mdash; the pre-beta series.</p>
+  </footer>
+
+  <script>
+  (function(){
+    var pop=null, current=null;
+    function closePop(){
+      if(pop){ pop.remove(); pop=null; current=null;
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('click', onDocClick, true); }
+    }
+    function onKey(e){ if(e.key==='Escape') closePop(); }
+    function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
+    function openPop(a){
+      if(current===a){ closePop(); return; }
+      closePop(); current=a;
+      pop=document.createElement('div');
+      pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
+      var def=document.createElement('p');
+      def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
+      var link=document.createElement('a');
+      link.href=a.getAttribute('href'); link.className='gloss-pop-link';
+      link.textContent='Full entry →';
+      pop.appendChild(def); pop.appendChild(link);
+      document.body.appendChild(pop);
+      var r=a.getBoundingClientRect();
+      var top=window.scrollY + r.bottom + 6;
+      var left=window.scrollX + r.left;
+      var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      pop.style.top=top+'px';
+      pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('click', onDocClick, true);
+    }
+    document.querySelectorAll('a.gloss').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
+      a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
+    });
+  })();
+  </script>
+</body>
+</html>
