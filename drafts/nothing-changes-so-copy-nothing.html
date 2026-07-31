@@ -1,0 +1,743 @@
+<!doctype html>
+<!-- EDITOR NOTE — word budget: the house budget is 800-1200 words; this is a
+     commissioned research piece in the what-makes-an-actor-cheap class and runs
+     ~3,650 words of prose (excluding chart labels, glossary, sources). The
+     deviation is deliberate and was part of the commission; flagging it here per
+     the plan-of-record budget rule. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="In a language where nothing ever changes, no copy should ever be necessary — and a value that loses its last reference should simply vanish, with no pause. The literature behind that claim (Perceus, Lean, FP², ORCA, Swift), and the copies Hey still makes today, counted exactly.">
+  <meta name="article-date" content="2026-07-31">
+  <meta name="article-bucket" content="almost">
+  <meta name="article-desc" content="One runtime question — 'am I the only owner?' — is how immutable languages run within 10% of hand-mutated C++. We counted the copies Hey still makes (a single array read: exactly one clone and one 32-byte box) and mapped the fix that deletes each one.">
+  <title>Nothing Changes, So Copy Nothing</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .number { text-align: right; white-space: nowrap; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    .plan {
+      margin: 0 0 2rem;
+      padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e;
+      border-radius: 0.6rem;
+      background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; font-variant-numeric: tabular-nums; }
+    blockquote.pull { margin: 1.25rem 0; padding: 0.4rem 0 0.4rem 1rem; border-left: 3px solid var(--border); color: var(--muted); font-style: italic; }
+    .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+    .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+
+    /* glossary-term popover: static colors only, --border for the frame, an opaque
+       light-pinned surface + dark override (same recipe as the chart figures) so text
+       underneath never bleeds through. */
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Nothing Changes, So Copy Nothing</h1>
+    <p class="lede">
+      In a language where no value can ever change, no copy should ever be necessary &mdash; and when
+      a value loses its last reference, it should simply cease to exist, without the program ever
+      stopping to let a collector run. That sounds like a slogan. It's actually an engineering
+      program with a peer-reviewed literature, a measured ledger of exactly which copies Hey still
+      makes today, and a fix queue that deletes them one counted slice at a time.
+    </p>
+  </header>
+
+  <main>
+    <div class="plan">
+      <p class="plan-tag">Status: measured research, program in flight</p>
+      <p>
+        Every count and timing in this article was <strong>measured</strong>, with dated evidence, on
+        our own machines. The fixes it describes are at different stages and section&nbsp;6 states
+        which is which: one has landed (<abbr class="ver" title="v0.99.471a">471a</abbr>), one is
+        branch-ready but <strong>not merged</strong>, one is designed with its pricing measurements
+        in progress, and two are explicitly not yet started. Nothing unlanded is claimed as built.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h2>TL;DR</h2>
+      <ul>
+        <li><strong>The zero-copy program is worth building, and we are building it</strong> &mdash;
+          because the whole design reduces to one runtime question, <em>&ldquo;am I the only owner of
+          this value?&rdquo;</em>, and the languages that ask it well run immutable code
+          <strong>within 10% of hand-mutated C++</strong> on a 42-million-insertion tree benchmark
+          (Koka's Perceus, PLDI 2021).</li>
+        <li><strong>We counted the copies Hey still makes</strong>, on our macOS box at
+          <abbr class="ver" title="v0.99.474a">474a</abbr> with the runtime's own allocation
+          counters: reading one array element costs <strong>exactly 1.000</strong> clone-plus-box
+          per read (32 bytes each); a read feeding arithmetic costs <strong>3</strong> boxes; and
+          10,000 <code>push()</code> calls performed <strong>50,005,000</strong> element copies
+          &mdash; the n(n+1)/2 quadratic signature, read straight off a counter.</li>
+        <li><strong>First deletion measured:</strong> the store path's two allocations per write went
+          to <strong>one</strong> (exactly 2.000&nbsp;&rarr;&nbsp;1.000 by counter) for
+          <strong>&minus;22.7%</strong> time per store &mdash; that fix is branch-ready, not yet
+          merged. An earlier fix, landed at <abbr class="ver" title="v0.99.471a">471a</abbr>, already
+          removed a whole-array clone from the swap store.</li>
+        <li><strong>Disclosed weakness:</strong> a comparison between two array elements currently
+          <strong>leaks 64 bytes per iteration</strong> (2 boxes allocated, 0 released) on the
+          measured shape &mdash; and the biggest design choice here, eager freeing versus handing
+          reclamation to a collector actor, is <strong>not decided</strong>. It will be decided by a
+          pre-registered measurement, and we will publish whichever verdict wins.</li>
+        <li><strong>Reproducibility:</strong> the counts come from a small counting probe run with
+          the runtime's allocation counters enabled (<code>HEY_ALLOC_STATS=1</code>; with the flag
+          off they read zero, and the evidence cell archives that blindness check plus a positive
+          control). Every target is an exact integer &mdash; 2.000&nbsp;&rarr;&nbsp;1.000,
+          1.000&nbsp;&rarr;&nbsp;0.000 &mdash; so success and failure are both unambiguous.</li>
+      </ul>
+    </div>
+
+    <!-- FIGURE 1: copies per operation, counted. Log axis (1 to ~5,000 is unreadable linear). -->
+    <figure class="viz-root" id="fig-copies">
+      <style>
+        #fig-copies{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fc-muted:#898781;
+          --grid:#e1e0d9; --axis:#c3c2b7; --fc-border:rgba(11,11,11,0.10);
+          --bar:#2a78d6;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fc-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-copies{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fc-muted:#898781;
+            --grid:#2c2c2a; --axis:#383835; --fc-border:rgba(255,255,255,0.10);
+            --bar:#3987e5;
+          }
+        }
+        :root[data-theme="dark"] #fig-copies{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fc-muted:#898781;
+          --grid:#2c2c2a; --axis:#383835; --fc-border:rgba(255,255,255,0.10);
+          --bar:#3987e5;
+        }
+        #fig-copies .fc-head{padding:18px 20px 2px}
+        #fig-copies .fc-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-copies .fc-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-copies .fc-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-copies svg{display:block;width:100%;min-width:480px;height:auto}
+        #fig-copies .fc-grid{stroke:var(--grid);stroke-width:1}
+        #fig-copies .fc-axis{stroke:var(--axis);stroke-width:1}
+        #fig-copies .fc-tick{fill:var(--fc-muted);font-size:11px;font-variant-numeric:tabular-nums}
+        #fig-copies .fc-cat{fill:var(--text-primary);font-size:12.5px;font-weight:600}
+        #fig-copies .fc-cat-sub{fill:var(--fc-muted);font-size:10.5px}
+        #fig-copies .fc-val{fill:var(--text-primary);font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+        #fig-copies .fc-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
+        #fig-copies .fc-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fc-muted)}
+        #fig-copies rect{cursor:default}
+      </style>
+      <div class="fc-head">
+        <p class="fc-title">The copies an immutable language is still paying for, counted exactly</p>
+        <p class="fc-sub">Heap boxes or element copies performed per operation, read from the runtime's own allocation counters. <strong>The axis is logarithmic</strong> &mdash; on a linear scale the push bar would flatten the other three into a single pixel.</p>
+      </div>
+      <div class="fc-plot">
+        <svg id="fc-svg" viewBox="0 0 760 260" role="img"
+             aria-label="Horizontal bar chart, logarithmic axis. Read one element: 1 box. Compare two elements: 2 boxes, both leaked. Read plus arithmetic: 3 boxes. One push during a 10,000-element build: about 5,000 element copies on average."></svg>
+      </div>
+      <p class="fc-foot">Counted 2026-07-30 on our macOS box, Hey 474a, allocation counters on. Read/compare/arithmetic shapes: one million iterations each over a 64-element integer array; results exact and identical across two runs. Push: 10,000 calls performed 50,005,000 total element copies = n(n+1)/2, shown here as the per-call average. Hover any bar for its instrument.</p>
+    </figure>
+    <script>
+    (function(){
+      var ROWS=[
+        {label:'Read one element',      sub:'a[1] — one clone + one 32-byte box',        v:1,    txt:'1 box',          src:'allocation counter, exactly 1.000 per read'},
+        {label:'Compare two elements',  sub:'a[1] > a[2] — both boxes leak',             v:2,    txt:'2 boxes, leaked',src:'allocation counter: 2.000 allocated, 0 released — 64 bytes lost per iteration'},
+        {label:'Read + arithmetic',     sub:'a[1] + 1 — read box, unbox, re-box',        v:3,    txt:'3 boxes',        src:'allocation counter, 3.000 per iteration'},
+        {label:'One push(), averaged',  sub:'appending during a 10,000-element build',   v:5000, txt:'~5,000 copies',  src:'element-append counter: 50,005,000 copies across 10,000 pushes = n(n+1)/2'}
+      ];
+      var W=760,H=260,L=230,R=110,T=26,B=46;
+      var LO=0.7,HI=9000;
+      function px(v){return L+(Math.log(v)-Math.log(LO))/(Math.log(HI)-Math.log(LO))*(W-L-R);}
+      var TICKS=[1,10,100,1000];
+      var o=[];
+      TICKS.forEach(function(v){
+        o.push('<line class="fc-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
+        o.push('<text class="fc-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v.toLocaleString()+'</text>');
+      });
+      o.push('<text class="fc-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">heap boxes or element copies per operation — logarithmic scale</text>');
+      var bandH=(H-T-B)/ROWS.length, barH=20, gapPx=2;
+      ROWS.forEach(function(r,i){
+        var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=Math.max(px(r.v)-L,2);
+        o.push('<text class="fc-cat" x="'+(L-12)+'" y="'+(cy-2).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
+        o.push('<text class="fc-cat-sub" x="'+(L-12)+'" y="'+(cy+12).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
+        o.push('<rect x="'+L+'" y="'+(y+gapPx/2).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+(barH-gapPx)+'" rx="'+((barH-gapPx)/2).toFixed(1)+'" fill="var(--bar)"><title>'+r.label+': '+r.src+'</title></rect>');
+        o.push('<text class="fc-val" x="'+(L+w+10).toFixed(1)+'" y="'+(cy+4).toFixed(1)+'">'+r.txt+'</text>');
+      });
+      o.push('<line class="fc-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
+      document.getElementById('fc-svg').innerHTML=o.join('');
+    })();
+    </script>
+
+    <div class="aside">
+      <h3>How to read these numbers</h3>
+      <p>
+        The copy counts come from the runtime's own allocation counters &mdash; enabled by an
+        environment flag (<code>HEY_ALLOC_STATS=1</code>); with the flag off they read zero, and the
+        evidence log archives both that blindness check and a positive control that proves the
+        counters can see real allocations. Counts are load-independent: they don't care whether the
+        machine was busy. The <em>timings</em> (the &minus;22.7% per store) were taken on a quiet
+        Linux box (i7-1165G7), medians of 5 interleaved runs, output-checked so a wrong answer can
+        never score as a fast one. Counts and timings from different machines are stated separately
+        and never merged. Every number carries its Hey version; versions are shown short
+        (<abbr class="ver" title="v0.99.474a">474a</abbr> means v0.99.474a).
+      </p>
+    </div>
+
+    <h2>1. The promise: if nothing ever changes, no copy is ever necessary</h2>
+    <p>
+      Immutability's classic sales pitch is about safety: if no value can ever change, then no value
+      can ever change <em>under you</em>. Share a list with ten thousand actors and none of them can
+      scribble on it, so nobody needs locks, defensive copies, or house rules about who writes when.
+      We made that argument at length in
+      <a href="what-makes-an-actor-cheap.html">&ldquo;What Makes an Actor Cheap?&rdquo;</a>.
+    </p>
+    <p>
+      But there's a second, less-advertised consequence, and it's the thesis of this article:
+      <strong>in an immutable language, copying is never <em>semantically</em> necessary.</strong>
+      A copy of a value that can never change is indistinguishable from the original &mdash; so every
+      copy the runtime makes is pure overhead, there for the runtime's convenience, not the
+      program's meaning. And a value that loses its last reference can never be observed again, so
+      it should simply go away &mdash; immediately, without the program pausing for a garbage
+      collector to come find it.
+    </p>
+    <p>
+      The research literature adds one precision that keeps this from being a slogan. The goal state
+      is not literally &ldquo;zero copies under all circumstances.&rdquo; It is: <strong>no copy when
+      you are the only owner of a value, and a cheap share &mdash; a pointer and a counter bump,
+      never a deep copy &mdash; when you aren't.</strong> Even the most aggressive fully-in-place
+      systems keep exactly one runtime test: <em>am I the only owner?</em> Asked as rarely as
+      possible, that one question decides everything &mdash; when to update in place, when to share,
+      and when memory can be handed back. Section&nbsp;3 walks through the languages that ask it
+      well.
+    </p>
+    <p>
+      First, though: how far is Hey from that goal state today? Not &ldquo;roughly&rdquo; &mdash;
+      exactly. We counted.
+    </p>
+
+    <h2>2. The receipt: the copies Hey still makes, counted exactly</h2>
+    <div class="aside term">
+      <h3>Term: box / boxing</h3>
+      <p>
+        A <dfn>box</dfn> is a small heap allocation that wraps a value together with a type tag, so
+        the runtime can pass &ldquo;some value&rdquo; around without knowing at compile time whether
+        it's a number, a string, or an array. In Hey's runtime a box is 32 bytes. <dfn>Boxing</dfn>
+        an integer means allocating that wrapper and putting the integer inside; unboxing means
+        reading it back out. The integer itself is 8 bytes; the ceremony around it is the cost.
+      </p>
+    </div>
+    <p>
+      We wrote a small counting probe: three one-line shapes, each run one million times over a
+      64-element integer array, with the runtime's allocation counters switched on. Here is what
+      compiled Hey at <abbr class="ver" title="v0.99.474a">474a</abbr> does today, per iteration, on
+      our macOS box &mdash; alongside the store-path and push measurements that complete the ledger:
+    </p>
+    <table>
+      <thead><tr><th>Operation</th><th>Copies / allocations today</th><th>Fix status</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Read one element: <code>let x = a[1]</code></td>
+          <td><strong>1 clone + 1 32-byte box</strong> per read &mdash; exactly 1.000 by counter, balanced by 1.000 release</td>
+          <td>The read slice: designed; pricing in progress (section&nbsp;6)</td>
+        </tr>
+        <tr>
+          <td>Read feeding arithmetic: <code>let x = a[1] + 1</code></td>
+          <td><strong>3 boxes</strong> per iteration (read box, unbox, re-box the result), balanced</td>
+          <td>Read slice covers the read; the re-box falls to the arithmetic convention (separate work, in progress elsewhere in the queue)</td>
+        </tr>
+        <tr>
+          <td>Read feeding a compare: <code>if a[1] &gt; a[2]</code></td>
+          <td><strong>2 boxes</strong> per iteration, <strong>0 releases &mdash; leaks 64 bytes every iteration</strong></td>
+          <td>Leak fix queued at the front of the next slice; the read slice makes these boxes never exist on covered shapes</td>
+        </tr>
+        <tr>
+          <td>Swap store: <code>put(a, i, a[j])</code></td>
+          <td>was <strong>2 allocations</strong> per store &rarr; <strong>1</strong> (exactly 2.000&nbsp;&rarr;&nbsp;1.000 by counter), <strong>&minus;22.7%</strong> time per store</td>
+          <td>The fusion fix: <strong>branch-ready, not merged</strong></td>
+        </tr>
+        <tr>
+          <td>Store into a shared array</td>
+          <td>a full <strong>O(n) deep clone</strong> of the whole collection</td>
+          <td>The move fix (landed, <abbr class="ver" title="v0.99.471a">471a</abbr>) removed it for the swap case; non-unique paths remain &mdash; this is exactly where section&nbsp;3's uniqueness question pays</td>
+        </tr>
+        <tr>
+          <td>Append: <code>push(xs, v)</code>, 10,000 times</td>
+          <td><strong>50,005,000</strong> element copies = n(n+1)/2 &mdash; the quadratic signature, by counter</td>
+          <td>The push fix: in progress</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="muted">
+      Counts: macOS box, <abbr class="ver" title="v0.99.474a">474a</abbr>, allocation counters,
+      2026-07-30, two identical runs. Store timing: Linux box (i7-1165G7),
+      medians of 5 interleaved runs, output-checked. The compare-shape leak was independently seen on
+      the Linux box with a different instrument on different shapes; the two observations are stated
+      separately, not merged.
+    </p>
+    <p>
+      Look at the first row for a moment, because it is the whole story in miniature. Hey's arrays
+      are immutable. Nothing can ever change the element sitting at <code>a[1]</code>. And yet, to
+      let your program <em>look</em> at that number, the runtime clones it and gift-wraps the clone
+      in a fresh 32-byte heap box, which your program unwraps, uses, and throws away. One read, one
+      small ceremony. A million reads, a million ceremonies &mdash; each individually cheap, none of
+      them necessary, and the counter says <em>exactly</em> 1.000 per read, so we will know the
+      moment it becomes 0.000.
+    </p>
+    <p>
+      Does this actually matter? Here's the calibration pair. On a benchmark that lives entirely in
+      registers &mdash; an integer recurrence with no array accesses &mdash; compiled Hey runs at
+      <strong>1.056&times;</strong> the speed of C: five percent off, essentially done. On
+      fannkuch-redux &mdash; a classic array-permutation benchmark whose inner loop is nothing but
+      element reads, compares, and swap stores &mdash; the same compiler was
+      <strong>161&times;</strong> slower than C (quiet Linux box,
+      <abbr class="ver" title="v0.99.471a">471a</abbr>, medians of 5, output-checked). Hey's
+      arithmetic is already competitive. The entire gap is what an <em>access</em> costs &mdash;
+      which is to say, the entire gap is the table above.
+    </p>
+
+    <h2>3. One runtime question deletes them all: &ldquo;am I the only owner?&rdquo;</h2>
+    <div class="aside term">
+      <h3>Term: reference counting</h3>
+      <p>
+        <dfn>Reference counting</dfn> is the bookkeeping scheme where every value carries a small
+        counter of how many references point at it. Take a new reference: the count goes up. Drop
+        one: it goes down. When it hits zero, nothing can ever see the value again and its memory is
+        freed on the spot. Think of a library book with a list of borrowers stapled inside the cover
+        &mdash; when the last borrower crosses their name off, the book can be pulped immediately;
+        nobody has to search every house in town (which is roughly what a tracing garbage collector
+        does instead).
+      </p>
+    </div>
+    <p>
+      The reason we're confident these copies can be deleted &mdash; rather than merely shaved
+      &mdash; is that a family of research languages has already deleted them, in production, with
+      measured results. They all pivot on the same single question, asked at a write site:
+      <em>is this value's reference count exactly 1?</em> If yes, you are the only owner; nobody can
+      ever observe the difference between &ldquo;build a modified copy&rdquo; and &ldquo;update the
+      original in place&rdquo; &mdash; so update in place, with zero allocation. If no, share the
+      original by reference and bump the counter. That's the whole trick:
+    </p>
+
+    <!-- FIGURE 2: the one-runtime-question decision. Static SVG, no JS needed. -->
+    <figure class="viz-root" id="fig-unique">
+      <style>
+        #fig-unique{
+          color-scheme: light;
+          --surface-1:#fcfcfb;
+          --text-primary:#0b0b0b; --text-secondary:#52514e; --fu-muted:#898781;
+          --fu-border:rgba(11,11,11,0.10);
+          --node:#efeeea; --node-edge:#c3c2b7; --accent:#2a78d6; --edge:#898781;
+          margin:1.75rem 0 2rem; padding:0; max-width:100%;
+          background:var(--surface-1); border:1px solid var(--fu-border);
+          border-radius:0.7rem; overflow:hidden; line-height:1.5;
+        }
+        @media (prefers-color-scheme:dark){
+          :root:where(:not([data-theme="light"])) #fig-unique{
+            color-scheme:dark; --surface-1:#1a1a19;
+            --text-primary:#fff; --text-secondary:#c3c2b7; --fu-muted:#898781;
+            --fu-border:rgba(255,255,255,0.10);
+            --node:#242423; --node-edge:#383835; --accent:#3987e5; --edge:#898781;
+          }
+        }
+        :root[data-theme="dark"] #fig-unique{
+          color-scheme:dark; --surface-1:#1a1a19;
+          --text-primary:#fff; --text-secondary:#c3c2b7; --fu-muted:#898781;
+          --fu-border:rgba(255,255,255,0.10);
+          --node:#242423; --node-edge:#383835; --accent:#3987e5; --edge:#898781;
+        }
+        #fig-unique .fu-head{padding:18px 20px 2px}
+        #fig-unique .fu-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
+        #fig-unique .fu-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
+        #fig-unique .fu-plot{padding:8px 10px 0;overflow-x:auto}
+        #fig-unique svg{display:block;width:100%;min-width:480px;height:auto}
+        #fig-unique .fu-node{fill:var(--node);stroke:var(--node-edge);stroke-width:1.5}
+        #fig-unique .fu-q{fill:var(--surface-1);stroke:var(--accent);stroke-width:2}
+        #fig-unique .fu-t{fill:var(--text-primary);font-size:13px;font-weight:600}
+        #fig-unique .fu-s{fill:var(--fu-muted);font-size:11px}
+        #fig-unique .fu-lab{fill:var(--text-secondary);font-size:11.5px;font-weight:700;letter-spacing:0.04em}
+        #fig-unique .fu-e{stroke:var(--edge);stroke-width:1.5;fill:none}
+        #fig-unique .fu-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fu-muted)}
+      </style>
+      <div class="fu-head">
+        <p class="fu-title">The one runtime question</p>
+        <p class="fu-sub">Every fast immutable system &mdash; Koka, Lean, Swift's collections &mdash; decides every write with this test, and spends its compiler passes making the test as rare as possible.</p>
+      </div>
+      <div class="fu-plot">
+        <svg viewBox="0 0 760 240" role="img"
+             aria-label="Decision diagram. A write to a value leads to the question: is the reference count exactly 1? If yes: you are the only owner — mutate in place, zero allocation, zero copy. If no: the value is shared — leave the original untouched, share by reference, bump the count. Freed memory from the yes branch is reused for the next value of the same size.">
+          <rect class="fu-node" x="40" y="90" width="170" height="56" rx="10"/>
+          <text class="fu-t" x="125" y="114" text-anchor="middle">a write arrives</text>
+          <text class="fu-s" x="125" y="132" text-anchor="middle">put(a, i, v)</text>
+          <path class="fu-e" d="M210 118 L268 118"/>
+          <polygon points="268,113 278,118 268,123" fill="var(--edge)"/>
+          <rect class="fu-q" x="282" y="82" width="180" height="72" rx="36"/>
+          <text class="fu-t" x="372" y="112" text-anchor="middle">reference count</text>
+          <text class="fu-t" x="372" y="130" text-anchor="middle">== 1?</text>
+          <path class="fu-e" d="M462 100 C 500 70, 510 58, 528 52"/>
+          <polygon points="524,47 538,50 527,60" fill="var(--edge)"/>
+          <text class="fu-lab" x="492" y="56">YES</text>
+          <rect class="fu-node" x="540" y="18" width="200" height="64" rx="10"/>
+          <text class="fu-t" x="640" y="44" text-anchor="middle">mutate in place</text>
+          <text class="fu-s" x="640" y="62" text-anchor="middle">zero allocation, zero copy</text>
+          <path class="fu-e" d="M462 136 C 500 166, 510 178, 528 184"/>
+          <polygon points="527,176 538,186 524,189" fill="var(--edge)"/>
+          <text class="fu-lab" x="494" y="192">NO</text>
+          <rect class="fu-node" x="540" y="154" width="200" height="64" rx="10"/>
+          <text class="fu-t" x="640" y="180" text-anchor="middle">share by reference</text>
+          <text class="fu-s" x="640" y="198" text-anchor="middle">bump the count &mdash; never deep-copy</text>
+        </svg>
+      </div>
+      <p class="fu-foot">The mechanism of Perceus (Reinking, Xie, de Moura &amp; Leijen, PLDI 2021), Lean&nbsp;4's Counting Immutable Beans (Ullrich &amp; de Moura, IFL 2019), and Swift's isKnownUniquelyReferenced, drawn as one diagram.</p>
+    </figure>
+
+    <p>
+      <strong><a href="https://xnning.github.io/papers/perceus.pdf">Perceus</a></strong> (Reinking,
+      Xie, de Moura, Leijen &mdash; PLDI 2021), the reference-counting engine of the Koka language,
+      is the deepest version. The compiler tracks ownership of every value through the whole program
+      and inserts precise count-up/count-down operations at exactly the right places &mdash; then
+      spends two more passes deleting most of them again. Its <em>reuse analysis</em> notices when a
+      pattern match consumes a value and the same branch allocates a new one of the same size, and
+      emits a single runtime uniqueness check: if the old cell is unshared, the new value is written
+      straight into it. Their measured result on a 42-million-insertion red-black tree:
+      purely-functional Koka within <strong>10%</strong> of hand-mutated C++ <code>std::map</code>
+      &mdash; while Java on the same benchmark matched the speed but used roughly <strong>10&times;
+      the memory</strong> (1.7&nbsp;GiB (gibibytes) versus Koka's 170&nbsp;MiB). And when the
+      authors disabled just the reuse and specialization passes, Koka got <strong>more than
+      2&times; slower</strong> on that tree &mdash; the in-place trick isn't a garnish; it's the
+      meal.
+    </p>
+    <p>
+      The runtime half of the trick is small enough to quote. Perceus's entire &ldquo;drop a
+      reference&rdquo; fast path is:
+    </p>
+    <pre><code>static inline void drop(block_t* b) {
+  if (b-&gt;header.rc &lt;= 1) drop_check(b);   // slow path: maybe free
+  else b-&gt;header.rc--;                     // fast path
+}</code></pre>
+    <p>
+      <strong><a href="https://dl.acm.org/doi/abs/10.1145/3412932.3412935">Counting Immutable
+      Beans</a></strong> (Ullrich &amp; de Moura &mdash; IFL 2019) is the production version of the
+      same idea inside Lean&nbsp;4, and it adds the concept most relevant to Hey's read path:
+      <em>borrowed references</em>. A function that only looks at a value &mdash; never stores it,
+      never outlives the caller &mdash; can <em>borrow</em> it with no reference-count traffic at
+      all. That is precisely what an array read should be. Hey's read path already half-does this:
+      the collection itself is borrowed. The element clone-and-box from section&nbsp;2's first row is
+      the remaining violation, and the read slice exists to delete it.
+    </p>
+    <p>
+      <strong>Swift</strong> proves the same primitive works as a library convention rather than a
+      compiler pass: its arrays and dictionaries are values on the surface, backed by a
+      reference-counted buffer, and every mutating method calls
+      <a href="https://developer.apple.com/documentation/swift/isknownuniquelyreferenced(_:)"><code>isKnownUniquelyReferenced</code></a>
+      &mdash; count is 1, mutate in place; count is higher, copy first. Same question, asked by hand.
+    </p>
+    <p>
+      Two more results mark the edges of the map. First, the question must be asked
+      <em>rarely</em>: Perceus's specialization pass hoists uniqueness checks out of hot paths so
+      the fast loop asks once instead of every iteration &mdash; and the paper measures what happens
+      when you get this wrong, in a different guise: forcing every count operation to be
+      thread-safe-atomic (the always-assume-shared worst case) costs <strong>5% to 59%</strong>
+      across their benchmarks. The check is cheap; asking it constantly is not. Second, the endpoint
+      exists: <strong><a href="https://dl.acm.org/doi/10.1145/3607840">FP&sup2;: Fully in-Place
+      Functional Programming</a></strong> (Lorenzen, Leijen, Swierstra &mdash; ICFP 2023) defines a
+      checked discipline under which a pure function is <em>guaranteed</em> to run with
+      <strong>zero allocation</strong>, entirely in place, whenever its arguments are unshared. Not
+      &ldquo;usually avoids copies&rdquo; &mdash; a theorem-shaped guarantee that the immutable
+      program and the hand-mutated one compile to the same thing. That is what &ldquo;nothing
+      changes, so copy nothing&rdquo; looks like when it's finished.
+    </p>
+
+    <h2>4. A value that loses its last reference should simply vanish</h2>
+    <p>
+      The second half of the promise is about death rather than birth. Precise reference counting of
+      the Perceus family is <em>garbage-free</em>: a value's memory is returned at the moment of its
+      last use &mdash; not at the next collector cycle, not when a heuristic fires. There is no
+      floating garbage, no collector run, and no pause, because there is no collector: freeing is
+      just the zero branch of the drop function above.
+    </p>
+    <p>
+      The classic reason this doesn't work is <dfn>cycles</dfn> &mdash; two values pointing at each
+      other keep both counts above zero forever, which is why most reference-counted systems
+      (Python, for one) bolt a cycle-detecting collector back on. Hey doesn't have to. In Hey, every
+      value is immutable and can only ever point at values that existed before it was built &mdash;
+      so a reference cycle is structurally impossible, and plain reference counting is
+      <em>complete</em>. This isn't a hope; it's an invariant, adopted into the language plan with an
+      automated guard test that would trip if any future feature broke it. It is the same argument
+      the Erlang virtual machine has quietly relied on for decades for its
+      <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">reference-counted large
+      binaries</a>: immutable and pointer-free, therefore countable with no race machinery and no
+      cycle collector, ever.
+    </p>
+    <p>
+      And when the bookkeeping is wrong, our own counters can see it &mdash; that is what
+      section&nbsp;2's compare row is. Two boxes allocated per iteration, zero released: a missing
+      decrement on one code path, observed as a steady 64 bytes lost every time the loop runs the
+      comparison. The flip test at the heart of fannkuch-redux is exactly this shape. The
+      allocations-versus-releases counter pair is, in effect, the acceptance instrument for the whole
+      second thesis: for every shape the language can express, allocations minus releases must read
+      zero. Today, on that shape, it doesn't. The fix is queued at the front of the next slice, and
+      the read slice independently makes those boxes never exist on the shapes it covers.
+    </p>
+
+    <h2>5. Reclamation that never stops the program &mdash; and the question we won't decide by taste</h2>
+    <p>
+      The third thesis says reclamation should be <em>asynchronous</em>: cleanup should never make
+      the program stand still. This one also has a literature, and its headline system is
+      <strong><a href="https://dl.acm.org/doi/10.1145/3133896">ORCA</a></strong> (Clebsch,
+      Drossopoulou, Blessing, McNeil &mdash; OOPSLA 2017), the garbage collector of the Pony
+      language. Every Pony actor owns a private heap and collects it only when that actor is idle
+      between messages; no actor's cleanup ever freezes another, there are <strong>no read or write
+      barriers</strong> on ordinary memory accesses, and there is <strong>no stop-the-world phase,
+      ever</strong>. Values shared across actors are reclaimed by reference-count messages that ride
+      along with normal traffic &mdash; garbage collection conducted entirely by asynchronous
+      messages, without stopping current processing. The Erlang VM gets a gentler version of the
+      same property from per-process heaps: collections are per-process and tiny by construction,
+      so pauses are microscopic even though they exist.
+    </p>
+    <p>
+      Both systems paid something for it. Erlang deep-copies every message between processes
+      &mdash; the price of keeping heaps isolated. Pony shares even <em>mutable</em> data zero-copy,
+      and its authors are candid about what that cost them:
+    </p>
+    <blockquote class="pull">
+      &ldquo;In a purely functional actor language such as Erlang... it would be trivial to implement
+      a collector such as ours... One of the early decisions in the design of Pony was to support
+      mutable data structures and, for efficiency reasons, to implement zero-copy message passing.
+      Mutability introduce[s] challenges...&rdquo;
+      &mdash; <a href="http://janvitek.org/pubs/oopsla17a.pdf">ORCA, &sect;1&ndash;2</a>
+    </blockquote>
+    <p>
+      Pony's answer to those challenges was an entire compile-time capability type system. Hey is
+      immutable, actor-based, <em>and</em> cycle-free &mdash; which means the safety half of ORCA's
+      machinery is simply unnecessary here. Sharing by reference across actors needs no barriers, no
+      capability annotations, and no cycle protocol, for the same reason Erlang's big binaries need
+      none.
+    </p>
+    <p>
+      But one genuine design question remains open, and we are deliberately not answering it in
+      prose. <strong>Eager freeing and actor-deferred freeing have opposite cache behavior.</strong>
+      Eager reference counting frees a value at its last use &mdash; and Perceus's wins come partly
+      from what happens next: the just-freed cell is still hot in the CPU cache, and the reuse trick
+      writes the next value straight into it, often in the same loop iteration. Handing frees to a
+      collector actor instead buys clean decoupling &mdash; the hot path never even branches on
+      death &mdash; but by the time the collector touches the memory, it's cold, and the hot loop
+      has lost its recycled cell. Which effect dominates, on Hey's workloads, on real hardware?
+      <strong>That is a measurement, not an argument.</strong> The counting and timing instruments
+      that priced every row of section&nbsp;2 can A/B the two designs the moment a prototype exists;
+      the predictions will be
+      <a class="gloss" href="glossary.html#pre-registration" data-def="Stating publicly what result would confirm and what would refute a change before running the measurement — so the result can't be quietly reinterpreted after the fact.">pre-registered</a>,
+      and both verdicts are publishable. If the collector actor loses, you will read that here too.
+    </p>
+
+    <h2>6. The punchline for Hey: the best cell in the table</h2>
+    <p>
+      Line the systems up and the shape of the opportunity is hard to miss:
+    </p>
+    <table>
+      <thead><tr><th>System</th><th>In-place when unique</th><th>Zero-copy sharing</th><th>Pause-free reclamation</th><th>What it paid</th></tr></thead>
+      <tbody>
+        <tr><td>Koka / Lean</td><td>Yes (compiler-inserted)</td><td>Yes (refcount)</td><td>Yes (eager, garbage-free)</td><td>No actor model in the runtime story</td></tr>
+        <tr><td>Swift collections</td><td>Yes (hand-written per type)</td><td>Yes (refcount)</td><td>Eager (with cycle risk elsewhere)</td><td>Library discipline, per-type effort</td></tr>
+        <tr><td>Pony / ORCA</td><td>&mdash; (mutable anyway)</td><td>Yes</td><td>Yes (per-actor, no barriers)</td><td>An entire capability type system</td></tr>
+        <tr><td>Erlang / BEAM</td><td>No</td><td>Only large binaries</td><td>Tiny per-process pauses</td><td>Deep-copies every message</td></tr>
+        <tr><td><strong>Hey (the target)</strong></td><td><strong>Yes</strong></td><td><strong>Yes, for all data</strong></td><td><strong>Yes &mdash; eager or actor-deferred, per section&nbsp;5's measurement</strong></td><td><strong>Immutability it already has; cycle-freedom it already proved</strong></td></tr>
+      </tbody>
+    </table>
+    <p>
+      Every other row bought its strengths with something Hey doesn't have to spend. Pony's
+      capability system exists to make sharing safe under mutability; Hey's values can't mutate.
+      Erlang's message copies exist to keep heaps isolated; Hey can share by reference with no
+      machinery at all. The cycle collectors of the reference-counted mainstream exist because
+      cycles exist; Hey proved they can't. What remains is engineering: stop making the copies, one
+      measured slice at a time. The
+      <a class="gloss" href="glossary.html#i5" data-def="Hey's adopted plan to add a reference count to every heap value, enabling in-place update when a value is unshared — the Perceus approach, adapted to Hey's cycle-free data.">reference-counting upgrade</a>
+      that all of this builds toward is an adopted &ldquo;go&rdquo; in Hey's roadmap, and the queue
+      against section&nbsp;2's ledger currently stands exactly here:
+    </p>
+    <ul>
+      <li><strong>Landed:</strong> the move fix (<abbr class="ver" title="v0.99.471a">471a</abbr>)
+        &mdash; the whole-array clone on the swap store is gone.</li>
+      <li><strong>Branch-ready, not merged:</strong> the fusion fix &mdash; two allocations per
+        store to one, exactly 2.000&nbsp;&rarr;&nbsp;1.000 by counter, &minus;22.7% time per
+        store.</li>
+      <li><strong>Designed, pricing in progress:</strong> the read slice &mdash; return a bare
+        integer from an element read instead of a cloned, boxed one. The counting half of its
+        pricing is done (that's how section&nbsp;2's exact 1.000 was established, with a
+        pre-registered target of 0.000); the timing half waits its turn on a quiet machine, because
+        we don't time benchmarks on a busy box and we don't build fixes before pricing what they
+        should save.</li>
+      <li><strong>In progress:</strong> the push fix &mdash; delete the n(n+1)/2 behind
+        <code>push()</code> &mdash; and the arithmetic re-boxing convention behind the
+        three-box row.</li>
+      <li><strong>Queued:</strong> the compare-shape leak fix, at the front of the next slice.</li>
+      <li><strong>Not yet owned, stated plainly:</strong> the uniqueness-check hoist (asking
+        section&nbsp;3's question outside hot loops instead of inside them) and the
+        eager-versus-deferred reclamation A/B from section&nbsp;5. Both are natural next claims once
+        the read slice reports; neither has an owner as of this writing.</li>
+      </ul>
+    <p>
+      The method doesn't change as the queue advances: every fix gets a pre-registered exact-integer
+      target from the allocation counters &mdash; 2.000 to 1.000, 1.000 to 0.000, allocations minus
+      releases equal to zero &mdash; measured before and after, with the evidence archived, the way
+      <a href="faster-than-go.html">the web-throughput campaign</a> and
+      <a href="ruby-port-ate-50gb-of-ram.html">the 50&nbsp;GB case file</a> were run. A copy that an
+      immutable language never needed to make is the most satisfying kind of performance bug: the
+      correct amount of that work is zero, the counter says exactly how far from zero we are, and
+      &ldquo;done&rdquo; is not a judgment call.
+    </p>
+
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>box / boxing</dt>
+      <dd>A small heap allocation (32 bytes in Hey) wrapping a value with a type tag so the runtime can handle values of unknown type; boxing is putting a value in, unboxing is taking it out.</dd>
+      <dt>clone</dt>
+      <dd>A runtime copy of a value. For a small integer it's a cheap field copy; for a collection it can be a full O(n) duplication.</dd>
+      <dt>reference counting</dt>
+      <dd>Tracking, per value, how many references point at it; the memory is freed the instant the count reaches zero.</dd>
+      <dt>borrowed reference</dt>
+      <dd>A reference used only for the duration of a call, never stored — so it needs no reference-count traffic at all (Lean 4's term).</dd>
+      <dt>in-place reuse</dt>
+      <dd>Writing a new value directly into the memory of a dead old value of the same size, skipping both the free and the allocation (Perceus's reuse analysis).</dd>
+      <dt>uniqueness check</dt>
+      <dd>The single runtime test <code>refcount == 1</code>: if it passes, you are the only owner and may mutate in place with no observable difference.</dd>
+      <dt>copy-on-write (COW)</dt>
+      <dd>Sharing one buffer among many logical values and copying it only at the moment someone writes while it's shared — Swift's collection strategy.</dd>
+      <dt>garbage-free</dt>
+      <dd>The property of precise reference counting that memory is returned at a value's last use — no floating garbage awaiting a collector cycle.</dd>
+      <dt>cycle</dt>
+      <dd>A loop of references (A points at B, B at A) that keeps naive reference counts above zero forever. Impossible in Hey: immutable values can only reference values older than themselves.</dd>
+      <dt>stop-the-world pause</dt>
+      <dd>A garbage-collection phase during which the whole program is frozen. ORCA and per-actor designs exist to have none.</dd>
+      <dt>per-actor heap</dt>
+      <dd>Giving each actor its own private memory region so it can be collected independently, while that actor alone is idle.</dd>
+      <dt>fannkuch-redux</dt>
+      <dd>A classic array-permutation benchmark (from the Computer Language Benchmarks Game) whose inner loop is almost entirely element reads, compares, and swap stores — which is why it prices Hey's access path so well.</dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://xnning.github.io/papers/perceus.pdf">Reinking, Xie, de Moura, Leijen &mdash; &ldquo;Perceus: Garbage Free Reference Counting with Reuse,&rdquo; PLDI 2021</a> (reuse analysis, drop specialization, rbtree/Java/atomic-RC measurements)</li>
+      <li><a href="https://dl.acm.org/doi/abs/10.1145/3412932.3412935">Ullrich, de Moura &mdash; &ldquo;Counting Immutable Beans,&rdquo; IFL 2019</a> (Lean 4's reset/reuse and borrowed references)</li>
+      <li><a href="https://dl.acm.org/doi/10.1145/3607840">Lorenzen, Leijen, Swierstra &mdash; &ldquo;FP&sup2;: Fully in-Place Functional Programming,&rdquo; ICFP 2023</a> (<a href="https://webspace.science.uu.nl/~swier004/publications/2023-icfp.pdf">PDF</a>) (the zero-allocation guarantee)</li>
+      <li><a href="https://dl.acm.org/doi/10.1145/3133896">Clebsch, Drossopoulou, Blessing, McNeil &mdash; &ldquo;Orca: GC and Type System Co-Design for Actor Languages,&rdquo; OOPSLA 2017</a> (<a href="http://janvitek.org/pubs/oopsla17a.pdf">PDF</a>) (per-actor heaps, barrier-free collection, the Erlang quote)</li>
+      <li><a href="https://developer.apple.com/documentation/swift/isknownuniquelyreferenced(_:)">Swift standard library &mdash; isKnownUniquelyReferenced</a> (copy-on-write uniqueness check)</li>
+      <li><a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes &mdash; Erlang System Documentation</a> (per-process heaps; reference-counted binaries)</li>
+      <li>Our own measurements: the counting-probe evidence cell (macOS box, <abbr class="ver" title="v0.99.474a">474a</abbr>, 2026-07-30, two identical runs) and the store-path timing cells (Linux box, i7-1165G7, medians of 5, output-checked), archived in the project's dated evidence log.</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Written from a research brief compiled 2026-07-31 mapping the no-copies/asynchronous-reclamation
+      theses onto Hey's measured allocation ledger, with primary sources linked inline throughout.
+      Version numbers are shown short: <abbr class="ver" title="v0.99.474a">474a</abbr> means
+      v0.99.474a &mdash; the pre-beta series.
+    </p>
+  </footer>
+
+  <script>
+  (function(){
+    var pop=null, current=null;
+    function closePop(){
+      if(pop){ pop.remove(); pop=null; current=null;
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('click', onDocClick, true); }
+    }
+    function onKey(e){ if(e.key==='Escape') closePop(); }
+    function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
+    function openPop(a){
+      if(current===a){ closePop(); return; }
+      closePop(); current=a;
+      pop=document.createElement('div');
+      pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
+      var def=document.createElement('p');
+      def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
+      var link=document.createElement('a');
+      link.href=a.getAttribute('href'); link.className='gloss-pop-link';
+      link.textContent='Full entry →';
+      pop.appendChild(def); pop.appendChild(link);
+      document.body.appendChild(pop);
+      var r=a.getBoundingClientRect();
+      var top=window.scrollY + r.bottom + 6;
+      var left=window.scrollX + r.left;
+      var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      pop.style.top=top+'px';
+      pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('click', onDocClick, true);
+    }
+    document.querySelectorAll('a.gloss').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
+      a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
+    });
+  })();
+  </script>
+</body>
+</html>
