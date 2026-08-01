@@ -1,0 +1,27 @@
+# Render a Dockerfile for a hey_web app, and prove the property that
+# matters most: staging and production are ONE image.
+#
+# Run: heyc docs/examples/basic.hey
+import 'stdlib:Text'
+import '../../src/dockerfile.hey'
+
+program
+  let staging = HeyContainerDockerfile.render('staging', {})
+  let production = HeyContainerDockerfile.render('production', {})
+
+  # THE load-bearing assertion. Staging exists to exercise the artifact
+  # that goes to production; if the two renders differ at all, staging is
+  # testing something else that merely resembles it.
+  says 'staging == production : ' + (staging == production)
+  says 'bytes                 : ' + len(production)
+
+  # The COMPILED runtime stage takes only the built binary. The build
+  # stage's own `COPY . .` is correct and expected -- holding the source
+  # is that stage's entire job -- so assert the thing that actually
+  # matters: the binary is copied out of the compile stage.
+  says 'binary copied out     : ' + Text.contains?(production, 'COPY --from=compile')
+
+  # development is a genuinely different image, not the same one relabelled.
+  let development = HeyContainerDockerfile.render('development', {})
+  says 'dev differs           : ' + (development != production)
+end
