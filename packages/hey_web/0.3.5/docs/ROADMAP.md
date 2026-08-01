@@ -1,0 +1,178 @@
+# Roadmap
+
+## 0.1.3 — delivered
+
+- Standardized validation, release, source ZIP, and registry publication through `hey_packager`.
+- Removed the obsolete private source-checksum/release-record implementation.
+- Retained the stdlib-first web framework and CLI behavior from 0.1.2.
+
+## 0.1.7 — current compatibility release
+
+- Canonical relative-import casing fix for `jobs.hey` required by compiler >=0.99.445a.
+
+## 0.1.6
+
+- Use the current `files.exists?` API in configuration and EHY view preparation.
+- Keep `hey_packager` as external release tooling rather than a runtime dependency.
+- Require `hey_packager >=0.1.2 <0.2.0` for HEY_ROOT-correct documentation checks.
+
+## 0.1.6
+
+- Cookies, signed sessions, form decoding, named routes, request-test helpers, and streaming conveniences.
+
+## 0.1.6
+
+- Multipart requests, byte ranges, graceful drain, and broader production receipts.
+
+## 0.3.5 — released (feature + correction)
+
+`HeyWebAuth.credential(user, password)` and `authorized_as?(request, user,
+password)`. **The pre-encoded credential is no longer required.**
+
+0.3.4 told operators to run `printf 'admin:SECRET' | base64` and store the
+result, because `base64(...)` "cannot be lowered by the LLVM backend". That
+was a misdiagnosis, inherited from `elders_prayer_app` and repeated here
+without measuring. `base64` refuses a STRING; handed BYTES it works in both
+lanes:
+
+```
+base64('admin:secret')         -> cannot lower / "base64 expects bytes"
+base64(bytes('admin:secret'))  -> YWRtaW46c2VjcmV0   (interpreted AND compiled)
+```
+
+So the app can encode, and the printf-vs-echo trap documented in 0.3.4
+disappears — there is no hand encoding left to get wrong. Nothing is lost
+security-wise: base64 is trivially reversible in either spelling.
+
+The pre-encoded path (`authorized?(request, var_name)`) is unchanged and
+still supported — a secrets manager may already hold the encoded form, and
+removing it would break 0.3.4 consumers.
+
+## 0.3.4 — released (feature)
+
+**HTTP Basic authentication** — `auth.hey` / `HeyWebAuth`.
+
+Extracted from `elders_prayer_app`'s admin console, the only Hey app to
+have run an authenticated surface in production. Its design is kept:
+basic auth rather than a custom header (a browser cannot set
+`x-admin-token` from the address bar, so a custom scheme locks the
+operator out of their own console), the `WWW-Authenticate` challenge
+without which no browser will prompt, the pre-encoded credential in an
+env var, and **fail-closed when unconfigured**.
+
+One flaw fixed: the original compared with `==`, which returns at the
+first differing byte and so leaks how much of the credential was correct
+to anyone who can time responses. This uses
+`Crypto.constant_time_equal?`.
+
+```hey
+if !HeyWebAuth.authorized?(request, 'HEY_WEB_ADMIN_BASIC')
+  return HeyWebAuth.unauthorized('admin console')
+end
+```
+
+```sh
+HEY_WEB_ADMIN_BASIC=$(printf 'admin:YOURSECRET' | base64)
+```
+
+Use `printf`, never `echo` — `echo` puts a newline inside the base64, and
+the resulting 401 is indistinguishable from a wrong password.
+
+**Basic auth is base64, not encryption. Only use it over HTTPS.** With
+Kamal, kamal-proxy terminates TLS; behind a plaintext listener this
+sends a replayable credential in the clear on every request.
+
+`specs/auth_spec.hey` covers both fail-closed paths, the wrong
+credential, the challenge header, and that the credential never reaches
+the access log. Verified in both lanes — an auth path that only works
+interpreted is worthless, since apps deploy compiled.
+
+## 0.3.3 — released (fix)
+
+`HeyWebPagesEmbed` no longer refuses assets containing single quotes.
+
+The refusal existed while the `heredoc-single-quote-deep-offset-selfc`
+core report stood: a single quote deep inside a generated heredoc made
+`heyc build` fail HIR emission while `--check`/`--test` stayed green. On
+hey **0.99.475a** that defect is fixed, so the guard had become pure
+obstruction.
+
+It was costing real work. `elders_prayer_app` ships `templates/` into its
+runtime image and reads them from disk on every render, and its
+Dockerfile names this refusal as the reason it cannot embed them (~1470
+single quotes in inline JS). Embedding shrinks the image and takes the
+filesystem off the render path.
+
+Measured three ways on 0.99.475a before removing anything: a raw
+25794-byte heredoc with 2450 single quotes builds and both lanes agree; a
+21038-byte asset with 2000 single quotes generates a module that builds;
+and that module round-trips byte-identically — interpreted 21038,
+compiled 21038, asset on disk 21038.
+
+Deleted rather than commented out. A guard for a defect that no longer
+exists is indistinguishable from a live one until somebody tests it. Its
+replacement is a gate: `specs/pages_embed_spec.hey` asserts a
+quote-bearing asset is ACCEPTED, so if the compiler defect ever returns
+this package goes red instead of shipping a build that fails HIR emission
+inside a consumer's repo.
+
+The CRLF refusal is unchanged — that one is about byte identity, not a
+compiler defect.
+
+**Minimum toolchain: 0.99.475a** for quote-bearing assets. Below it,
+`heyc build` fails HIR emission — loud, but with the compiler's wording
+rather than ours. The manifest has no minimum-toolchain field to express
+this mechanically.
+
+## 0.3.2 — released (fix)
+
+`HeyWebConfig.defaults()` now reads `HOST` and `PORT` from the
+environment, falling back to the same `127.0.0.1:3000` it always
+returned. `listen.hey`'s accessors have always read those variables;
+`defaults()` hardcoded straight past them, so a **containerised app had
+no way to reach its own listener** — it bound the loopback inside the
+container and nothing outside could connect.
+
+`127.0.0.1` remains the fallback, deliberately. Defaulting to `0.0.0.0`
+would expose every developer's laptop to its network to spare a
+container one environment variable, so exposure stays opt-in.
+
+It uses `host_with`/`port_with` with this lane's own fallbacks rather
+than the bare `host()`/`port()` accessors: those carry the env lane's
+reference default of 3748, and `listen.hey` states that the two lanes
+are configured independently on purpose. `specs/server_spec.hey` caught
+the first attempt doing exactly that — the plan came back on 3748. With
+an unset environment the answer is byte-identical to 0.3.1.
+
+Found while evaluating Kamal for deployment: Kamal requires a TCP port
+reachable on its bridge network, which a hardcoded loopback makes
+impossible.
+
+**0.3.1 was tagged in git but never reached the registry**, so 0.3.2 is
+the first published release carrying both that fix and this one.
+
+## 0.3.1 — released in git, never published (fix)
+
+`HeyWebJobs.accepted` returned `{"receipt": null}` for the whole 0.3.0
+release: it read `receipt.sequence`, and a job receipt's identifier is
+`id`. An absent field is nil rather than an error, so the 202 was well
+formed and unusable. Now `{accepted, job, receipt}`.
+
+`specs/jobs_spec.hey` is new. This module had NO spec, which is how it
+reached a release; the spec asserts the receipt shape against a real
+enqueue rather than a fixture.
+
+**Known gap, not fixed here.** A route handler still cannot reach a job
+pool created at boot: `Jobs.define` is not name-identified (same name,
+two calls, two pools) and hey_web threads no application state to
+handlers. hey_web cannot close this alone -- Hey has no closures, and
+the runtime exposes no name lookup for pools. The runtime already keeps
+a named table (`hey_named_jobs`, with `job->name` populated); it is
+searched by id only. The fix belongs in core.
+
+## 0.3.0 — staged (breaking)
+
+- Deleted the Web.service/Web.start-reaching middleware serving lane (never invoked a compiled handler); one serving lane: Web.serve over a flat route table with {host, port, workers, request_timeout_ms, max_body_bytes}.
+- Fast-lane modules extracted from RecallCoach: listen, origin, request_support, request_log, responses (prefix-parameterized env names, never-nil surfaces, compiled receipt).
+- pages-embed generator: assets render into a generated heredoc pages module; single-quote/CRLF refusal; interpreted + compiled byte round-trip receipts.
+- Housekeeping: src/ duplicates, legacy bin/client, and the ../elders_prayer_app heyc fallback removed.
