@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="Three decisions on Hey's boxing problem: the 4x in-place fix and how much correctness risk to carry, the 20x unboxed-array question under the no-types-in-user-code rule, and sequencing against the Linux-only serialization bug.">
+<title>Problem A — the boxing decision</title>
+<style>
+  :root {
+    --ground: #f5f7f6;
+    --panel: #ffffff;
+    --ink: #101a1c;
+    --muted: #57656a;
+    --faint: #7d8a8e;
+    --line: #dde3e1;
+    --accent: #0b6b70;
+    --accent-soft: #e4f0ef;
+    --signal: #9a5a06;
+    --signal-soft: #f7ecdc;
+    --stop: #8f2f2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0e1315;
+      --panel: #151c1e;
+      --ink: #eaf0ee;
+      --muted: #9dabaf;
+      --faint: #7d8b90;
+      --line: #232d30;
+      --accent: #52b3b5;
+      --accent-soft: #12292b;
+      --signal: #d59a41;
+      --signal-soft: #2a2114;
+      --stop: #d97a7a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0e1315; --panel: #151c1e; --ink: #eaf0ee; --muted: #9dabaf;
+    --faint: #7d8b90; --line: #232d30; --accent: #52b3b5; --accent-soft: #12292b;
+    --signal: #d59a41; --signal-soft: #2a2114; --stop: #d97a7a;
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f7f6; --panel: #ffffff; --ink: #101a1c; --muted: #57656a;
+    --faint: #7d8a8e; --line: #dde3e1; --accent: #0b6b70; --accent-soft: #e4f0ef;
+    --signal: #9a5a06; --signal-soft: #f7ecdc; --stop: #8f2f2f;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 16.5px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono, code, .num {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 53rem; margin: 0 auto; padding: 3.2rem 1.3rem 6rem; }
+
+  .eyebrow {
+    font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--faint); font-weight: 620; margin: 0 0 0.7rem;
+  }
+  h1 {
+    font-size: clamp(1.85rem, 4.2vw, 2.5rem); line-height: 1.12; margin: 0 0 0.7rem;
+    letter-spacing: -0.021em; text-wrap: balance; font-weight: 680;
+  }
+  .standfirst {
+    font-size: 1.1rem; color: var(--muted); margin: 0 0 2.6rem; max-width: 42rem;
+    text-wrap: pretty;
+  }
+  h2 {
+    font-size: 1.28rem; margin: 3.4rem 0 0.5rem; letter-spacing: -0.013em;
+    text-wrap: balance; font-weight: 660;
+  }
+  h3 { font-size: 1.03rem; margin: 1.7rem 0 0.4rem; font-weight: 640; }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+  strong { font-weight: 660; }
+  a { color: var(--accent); }
+
+  /* ---- instrument readout ---- */
+  .readout {
+    border: 1px solid var(--line); border-radius: 3px; background: var(--panel);
+    overflow: hidden; margin: 0 0 1.4rem;
+  }
+  .readout-head {
+    padding: 0.7rem 1rem; border-bottom: 1px solid var(--line);
+    font-size: 0.72rem; letter-spacing: 0.11em; text-transform: uppercase;
+    color: var(--faint); font-weight: 620;
+  }
+  .rows { display: grid; }
+  .row {
+    display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: baseline;
+    padding: 0.68rem 1rem; border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .label { color: var(--muted); font-size: 0.95rem; }
+  .row .val { font-size: 1.02rem; font-weight: 620; white-space: nowrap; }
+  .val.hot { color: var(--stop); }
+  .val.cool { color: var(--accent); }
+
+  /* ---- callouts ---- */
+  .note {
+    border-left: 2.5px solid var(--accent); background: var(--accent-soft);
+    padding: 0.95rem 1.15rem; margin: 1.5rem 0; border-radius: 0 3px 3px 0;
+  }
+  .note.warn { border-left-color: var(--signal); background: var(--signal-soft); }
+  .note p:last-child { margin-bottom: 0; }
+  .note .tag {
+    display: block; font-size: 0.69rem; letter-spacing: 0.12em; text-transform: uppercase;
+    font-weight: 660; color: var(--faint); margin-bottom: 0.4rem;
+  }
+
+  /* ---- constraints ---- */
+  ul.rules { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.6rem; }
+  ul.rules li {
+    padding-left: 1.1rem; position: relative; color: var(--muted); font-size: 0.97rem;
+  }
+  ul.rules li::before {
+    content: ""; position: absolute; left: 0; top: 0.62em;
+    width: 5px; height: 5px; background: var(--accent); border-radius: 50%;
+  }
+  ul.rules b { color: var(--ink); font-weight: 640; }
+
+  /* ---- decisions ---- */
+  .decision {
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+    margin: 1.2rem 0 0; overflow: hidden;
+  }
+  .decision-head { padding: 1.15rem 1.25rem 0.9rem; }
+  .decision-head .kicker {
+    font-size: 0.7rem; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--accent); font-weight: 660;
+  }
+  .decision-head h3 { margin: 0.35rem 0 0.45rem; font-size: 1.16rem; letter-spacing: -0.012em; }
+  .decision-head p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+
+  .opts { display: grid; }
+  .opt {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.85rem;
+    padding: 0.95rem 1.25rem; border-top: 1px solid var(--line);
+    cursor: pointer; transition: background 0.12s ease;
+  }
+  .opt:hover { background: var(--accent-soft); }
+  .opt input { margin: 0.35rem 0 0; accent-color: var(--accent); width: 1rem; height: 1rem; }
+  .opt .id {
+    font-size: 0.74rem; font-weight: 680; color: var(--faint); letter-spacing: 0.06em;
+  }
+  .opt .title { font-weight: 620; margin: 0.1rem 0 0.25rem; }
+  .opt .why { color: var(--muted); font-size: 0.93rem; margin: 0; }
+  .opt .why em { color: var(--ink); font-style: normal; font-weight: 600; }
+  .rec {
+    display: inline-block; font-size: 0.66rem; letter-spacing: 0.09em;
+    text-transform: uppercase; font-weight: 680; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 2px; padding: 0.05rem 0.36rem;
+    margin-left: 0.45rem; vertical-align: 0.12em;
+  }
+  .opt:has(input:checked) { background: var(--accent-soft); }
+
+  /* ---- ruling ---- */
+  #ruling {
+    margin-top: 2.6rem; border: 1px solid var(--accent); border-radius: 4px;
+    background: var(--panel); overflow: hidden;
+  }
+  #ruling .readout-head { border-bottom-color: var(--accent); color: var(--accent); }
+  #ruling .body { padding: 1.1rem 1.25rem; }
+  textarea {
+    width: 100%; min-height: 9rem; resize: vertical; background: var(--ground);
+    color: var(--ink); border: 1px solid var(--line); border-radius: 3px;
+    padding: 0.8rem 0.9rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.87rem; line-height: 1.55;
+  }
+  button {
+    font: inherit; font-size: 0.9rem; font-weight: 620; cursor: pointer;
+    background: var(--accent); color: var(--panel); border: 0; border-radius: 3px;
+    padding: 0.5rem 0.95rem; margin-top: 0.75rem;
+  }
+  button:focus-visible, .opt:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: right; padding: 0.42rem 0.7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); font-weight: 620; }
+  td.n { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+  footer { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line);
+           color: var(--faint); font-size: 0.85rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<main>
+  <p style="margin:0 0 1.8rem"><a href="index.html" style="color:var(--faint);text-decoration:none;font-size:0.88rem">&larr; Dailies</a></p>
+  <p class="eyebrow">Hey · decision docket · 1 August 2026</p>
+  <h1>Problem A: every array write copies the array</h1>
+  <p class="standfirst">
+    The measurements are in and they agree. What is left is not a
+    measurement question — it is a language question, and it is yours.
+    Two decisions, plus a sequencing call.
+  </p>
+
+  <div class="note">
+    <span class="tag">Why you are being asked</span>
+    <p>
+      The 4&times; fix is engineering and I can direct it. The 20&times; fix
+      requires deciding <strong>how a Hey program gets a native integer buffer
+      without a user ever writing a type</strong> — which touches your hard
+      rule directly. I will not pick that unilaterally.
+    </p>
+  </div>
+
+  <h2>What was measured</h2>
+  <div class="readout">
+    <div class="readout-head">fannkuch · compiled lane · Linux · 4d1445dc</div>
+    <div class="rows">
+      <div class="row"><span class="label">Instructions vs C</span><span class="val hot num">301&times;</span></div>
+      <div class="row"><span class="label">Wall clock vs C</span><span class="val hot num">162&times;</span></div>
+      <div class="row"><span class="label">Hey IPC (C is 1.47)</span><span class="val cool num">2.82</span></div>
+      <div class="row"><span class="label">Cycles in copy / refcount / alloc</span><span class="val hot num">~75%</span></div>
+      <div class="row"><span class="label">Cycles in actual arithmetic</span><span class="val num">~4%</span></div>
+      <div class="row"><span class="label">RSS change with <code>HEY_RC_COW=1</code></span><span class="val num">0.008%</span></div>
+    </div>
+  </div>
+
+  <p>
+    Hey's IPC is <em>nearly double C's</em> — the processor is not stalling,
+    it is faithfully executing far too many instructions. That removes
+    prefetching, allocator swaps, NUMA and governor tuning from the table
+    entirely. <code>hey_value_clone</code> deep-copies on every array write,
+    so <code>set x = put(x, i, v)</code> rebuilds the whole array.
+  </p>
+  <p>
+    The fix already exists — <code>hey_rc_cow_enabled</code>,
+    <code>hey_runtime.c:1248</code> — and <strong>has never once run</strong>.
+    Turning it on moves RSS by 0.008%. If clone had become a refcount bump,
+    allocation would have collapsed. It did not. Every <code>put(x,i,v)</code>
+    also <em>reads</em> <code>x</code>, the uniqueness test fails, and the
+    deep copy is taken anyway.
+  </p>
+
+  <h2>The arithmetic of the fix</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Step</th><th>Removes</th><th>Ceiling</th><th>fannkuch</th></tr></thead>
+      <tbody>
+        <tr><td>Today</td><td>—</td><td class="n">—</td><td class="n">25.2 s</td></tr>
+        <tr><td>(a) in-place fires</td><td>the ~75% copy block</td><td class="n">4&times;</td><td class="n">~6.3 s</td></tr>
+        <tr><td>(b) unboxed arrays</td><td>per-element dispatch</td><td class="n">~20&times;</td><td class="n">~0.3 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <strong>Neither alone is enough, and percentage wins cannot compose to this.</strong>
+    wleakfix was 6.4%, swap-inplace 6%; ten more like them is 1.8&times;.
+  </p>
+
+  <h2>Standing constraints I am holding you to</h2>
+  <ul class="rules">
+    <li><b>No types in user code.</b> Annotations are compiler-only. Ruby-style <code>to_i</code>/<code>to_s</code>. Infer, or offer options.</li>
+    <li><b>North star:</b> a Ruby replacement — equal ergonomics <em>and</em> overwhelming speed. Ergonomics is not tradeable for this.</li>
+    <li><b>Rule 30:</b> dot-methods are sugar, available only via explicit import, and the compiler warns generously.</li>
+    <li><b>fannkuch is a magnifying glass</b>, not a rival objective — your correction, and it held up.</li>
+  </ul>
+
+  <div class="note warn">
+    <span class="tag">Open risk that could change the priority</span>
+    <p>
+      On Linux at one worker, Hey served <span class="mono">22,991</span> rps
+      against Go's <span class="mono">107,735</span> — roughly
+      <strong>4.7&times; slower per core</strong>. That does not sit
+      comfortably beside the 07-27 certification of &ldquo;within 3% of Go,
+      per core.&rdquo; I have not verified the endpoints are comparable and
+      am not claiming the certification was wrong. But if it turns out to
+      have been taken at one core and expressed per-core, it was
+      structurally blind to this — and Problem A becomes more urgent than
+      that certificate implies, not less.
+    </p>
+  </div>
+
+  <h2>Decision 1 — the 4&times;, and how much correctness risk to carry</h2>
+  <p>
+    The blocker is not performance, it is soundness: a uniqueness predicate
+    that must survive a read-borrow. Two TSAN races were already measured on
+    the i5c flip on 07-29. <strong>If in-place fires when the array is not
+    truly unique, we do not get a slow program — we get a wrong one.</strong>
+  </p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 1</span>
+      <h3>How do we land in-place mutation?</h3>
+      <p>Pick one. This governs how the slice is gated, not whether it happens.</p>
+    </div>
+    <div class="opts" data-q="D1">
+      <label class="opt">
+        <input type="radio" name="D1" value="A1 — prove the predicate before any timing is quoted">
+        <span>
+          <span class="id">A1</span><span class="rec">Recommended</span>
+          <p class="title">Prove the predicate first; no timing number until it is sound</p>
+          <p class="why">TSAN-clean plus differential testing across both lanes, and the
+          <em>allocation-count</em> witness reported before any stopwatch. Slowest to a headline,
+          and the only option that cannot produce a silent wrong answer.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D1" value="A2 — ship behind a default-off env flag, flip later">
+        <span>
+          <span class="id">A2</span>
+          <p class="title">Ship behind a default-off flag, gather evidence, flip later</p>
+          <p class="why">Lands fastest. <em>But this is exactly what <code>HEY_RC_COW</code> already is</em>
+          — a correct-looking flag that has been off and inert long enough that nobody noticed.
+          A second one earns us a second dormant fix.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D1" value="A3 — redesign the ownership path so read-then-write needs no borrow">
+        <span>
+          <span class="id">A3</span>
+          <p class="title">Redesign so read-then-write never takes a borrow</p>
+          <p class="why">Attacks the cause rather than the predicate — an owned-update path in the
+          emitter, so uniqueness is never in question. <em>Larger, and it lands in the emitter
+          during R2</em>, where byte-identity with the mirror is the gate.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D1" value="A4 — defer until Problem B (Linux serialization) is closed">
+        <span>
+          <span class="id">A4</span>
+          <p class="title">Defer until the Linux serialization is closed</p>
+          <p class="why">Problem B is a localized platform defect and likely cheaper per unit of
+          user-visible speed. <em>Costs nothing if the seats work different lanes anyway.</em></p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <h2>Decision 2 — the 20&times;, under the no-types rule</h2>
+  <p>
+    After (a), what remains is per-element dispatch through a JSON-ish tagged
+    value. Getting to a few hundred milliseconds needs <code>perm1</code> to be
+    a native <code>i64</code> buffer where an element op is a load/store rather
+    than a call. <strong>The question is how the compiler learns that without
+    the user saying it.</strong>
+  </p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 2</span>
+      <h3>How does a Hey array become an unboxed native buffer?</h3>
+      <p>These combine — B1 and B2 in particular are natural partners.</p>
+    </div>
+    <div class="opts" data-q="D2">
+      <label class="opt">
+        <input type="radio" name="D2" value="B1+B2 — infer and specialize, plus a 'why is this boxed?' diagnostic">
+        <span>
+          <span class="id">B1+B2</span><span class="rec">Recommended</span>
+          <p class="title">Infer and specialize — plus a diagnostic that explains every fallback</p>
+          <p class="why">The compiler proves the element type and emits a native buffer, falling
+          back to boxed when it cannot. Your rule survives untouched. The known failure mode is a
+          <em>silent performance cliff</em> — so it ships with an instrument that names why any
+          given array stayed boxed. Generous warnings are already the Rule 30 posture.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D2" value="B1 — inference and specialization alone">
+        <span>
+          <span class="id">B1</span>
+          <p class="title">Inference and specialization alone</p>
+          <p class="why">Same engine, no diagnostic. Cheaper now. <em>Users get unexplainable
+          slowness</em> and no way to act on it — which is the Ruby-parity complaint we would be
+          trying to avoid.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D2" value="B3 — compiler-only annotations, stdlib internals only">
+        <span>
+          <span class="id">B3</span>
+          <p class="title">Compiler-only annotations, confined to stdlib internals</p>
+          <p class="why">Explicitly permitted by your rule — annotations are compiler-only. Safe and
+          predictable. <em>But it only speeds paths that run through the stdlib</em>, and a user's
+          own hot loop over their own array gets nothing.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D2" value="B4 — an opt-in typed collection module (Rule-30 style import)">
+        <span>
+          <span class="id">B4</span>
+          <p class="title">An opt-in typed collection, imported like any other sugar</p>
+          <p class="why">Rule-30 shaped: you get it only if you import it. Predictable, no cliffs.
+          <em>But it is types in user code through a side door</em>, and it splits the array story
+          in two — the thing the no-types rule exists to prevent.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D2" value="B5 — adaptive runtime specialization (profile-guided)">
+        <span>
+          <span class="id">B5</span>
+          <p class="title">Adaptive runtime specialization</p>
+          <p class="why">Zero user surface — the runtime observes and specializes hot paths.
+          <em>Largest machinery by far, unpredictable timing, and it fights the compiled-binary
+          story</em> that the whole R2 ladder is built on.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <h2>Decision 3 — sequencing against Problem B</h2>
+  <p>
+    Problem B — the Linux-only serialization pinning us to 0.77 cores while
+    Darwin reaches 4.14 on identical code — is <em>independent</em>. Nothing
+    in Problem A fixes it and nothing in it fixes Problem A.
+  </p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 3</span>
+      <h3>What runs first?</h3>
+      <p>We have separate seats; the lanes do not share files.</p>
+    </div>
+    <div class="opts" data-q="D3">
+      <label class="opt">
+        <input type="radio" name="D3" value="C1 — both lanes concurrently, different seats">
+        <span>
+          <span class="id">C1</span><span class="rec">Recommended</span>
+          <p class="title">Both concurrently — linux on B, core seat on A</p>
+          <p class="why">The lanes are genuinely independent and the seats are already split this
+          way. <em>Costs nothing but my attention</em>, which is the resource actually under strain.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D3" value="C2 — Problem B first, A after">
+        <span>
+          <span class="id">C2</span>
+          <p class="title">Problem B first</p>
+          <p class="why">It is a localized platform bug with a known-good control on Darwin —
+          probably the cheapest large win available. <em>Delays the structural work again</em>,
+          and it has been delayed several times.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D3" value="C3 — Problem A first, B after">
+        <span>
+          <span class="id">C3</span>
+          <p class="title">Problem A first</p>
+          <p class="why">Boxing is the thing you have been asking about longest and it affects
+          every program on every platform. <em>Leaves an 8&times; multi-core defect standing</em>
+          on the platform we deploy to.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div id="ruling">
+    <div class="readout-head">Your ruling</div>
+    <div class="body">
+      <p style="margin-bottom:0.7rem;color:var(--muted);font-size:0.95rem;">
+        Select above; this assembles itself. Paste it back to me and I will
+        direct the seats from it.
+      </p>
+      <textarea id="out" readonly aria-label="Assembled ruling"></textarea>
+      <button id="copy" type="button">Copy ruling</button>
+    </div>
+  </div>
+
+  <footer>
+    Evidence: linux seat perf profile at <span class="mono">4d1445dc</span> (0917Z),
+    worker-scaling ladder (0930Z), <span class="mono">SO_REUSEPORT</span> correction (0950Z);
+    bench war-room slope cell <span class="mono">ee50bf5</span> (0815Z).
+    Runtime sites: <span class="mono">hey_runtime.c:1186</span> (deep copy),
+    <span class="mono">:1248</span> (COW gate).
+  </footer>
+</main>
+
+<script>
+  (function () {
+    var out = document.getElementById('out');
+    var qs = [
+      { name: 'D1', label: 'DECISION 1 (the 4x, correctness gate)' },
+      { name: 'D2', label: 'DECISION 2 (the 20x, under no-types)' },
+      { name: 'D3', label: 'DECISION 3 (sequencing vs Problem B)' }
+    ];
+    function render() {
+      var lines = ['PROBLEM A — MAINTAINER RULING', ''];
+      var any = false;
+      qs.forEach(function (q) {
+        var sel = document.querySelector('input[name="' + q.name + '"]:checked');
+        lines.push(q.label + ':');
+        lines.push('  ' + (sel ? sel.value : '(not yet decided)'));
+        lines.push('');
+        if (sel) any = true;
+      });
+      if (!any) { out.value = 'Nothing selected yet.'; return; }
+      out.value = lines.join('\n').trim();
+    }
+    document.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      r.addEventListener('change', render);
+    });
+    document.getElementById('copy').addEventListener('click', function () {
+      out.select();
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(out.value);
+        } else {
+          document.execCommand('copy');
+        }
+        this.textContent = 'Copied';
+        var b = this;
+        setTimeout(function () { b.textContent = 'Copy ruling'; }, 1600);
+      } catch (e) {
+        this.textContent = 'Select the text above and copy';
+      }
+    });
+    render();
+  })();
+</script>
+</body>
+</html>
