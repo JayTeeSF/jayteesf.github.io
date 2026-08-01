@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="Eight choices Hey made by accident: which way integer division rounds, whether modulo follows the divisor's sign, why 100.0 prints as 1e2, what happens when an integer overflows, two missing conversions, float division by zero, and a 4.6 GB pile of scratch checkouts that now costs build time.">
+<meta name="article-index-title" content="Hey — arithmetic Hey never decided">
+<meta name="article-index-desc" content="A 93-row conformance battery against Ruby found 22 places where Hey answers differently and nobody chose it. Rounding, modulo sign, float printing, overflow, missing conversions — each with the measured facts and the options.">
+<title>Arithmetic Hey never decided — the decision docket</title>
+<style>
+  :root {
+    --ground:#f5f7f6; --panel:#fff; --ink:#101a1c; --muted:#57656a; --faint:#7d8a8e;
+    --line:#dde3e1; --accent:#0b6b70; --accent-soft:#e4f0ef; --signal:#9a5a06;
+    --signal-soft:#f7ecdc; --stop:#8f2f2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#0e1315; --panel:#151c1e; --ink:#eaf0ee; --muted:#9dabaf; --faint:#7d8b90;
+      --line:#232d30; --accent:#52b3b5; --accent-soft:#12292b; --signal:#d59a41;
+      --signal-soft:#2a2114; --stop:#d97a7a; }
+  }
+  :root[data-theme="dark"] { --ground:#0e1315; --panel:#151c1e; --ink:#eaf0ee; --muted:#9dabaf;
+    --faint:#7d8b90; --line:#232d30; --accent:#52b3b5; --accent-soft:#12292b; --signal:#d59a41;
+    --signal-soft:#2a2114; --stop:#d97a7a; }
+  :root[data-theme="light"] { --ground:#f5f7f6; --panel:#fff; --ink:#101a1c; --muted:#57656a;
+    --faint:#7d8a8e; --line:#dde3e1; --accent:#0b6b70; --accent-soft:#e4f0ef; --signal:#9a5a06;
+    --signal-soft:#f7ecdc; --stop:#8f2f2f; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font:16.5px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
+  .mono, code { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums; font-size:0.92em; }
+  main { max-width:53rem; margin:0 auto; padding:3.2rem 1.3rem 6rem; }
+  .eyebrow { font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);
+    font-weight:620; margin:0 0 0.7rem; }
+  h1 { font-size:clamp(1.8rem,4.2vw,2.45rem); line-height:1.13; margin:0 0 0.7rem;
+    letter-spacing:-0.021em; text-wrap:balance; font-weight:680; }
+  .standfirst { font-size:1.09rem; color:var(--muted); margin:0 0 2.4rem; max-width:42rem; text-wrap:pretty; }
+  h2 { font-size:1.26rem; margin:3.2rem 0 0.5rem; letter-spacing:-0.013em; text-wrap:balance; font-weight:660; }
+  h3 { font-size:1.02rem; margin:1.6rem 0 0.4rem; font-weight:640; }
+  p { margin:0 0 1rem; text-wrap:pretty; }
+  strong { font-weight:660; }
+
+  .note { border-left:2.5px solid var(--accent); background:var(--accent-soft);
+    padding:0.95rem 1.15rem; margin:1.4rem 0; border-radius:0 3px 3px 0; }
+  .note.warn { border-left-color:var(--signal); background:var(--signal-soft); }
+  .note.settled { border-left-color:var(--faint); background:transparent; border-left-style:dashed; }
+  .note p:last-child { margin-bottom:0; }
+  .note .tag { display:block; font-size:0.69rem; letter-spacing:0.12em; text-transform:uppercase;
+    font-weight:660; color:var(--faint); margin-bottom:0.4rem; }
+
+  ul.rules { list-style:none; margin:0 0 1rem; padding:0; display:grid; gap:0.55rem; }
+  ul.rules li { padding-left:1.1rem; position:relative; color:var(--muted); font-size:0.96rem; }
+  ul.rules li::before { content:""; position:absolute; left:0; top:0.62em; width:5px; height:5px;
+    background:var(--accent); border-radius:50%; }
+  ul.rules b { color:var(--ink); font-weight:640; }
+
+  .decision { border:1px solid var(--line); border-radius:4px; background:var(--panel);
+    margin:1.2rem 0 0; overflow:hidden; }
+  .decision-head { padding:1.15rem 1.25rem 0.9rem; }
+  .decision-head .kicker { font-size:0.7rem; letter-spacing:0.13em; text-transform:uppercase;
+    color:var(--accent); font-weight:660; }
+  .decision-head h3 { margin:0.35rem 0 0.45rem; font-size:1.15rem; letter-spacing:-0.012em; }
+  .decision-head p { margin:0; color:var(--muted); font-size:0.96rem; }
+  .opts { display:grid; }
+  .opt { display:grid; grid-template-columns:auto 1fr; gap:0.85rem; padding:0.95rem 1.25rem;
+    border-top:1px solid var(--line); cursor:pointer; transition:background 0.12s ease; }
+  .opt:hover { background:var(--accent-soft); }
+  .opt input { margin:0.35rem 0 0; accent-color:var(--accent); width:1rem; height:1rem; }
+  .opt .id { font-size:0.74rem; font-weight:680; color:var(--faint); letter-spacing:0.06em; }
+  .opt .title { font-weight:620; margin:0.1rem 0 0.25rem; }
+  .opt .why { color:var(--muted); font-size:0.93rem; margin:0; }
+  .opt .why em { color:var(--ink); font-style:normal; font-weight:600; }
+  .rec { display:inline-block; font-size:0.66rem; letter-spacing:0.09em; text-transform:uppercase;
+    font-weight:680; color:var(--accent); border:1px solid var(--accent); border-radius:2px;
+    padding:0.05rem 0.36rem; margin-left:0.45rem; vertical-align:0.12em; }
+  .opt:has(input:checked) { background:var(--accent-soft); }
+
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:0.85rem 1rem;
+    overflow-x:auto; margin:1rem 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:0.86rem; line-height:1.5; }
+
+  #ruling { margin-top:2.6rem; border:1px solid var(--accent); border-radius:4px;
+    background:var(--panel); overflow:hidden; }
+  #ruling .rhead { padding:0.7rem 1rem; border-bottom:1px solid var(--accent); font-size:0.72rem;
+    letter-spacing:0.11em; text-transform:uppercase; color:var(--accent); font-weight:620; }
+  #ruling .body { padding:1.1rem 1.25rem; }
+  textarea { width:100%; min-height:9rem; resize:vertical; background:var(--ground); color:var(--ink);
+    border:1px solid var(--line); border-radius:3px; padding:0.8rem 0.9rem;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.87rem; line-height:1.55; }
+  button { font:inherit; font-size:0.9rem; font-weight:620; cursor:pointer; background:var(--accent);
+    color:var(--panel); border:0; border-radius:3px; padding:0.5rem 0.95rem; margin-top:0.75rem; }
+  button:focus-visible, .opt:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+  .scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:0.9rem; }
+  th,td { text-align:left; padding:0.5rem 0.7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); font-weight:620; }
+  td:first-child { color:var(--ink); font-weight:600; white-space:nowrap; }
+  td { color:var(--muted); }
+  footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line);
+    color:var(--faint); font-size:0.85rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Hey &middot; decision docket &middot; 1 August 2026</p>
+  <h1>Arithmetic Hey never decided &mdash; and one piece of housekeeping</h1>
+  <p class="standfirst">Eight decisions. Seven come from measuring the most boring arithmetic we could write, in both lanes, against Ruby. Every one of them is a choice the language <em>already made by accident</em> &mdash; nobody chose it, it fell out of the implementation. The eighth is a disk-and-time question that is now costing real minutes.</p>
+
+  <div class="note">
+    <span class="tag">How to use this page</span>
+    <p>Pick an option in each box. At the bottom there is a <strong>Copy ruling</strong> button that produces a short text block &mdash; paste it back to the orchestrator and that is the whole ruling. You do not have to answer all eight; anything left blank stays open and nothing is blocked on it today.</p>
+    <p><strong>Nothing here is a bug report.</strong> Bugs are being fixed without asking you. These are places where two reasonable languages disagree and Hey has to pick one.</p>
+  </div>
+
+  <h2>What was measured, and how</h2>
+  <p>A conformance battery ran 93 arithmetic behaviours through <em>both</em> of Hey's execution paths &mdash; the interpreter (<code>hey script.hey</code>) and a compiled binary (<code>heyc build</code>, which is what users actually ship) &mdash; and compared each against Ruby 4.0.6 on the same machine. The Linux seat independently reproduced the key rows on different hardware.</p>
+  <div class="scroll">
+  <table>
+    <tr><th>Result</th><th>Count</th><th>Meaning</th></tr>
+    <tr><td>Works</td><td>25</td><td>Both Hey paths agree and match Ruby.</td></tr>
+    <tr><td>Lane divergence</td><td>44</td><td>Hey's two paths disagree. <strong>Always a defect</strong> &mdash; being fixed, not on this page.</td></tr>
+    <tr><td>Differs from Ruby</td><td>22</td><td>Both Hey paths agree; Ruby answers differently. <strong>These are the decisions below.</strong></td></tr>
+    <tr><td>Missing</td><td>2</td><td>Hey refuses; Ruby answers. Refusing is honest, so these are gaps to fill.</td></tr>
+  </table>
+  </div>
+  <p>The measured facts behind each decision are stated in its box. Where a decision is genuinely close, that is said rather than hidden behind a recommendation.</p>
+
+  <h2>The arithmetic decisions</h2>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 9</span>
+      <h3>Which way does integer division round?</h3>
+      <p>Hey currently answers <code>-7 / 2</code> as <strong>-3</strong>. Ruby answers <strong>-4</strong>. This differs only when the signs disagree.</p>
+    </div>
+    <div class="opts" data-q="D9">
+      <label class="opt">
+        <input type="radio" name="D9" value="D9-a — floor toward negative infinity (match Ruby)">
+        <span><span class="id">D9-a</span><span class="rec">Recommended</span>
+          <p class="title">Floor toward negative infinity &mdash; match Ruby</p>
+          <p class="why">Ruby and Python both floor: <code>-7 / 2</code> is <code>-4</code>. Under a
+          Ruby-replacement goal this is the answer a porting developer expects, and today they get a
+          different number <em>with no error at all</em> on their first negative operand.
+          <em>The cost is real:</em> it changes answers that existing Hey code may already depend on,
+          so it wants doing once, deliberately, with the conformance ledger in place to catch fallout.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D9" value="D9-b — keep truncation toward zero (C/Go), document it loudly">
+        <span><span class="id">D9-b</span>
+          <p class="title">Keep truncation toward zero &mdash; and say so loudly</p>
+          <p class="why">C, Go, Java and JavaScript all truncate. It is the hardware instruction's own
+          behaviour, so it is free, and it is what Hey does today. <em>Choosing this means committing to
+          warn Ruby developers explicitly</em> &mdash; a silent difference in basic arithmetic is the
+          worst way for someone to learn a language is not the one they think it is.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D9" value="D9-c — floor for /, and add a separate truncating operator">
+        <span><span class="id">D9-c</span>
+          <p class="title">Floor for <code>/</code>, plus a separate truncating operation</p>
+          <p class="why">What Ruby actually ships: <code>/</code> floors, and <code>Integer#remainder</code>
+          gives the C answer for people who want it. Python does the same in mirror image (<code>//</code>
+          floors, <code>math.fmod</code> truncates). <em>Costs a second name to teach</em>, but nobody is
+          ever stuck with the wrong rounding and no one has to know which one they got.</p>
+        </span>
+      </label>
+    </div>
+    <div class="note warn">
+      <span class="tag">Measured, both platforms</span>
+      <p><code>-7 / 2</code> &rarr; <code>-3</code>&nbsp; &middot;&nbsp; <code>(-7) % 3</code> &rarr; <code>-1</code>&nbsp; &middot;&nbsp; <code>7 % (-3)</code> &rarr; <code>1</code>. Ruby gives <code>-4</code>, <code>2</code>, <code>-2</code>. <strong>Hey's two execution paths agree with each other on every one of these</strong> &mdash; so this is a language choice, not a bug, and it was never actually chosen.</p>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 10</span>
+      <h3>Does <code>%</code> follow the divisor's sign?</h3>
+      <p>Follows from Decision 9, but is separately decidable &mdash; and it decides whether Hey gets one modulo operator or two.</p>
+    </div>
+    <div class="opts" data-q="D10">
+      <label class="opt">
+        <input type="radio" name="D10" value="D10-a — follow whatever D9 decides, one operator only">
+        <span><span class="id">D10-a</span><span class="rec">Recommended</span>
+          <p class="title">Follow Decision 9 &mdash; one operator, consistent</p>
+          <p class="why">Division and modulo stay mathematically consistent (<code>(a/b)*b + a%b == a</code>
+          holds either way, as long as both round the same direction). One rule to learn.
+          <em>Simplest thing that is not wrong.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D10" value="D10-b — ship both: % follows D9, plus an explicit remainder()">
+        <span><span class="id">D10-b</span>
+          <p class="title">Ship both spellings</p>
+          <p class="why">Ruby has <code>%</code> <em>and</em> <code>remainder</code> because both are
+          genuinely wanted &mdash; clock arithmetic wants the floored answer, low-level byte work wants the
+          truncated one. <em>Deciding only <code>%</code> quietly forecloses this</em>, which is why it is
+          a separate box rather than a footnote to Decision 9.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 11</span>
+      <h3><code>says 100.0</code> prints <code>1e2</code></h3>
+      <p>The most user-visible item in the whole battery. Both Hey paths agree; Ruby prints <code>100.0</code>.</p>
+    </div>
+    <div class="opts" data-q="D11">
+      <label class="opt">
+        <input type="radio" name="D11" value="D11-a — print the plain form, exponent only when it is shorter (match Ruby)">
+        <span><span class="id">D11-a</span><span class="rec">Recommended</span>
+          <p class="title">Plain form by default &mdash; exponent only when genuinely shorter</p>
+          <p class="why">Ruby, Python and JavaScript all print <code>100.0</code> / <code>100</code> and
+          only switch to exponent notation at extreme magnitudes. <em>A Ruby developer's first hour
+          contains <code>puts 100.0</code></em>, and <code>1e2</code> reads as a bug in the language before
+          they have written anything real. This is the cheapest credibility we can buy.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D11" value="D11-b — keep the exponent form (shortest round-trip)">
+        <span><span class="id">D11-b</span>
+          <p class="title">Keep the exponent form</p>
+          <p class="why">It is the shortest representation that round-trips exactly, which is a defensible
+          engineering choice and is already implemented and tested. <em>The cost is entirely first
+          impressions</em> &mdash; and first impressions are the stated goal of the project.</p>
+        </span>
+      </label>
+    </div>
+    <div class="note warn">
+      <span class="tag">Scope</span>
+      <p><code>10.0</code>&rarr;<code>1e1</code>, <code>100.0</code>&rarr;<code>1e2</code>, <code>1000.0</code>&rarr;<code>1e3</code>, <code>1500.0</code>&rarr;<code>1.5e3</code>. Not a bug and not a lane divergence &mdash; both paths agree, on both operating systems. Purely a rendering decision.</p>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 12</span>
+      <h3>What happens when an integer gets too big?</h3>
+      <p>Hey silently wraps around: the largest integer plus one becomes the most negative integer.</p>
+    </div>
+    <div class="opts" data-q="D12">
+      <label class="opt">
+        <input type="radio" name="D12" value="D12-a — promote to arbitrary precision (match Ruby)">
+        <span><span class="id">D12-a</span>
+          <p class="title">Promote to arbitrary precision &mdash; match Ruby</p>
+          <p class="why">Ruby and Python simply keep going; big numbers stay correct forever. <em>The most
+          correct answer and the most expensive</em> &mdash; it means every integer operation can allocate,
+          which fights directly against the per-core speed goal this project is built around.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D12" value="D12-b — fail closed on overflow, consistent with div-by-zero">
+        <span><span class="id">D12-b</span><span class="rec">Recommended</span>
+          <p class="title">Fail closed &mdash; refuse rather than wrap</p>
+          <p class="why">Hey <em>already</em> fails closed on division by zero, so silently wrapping on
+          overflow is internally inconsistent: the same program refuses one impossible answer and invents
+          another. <em>Cost is a check on arithmetic that can overflow</em>, which is measurable but
+          boundable &mdash; only where the compiler cannot prove the range.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D12" value="D12-c — keep silent wrapping, document it">
+        <span><span class="id">D12-c</span>
+          <p class="title">Keep wrapping &mdash; document it as the contract</p>
+          <p class="why">What Go does, and it is free. <em>It is also the classic source of security bugs</em>
+          &mdash; a length calculation that wraps becomes a buffer that is too small.</p>
+        </span>
+      </label>
+    </div>
+    <div class="note settled">
+      <span class="tag">Newly proven, and it changes this box</span>
+      <p>The wrapping is <strong>defined behaviour, not undefined</strong>, and both Hey paths produce identical results. The compiler emits plain <code>add</code> instructions without the flag that would make overflow undefined. So this is a genuine open choice, <em>not</em> a latent crash &mdash; which is why it is on this page rather than in the fix queue.</p>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 13</span>
+      <h3>Three small gaps, one question</h3>
+      <p><code>7.5 % 2</code> refuses. <code>3.to_f()</code> does not exist. Both fail <em>honestly</em> rather than answering wrongly &mdash; the question is whether to fill them.</p>
+    </div>
+    <div class="opts" data-q="D13">
+      <label class="opt">
+        <input type="radio" name="D13" value="D13-a — add both float modulo and to_f, matching Ruby">
+        <span><span class="id">D13-a</span><span class="rec">Recommended</span>
+          <p class="title">Add both &mdash; float <code>%</code> and <code>to_f</code></p>
+          <p class="why">Ruby answers <code>1.5</code> for <code>7.5 % 2</code> and has <code>to_f</code>
+          everywhere. Both are first-hour reaches for a Ruby developer, and neither is architecturally
+          interesting &mdash; just work nobody has done. <em>The project already treats <code>to_i</code>
+          and <code>to_s</code> as the sanctioned conversion mechanism, so <code>to_f</code> is a hole in
+          a pattern we have already committed to.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D13" value="D13-b — add to_f only; leave float modulo refusing">
+        <span><span class="id">D13-b</span>
+          <p class="title">Add <code>to_f</code> only</p>
+          <p class="why">Conversions are load-bearing for the whole no-visible-types design; float modulo is
+          genuinely rare. <em>Smaller surface, and the refusal stays honest.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D13" value="D13-c — leave both; refusing loudly is acceptable">
+        <span><span class="id">D13-c</span>
+          <p class="title">Leave both refusing</p>
+          <p class="why">A loud refusal is far better than a wrong answer, and there are 44 real defects
+          ahead of these in the queue. <em>Defensible &mdash; but it is a Ruby developer hitting a wall in
+          their first hour on something Ruby has had forever.</em></p>
+        </span>
+      </label>
+    </div>
+    <div class="note warn">
+      <span class="tag">One wrinkle worth knowing</span>
+      <p><code>7.5 % 2</code> refuses when written literally &mdash; but the same expression <em>through a function parameter</em> currently answers <code>1</code>, because floats get quietly narrowed to integers at that boundary. <strong>That part is a bug and is being fixed regardless of this decision.</strong> It is mentioned because it is why "the gap is closed" would have been the wrong reading of a literals-only test.</p>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 14</span>
+      <h3>Dividing a float by zero, and converting infinity</h3>
+      <p>Two places where Hey refuses and Ruby answers. Both are about whether "no sensible answer" should stop the program.</p>
+    </div>
+    <div class="opts" data-q="D14">
+      <label class="opt">
+        <input type="radio" name="D14" value="D14-a — keep refusing on both; fail closed is the house style">
+        <span><span class="id">D14-a</span><span class="rec">Recommended</span>
+          <p class="title">Keep refusing on both</p>
+          <p class="why">Hey's house style is to fail closed, and this project's most expensive defects have
+          all been silent wrong answers. <code>1.0 / 0.0</code> refusing is consistent with integer division
+          refusing. <em>The cost is that numeric code which legitimately wants infinity has to say so
+          explicitly.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D14" value="D14-b — follow IEEE-754 and Ruby: float division gives Infinity">
+        <span><span class="id">D14-b</span>
+          <p class="title">Follow the floating-point standard &mdash; give <code>Infinity</code></p>
+          <p class="why">Ruby, Python, JavaScript, C and every other IEEE-754 language return infinity here;
+          it is the standard's explicit answer, not an accident. <em>Scientific and statistical code relies
+          on it</em>, and refusing makes Hey the odd one out in a way numeric programmers will notice
+          immediately.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D14" value="D14-c — Infinity for float division, but infinity-to-integer raises">
+        <span><span class="id">D14-c</span>
+          <p class="title">Infinity is a value; converting it to an integer is an error</p>
+          <p class="why">Exactly Ruby's split, and arguably the most coherent position: infinity is a
+          legitimate floating-point <em>value</em>, but there is no integer that means it, so the conversion
+          is the honest place to fail. <em>Today Hey silently saturates it to the largest integer</em>, which
+          is the one behaviour here nobody would defend.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <h2>Housekeeping</h2>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 15</span>
+      <h3>The worktrees &mdash; this one now costs measurable time</h3>
+      <p>40 scratch checkouts, <strong>4.6 GB</strong>, 77 cached compiler binaries. Oldest untouched since 24 July.</p>
+    </div>
+    <div class="opts" data-q="D15">
+      <label class="opt">
+        <input type="radio" name="D15" value="D15-a — prune the 82 audited-safe, keep 8, review 12 with me">
+        <span><span class="id">D15-a</span><span class="rec">Recommended</span>
+          <p class="title">Prune the audited-safe set, keep the live ones, review the middle</p>
+          <p class="why">An audit already sorted them: <strong>82 safe to delete, 12 worth a look,
+          8 keep</strong>. Deleting the safe set reclaims most of the 4.6 GB and removes stale checkouts that
+          have caused three separate hangs by being <em>scanned</em> during builds. <em>Nothing in the safe
+          set has unmerged work</em> &mdash; that is what the audit checked.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D15" value="D15-b — prune everything not touched in 7 days, no review">
+        <span><span class="id">D15-b</span>
+          <p class="title">Delete anything untouched for a week</p>
+          <p class="why">Simpler and needs no per-item judgement. <em>Riskier</em>: age is not the same as
+          finished, and at least one parked branch here has real work in it that has never been merged.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D15" value="D15-c — keep them all, revisit later">
+        <span><span class="id">D15-c</span>
+          <p class="title">Keep them; revisit later</p>
+          <p class="why">Disk is cheap and nothing is broken today. <em>The cost is no longer only disk</em>
+          &mdash; see the box below.</p>
+        </span>
+      </label>
+    </div>
+    <div class="note warn">
+      <span class="tag">Why this stopped being housekeeping</span>
+      <p>Each scratch checkout keeps its own copy of the compiler and, until today's fix, <strong>each one paid a ~3.5 minute rebuild of the compiler from scratch</strong>. The Linux machine has 12 and paid it three times in one morning without realising what it was. Stale checkouts have also been the direct cause of three build hangs &mdash; they get walked by tools that scan the source tree, one of which enumerated 284,760 files to find 2,684 real ones.</p>
+    </div>
+  </div>
+
+  <h2>Not on this page</h2>
+  <div class="note settled">
+    <span class="tag">Being fixed without asking you</span>
+    <p>The 44 places where Hey's two execution paths disagree are defects, not choices, and are in the queue. The worst of them: arithmetic on a value read from a map <em>concatenates instead of adding</em> in compiled binaries &mdash; <code>totals['count'] + 2</code> gives <code>72</code> where it should give <code>9</code>. App teams have been warned with a workaround.</p>
+    <p>A further set of decisions &mdash; whether maps guarantee insertion order, what <code>nil</code>'s relationship to numbers is, how strict number-from-text conversion should be &mdash; are real but have not been measured yet. They will get their own page rather than being guessed at here.</p>
+  </div>
+
+  <div id="ruling">
+    <div class="rhead">Your ruling</div>
+    <div class="body">
+      <textarea id="out" readonly></textarea>
+      <button id="copy">Copy ruling</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>Hey language &mdash; decision docket, 1 August 2026. Measurements from a 93-row arithmetic conformance battery run across both execution paths on macOS (arm64) and reproduced on Linux (x86-64), compared against Ruby 4.0.6. Decisions are numbered continuously with earlier dockets; the previous page ended at Decision 8.</p>
+  </footer>
+</main>
+<script>
+  (function () {
+    var out = document.getElementById('out');
+    var qs = [
+      { name: 'D9',  label: 'D9  integer division rounding' },
+      { name: 'D10', label: 'D10 modulo sign / second operator' },
+      { name: 'D11', label: 'D11 float printing (1e2 vs 100.0)' },
+      { name: 'D12', label: 'D12 integer overflow' },
+      { name: 'D13', label: 'D13 float modulo and to_f' },
+      { name: 'D14', label: 'D14 float div-by-zero and infinity conversion' },
+      { name: 'D15', label: 'D15 worktree prune' }
+    ];
+    function render() {
+      var lines = ['HEY — ARITHMETIC & HYGIENE RULING', ''], any = false;
+      qs.forEach(function (q) {
+        var sel = document.querySelector('input[name="' + q.name + '"]:checked');
+        lines.push(q.label + ':');
+        lines.push('  ' + (sel ? sel.value : '(not yet decided)'));
+        lines.push('');
+        if (sel) any = true;
+      });
+      out.value = any ? lines.join('\n').trim() : 'Nothing selected yet.';
+    }
+    document.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      r.addEventListener('change', render);
+    });
+    document.getElementById('copy').addEventListener('click', function () {
+      out.select();
+      var b = this;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out.value);
+        else document.execCommand('copy');
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = 'Copy ruling'; }, 1600);
+      } catch (e) { b.textContent = 'Select the text above and copy'; }
+    });
+    render();
+  })();
+</script>
+</body>
+</html>
