@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="article-desc" content="What happens when the compiler assumes a number and runtime data says otherwise: boundary failure handling, whether fail-fast requires a VM, nil in an unboxed buffer, and whether the interpreter stays a semantics authority.">
+<meta name="article-desc" content="What happens when the compiler assumes a number and runtime data says otherwise: deoptimization compared against compile-time proof, whether fail-fast needs a VM, nil in an unboxed buffer, the interpreter's status, and what the two-emitter mirror actually buys.">
 <title>When the compiler is wrong — the failure & containment docket</title>
 <style>
   :root {
@@ -89,6 +89,12 @@
   button { font:inherit; font-size:0.9rem; font-weight:620; cursor:pointer; background:var(--accent);
     color:var(--panel); border:0; border-radius:3px; padding:0.5rem 0.95rem; margin-top:0.75rem; }
   button:focus-visible, .opt:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+  .scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:0.9rem; }
+  th,td { text-align:left; padding:0.5rem 0.7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); font-weight:620; }
+  td:first-child { color:var(--ink); font-weight:600; white-space:nowrap; }
+  td { color:var(--muted); }
   footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line);
     color:var(--faint); font-size:0.85rem; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
@@ -110,7 +116,7 @@
     <ul class="rules" style="margin-bottom:0">
       <li><b>No visible types.</b> Stdlib-only types are unfair to programmers who avoid them, and that unfairness becomes a feature request.</li>
       <li><b>Conversion-directed hints.</b> The compiler names the site and the <code>to_i</code>/<code>to_s</code> that unlocks it; an optimizer may insert them. The hint is a value, never a type.</li>
-      <li><b>No complex runtime backtracking.</b> If it can be made fast at compile time, do it there.</li>
+      <li><b>Correctness is non-negotiable.</b> Incorrect programs are unacceptable; that constraint outranks speed.</li>
       <li><b>Direction of travel:</b> one implementation, C retained for stage0 and stubbed to warn elsewhere.</li>
     </ul>
   </div>
@@ -174,14 +180,80 @@ loop n times ...               # proven i64 from here on; no checks inside</pre>
         </span>
       </label>
       <label class="opt">
-        <input type="radio" name="D4" value="D4-d — guards inside the loop with deopt (you rejected this)">
+        <input type="radio" name="D4" value="D4-d — speculate with guards, deoptimize to a generic path on violation">
         <span><span class="id">D4-d</span>
-          <p class="title">Guards inside the loop, deoptimize on violation</p>
-          <p class="why">Listed only for completeness. <em>You ruled this out</em>, and I agree:
-          it is a JIT-shaped machine and it fights the compiled-binary story the R2 ladder rests on.</p>
+          <p class="title">Speculate with guards &mdash; deoptimize to a generic path</p>
+          <p class="why">The compiler assumes a type it cannot prove, emits fast code behind a cheap
+          guard, and on violation falls back into a generic version that continues
+          <em>correctly</em>. Nothing crashes and nothing is wrong &mdash; it just runs slower on
+          that path. <em>It is the only option that speeds up code the compiler cannot prove.</em>
+          See the comparison below.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D4" value="D4-e — hybrid: prove where possible, speculate where not, hint always">
+        <span><span class="id">D4-e</span><span class="rec">Recommended</span>
+          <p class="title">Hybrid &mdash; prove first, speculate second, hint always</p>
+          <p class="why">Static proof where available (no guard at all); speculation with deopt only
+          where proof fails; and the diagnostic reports both, so you can see which paths are merely
+          speculated and convert them to proven with a <code>to_i</code>.
+          <em>These are not rival strategies &mdash; deopt is a fallback for what proof cannot
+          reach.</em></p>
         </span>
       </label>
     </div>
+  </div>
+
+  <h2>What deoptimization actually is, and how it compares to your brainstorm</h2>
+  <p>
+    I owe you a correction: you said you did not want <em>complex</em> backtracking
+    and asked what happens when the data is wrong. I recorded that as
+    &ldquo;deopt rejected.&rdquo; That was my compression, not your ruling.
+    Here is the real comparison.
+  </p>
+  <p>
+    <strong>Deoptimization is not a correctness risk &mdash; it is a correctness
+    <em>mechanism</em>.</strong> The compiler guesses a type it cannot prove and
+    emits fast code behind a guard. If the guess is wrong, control transfers into
+    a generic version of the same code, which produces the right answer more
+    slowly. It never crashes and never computes something false. That is the
+    opposite of the thing you are worried about.
+  </p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>&nbsp;</th><th>Your brainstorm (prove + hint)</th><th>Deoptimization</th></tr></thead>
+    <tbody>
+      <tr><td>Checks in the hot loop</td><td>none &mdash; one check at the boundary</td><td>a guard per speculation, often hoistable</td></tr>
+      <tr><td>On bad data</td><td>crash, or an error value</td><td>silently correct, just slower</td></tr>
+      <tr><td>Code the compiler <em>cannot</em> prove</td><td>stays slow forever</td><td>still gets fast</td></tr>
+      <tr><td>Predictability</td><td>high &mdash; readable from source</td><td>depends on runtime data</td></tr>
+      <tr><td>Worst case</td><td>a slow path you can see</td><td>a deopt storm: slower than never specializing</td></tr>
+      <tr><td>Binary size</td><td>one version of each function</td><td>two &mdash; specialized and generic</td></tr>
+      <tr><td>Needs a JIT?</td><td>no</td><td>no, but AOT deopt needs state maps at every bail-out point</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    <strong>The real cost of deopt here is not the guard, it is the bail-out.</strong>
+    To leave a specialized region the runtime must <em>materialize</em> the generic
+    state &mdash; turn an unboxed <code>i64</code> buffer back into a boxed array,
+    which means allocating and copying at exactly the moment you were trying to
+    avoid allocating. Occasional bail-outs are cheap. A loop that deopts every
+    iteration is slower than never having specialized.
+  </p>
+  <div class="note">
+    <span class="tag">Why the hybrid is probably right</span>
+    <p>
+      Your <code>to_i</code> hint mechanism and deopt solve <em>different halves</em>
+      of the same problem. Proof gives you guard-free speed where the compiler can
+      see the answer. Speculation gives you speed where it cannot &mdash; JSON in,
+      polymorphic collections, anything crossing a dynamic boundary. And the
+      diagnostic you asked for gets strictly better: instead of only saying
+      &ldquo;this is slow, add a <code>to_i</code>,&rdquo; it can say
+      <em>&ldquo;this is speculated and bailing out 40% of the time &mdash; a
+      <code>to_i</code> here makes it proven.&rdquo;</em> That is a better
+      instrument than either strategy alone produces.
+    </p>
   </div>
 
   <h2>Decision 5 &mdash; containment, and whether you actually need a VM</h2>
@@ -351,6 +423,75 @@ loop n times ...               # proven i64 from here on; no checks inside</pre>
     </p>
   </div>
 
+  <h2>Decision 8 &mdash; two backends, and what the mirror actually buys</h2>
+  <div class="note warn">
+    <span class="tag">The argument that changed my mind</span>
+    <p>
+      <em>&ldquo;We don't need native-c and llvm to tell us that 2.5 * 3 is not
+      simply 6 &mdash; that's a bug cuz we know math.&rdquo;</em>
+      This is right and it undercuts what I told you. <strong>The mirror is a
+      RELATIVE oracle: it tells you the two lanes disagree, never which one is
+      correct.</strong> It is blind to every bug where both lanes are wrong
+      together. A spec that asserts <code>7.5</code> is an ABSOLUTE oracle
+      &mdash; it catches the bug whether one lane is wrong or both, and it costs
+      one implementation instead of two.
+    </p>
+    <p style="margin-top:0.7rem">
+      We have a live example: <code>wfloatparam</code>, where
+      <code>M.scale(2.5, 2)</code> returns <code>4</code> compiled and
+      <code>5.0</code> interpreted. The mirror flagged a disagreement. A spec
+      asserting <code>5.0</code> would have named the defect.
+    </p>
+  </div>
+  <p>
+    <strong>Can native C do the unboxing and the in-place work? Yes &mdash;
+    capability is not the blocker.</strong> <code>heyc.c</code> is an emitter; it
+    writes LLVM text. Nothing stops C from emitting specialized IR that Hey also
+    emits. The blocker is <em>labour</em>: every optimization written twice, in
+    two languages, kept byte-identical &mdash; and byte-identity on a type-inference
+    and escape analysis is far harder than byte-identity on straightforward
+    lowering. The dead weight is real, but it is duplication, not impossibility.
+  </p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision 8</span>
+      <h3>What happens to the two emitters?</h3>
+      <p>Correctness is the constraint. The question is which oracle delivers it.</p>
+    </div>
+    <div class="opts" data-q="D8">
+      <label class="opt">
+        <input type="radio" name="D8" value="D8-a — swap the relative oracle for absolute ones, then drop C to stage0 only">
+        <span><span class="id">D8-a</span><span class="rec">Recommended</span>
+          <p class="title">Replace the oracle first, then drop C to stage0</p>
+          <p class="why">Build the absolute oracles <em>before</em> the arm goes: spec goldens that
+          assert real answers, plus a self-differential &mdash; the same emitter with optimizations
+          <em>off</em> versus <em>on</em>. <em>That second one is a strictly better optimizer oracle
+          than C-vs-Hey ever was</em>, because C-vs-Hey only checks that two lowerings agree, never
+          that an optimization preserved meaning. Optimizer work then happens once.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D8" value="D8-b — keep both, implement every optimization twice">
+        <span><span class="id">D8-b</span>
+          <p class="title">Keep both emitters at byte-identity</p>
+          <p class="why">Preserves the unknown-unknowns net over every program we compile, which
+          specs cannot match for coverage. <em>Costs every optimization twice and makes the hard
+          analyses the thing you must duplicate exactly.</em> Slowest route to fast.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="D8" value="D8-c — keep both but relax byte-identity to behavioural equivalence">
+        <span><span class="id">D8-c</span>
+          <p class="title">Keep both, relax to behavioural equivalence</p>
+          <p class="why">C stays simple and unoptimized; Hey carries the optimizer; they must agree
+          on <em>outputs</em>, not bytes. Keeps a cross-check without duplicating the analyses.
+          <em>Loses the cheap byte-diff gate</em> and needs a real differential harness instead.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
   <div id="ruling">
     <div class="rhead">Your ruling</div>
     <div class="body">
@@ -377,7 +518,8 @@ loop n times ...               # proven i64 from here on; no checks inside</pre>
       { name:'D4', label:'DECISION 4 (boundary: unproven data meets specialized path)' },
       { name:'D5', label:'DECISION 5 (containment / supervisor)' },
       { name:'D6', label:'DECISION 6 (nil in an unboxed buffer)' },
-      { name:'D7', label:'DECISION 7 (interpreter as semantics authority)' }
+      { name:'D7', label:'DECISION 7 (interpreter as semantics authority)' },
+      { name:'D8', label:'DECISION 8 (two emitters / the oracle)' }
     ];
     function render() {
       var lines = ['HEY — FAILURE & CONTAINMENT RULING', ''], any = false;
