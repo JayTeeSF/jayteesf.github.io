@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="article-desc" content="The full Hey ladder, July 31, now with a glossary: R2 becomes top priority because it is also the biggest speed fix - compiled binaries hand stdlib calls to a child process at ~61us each. R6's swing item recovered from a dead session's notes. Two speed fixes verified. Three numbers retracted.">
+<meta name="article-desc" content="v0.99.475a deployed: the standard library now links into the binary instead of being handed to a child process - 67.3 microseconds saved per call, measured through HTTP, and a ~2,500 rps serialization ceiling removed so the win grows with load. Also five retractions, including the claim that deployed apps would feel it - none call the converted functions yet.">
 <title>Hey — the full ladder (July 31)</title>
 <style>
 :root{
@@ -104,14 +104,14 @@ footer .mono{ font-size:.75rem; }
 <body>
 <main>
 <h1>Hey — the full ladder (July 31)</h1>
-<p class="sub">The complete path to the goals, restated so it is unambiguous. Today nothing reached trunk — and yet the largest schedule risk on the ladder was answered, two speed fixes were verified, and the reason all three had stalled turned out to be the same reason. This page also carries three numbers we published and retracted.</p>
-<p class="asof">as of 2026-07-31 · shipping v0.99.474a — <b>unchanged</b> · nothing deployed today · dates carry their as-of and move when reality does</p>
+<p class="sub">A precompiled standard library shipped to trunk today. A call into it went from 75 microseconds to under one — and the eight-millisecond process spawn behind every compiled program's first standard-library call is gone. This page also carries four numbers we published and retracted, and the reason the release nearly did not happen.</p>
+<p class="asof">as of 2026-07-31 · <b>shipping v0.99.475a — DEPLOYED to trunk</b> · dates carry their as-of and move when reality does</p>
 
 <div class="now">
-  <div class="stat"><b>R6 de-risked</b><span>its swing item was answered days ago and nobody had noticed — recovered today</span></div>
-  <div class="stat"><b>2 speed fixes</b><span>verified GREEN on both platforms. <em>Verified, not landed.</em> See the status ladder below.</span></div>
-  <div class="stat"><b>294</b><span>checks producing a verdict — the previous best in this cycle was 104</span></div>
-  <div class="stat"><b>~Aug 14</b><span>realistic R8. Unchanged — but R6's risk rating should now come down.</span></div>
+  <div class="stat"><b>77×</b><span>faster per standard-library call in a compiled program — 75.42&nbsp;µs → 0.976&nbsp;µs, <em>deployed</em></span></div>
+  <div class="stat"><b>~7.9 ms</b><span>one-time process spawn per program, <b>eliminated</b></span></div>
+  <div class="stat"><b>v0.99.475a</b><span>on trunk, archive live: <span class="mono">lowering=direct</span></span></div>
+  <div class="stat"><b>5 defects</b><span>found by the release battery that every slice's own verification had passed</span></div>
 </div>
 
 <h2>Three words we are using precisely on this page</h2>
@@ -122,27 +122,23 @@ footer .mono{ font-size:.75rem; }
 <li><b>DEPLOYED</b> — it is on trunk. <b>This is the only one users feel.</b> Nothing below is deployed.</li>
 </ul>
 
-<h2>Glossary — every piece of shorthand on this page</h2>
-<p class="body">We use codenames internally and they leak into these pages. Rather than strip them out, they are defined here and used consistently. New terms since the previous daily are marked <b>NEW</b>.</p>
+<h2>What shipped: the standard library stopped being a separate program</h2>
 
-<ul class="body">
-<li><b>The ladder / R2 → R8</b> — the staged plan to delete the original C implementation of Hey. Each rung is one deletion or the groundwork for one. It finishes when no rule about what Hey programs <em>mean</em> lives in C.</li>
-<li><b>R2</b> — the live rung: the Hey-written compiler must accept every program the old C one accepts. Measured by a build receipt that names which compiler did the work. <b>NEW today: R2 is now the top priority, because it is also the biggest speed fix</b> — see delegation, below.</li>
-<li><b>R6</b> — the largest deletion: the interactive shell currently contains a <em>second</em>, independent implementation of the language that must agree with the real compiler forever. R6 deletes it.</li>
-<li><b>Self-hosting</b> — the compiler is written in the language it compiles. Hey is most of the way there; the ladder is the rest of the way.</li>
-<li><b>Delegation / the sidecar</b> — <b>NEW</b>. When a compiled Hey program calls a standard-library function the compiler cannot yet compile natively, it hands the call to a <em>separate child process</em> over a pipe and waits. Measured today: ~7.9 ms once to start that process, then ~61 microseconds per call. Closing R2 removes the need for it entirely.</li>
-<li><b>Codenames beginning with <span class="mono">w</span></b> — one per fix, so a change can be discussed before it has a version number. <span class="mono">wleakfix</span> = the memory-leak fix. <span class="mono">wpushinplace</span> = the fix making array-append stop being quadratic. <span class="mono">wboundroute</span> = the fix letting a web handler reach something created at startup. They are labels, not products.</li>
-<li><b>Tribunal</b> — <b>NEW</b>. A formal review by several independent reviewers with deliberately different priors, used when a decision is expensive and there are two credible designs. Currently convened over two competing fixes for the same array-copying defect: they cannot be merged, so one wins or they are proven not to overlap.</li>
-<li><b>The four-cell matrix</b> — <b>NEW</b>. The experiment that settles that tribunal: run the benchmark with neither fix, each fix alone, and <em>both together</em>, on one machine. The "both" cell is the only one that can reveal a fix that has silently stopped working.</li>
-<li><b>Coverage cliff</b> — <b>NEW</b>. The point in a test run past which nothing produced a result, because the run died earlier. Dangerous because it is indistinguishable from everything having passed.</li>
-<li><b>Voiceless gate</b> — <b>NEW</b>. An automated check that, when it fails, prints nothing at all. You learn that something broke and not one byte about what.</li>
-<li><b>Fail closed</b> — when in doubt, refuse loudly rather than return a plausible wrong answer. The opposite failure — returning something that looks fine — is the one this project spends most of its effort hunting.</li>
-<li><b>Falsifier</b> — a switch that turns a fix <em>off</em>. If disabling the fix does not bring the bug back, the fix is not what was doing the work. Every performance claim here is expected to have one.</li>
-<li><b>Byte-identical</b> — two compilers producing exactly the same output, byte for byte. This is the bar for every change until the old compiler is deleted; "looks equivalent" does not count.</li>
-<li><b>The battery</b> — the full set of automated checks a change must pass before it can land. Currently 294 of them.</li>
-<li><b>fannkuch</b> — a standard benchmark that stresses array manipulation. Used here because it exposed the array-copying defect the tribunal is about.</li>
-<li><b>VERIFIED / LANDED / DEPLOYED</b> — see the section above. Only <em>deployed</em> means users have it.</li>
-</ul>
+<p class="body">Until today, a compiled Hey program calling a standard-library function <b>handed that call to a separate child process over a pipe and waited for the answer.</b> Not a function call — an inter-process round trip, on every call, because the standard library was Hey source that had never been compiled into the binary.</p>
+
+<p class="body">Measured this morning by fitting <span class="mono">total = spawn + N × per-call</span> across three sizes:</p>
+
+<pre>              spawn        per call
+before      7.225 ms       75.42 µs
+after       0.126 ms        <span class="good">0.976 µs</span>
+                           ─────────
+                              <span class="good">77×</span></pre>
+
+<p class="body">The standard library now compiles once, into an archive that links directly into each program — and the linker discards everything the program does not reach, so binaries carry only the slice they use. Four functions are converted so far as the proving slice. One of them, <span class="mono">Http.route_match</span>, is a routing primitive — <b>but see the correction below: no application in the fleet actually calls it yet, so no deployed application is faster today.</b></p>
+
+<p class="note"><b>Why only four.</b> This was deliberately a vertical slice: prove the mechanism end to end, including the safety gate, before converting six hundred functions and discovering a flaw. It found one. The design said the archive should use "the existing calling convention" — but the compiler <em>infers</em> a convention per function from its body, and across an archive boundary an integer, a string pointer and a boxed value are indistinguishable in the intermediate representation. <b>A mismatch does not fail the link; it silently reinterprets a pointer as an integer.</b> The identity gate guarded the value layout and nothing guarded the convention. Pinning it per member fixed it — and unexpectedly widened what the compiler can handle: across 215 functions in six modules, the refusals fell from 30 to 12, and eight of the remaining twelve are genuine socket primitives that should stay native.</p>
+
+<p class="body"><b>The safety gate, proved rather than asserted.</b> The archive carries an identity hash over the value layout as the compiler itself computes it — not text-scanned, because padding and alignment are invisible to a text scan and a silent layout change would keep the hash constant while the interface drifted. To prove the gate works, the archive was rebuilt with <em>one hexadecimal digit</em> of that hash altered, and the link refused. A positive control confirmed the same recipe links cleanly when the hash is right.</p>
 
 <h2>The recovery — the largest single result of the day</h2>
 
@@ -160,6 +156,18 @@ P1d  actor fragment + Jobs fragment  PASS</pre>
 
 <p class="body">We have marked it a <b>strong PASS pending one confirmation run</b> rather than certified, because the numbers were recovered rather than re-run, and we are not going to launder someone else's instrument into a certification.</p>
 
+<h2>The release nearly did not happen, and what stopped it is worth more than what shipped</h2>
+
+<p class="body">The full release battery — 298 automated checks — <b>failed</b>. Six checks went red that should not have. Every one of the four changes being released had already been verified independently, two of them on two different machines. The battery found five distinct defects that all of that verification had passed.</p>
+
+<p class="note"><b>Three of the five were the same mistake, and it is a structural one.</b> Hey has two compilers that must produce byte-identical output: an old one written in C, and the new one written in Hey. <b>The shipping path uses the Hey one.</b> Both changes had been implemented in the C compiler only, and verified against it.
+<br><br>
+For the archive that meant the two compilers disagreed, which the parity checks caught. For a memory-leak fix it meant something worse: <b>the leak it claimed to have fixed was still leaking in the lane users actually run.</b> It reported a balanced result — two allocations, two frees — while the shipping compiler was still doing two allocations and zero frees, because eight of its emission sites had never been mirrored. A verified fix that was not active where it mattered.</p>
+
+<p class="body">The other two were quieter and no less instructive. A build-ordering bug meant the archive was linked before it was built — which the archive's own gate caught and refused, correctly, with a message naming exactly what was missing. And a check that scans for a retired feature's name failed because <b>a code comment mentioned that name in a sentence about having removed it.</b> The comment was ours, written earlier the same day.</p>
+
+<p class="note">Every one of these was invisible to the change that caused it, because <b>a slice is verified by evidence its own author chose.</b> The leak fix ran leak-shaped tests and passed them all; not one of them contained an actor, and the missing code was all actor-shaped. The fix for it now ships with a test that would have caught it — verified red before the fix and green after, which is the only way to know a test can fail.</p>
+
 <h2>Why it had been lost, and why that is the general lesson</h2>
 
 <p class="body">Sessions here get terminated without warning when they exhaust their context. That is a fact of the environment, not a failure to engineer against — you cannot prevent it. What you can do is <b>clean up, and recover what was left behind</b>.</p>
@@ -174,7 +182,7 @@ P1d  actor fragment + Jobs fragment  PASS</pre>
 
 <ul class="ladder">
   <li class="rung"><details open>
-    <summary><div class="rhead"><span class="rid">wleakfix</span><span class="chip ok">VERIFIED both platforms · NOT deployed</span><span class="expand"><span class="closed-label">▸ the evidence</span><span class="open-label">▾ hide</span></span></div>
+    <summary><div class="rhead"><span class="rid">wleakfix</span><span class="chip ok">repaired · verified · in the release battery</span><span class="expand"><span class="closed-label">▸ the evidence</span><span class="open-label">▾ hide</span></span></div>
     <p class="gist">32 bytes leaked per arithmetic operation. Dead in both compilers.</p></summary>
     <div class="body">
 <pre>shape        BEFORE (m:f)   AFTER (m:f)
@@ -190,7 +198,7 @@ sh_cmp         <span class="bad">2:0</span>            <span class="good">2:2</s
   </details></li>
 
   <li class="rung"><details open>
-    <summary><div class="rhead"><span class="rid">wpushinplace</span><span class="chip ok">VERIFIED · NOT deployed</span><span class="expand"><span class="closed-label">▸ the evidence</span><span class="open-label">▾ hide</span></span></div>
+    <summary><div class="rhead"><span class="rid">wpushinplace</span><span class="chip ok">verified · in the release battery</span><span class="expand"><span class="closed-label">▸ the evidence</span><span class="open-label">▾ hide</span></span></div>
     <p class="gist">Building an array by appending stops being quadratic.</p></summary>
     <div class="body">
 <pre>              appends        ratio
@@ -313,7 +321,7 @@ workers=8   1,589 req/s     <span class="c"># measured in an application, not a 
   </details></li>
 </ul>
 
-<h2>Three numbers we published and retracted</h2>
+<h2>Five numbers and claims we published and retracted</h2>
 
 <p class="body"><b>"683,282 files, 255×"</b> for a wasteful search — measured with a tool that counted directories the real code skips. Honest figures: <b>284,760 and 106×</b>, overstated by 2.4×.</p>
 
@@ -321,7 +329,38 @@ workers=8   1,589 req/s     <span class="c"># measured in an application, not a 
 
 <p class="body"><b>"A four-minute compile for a simple script."</b> Reported from a real observation, but we could not reproduce it: cold, with every cache empty, the same script takes <b>4.7 seconds</b>. Something else consumed those minutes and we have not proven what. Recording it as unexplained rather than quietly dropping it.</p>
 
+<p class="body"><b>"Closing the compiler-retirement rung would remove this cost."</b> Stated here yesterday and to two other teams. <b>False.</b> The Hey-written compiler reproduces the hand-off decision deliberately, because byte-identical output is that rung's own acceptance test. The two are orthogonal, and the fix that shipped today is the one that actually removes it.</p>
+
+<p class="body"><b>"Every routed web application will feel this."</b> Announced to every team when the release shipped, and <b>false</b>. An independent audit of all four applications found <b>none of them calls any of the four converted functions</b> — expected gain today is exactly zero. The claim came from the implementer's report and I repeated it fleet-wide without checking whether any application touches those functions. The mechanism is live and measured; the impact sentence was not audited, and it was the sentence readers would act on.</p>
+
+<p class="note"><b>What the same audit found instead, and it is better than the headline.</b> Measured end to end through served HTTP requests, the saving is <b>67.3 microseconds per call</b> — within 10% of the number announced. And the old path turned out to be a <b>hard ceiling of about 2,500 requests per second that no amount of hardware could raise</b>, because calls to it serialised. So the improvement is not a flat per-call constant: <b>it grows with load — roughly 13× at one concurrent request, 33× at thirty-two.</b> That reframes the change from a latency win to a removed scalability ceiling, which is a larger result than the one we published.</p>
+
 <p class="note">The corrections matter more than the findings they qualify. A team that measures everything has to be equally quick to un-measure — and today a fourth self-correction came from a contributor who caught their own mistake three times in one session and wrote down the pattern instead of apologising: <b>"I measured a tree that was not the tree I had changed."</b> That is the most useful sentence anyone produced today.</p>
+<h2>Glossary — every piece of shorthand on this page</h2>
+<p class="body">Reference for every piece of shorthand used above. We use codenames internally and they leak into these pages; rather than strip them out, they are defined here and used consistently day to day. Terms coined since the previous daily are marked <b>NEW</b>.</p>
+
+<ul class="body">
+<li><b>The ladder / R2 → R8</b> — the staged plan to delete the original C implementation of Hey. Each rung is one deletion or the groundwork for one. It finishes when no rule about what Hey programs <em>mean</em> lives in C.</li>
+<li><b>R2</b> — the live rung: the Hey-written compiler must accept every program the old C one accepts. Measured by a build receipt that names which compiler did the work. <b>NEW today: R2 is now the top priority, because it is also the biggest speed fix</b> — see delegation, below.</li>
+<li><b>R6</b> — the largest deletion: the interactive shell currently contains a <em>second</em>, independent implementation of the language that must agree with the real compiler forever. R6 deletes it.</li>
+<li><b>Self-hosting</b> — the compiler is written in the language it compiles. Hey is most of the way there; the ladder is the rest of the way.</li>
+<li><b>Delegation / the sidecar</b> — <b>NEW</b>. When a compiled Hey program calls a standard-library function the compiler cannot yet compile natively, it hands the call to a <em>separate child process</em> over a pipe and waits. Measured today: ~7.9 ms once to start that process, then ~61 microseconds per call. Closing R2 removes the need for it entirely.</li>
+<li><b>Codenames beginning with <span class="mono">w</span></b> — one per fix, so a change can be discussed before it has a version number. <span class="mono">wleakfix</span> = the memory-leak fix. <span class="mono">wpushinplace</span> = the fix making array-append stop being quadratic. <span class="mono">wboundroute</span> = the fix letting a web handler reach something created at startup. They are labels, not products.</li>
+<li><b>Tribunal</b> — <b>NEW</b>. A formal review by several independent reviewers with deliberately different priors, used when a decision is expensive and there are two credible designs. Currently convened over two competing fixes for the same array-copying defect: they cannot be merged, so one wins or they are proven not to overlap.</li>
+<li><b>The four-cell matrix</b> — <b>NEW</b>. The experiment that settles that tribunal: run the benchmark with neither fix, each fix alone, and <em>both together</em>, on one machine. The "both" cell is the only one that can reveal a fix that has silently stopped working.</li>
+<li><b>Coverage cliff</b> — <b>NEW</b>. The point in a test run past which nothing produced a result, because the run died earlier. Dangerous because it is indistinguishable from everything having passed.</li>
+<li><b>Voiceless gate</b> — <b>NEW</b>. An automated check that, when it fails, prints nothing at all. You learn that something broke and not one byte about what.</li>
+<li><b>Fail closed</b> — when in doubt, refuse loudly rather than return a plausible wrong answer. The opposite failure — returning something that looks fine — is the one this project spends most of its effort hunting.</li>
+<li><b>Falsifier</b> — a switch that turns a fix <em>off</em>. If disabling the fix does not bring the bug back, the fix is not what was doing the work. Every performance claim here is expected to have one.</li>
+<li><b>Byte-identical</b> — two compilers producing exactly the same output, byte for byte. This is the bar for every change until the old compiler is deleted; "looks equivalent" does not count.</li>
+<li><b>The battery</b> — the full set of automated checks a change must pass before it can land. Currently 294 of them.</li>
+<li><b>fannkuch</b> — a standard benchmark that stresses array manipulation. Used here because it exposed the array-copying defect the tribunal is about.</li>
+<li><b>The archive</b> — <b>NEW</b>. <span class="mono">libhey_stdlib.a</span>: the standard library compiled once, ahead of time, and linked directly into each program instead of being handed to a child process at run time. Shipped today for four functions.</li>
+<li><b>The two compilers / the mirror</b> — <b>NEW</b>. Hey has an old compiler written in C and a new one written in Hey, which must produce byte-for-byte identical output until the C one is deleted. <b>The shipping path uses the Hey one.</b> A change implemented in only the C one is said to be "not mirrored" — and today that shipped a fix that was not actually active.</li>
+<li><b>Identity gate</b> — <b>NEW</b>. A hash over the exact memory layout of values, computed by the compiler rather than read from source text, so a precompiled archive cannot be linked against a runtime it no longer matches. Proved today by corrupting one hexadecimal digit and confirming the link refuses.</li>
+<li><b>Calling convention</b> — <b>NEW</b>. How a function expects its arguments passed. Within one program the compiler infers it. Across a precompiled boundary a mismatch is invisible — an integer and a pointer look the same to the linker — so it must be pinned rather than inferred.</li>
+<li><b>VERIFIED / LANDED / DEPLOYED</b> — see the section above. Only <em>deployed</em> means users have it.</li>
+</ul>
 </main>
 
 </body>
