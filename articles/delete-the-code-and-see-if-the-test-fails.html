@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="We were told to stop asserting and go find out how other language projects prove their compiler is right. Three answers came back, one of them against us, and then our own bug history overruled all three.">
+  <meta name="article-date" content="2026-08-01">
+  <meta name="article-bucket" content="almost">
+  <meta name="article-desc" content="A test that passes tells you nothing about itself. Deleting the code it guards does — and that ritual has a name, a literature, and tooling. Along the way: why a second implementation is worth more than we thought, why the field is abandoning it anyway, and what our own fifty-eight bugs said when we finally counted them.">
+  <title>Delete the Code and See If the Test Still Fails</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem; padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border); border-radius: 0.7rem; background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    .plan {
+      margin: 0 0 2rem; padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e; border-radius: 0.6rem; background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    figure { margin: 1.75rem 0 2rem; }
+    figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+    .figwrap { overflow-x: auto; }
+    figcaption { margin-top: 0.6rem; font-size: 0.9rem; color: var(--muted); }
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
+  </style>
+</head>
+<body>
+<article>
+
+  <header>
+    <h1>Delete the Code and See If the Test Still Fails</h1>
+    <p class="lede">
+      We were told to stop asking anyone to take our word for things and go find out how other
+      people solve this. Three answers came back. One argues against the thing we were about to do,
+      and it is here at full strength. Then we counted our own bugs, and they overruled all three.
+    </p>
+  </header>
+
+  <main>
+
+  <div class="plan">
+    <p class="plan-tag">Status: research, nothing built yet</p>
+    <p>
+      Everything below is either published work by other people or a count from our own commit
+      history. None of the techniques described here is running in our build today. This is a
+      recommendation about what to do first, not a report on something shipped.
+    </p>
+  </div>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>Verdict: change the order, not the plan.</strong> Build the cheap checks that
+        need only one compiler, run them alongside the second code generator until they are
+        demonstrably catching things, and retire it last. Of <strong>58</strong> defects in our own
+        history, only <strong>4</strong> needed the two generators compared &mdash; and 3 of those
+        4 gave the user the same answer either way.</li>
+      <li><strong>The ritual of deleting the implementation to check the test notices has a name:
+        extreme mutation testing.</strong> Published rates for the failure it detects:
+        <strong>11.4%</strong> of functions under close-in tests, <strong>35.5%</strong> under
+        end-to-end tests. Adopt the ritual; do not adopt the score as a target.</li>
+      <li><strong>The best argument for a second implementation is not bug counts.</strong>
+        Researchers searched <strong>three years</strong> of the busiest Java virtual machine
+        mailing lists and found <strong>zero</strong> discussions of implementations disagreeing.
+        The whole class of defect was invisible until two ran side by side.</li>
+      <li><strong>Disclosed weakness: our 58-bug count cannot see half our own history.</strong>
+        <strong>596 of 1,211</strong> commits predate the era when we started recording how a
+        defect was found. Four-of-58 is a floor with a blind spot behind it, not a proof.</li>
+      <li><strong>Reproduce the core of this today:</strong> take your last bug fix, delete the
+        body of the function you fixed, and run your entire test suite. If it stays green, the
+        test you just wrote is not watching that code.</li>
+    </ul>
+  </div>
+
+  <figure>
+    <div class="figwrap">
+      <svg viewBox="0 0 880 410" width="880" style="max-width:100%;min-width:560px;height:auto"
+           role="img" aria-labelledby="figt figd"
+           font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+        <title id="figt">How 58 defects in the Hey compiler were actually found</title>
+        <desc id="figd">A horizontal bar chart of ten discovery methods. The longest bar is
+          someone running a real application, at 12. Second is the two code generators disagreeing,
+          at 10 — of which only the first 4 are drawn solid, marking the ones no other method could
+          have found. Then a purpose-built instrument at 9, a benchmark at 8, a crash or hang at 6,
+          reading the code at 5, a golden-file comparison at 3, an ordinary right-answer test at 3,
+          a corpus sweep at 1, and unrecorded at 1.</desc>
+
+        <rect x="0" y="0" width="880" height="410" fill="#f7f7f5" stroke="#d9d9d4" stroke-width="1"/>
+        <text x="24" y="30" font-size="16" font-weight="700" fill="#22242a">How our last 58 defects were actually found</text>
+        <text x="24" y="50" font-size="12" fill="#55585f">Bars are defect counts. On the second row, only the solid part could have been found no other way.</text>
+
+        <line x1="300" y1="66" x2="300" y2="356" stroke="#9a9a94" stroke-width="1"/>
+
+        <text x="292" y="87" font-size="12" fill="#22242a" text-anchor="end">someone ran a real application</text>
+        <rect x="300" y="74" width="432" height="18" fill="#7a7f88"/>
+        <text x="740" y="88" font-size="12" font-weight="700" fill="#22242a">12</text>
+
+        <text x="292" y="116" font-size="12" fill="#1d4ed8" text-anchor="end" font-weight="700">the two code generators disagreed</text>
+        <rect x="300" y="103" width="144" height="18" fill="#1d4ed8"/>
+        <rect x="444" y="103" width="216" height="18" fill="#a9c3f4"/>
+        <text x="668" y="117" font-size="12" font-weight="700" fill="#1d4ed8">10</text>
+        <text x="308" y="117" font-size="11" font-weight="700" fill="#ffffff">4 only</text>
+
+        <text x="292" y="145" font-size="12" fill="#22242a" text-anchor="end">a purpose-built instrument</text>
+        <rect x="300" y="132" width="324" height="18" fill="#7a7f88"/>
+        <text x="632" y="146" font-size="12" font-weight="700" fill="#22242a">9</text>
+
+        <text x="292" y="174" font-size="12" fill="#22242a" text-anchor="end">a benchmark</text>
+        <rect x="300" y="161" width="288" height="18" fill="#7a7f88"/>
+        <text x="596" y="175" font-size="12" font-weight="700" fill="#22242a">8</text>
+
+        <text x="292" y="203" font-size="12" fill="#22242a" text-anchor="end">a crash or a hang</text>
+        <rect x="300" y="190" width="216" height="18" fill="#7a7f88"/>
+        <text x="524" y="204" font-size="12" font-weight="700" fill="#22242a">6</text>
+
+        <text x="292" y="232" font-size="12" fill="#22242a" text-anchor="end">someone reading the code</text>
+        <rect x="300" y="219" width="180" height="18" fill="#7a7f88"/>
+        <text x="488" y="233" font-size="12" font-weight="700" fill="#22242a">5</text>
+
+        <text x="292" y="261" font-size="12" fill="#22242a" text-anchor="end">a stored-output comparison</text>
+        <rect x="300" y="248" width="108" height="18" fill="#7a7f88"/>
+        <text x="416" y="262" font-size="12" font-weight="700" fill="#22242a">3</text>
+
+        <text x="292" y="290" font-size="12" fill="#22242a" text-anchor="end">an ordinary right-answer test</text>
+        <rect x="300" y="277" width="108" height="18" fill="#7a7f88"/>
+        <text x="416" y="291" font-size="12" font-weight="700" fill="#22242a">3</text>
+
+        <text x="292" y="319" font-size="12" fill="#22242a" text-anchor="end">a sweep over example programs</text>
+        <rect x="300" y="306" width="36" height="18" fill="#7a7f88"/>
+        <text x="344" y="320" font-size="12" font-weight="700" fill="#22242a">1</text>
+
+        <text x="292" y="348" font-size="12" fill="#22242a" text-anchor="end">never written down</text>
+        <rect x="300" y="335" width="36" height="18" fill="#7a7f88"/>
+        <text x="344" y="349" font-size="12" font-weight="700" fill="#22242a">1</text>
+
+        <text x="24" y="382" font-size="11.5" fill="#55585f">Three of those four solid cases produced an identical answer for the user. Six further defects were</text>
+        <text x="24" y="398" font-size="11.5" fill="#55585f">shared identically by both generators, so the comparison had nothing to compare.</text>
+      </svg>
+    </div>
+    <figcaption>
+      58 defects classified from our own commit history, 26 June to 1 August 2026. Where a commit
+      names two discovery methods, it is credited to whichever one made the defect visible first.
+      Half the history is invisible to this count &mdash; see the weakness disclosed above.
+    </figcaption>
+  </figure>
+
+  <h2>The ritual has a name, and it is 48 years old</h2>
+
+  <p>
+    The instruction we were given was roughly this: when you miss something, write the test you
+    should have written, check it fails <em>for the right reason</em>, fix it, watch it go green
+    &mdash; then remove the implementation again to make sure the test was not green all along.
+  </p>
+
+  <p>
+    That last step is a published technique with 48 years of literature behind it. It is called
+    <strong>mutation testing</strong>: damage the program on purpose and check that some test
+    complains. The version described above &mdash; delete a whole function body rather than tweak
+    one operator &mdash; is <strong>extreme mutation testing</strong>. And a function whose body
+    you can delete with the suite still passing has a name too: it is
+    <strong>pseudo-tested</strong>.
+  </p>
+
+  <div class="aside term">
+    <h3>Pseudo-tested</h3>
+    <p style="margin:0">
+      Covered but unwatched. Coverage says the tests reach this function; delete its body and
+      every test still passes. Coverage measures whether a line was <em>executed</em>, never
+      whether anything <em>checked the result</em>.
+    </p>
+  </div>
+
+  <p>
+    Here is the ritual, written out. The third command is the one almost nobody runs.
+  </p>
+
+<pre><code># 1. Write the test you should have written. Run it BEFORE the fix.
+$ hey-spec specs/1234_precedence.hey
+FAIL  expected 5, got 230      &lt;- red, and red about the VALUE
+
+# 2. Apply the fix. Run it again.
+$ hey-spec specs/1234_precedence.hey
+ok
+
+# 3. Now delete the body of the function you just fixed, and rerun.
+$ hey-spec specs/1234_precedence.hey
+FAIL  expected 5, got 0        &lt;- red again: the test really is watching that code
+</code></pre>
+
+  <p>
+    <strong>How common is the failure it detects? Common enough to be the default.</strong> One
+    study of 14 open-source Java projects measured <strong>11.4%</strong> of methods pseudo-tested
+    under close-in unit tests and <strong>35.5%</strong> under end-to-end tests
+    (<a href="https://arxiv.org/abs/1611.07163">Niedermayr, Juergens &amp; Wagner, 2016</a>); a
+    replication across 28,000-plus methods found them in
+    <a href="https://arxiv.org/abs/1807.05030">every project it looked at</a>. Most of our own
+    tests are the end-to-end kind, which is the worse column.
+  </p>
+
+  <p>
+    The sharpest illustration applied this to a <em>proof</em> rather than a test. A team verified
+    a sorting routine, then damaged it 81 ways to see how many the verification would catch. It
+    caught 6. <strong>Seventy-one of eighty-one survived, because the proof had run on arrays of
+    length one</strong>
+    (<a href="https://stairs.ics.uci.edu/papers/2015/How_Verified_is_My_Code_Falsification-Driven_Verification_T.pdf">Groce,
+    Ahmed, Jensen &amp; McKenney, 2015</a>). It was
+    <a class="gloss" href="glossary.html#green-wrong-reason"
+       data-def="A test that passes without testing the property it claims to test. Worse than a failing test, because nobody investigates a green one.">green
+    for the wrong reason</a>, and only damaging the code could reveal it.
+  </p>
+
+  <p>
+    The &ldquo;fails for the right reason&rdquo; half has a name too &mdash; the <strong>RIPR
+    model</strong> &mdash; and it is useful because it is a checklist. Four things must all happen
+    for a test to catch a fault: it must <em>reach</em> the broken code; running it must produce a
+    wrong value; that value must <em>travel</em> to the output; and the test must be
+    <em>looking at the part of the output that changed</em>. A test that goes red because the build
+    crashed has satisfied the first two and neither of the rest (Ammann &amp; Offutt,
+    <em>Introduction to Software Testing</em>, 2nd ed., 2017).
+  </p>
+
+  <p>
+    <strong>One caution, well evidenced.</strong> The technique comes with a standard number
+    &mdash; the percentage of damaged versions your tests catch &mdash; and it is a bad target. A
+    large study found
+    <a href="https://orbilu.uni.lu/bitstream/10993/34950/1/ICSE-main18b%20%281%29.pdf">every
+    correlation between that score and real fault detection weak once you control for how many
+    tests you have</a>, while deliberately writing tests to kill survivors <em>does</em> improve
+    detection. The number is a poor gauge; the individual survivor is an excellent bug report. Use
+    it one fix at a time, never as a threshold in the build.
+  </p>
+
+  <p class="muted">
+    The tooling exists and does not need building: <a href="https://pitest.org/">pitest</a> for
+    Java, and <a href="https://github.com/sourcefrog/cargo-mutants">cargo-mutants</a> for Rust,
+    whose <em>default</em> operator is exactly this.
+  </p>
+
+  <h2>The argument for a second implementation is stronger than we expected</h2>
+
+  <p>
+    We keep two code generators and compare their output, and we have been leaning toward dropping
+    one. The strongest finding in this review argues against that.
+  </p>
+
+  <p>
+    Running the same input through two systems that should agree, and treating disagreement as a
+    bug, is called <strong>differential testing</strong>. A team applied it to five Java virtual
+    machines and found real defects, one of which forced a change to the Java specification itself.
+    The striking part was elsewhere in the paper. <strong>They searched three years of the busiest
+    Java virtual machine mailing lists for any discussion of implementations disagreeing with one
+    another, and found none</strong>
+    (<a href="https://web.cs.ucdavis.edu/~su/publications/pldi16.pdf">Chen, Su, Sun, Su &amp;
+    Zhao, 2016</a>).
+  </p>
+
+  <p>
+    Not &ldquo;rarely discussed&rdquo; &mdash; absent. The defect class did not exist as a topic
+    until two implementations ran side by side. <strong>Every other technique in this article
+    tests a rule somebody wrote down in advance.</strong> A second implementation is the only one
+    whose coverage you did not have to predict. It finds bugs in your understanding of what your
+    own language means &mdash; the one category you cannot write a test for, because writing the
+    test requires already having the understanding.
+  </p>
+
+  <p>
+    A head-to-head study on GCC and LLVM points the same way for a narrower reason. Comparing two
+    different compilers was the only one of three methods that found any bugs unrelated to the
+    optimizer: <strong>five, against zero and zero</strong>
+    (<a href="https://tjusail.github.io/people/chenjunjie/files/ICSE16.pdf">Chen et al., 2016</a>).
+  </p>
+
+  <h2>And the field is walking away from it anyway</h2>
+
+  <p>
+    The counterweight is not a rebuttal of the paragraph above so much as a report on what people
+    are actually doing. <strong>The methods that need only one implementation are finding more bugs
+    than the cross-implementation work they replaced.</strong> Three recent efforts against
+    database engines and compilers found 159, 175 and 147 previously unknown bugs, each using a
+    single implementation as its own reference
+    (<a href="https://www.manuelrigger.at/preprints/NoREC.pdf">NoREC</a>,
+    <a href="https://www.manuelrigger.at/preprints/TLP.pdf">TLP</a>,
+    <a href="https://www.cs.ucdavis.edu/~su/publications/emi.pdf">EMI</a>).
+  </p>
+
+  <p>
+    The clearest story is from machine learning.
+    <a href="https://hvpham.github.io/files/CRADLE-icse19.pdf">A 2019 paper built its entire
+    method</a> on a library that ran on several interchangeable back ends, comparing them against
+    each other. Roughly 14 months later, that library dropped multi-back-end support.
+    <strong>Three of the paper's four authors then published the single-implementation
+    replacement</strong>, writing that the old approach required two libraries doing the same
+    thing, &ldquo;which is often unavailable,&rdquo; and had become &ldquo;prohibitively expensive
+    and thus no longer maintained&rdquo;
+    (<a href="https://jiannanwang.github.io/files/eagle-icse22.pdf">EAGLE, 2022</a>).
+  </p>
+
+  <p>
+    What these share is the thing you build instead: manufacture a second opinion out of the
+    implementation you are keeping. Two laws in our own shape, both assertable across our whole
+    test corpus without writing a new compiler:
+  </p>
+
+<pre><code># run the program directly, and run the compiled program. They must agree.
+run(interpret(program))            ==  run(compile(program))
+
+# compile the same program with the optimizer on and off. They must agree.
+run(compile(program, optimized))   ==  run(compile(program, plain))
+</code></pre>
+
+  <h2>Then we counted our own fifty-eight bugs</h2>
+
+  <p>
+    All of the above is other people's evidence. So we classified 58 defects from our own commit
+    history by how each was actually found. The chart above is that count; four rows of it decide
+    the question. It is a partial view, and the limit is worth naming: <strong>596 of our 1,211
+    commits</strong> predate the habit of writing down how a defect surfaced, so the earliest era
+    &mdash; including the whole bring-up of the compiled path &mdash; cannot speak here at all.
+  </p>
+
+  <table>
+    <caption class="muted" style="text-align:left;margin-bottom:0.5rem">
+      What comparing our two code generators was worth, over 58 recorded defects.
+    </caption>
+    <thead>
+      <tr><th>Finding</th><th>Count</th><th>What it means</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Found <em>only</em> by comparing the two generators</td><td>4 of 58</td>
+        <td>Its exclusive territory. Three of the four gave the user an identical answer; the difference was cost and internal shape, not correctness.</td></tr>
+      <tr><td>Shared identically by both generators</td><td>6</td>
+        <td>The mistake was made upstream of both, so the comparison had nothing to compare.</td></tr>
+      <tr><td>One generator refused the program and quietly fell back to the other</td><td>6</td>
+        <td>The wrong answer shipped anyway. Two generators plus a silent fallback is one implementation with an extra layer between the defect and the observer.</td></tr>
+      <tr><td>Wrong answers where the plain interpreter established the right answer</td><td>15 of 19</td>
+        <td>The oracle already doing most of the work is not the second generator.</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    One case makes the shape vivid. The compiled path once evaluated <code>25 - 2 * 10</code> as
+    <code>(25 - 2) * 10</code>. It printed 230, exited successfully, and said nothing; running the
+    same source directly printed 5. Our 100-program comparison between the two generators was
+    <strong>green on all 100</strong> the whole time, because both shared the mistake.
+  </p>
+
+  <p>
+    That is the honest summary: we are paying for a second implementation that is not independent.
+    Both generators are fed by the same earlier stages, so they inherit the same misunderstandings.
+    Independence is what makes cross-checking work &mdash; the Java virtual machine result came
+    from genuinely separate projects &mdash; and we do not have it.
+  </p>
+
+  <h2>Two things we got wrong writing this</h2>
+
+  <p>
+    <strong>First, we had it backwards about the interpreter.</strong> An early draft called
+    checking the compiler against our plain interpreter a weaker stand-in for comparing the two
+    generators. It is stronger. The compiler is <em>defined</em> to preserve the interpreter's
+    meaning, so any disagreement is unambiguously a bug &mdash; a legitimate difference cannot
+    exist. Two code generators can differ perfectly legally: they may pick different instructions
+    for the same meaning, so every disagreement needs a human to rule on it. On soundness, the
+    cheaper check wins.
+  </p>
+
+  <p>
+    <strong>Second, the first draft overstated the case for keeping the second generator.</strong>
+    It was written from the literature alone, where the arguments for a second implementation are
+    the strongest results available, and rewritten once the 58-defect count came back &mdash; our
+    two generators are not the kind of pair those studies measured. Both versions of that judgement
+    are left visible rather than presenting the second as though it had been obvious.
+  </p>
+
+  <h2>What we are actually going to do: change the order, not the plan</h2>
+
+  <p>
+    The recommendation is about <em>sequencing</em>, not &ldquo;the second generator is
+    worthless.&rdquo; Everything cheaper should exist and be demonstrably catching things
+    <em>before</em> anything is switched off. In order:
+  </p>
+
+  <ul>
+    <li><strong>Make interpreter-versus-compiled a hard gate across every test we have.</strong>
+      Both halves already exist; this is wiring, not construction. It is our soundest oracle, and
+      it already found the right answer in 15 of our 19 wrong-answer defects.</li>
+    <li><strong>Compile every test with the optimizer on and off and require identical
+      output.</strong> Days of work, no new compiler.</li>
+    <li><strong>Adopt the deletion ritual per change</strong>, so we can <em>tell</em> when our
+      tests have gone blind instead of finding out by accident.</li>
+    <li><strong>Only then decide about the second generator</strong>, with a record of what it has
+      actually been catching.</li>
+  </ul>
+
+  <p>
+    One cost should be said plainly rather than argued away. If the second generator goes, we lose
+    the property nothing on that list replaces: an oracle whose coverage nobody had to anticipate.
+    Every replacement above checks a rule we wrote down. The man who named differential testing put
+    the same point as a matter of order rather than principle &mdash; retiring an old compiler in
+    favour of a new one is exactly when comparing the two is worth most
+    (<a href="https://www.cs.tufts.edu/comp/150FP/archive/bill-mckeeman/DifferentailTesting.pdf">McKeeman,
+    1998</a>). It certifies the survivor. So it goes last.
+  </p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li>R. A. DeMillo, R. J. Lipton, F. G. Sayward, &ldquo;Hints on Test Data Selection: Help for
+      the Practicing Programmer,&rdquo; <em>Computer</em> 11(4), 1978 &mdash; the origin of mutation
+      testing (<a href="https://dblp.uni-trier.de/rec/journals/computer/DeMilloLS78.html">record</a>).</li>
+    <li>R. Niedermayr, E. Juergens, S. Wagner, &ldquo;Will My Tests Tell Me If I Break This
+      Code?&rdquo; 2016 &mdash; <a href="https://arxiv.org/abs/1611.07163">extreme mutation and the
+      11.4% / 35.5% figures</a>. Replicated by O. L. Vera-Pérez et al.,
+      <a href="https://arxiv.org/abs/1807.05030">&ldquo;A Comprehensive Study of Pseudo-tested
+      Methods&rdquo;</a>.</li>
+    <li>A. Groce, I. Ahmed, C. Jensen, P. E. McKenney,
+      <a href="https://stairs.ics.uci.edu/papers/2015/How_Verified_is_My_Code_Falsification-Driven_Verification_T.pdf">&ldquo;How
+      Verified is My Code? Falsification-Driven Verification,&rdquo;</a> ASE 2015 &mdash; the 71-of-81
+      sorting result.</li>
+    <li>P. Ammann, J. Offutt, <em>Introduction to Software Testing</em>, 2nd ed., Cambridge
+      University Press, 2017 &mdash; the RIPR model.</li>
+    <li>R. Just et al., <a href="https://homes.cs.washington.edu/~rjust/publ/mutants_real_faults_fse_2014.pdf">&ldquo;Are
+      mutants a valid substitute for real faults in software testing?&rdquo;</a> FSE 2014 &mdash;
+      finds statement deletion among the operators best coupled to real faults. Counterweight:
+      M. Papadakis, D. Shin, S. Yoo, D.-H. Bae,
+      <a href="https://orbilu.uni.lu/bitstream/10993/34950/1/ICSE-main18b%20%281%29.pdf">&ldquo;Are
+      Mutation Scores Correlated with Real Fault Detection?&rdquo;</a> ICSE 2018.</li>
+    <li>Y. Chen, T. Su, C. Sun, Z. Su, J. Zhao,
+      <a href="https://web.cs.ucdavis.edu/~su/publications/pldi16.pdf">&ldquo;Coverage-Directed
+      Differential Testing of JVM Implementations,&rdquo;</a> PLDI 2016 &mdash; the mailing-list
+      search. J. Chen et al.,
+      <a href="https://tjusail.github.io/people/chenjunjie/files/ICSE16.pdf">&ldquo;An Empirical
+      Comparison of Compiler Testing Techniques,&rdquo;</a> ICSE 2016 &mdash; the five-against-zero
+      result.</li>
+    <li>H. V. Pham, T. Lutellier, W. Qi, L. Tan,
+      <a href="https://hvpham.github.io/files/CRADLE-icse19.pdf">CRADLE</a>, ICSE 2019, and
+      J. Wang, T. Lutellier, S. Qian, H. V. Pham, L. Tan,
+      <a href="https://jiannanwang.github.io/files/eagle-icse22.pdf">EAGLE</a>, ICSE 2022 &mdash;
+      the cross-backend method and its single-implementation replacement.</li>
+    <li>M. Rigger, Z. Su, <a href="https://www.manuelrigger.at/preprints/NoREC.pdf">NoREC</a>
+      (159 bugs) and <a href="https://www.manuelrigger.at/preprints/TLP.pdf">TLP</a> (175 bugs);
+      V. Le, M. Afshari, Z. Su,
+      <a href="https://www.cs.ucdavis.edu/~su/publications/emi.pdf">&ldquo;Compiler Validation via
+      Equivalence Modulo Inputs,&rdquo;</a> PLDI 2014 (147 bugs).</li>
+    <li>W. M. McKeeman,
+      <a href="https://www.cs.tufts.edu/comp/150FP/archive/bill-mckeeman/DifferentailTesting.pdf">&ldquo;Differential
+      Testing for Software,&rdquo;</a> <em>Digital Technical Journal</em> 10(1), 1998.</li>
+    <li>The 58-defect classification and the 596-of-1,211 sampling limit are ours, taken from this
+      project's commit history between 26 June and 1 August 2026.</li>
+  </ul>
+
+  <p class="muted">
+    One frequently cited 1986 experiment on whether independently written programs fail
+    independently bears directly on this question. We could not obtain the original paper, only a
+    secondary summary, so we have left it out rather than cite what we have not read.
+  </p>
+
+  </main>
+
+  <footer>
+    <p>
+      Published 1 August 2026. This article describes research and a recommended order of work.
+      Nothing in it is running in the shipping toolchain today.
+    </p>
+  </footer>
+
+</article>
+
+<script>
+(function(){
+  var pop=null, current=null;
+  function closePop(){
+    if(pop){ pop.remove(); pop=null; current=null;
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onDocClick, true); }
+  }
+  function onKey(e){ if(e.key==='Escape') closePop(); }
+  function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
+  function openPop(a){
+    if(current===a){ closePop(); return; }
+    closePop(); current=a;
+    pop=document.createElement('div');
+    pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
+    var def=document.createElement('p');
+    def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
+    var link=document.createElement('a');
+    link.href=a.getAttribute('href'); link.className='gloss-pop-link';
+    link.textContent='Full entry →';
+    pop.appendChild(def); pop.appendChild(link);
+    document.body.appendChild(pop);
+    var r=a.getBoundingClientRect();
+    var top=window.scrollY + r.bottom + 6;
+    var left=window.scrollX + r.left;
+    var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+    pop.style.top=top+'px';
+    pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onDocClick, true);
+  }
+  document.querySelectorAll('a.gloss').forEach(function(a){
+    a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
+    a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
+  });
+})();
+</script>
+</body>
+</html>
