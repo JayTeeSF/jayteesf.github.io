@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="article-desc" content="Standing page, kept current: every decision made on the Hey language in plain English, what it means, and where it stands. Settled items first, then what is still waiting on a maintainer answer.">
+<meta name="article-desc" content="Standing page, kept current: every decision made on the Hey language in plain English, what it means, and where it stands. Nothing is currently waiting on a maintainer answer.">
 <meta name="article-index-title" content="<strong>What you&rsquo;ve decided</strong> &mdash; standing page, always current">
 <meta name="article-index-desc" content="Every Hey decision in plain English, kept current. Bookmark this rather than the numbered question pages, which are snapshots.">
 <title>What you've decided · Hey · standing page</title>
@@ -50,7 +50,7 @@
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 11</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 12</p>
 <h1>What you've decided</h1>
 <p class="lede">Every decision in plain English, with what it means and where it stands. Kept current — bookmark this rather than the numbered <i>Ask</i> pages, which are snapshots of a moment.</p>
 
@@ -58,25 +58,42 @@
 <p><b>The reasoning behind these lives on its own page:</b> <a href="REVIEW-restructure-plan.html">Review of the restructure plan</a> &mdash; the published plan read against the shipping snapshot, with two corrections, the five unknowns measured, a parser that segfaults at a thousand statements, and the arguments behind the three rulings below.</p>
 </div>
 
-<h2 class="open-h">Waiting on you &mdash; one thing</h2>
+<h2>Waiting on you &mdash; nothing</h2>
 
-
-<div class="d open">
-<h3>1 &nbsp;Two rules we've agreed that contradict each other</h3>
-<pre>let total = 0
-total += 1        ← "+= exists"  vs  "a let can't be rebound"</pre>
-<p>Found while reviewing. Three ways out: make <code>set</code> create something changeable; keep ordinary values fixed and allow <code>+=</code> only on an actor's own state; or drop <code>+=</code>.</p>
-<pre># the recommended one
-let total = 0            # fixed
-
-state count = 0
-set state.count += 1     # an actor changing its own state</pre>
-<p class="note">Worth knowing: &ldquo;values don't change&rdquo; doesn't have to mean the compiler rebuilds a thousand-item list every time it adds one &mdash; that's an internal matter. And <code>items[next_index()] += 1</code> must call <code>next_index()</code> <b>once</b>.</p>
+<div class="d">
+<p>The one open contradiction &mdash; <code>+=</code> against values that never change &mdash; <b>is now ruled</b>, and it is the first entry under Settled. Nothing on this page is waiting on you.</p>
 </div>
 
 
-
 <h2>Settled</h2>
+
+<div class="d done">
+<h3>Values never change; <code>set</code> changes an actor's state, not a name</h3>
+<pre>let count = 0
+set count += 1       ERROR — count is a name, and names are fixed
+
+actor Counter
+  state count = 0
+
+  receive message
+    set count += 1   FINE — count here is the actor's own state
+  end
+end</pre>
+<p><b>This was the one contradiction on the page, and it resolves in favour of values that never change.</b> Every ordinary name in Hey is set once: <code>let</code>, a parameter, an import, a function name, a loop variable, an actor, a job. None of them can be pointed at something else later.</p>
+<p>The compound spellings survive &mdash; but they are <b>state-update</b> operators, not general assignment:</p>
+<pre>=   +=   -=   *=   /=   %=</pre>
+<p>They appear only after <code>set</code>, and the target must be state privately owned by the actor doing the writing. They cannot touch a local variable, a parameter, a map entry, a list element, a module name or a global.</p>
+<pre>let values = [1, 2, 3]
+values[0] += 1                                ERROR
+let updated = put(values, 0, values[0] + 1)   ← this is how you do it</pre>
+<p><b>Why the line is drawn there.</b> A state slot is a private location owned by one actor, not a name in your code. An actor handles its messages one at a time, so nothing else can be reading that slot while it changes. That is what makes it safe to allow &mdash; and it is exactly the promise an ordinary local variable cannot make. The moment a plain <code>let</code> can be rewritten, a value you were handed can change underneath you from somewhere else.</p>
+<p><b>What this buys the parser.</b> Hey has no assignment <i>expression</i> at all. <code>set name += expression</code> is a statement, parsed as one, and whether <code>name</code> is even allowed to be updated is answered afterwards by name resolution &mdash; not by the grammar. So the error is a sentence rather than a syntax complaint:</p>
+<pre>`count` is a fixed name and cannot be updated
+help: bind the result to a new name</pre>
+<p><code>set count += amount()</code> reads the slot once, calls <code>amount()</code> once, adds once, writes once &mdash; under the ordinary rules for <code>+</code>, including what happens when a number gets too big. Nested targets, indexed targets and property targets are deliberately <b>not</b> in the first version; they need their own design and they are not allowed to hold up the front end.</p>
+<p class="note"><b>The honest part:</b> the compiler we have today uses changeable local <code>set</code> everywhere. That is debt from how Hey was bootstrapped, not the language rule. It stays available <i>only</i> to a named list of compiler files, every use is counted, the count may only go down, and the front end is not finished until it reaches zero &mdash; at which point the escape hatch is deleted. Counting it is what stops &ldquo;temporary&rdquo; from meaning &ldquo;forever&rdquo;.</p>
+<p class="note"><b>Also settled by this:</b> <code>&amp;&amp;=</code> and <code>||=</code> are <b>not</b> being added. They were never in the closed operator set, and they would mix changing state with deciding whether to evaluate something &mdash; two ideas that deserve their own decision rather than arriving as a side effect of this one.</p>
+</div>
 
 <div class="d done">
 <h3>The one-sentence statement of the whole problem</h3>
@@ -101,6 +118,7 @@ it writes                  for_body(node)     make_for_node(...)</pre>
 a dispatch forgets a kind                          →  generated coverage check
 a walk forgets a child field                       →  generated child lists</pre>
 <p class="note">Pattern matching only helps the middle one, and only if you ban the catch-all arm. So the live bug where one walker forgets to visit <code>for</code> bodies &mdash; while six sibling walkers get it right &mdash; is evidence for <b>generating the walkers</b>, not for adding a language feature. CPython and Clang each landed on exactly this, both in languages that have no such feature.</p>
+<p class="note"><b>Two independent confirmations, since we are betting the front end on this.</b> Python describes its syntax tree in a small declaration file and <i>generates</i> the C structures, the constructors and the visitors from it &mdash; the same shape we are proposing, in a language with no pattern matching at all. LLVM built a whole declaration language for the same reason and says so plainly: its purpose is to remove structural knowledge that would otherwise be written out by hand in many places and drift apart. Neither project reached for a type-system feature. Both reached for one declaration and a generator. <b>That is the argument &mdash; not that generation is elegant, but that the two largest compilers most like ours already paid for the alternative.</b></p>
 </div>
 
 <div class="d done">
@@ -141,10 +159,11 @@ jobs get a name registry
 comparison     ==  !=  <   <=  >   >=
 boolean        &&  ||  and  or  not  !
 bitwise        &   |   ^   <<  >>
-assignment     =   +=  -=  *=  /=  %=
+state update   =   +=  -=  *=  /=  %=     ← only after `set`, only on actor state
 range          ..&lt;   ..
 spread         ...</pre>
-<p>Everything in <b>bold</b> below is new: <code>**</code>, <code>&amp;&amp;</code>, <code>||</code>, the compound assignments, all the bitwise ones, and inclusive <code>..</code>.</p>
+<p>Everything in <b>bold</b> below is new: <code>**</code>, <code>&amp;&amp;</code>, <code>||</code>, the compound forms, all the bitwise ones, and inclusive <code>..</code>.</p>
+<p class="note"><b>That last row used to say &ldquo;assignment&rdquo;, and the rename is the whole of the ruling above it.</b> These six are not expression operators and never appear in an ordinary expression &mdash; they are statement spellings that only mean anything after <code>set</code>, on state an actor owns. <code>=</code> in particular is not an operator here at all: it is punctuation inside <code>let</code>, inside a state declaration, inside a default parameter value, and inside a <code>set</code>. A module may claim any <i>other</i> symbol in this table; none of these six can be claimed, and none can be given a new meaning by an import.</p>
 <p class="note"><b>Why now, and why this is the last cheap moment:</b> once a module can claim a symbol, the list is a public contract &mdash; a module may only claim something the language already has. An operator we don't add now can never be claimed later.</p>
 <p class="note"><b>Does a bigger table slow the compiler? No.</b> A tokenizer is a machine that walks characters; one more symbol is one more step it already knew how to take. Compile time grows with how much code <i>you</i> write, not with how many operators exist. It <i>is</i> expensive in the current design &mdash; every operator there is another pass over the text, which is why the same decision is made in 45-plus places. So this was a language question, not a speed question.</p>
 </div>
@@ -225,7 +244,7 @@ not 1 == 2     is   not (1 == 2)      not binds very loose
 a && b || c    is   (a && b) || c     && binds tighter than ||
 a and b or c   is   (a and b) or c    and/or are EQUAL, and loosest</pre>
 <p>Ruby's rules exactly, and <code>&amp;&amp;</code> and <code>||</code> get added &mdash; Hey doesn't have them today. Two spellings on purpose: <code>&amp;&amp;</code> and <code>||</code> for combining values, <code>and</code> and <code>or</code> for control flow.</p>
-<p class="note">Measured against Ruby rather than copied from a table &mdash; the first attempt used values where several readings gave the same answer and proved nothing. <b>One good thing we may get for free:</b> Ruby's famous trap is <code>y = 1 and 2</code> assigning <code>1</code>, because <code>=</code> is an expression that binds tighter than <code>and</code>. Hey has no bare <code>=</code> &mdash; only <code>let</code> and <code>set</code> statements &mdash; so the trap may be unwritable here. Being checked before we copy the rule wholesale.</p>
+<p class="note">Measured against Ruby rather than copied from a table &mdash; the first attempt used values where several readings gave the same answer and proved nothing. <b>One good thing we get for free &mdash; now confirmed, not hoped for:</b> Ruby's famous trap is <code>y = 1 and 2</code> quietly assigning <code>1</code>, because in Ruby <code>=</code> is an expression and it binds tighter than <code>and</code>. The ruling above closes that off permanently: Hey has no assignment expression, so <code>=</code> has no precedence to lose. There is nowhere to write the trap. We copy Ruby's precedence table and do not inherit its worst corner.</p>
 </div>
 
 <div class="d done">
@@ -392,7 +411,20 @@ not a == b                THREE different answers in different parts     CHANGES
                           the text gets split in the wrong place         NEW
 
 &amp; | ^ &lt;&lt; &gt;&gt;               do not exist                                   NEW
-+=  -=  *=                do not exist                                   NEW
+
+set count += 1            do not exist — and the two halves of Hey
+                          disagree about it. RUNNING it prints
+                          `invalid name: count +` to the error
+                          channel, REPORTS SUCCESS, and carries on
+                          with the old value. BUILDING it refuses,
+                          with the bad name having travelled all the
+                          way down: `store count +:i64 = 1`         NEW + BUG
+
+set count = 5             works today on an ordinary local name.
+  (on a plain let)        the decision above REMOVES that. this is
+                          the one ruling that will reject code you
+                          have already written                     CHANGES
+
 1 .. 5                    only `1 ..&lt; 5` exists                          NEW
 
 f(count: 2)               used about 1,900 times, and there is no rule   CHANGES

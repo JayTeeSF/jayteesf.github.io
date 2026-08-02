@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="article-desc" content="An architecture review of the Hey restructure plan against the shipping snapshot, with two corrections to the plan, six new measurements, and rulings on the three open questions.">
-<meta name="article-index-title" content="Review of the restructure plan &mdash; two corrections and three rulings">What you&rsquo;ve decided</strong> &mdash; standing page, always current">
+<meta name="article-index-title" content="Review of the restructure plan &mdash; two corrections and three rulings">
 <meta name="article-index-desc" content="The published plan read against the shipping snapshot: two corrections (the parser decides what minus means, not the tokenizer; do not finish the emitter against the old intermediate form), the five unknowns measured, a parser that segfaults at a thousand statements, and rulings on all three open questions.">
 <title>Review of the restructure plan · Hey</title>
 <style>
@@ -42,18 +42,17 @@
 </style>
 <style>
   .scrollbox{overflow-x:auto;margin:0 0 1.1rem}
-  .scrollbox pre{min-width:34rem;margin:0}
-  .d.open h3{color:var(--open)}
-  .scrollbox{overflow-x:auto;margin:0 0 1.1rem}
-  .scrollbox pre{min-width:38rem}
+  .scrollbox pre{min-width:38rem;margin:0}
   .open-h{color:var(--open)!important}
   .d.open h3{color:var(--open)}
+</style>
+</head>
 <body>
 <main>
 
 <p class="eyebrow">Hey &nbsp;·&nbsp; architecture review &nbsp;·&nbsp; 2 August 2026</p>
 <h1>Review of the restructure plan</h1>
-<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, and rulings on the three open questions. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the reasoning.</p>
+<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, rulings on the three open questions, and &mdash; new in this revision &mdash; the resolution of the one contradiction the review found in the decided set. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the reasoning.</p>
 
 <div class="d">
 <p><b>The conclusion the documents reach is right:</b> Hey does not need another round of parser-like fixes. It needs <b>one authoritative front end and a prohibition against rediscovering syntax downstream</b>.</p>
@@ -209,19 +208,23 @@ ABI or serialised format          exact-byte test REMAINS</pre></div>
 <p class="note">Exact bytes survive only where bytes are part of the public contract &mdash; not because the old compiler happened to emit them.</p>
 </div>
 
-<h2>The contradiction in the decided set</h2>
+<h2>The contradiction in the decided set &mdash; now resolved</h2>
 
-<div class="d open">
-<h3>Compound assignment and immutable bindings cannot both apply</h3>
+<div class="d done">
+<h3>Compound assignment and immutable bindings cannot both apply &mdash; and immutability wins</h3>
 <pre>let total = 0
-total += 1        ← these two rules disagree</pre>
-<p>Three coherent options: make <code>set</code> create mutable bindings; keep locals immutable and allow compound assignment <b>only</b> on actor state or explicit cells; or drop compound assignment.</p>
-<pre># the recommended shape
-let total = 0            # cannot be rebound
+total += 1        ← these two rules disagreed</pre>
+<p>Three coherent options were on the table: make <code>set</code> create mutable bindings; keep locals immutable and allow compound assignment <b>only</b> on actor state; or drop compound assignment entirely. <b>The ruling takes the middle option.</b> Bindings are immutable without exception; the six compound spellings survive as <b>state-update statements</b> whose target must resolve to a state slot owned by the actor executing them.</p>
+<pre>state_update_statement
+  = "set" IDENTIFIER state_update_operator expression
 
-state count = 0
-set state.count += 1     # actor-private state transition</pre>
-<p class="note">&ldquo;Bindings are immutable&rdquo; need not mean the compiler rebuilds a thousand-element array on every append &mdash; internal transient builders stay a private facility. And compound assignment must evaluate its target <b>once</b>: <code>items[next_index()] += value</code> must not call <code>next_index()</code> twice.</p>
+state_update_operator
+  = "=" | "+=" | "-=" | "*=" | "/=" | "%="</pre>
+<p><b>The structural consequence is the one that matters to this document:</b> there is no <code>AssignmentExpression</code> and no assignment level in the expression grammar. The parser emits a <code>StateUpdateStatement</code> carrying a target <i>name</i>; it does not decide whether that name is updateable. Resolution does, and produces either a resolved state-slot update or a diagnostic. That keeps a semantic question out of the precedence table, which is the same separation this whole review argues for everywhere else &mdash; the parser owns shape, the resolver owns meaning.</p>
+<p>It also pays a debt noted further up this page: <code>=</code> never becomes an expression operator, so Ruby's <code>y = 1 and 2</code> trap is not merely unlikely here, it is ungrammatical.</p>
+<p class="note"><b>Evaluate the target once.</b> <code>set count += amount()</code> lowers directly rather than expanding to <code>set count = count + amount()</code> as text &mdash; identical in meaning today, but it is what keeps a future indexed or nested target from evaluating its subscript twice. The restriction to a bare name in the first grammar exists for the same reason: indexed and nested state targets need a persistent path-update design, and that design must not block the front end.</p>
+<p class="note"><b>The bootstrap debt is real and is being counted.</b> The current self-hosted compiler uses local <code>set</code> extensively. It remains available only to whitelisted compiler modules under an internal mode ordinary source cannot enable, every use increments a per-file counter, new ones fail the ratchet, and HIR marks them <code>LegacyLocalRebind</code> &mdash; never <code>StateUpdate</code>, so the two can never reach the same lowering path. The front end is not complete until the counter is zero and the mode is deleted.</p>
+<p class="note"><b>&ldquo;Bindings are immutable&rdquo; need not mean the compiler rebuilds a thousand-element array on every append</b> &mdash; internal transient builders stay a private facility, and the accumulator-returning helper, the token cursor and the state-machine object with an immutable identity are all still available to compiler code.</p>
 </div>
 
 <h2>Operators</h2>
