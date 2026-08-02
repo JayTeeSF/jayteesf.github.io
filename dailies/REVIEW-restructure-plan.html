@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="An architecture review of the Hey restructure plan against the shipping snapshot, with two corrections to the plan, six new measurements, and rulings on the three open questions.">
+<meta name="article-index-title" content="Review of the restructure plan &mdash; two corrections and three rulings">What you&rsquo;ve decided</strong> &mdash; standing page, always current">
+<meta name="article-index-desc" content="The published plan read against the shipping snapshot: two corrections (the parser decides what minus means, not the tokenizer; do not finish the emitter against the old intermediate form), the five unknowns measured, a parser that segfaults at a thousand statements, and rulings on all three open questions.">
+<title>Review of the restructure plan · Hey</title>
+<style>
+  :root { --bg:#faf9f7; --ink:#16181a; --mute:#5d666b; --line:#e2e0dc; --card:#fff;
+          --accent:#0b6b70; --open:#9a5a06; --openbg:#fdf5e8; --donebg:#eef4f3; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#101315; --ink:#eceef0; --mute:#98a2a8;
+          --line:#242a2d; --card:#171b1e; --accent:#52b3b5; --open:#d59a41; --openbg:#241c10;
+          --donebg:#132022; } }
+  :root[data-theme="dark"] { --bg:#101315; --ink:#eceef0; --mute:#98a2a8; --line:#242a2d;
+          --card:#171b1e; --accent:#52b3b5; --open:#d59a41; --openbg:#241c10; --donebg:#132022; }
+  :root[data-theme="light"] { --bg:#faf9f7; --ink:#16181a; --mute:#5d666b; --line:#e2e0dc;
+          --card:#fff; --accent:#0b6b70; --open:#9a5a06; --openbg:#fdf5e8; --donebg:#eef4f3; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:18px/1.7 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  main{max-width:41rem;margin:0 auto;padding:3rem 1.4rem 6rem}
+  .eyebrow{font-size:.72rem;letter-spacing:.15em;text-transform:uppercase;color:var(--mute);margin:0 0 .6rem}
+  h1{font-size:2.1rem;line-height:1.15;margin:0 0 .7rem;letter-spacing:-.02em}
+  .lede{color:var(--mute);margin:0 0 2.6rem;font-size:1.05rem}
+  h2{font-size:1.1rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);
+     margin:3rem 0 1.1rem;font-weight:700}
+  .d{border:1px solid var(--line);border-radius:7px;padding:1.3rem 1.4rem;margin:0 0 1.1rem;background:var(--card)}
+  .d.done{background:var(--donebg)}
+  .d.open{background:var(--openbg);border-left:3px solid var(--open)}
+  .d h3{margin:0 0 .9rem;font-size:1.25rem;letter-spacing:-.01em}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:.9rem 1rem;
+      margin:0 0 1rem;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+      font-size:.92rem;line-height:1.7}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+  .d p{margin:0 0 .9rem} .d p:last-child{margin-bottom:0}
+  .note{color:var(--mute);font-size:.95rem;border-top:1px solid var(--line);padding-top:.85rem}
+  a{color:var(--accent)}
+  footer{margin-top:3.5rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--mute);font-size:.85rem}
+  @media (max-width:30rem){ body{font-size:17px} main{padding:2rem 1.1rem 4rem} h1{font-size:1.75rem} }
+</style>
+<style>
+  .scrollbox{overflow-x:auto;margin:0 0 1.1rem}
+  .scrollbox pre{min-width:34rem;margin:0}
+  .d.open h3{color:var(--open)}
+  .scrollbox{overflow-x:auto;margin:0 0 1.1rem}
+  .scrollbox pre{min-width:38rem}
+  .open-h{color:var(--open)!important}
+  .d.open h3{color:var(--open)}
+<body>
+<main>
+
+<p class="eyebrow">Hey &nbsp;·&nbsp; architecture review &nbsp;·&nbsp; 2 August 2026</p>
+<h1>Review of the restructure plan</h1>
+<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, and rulings on the three open questions. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the reasoning.</p>
+
+<div class="d">
+<p><b>The conclusion the documents reach is right:</b> Hey does not need another round of parser-like fixes. It needs <b>one authoritative front end and a prohibition against rediscovering syntax downstream</b>.</p>
+<p>So the work is not <i>write parser &rarr; connect parser &rarr; fix remaining bugs</i>. It is <b>define one semantic pipeline &rarr; migrate every consumer onto it &rarr; delete all alternative interpretations</b>.</p>
+</div>
+
+<h2>Two corrections to the plan</h2>
+
+<div class="d open">
+<h3>1 &nbsp;The parser decides what <code>-</code> means, not the tokenizer</h3>
+<pre>tokenizer   always emits   MINUS
+
+parser      decides arity from context:
+              expecting an operand?  → prefix negation
+              expecting an operator? → infix subtraction</pre>
+<p>Pratt parsing was designed for exactly this distinction &mdash; the same token gets a prefix rule and an infix rule, and position selects.</p>
+<p class="note"><b>Why this matters more than it looks:</b> the current implementation decides it <i>lexically</i>, by checking whether the previous character is in a set. That set is missing <code>]</code>, which is why <code>arr[0] - 1</code> fails with <i>&ldquo;undefined name&rdquo;</i> today &mdash; and there are two such sets, differing by eight characters. Moving the decision into the parser doesn't just tidy it; it makes that entire bug family <b>unrepresentable</b>.</p>
+</div>
+
+<div class="d open">
+<h3>2 &nbsp;Don't finish the emitter against the old intermediate form</h3>
+<p>Keep the fallback counter as phase 0. But completing the self-hosted emitter against today's raw-text MIR risks adding <b>hundreds more handlers around a form the new front end must replace</b>.</p>
+<p class="note">The plan documents the contradiction itself: MIR still carries raw source expressions, and the emitter is forced to re-parse them. Every handler written against that shape is a handler that must be migrated or thrown away &mdash; and each one enlarges the surface that has to move.</p>
+</div>
+
+<h2>What the snapshot actually does</h2>
+<p>Verified against <code>stable</code>, v0.99.475a, commit <code>77ae81e8</code>.</p>
+
+<div class="d">
+<h3>The &ldquo;parser&rdquo; is a statement classifier</h3>
+<p>It identifies statements by prefix, then classifies almost anything containing <code>(</code>, <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>[</code> or <code>{</code> as an expression &mdash; and stores the expression <b>as text</b>:</p>
+<pre>{kind: 'let',    ..., expr: "...raw source..."}
+{kind: 'return', ..., expr: "...raw source..."}</pre>
+<p>The intermediate form says so outright: <code>MIR expressions are raw text</code>. So this function:</p>
+<pre>fn add(a, b)
+  return a + b * 2
+end</pre>
+<p>survives all the way down with <code>a + b * 2</code> <b>still undivided</b>. One path emitted effectively <code>ret i64 a+b*2</code>; the self-hosted emitter rejected the same expression.</p>
+<p class="note">That reframes the emitter gap: it is not an omission. <b>The emitter has never been handed a structured operation.</b></p>
+</div>
+
+<div class="d">
+<h3>The five unknowns, now measured</h3>
+<div class="scrollbox"><pre>fn f(a, b = 1)                    REJECTED  "invalid function parameter: b = 1"
+fn f(a, ...rest)                  REJECTED  "invalid function parameter: ...rest"
+{ key: some_function }            works — a map can hold a callable
+m.key(3)                          FAILS
+let f = m.key ; f(3)              works
+Json.encode({key: some_function}) SILENTLY produces {"key":null}
+2 ** 3                            fails differently per route: one reports an
+                                  empty undefined name, another generates
+                                  malformed C</pre></div>
+<p class="note"><b>The JSON result is a bug, not a gap.</b> Silently replacing a callable with <code>null</code> corrupts data. An unsupported value must produce an explicit encoding error &mdash; which is what <a href="DECISIONS-what-you-have-decided.html">the decision</a> already says it should do.</p>
+</div>
+
+<div class="d">
+<h3>And the current parser does not scale</h3>
+<div class="scrollbox"><pre>statements   source     parse time    peak memory
+       100     ~2 KB       28.7 ms       ~11.5 MB
+       500    ~10 KB      659.8 ms        ~121 MB
+     1,000    ~20 KB    SEGMENTATION FAULT ~170 MB</pre></div>
+<p>Two patterns explain the shape: it <b>recurses once per statement</b> rather than per level of nesting, and it rebuilds the growing statement list on every append.</p>
+<p class="note">The runtime's own notes record that map lookup is linear and clone-plus-write is quadratic. So building a whole compiler tree from ordinary immutable maps, extending arrays as it goes, would be a serious problem <b>before semantic analysis even begins</b> &mdash; which bears directly on the first open question below.</p>
+</div>
+
+<h2>The front end, in shape</h2>
+<div class="scrollbox"><pre>Source bytes ──▶ SourceManager
+                      ▼
+                   Tokens
+                      ▼
+              Syntax tree / AST
+                      ▼
+              Resolved syntax tree
+                      ▼
+                     HIR
+              ┌───────┴────────┐
+              ▼                ▼
+      HIR interpreter         MIR
+      (run + REPL)             ▼
+                              LLVM
+                               ▼
+                      native executable</pre></div>
+<p><b>Build, run and the interactive prompt diverge only after HIR.</b> That is the property the whole design exists to buy.</p>
+
+<div class="d">
+<h3>What each stage owns &mdash; and what it must not</h3>
+<pre>TOKENIZER owns          identifiers, keywords, number spelling,
+                        strings and interpolation boundaries,
+                        comments, and longest-match symbols
+                        (... ..&lt; ** &lt;&lt; +=)
+
+TOKENIZER must NOT own  unary vs binary minus
+                        precedence
+                        name lookup
+                        imported operator meaning
+                        numeric result types</pre>
+<p class="note">One fixed operator-symbol inventory. <b>An imported module may bind meaning to <code>**</code>, but an import must never teach the tokenizer that the characters exist.</b> That is what keeps imports from changing how a file <i>parses</i> &mdash; they change only what names <i>mean</i>.</p>
+</div>
+
+<div class="d">
+<h3>The syntax tree has no <code>expr: "a + b"</code> field</h3>
+<pre>2 ** 3     parses without consulting any import:
+
+  BinaryExpression(
+    operator: "**",
+    left:  IntegerLiteral(2),
+    right: IntegerLiteral(3))
+
+then the resolver decides whether ** is in scope
+and which exported function it denotes</pre>
+</div>
+
+<h2>The three open questions &mdash; answered</h2>
+
+<div class="d done">
+<h3>1 &nbsp;Neither plain maps nor waiting for pattern matching</h3>
+<p><b>Use a closed, schema-generated node system that is private to the compiler.</b> Don't block the front end on adding user-visible records and pattern matching &mdash; and don't build the tree from unrestricted maps either.</p>
+<pre># generated from one schema, never written by hand
+fn syntax_binary(span, left, operator, right)
+  return [NODE_BINARY, span, left, operator, right]
+end
+
+fn syntax_binary_left(node)
+  return node[2]
+end</pre>
+<p>Generate from that one schema: constructors, accessors, required-field validation, child iteration, serialisation, debug printing, visitor dispatch, and the list of every node kind each pass handles. <b>A build should fail when a new node kind lacks a resolver or a lowering.</b></p>
+<p class="note">No compiler code writes <code>{kind: 'binary', left: ..., rite: ...}</code> directly &mdash; that is how a misspelled field and an incomplete visitor become permanent defects.</p>
+<p class="note"><b>The instinct about pattern matching was right, with one qualification.</b> Its main benefit here is detecting missing and redundant cases, not speed. But <b>static exhaustiveness requires a closed set of variants</b>, and arbitrary dynamic maps cannot provide one. If &ldquo;no user-facing types&rdquo; means no <i>required annotations</i>, sealed variants can still be added later without losing the ergonomics. So: closed schema with generated coverage checks <b>now</b>; records and pattern matching as a real language feature <b>later</b>; the front end waits for <b>neither</b>.</p>
+</div>
+
+<div class="d done">
+<h3>2 &nbsp;Defaults evaluate at call time, left to right</h3>
+<pre>fn f(a, b = a * 2)     valid   — b sees a, already bound
+fn f(a = b, b = 1)     ERROR   — b is not bound yet</pre>
+<p>Evaluated in the callee's parameter-binding prologue, after earlier arguments are bound, with access to earlier parameters and none to later ones. Ruby evaluates arguments left to right and permits exactly this.</p>
+<p class="note"><b>And parameter order was never actually open</b> &mdash; the decisions page listed it as a question and then, further down, stated the order and said it was enforced. Removed from the waiting list so it isn't reopened by accident.</p>
+<p class="note"><b>Calls must be represented structurally</b>, not as one argument string: callee, positional arguments, keyword arguments, positional spreads, keyword spreads. Keyword arguments are <i>call binding semantics</i>, not a map passed last.</p>
+</div>
+
+<div class="d done">
+<h3>3 &nbsp;Byte-goldens retire one at a time, each mutation-proven</h3>
+<p>Not a date and not a milestone. <b>Each byte-identity test must first say what it was really protecting</b>, then be replaced by a test of that contract:</p>
+<div class="scrollbox"><pre>what it actually protected        what replaces it
+program result                    semantic output / error test
+interpreted vs compiled agree     cross-lane behaviour test
+diagnostic wording and spans      normalised diagnostic snapshot
+token / tree / HIR / MIR shape    canonical structural snapshot
+an optimisation happened          MIR or LLVM pattern assertion
+instruction selection             assembly pattern test
+reproducible public artifact      exact-byte test REMAINS
+ABI or serialised format          exact-byte test REMAINS</pre></div>
+<p>For each: name the old invariant, add the new test, <b>deliberately break the implementation and prove the new test fails</b>, restore, run both, mark the golden superseded. Then delete all superseded goldens in one reviewed change.</p>
+<p class="note">Exact bytes survive only where bytes are part of the public contract &mdash; not because the old compiler happened to emit them.</p>
+</div>
+
+<h2>The contradiction in the decided set</h2>
+
+<div class="d open">
+<h3>Compound assignment and immutable bindings cannot both apply</h3>
+<pre>let total = 0
+total += 1        ← these two rules disagree</pre>
+<p>Three coherent options: make <code>set</code> create mutable bindings; keep locals immutable and allow compound assignment <b>only</b> on actor state or explicit cells; or drop compound assignment.</p>
+<pre># the recommended shape
+let total = 0            # cannot be rebound
+
+state count = 0
+set state.count += 1     # actor-private state transition</pre>
+<p class="note">&ldquo;Bindings are immutable&rdquo; need not mean the compiler rebuilds a thousand-element array on every append &mdash; internal transient builders stay a private facility. And compound assignment must evaluate its target <b>once</b>: <code>items[next_index()] += value</code> must not call <code>next_index()</code> twice.</p>
+</div>
+
+<h2>Operators</h2>
+
+<div class="d">
+<h3>One declarative registry, everything generated from it</h3>
+<pre>symbol · token length · prefix/infix/postfix forms · precedence
+associativity · overridable? · short-circuit? · operand rules
+result rules · HIR operation · MIR lowering · runtime fallback
+failure conditions</pre>
+<p>Lexer, parser, resolver, documentation and completeness tests all generate from that one table.</p>
+<p class="note"><b><code>**</code></b> is globally known syntax with globally fixed precedence whose <i>meaning</i> resolves to an imported function. A missing import should say <code>operator ** is not in scope — help: import "stdlib:Math" exposing pow</code>, not report an empty undefined name.</p>
+<p class="note"><b><code>&amp;&amp;</code> and <code>||</code></b> are control flow, not eager calls. They need dedicated short-circuit nodes and real branches &mdash; and should be non-overridable unless we deliberately want users altering evaluation order.</p>
+</div>
+
+<div class="d">
+<h3>Numbers: no user-facing types is compatible with speed; no <i>internal</i> types is not</h3>
+<pre>immediate machine integer fast path
+hardware overflow check
+overflow promotes to arbitrary precision
+IEEE-754 binary64 internally
+no width names in ordinary source
+integer divide-by-zero raises
+JSON explicitly rejects non-finite floats
+bitwise accepts integers only
+negative and oversized shifts specified centrally
+equality and hashing defined for 1 vs 1.0, NaN, signed zero</pre>
+<p class="note">&ldquo;C speed&rdquo; should be stated as a benchmarked envelope for type-stable hot code &mdash; not a promise that every dynamic program costs what hand-written C costs.</p>
+</div>
+
+<h2>Actors, jobs and callables</h2>
+
+<div class="d">
+<h3>Define the measurement before claiming the target</h3>
+<p>The actor control block measures <b>168 bytes</b> on Linux x86-64 today, excluding mailbox nodes, allocator overhead, interned names and side tables. A &le;300-byte target is plausible &mdash; but only once the measurement includes control block, scheduler linkage, empty mailbox, allocator overhead and minimum state. <b>Otherwise the target is &ldquo;met&rdquo; by moving fields into side tables.</b></p>
+<p class="note">The struct embeds a mutex and a condition variable costing <b>88 of those bytes</b>. A pooled, run-to-completion actor does not normally need a condition variable each; atomic scheduling state, an MPSC mailbox and intrusive ready-queue linkage fit the intended design better.</p>
+</div>
+
+<div class="d">
+<h3>Jobs need semantics before syntax</h3>
+<pre>worker count · mailbox capacity · backpressure
+input ordering · output ordering · failure propagation
+retries · cancellation · restart policy · result aggregation
+must work be idempotent? · may workers hold private state?</pre>
+<p class="note">Then <code>job ImageResize / workers: 8</code> lowers into generated actor-group HIR. <b>A job must not require its own parser or compiler pathway</b>, and must not implicitly capture surrounding state &mdash; everything entering a job appears explicitly.</p>
+</div>
+
+<div class="d">
+<h3>Callable values: draw the boundary explicitly</h3>
+<pre>supported     references to module and top-level functions
+              actor definitions as callable-like values
+              explicit partial application
+
+not           capturing arbitrary surrounding locals</pre>
+<p>And define: equality and identity, whether they are hashable, whether they cross actor boundaries, whether bound values are copied or shared, whether they can be persisted.</p>
+<p class="note">JSON always rejects them &mdash; <code>Json.encode cannot encode Callable at $.key</code> &mdash; never a silent <code>null</code>, which is what ships today.</p>
+</div>
+
+<h2>The invariants worth encoding as tests</h2>
+<div class="scrollbox"><pre>1   only the tokenizer reads characters to identify tokens
+2   only the parser decides syntax, precedence and operator arity
+3   only the resolver decides what names and imported operators mean
+4   HIR and MIR contain no source expression strings
+5   LLVM emission never string-scans to understand syntax
+6   interpreter and compiler consume the same HIR
+7   REPL input is a synthetic source file through the same front end
+8   every node kind is covered by generated pass-completeness checks
+9   every operator exists in one registry
+10  every front-end operation is bounded-stack and ~linear in source size
+11  no unsupported value silently becomes nil or JSON null
+12  fallback use is counted and can only decrease</pre></div>
+
+<h2>Bottom line</h2>
+<div class="d">
+<p>The first implementation artifact is the <b>node schema, source manager, operator registry, and shadow-mode tokenizer and parser</b> &mdash; not another patch to the raw-text emitter.</p>
+<p><b>Shadow mode</b> is the mechanism: run the new front end on every build while the old back end still executes. That establishes parse coverage across the whole repository, diagnostics, parser performance and import-graph correctness <b>without requiring the back end to be finished</b>. Every accidental old syntax the new parser rejects goes into an adjudicated compatibility ledger rather than being silently accepted or silently dropped.</p>
+</div>
+
+<footer>
+<p>Architecture review, 2 August 2026, against <code>stable</code> v0.99.475a commit <code>77ae81e8</code>. Settled outcomes are on <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>; the diagrams are on <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a> and the phased plan on <a href="PLAN-hey-restructure.html">the plan page</a>. Sources for the external claims: Pratt's original top-down operator precedence paper, the ESTree specification, Maranget on pattern-matching exhaustiveness, the Ruby method-syntax documentation, Python's <code>ast</code> module, LLVM FileCheck, the rustc development guide, the Tokio scheduler notes, the Pony ORCA paper, Clang cross-compilation, and Apple's static-framework documentation.</p>
+</footer>
+
+</main>
+</body>
+</html>
