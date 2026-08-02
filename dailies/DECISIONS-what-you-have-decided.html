@@ -50,7 +50,7 @@
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 9</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 10</p>
 <h1>What you've decided</h1>
 <p class="lede">Every decision in plain English, with what it means and where it stands. Kept current — bookmark this rather than the numbered <i>Ask</i> pages, which are snapshots of a moment.</p>
 
@@ -58,36 +58,72 @@
 <p><b>The reasoning behind these lives on its own page:</b> <a href="REVIEW-restructure-plan.html">Review of the restructure plan</a> &mdash; the published plan read against the shipping snapshot, with two corrections, the five unknowns measured, a parser that segfaults at a thousand statements, and the arguments behind the three rulings below.</p>
 </div>
 
-<h2 class="open-h">Waiting on you &mdash; three things</h2>
+<h2 class="open-h">Waiting on you &mdash; one thing</h2>
+
 
 <div class="d open">
-<h3>1 &nbsp;The compiler needs language features the compiler can't compile</h3>
-<pre>a syntax tree wants:   records with named fields
-                       "if it's one of these shapes, do that"
+<h3>1 &nbsp;Two rules we've agreed that contradict each other</h3>
+<pre>let total = 0
+total += 1        ← "+= exists"  vs  "a let can't be rebound"</pre>
+<p>Found while reviewing. Three ways out: make <code>set</code> create something changeable; keep ordinary values fixed and allow <code>+=</code> only on an actor's own state; or drop <code>+=</code>.</p>
+<pre># the recommended one
+let total = 0            # fixed
 
-Hey has today:         maps with string keys, and if/else</pre>
-<p>The new front end has to <i>build</i> a tree of the program. In most languages that's a record type plus pattern matching. Hey has neither &mdash; so either we build the tree out of plain maps and live with it, or we add those features to the language first.</p>
-<p class="note">This is the biggest unsized risk in the whole plan. Maps work and cost nothing to start; they're slower and easier to get wrong. Adding the features is the right long answer and delays everything behind it. <b>I'd start with maps and measure</b> &mdash; but you should know the choice is being made.</p>
+state count = 0
+set state.count += 1     # an actor changing its own state</pre>
+<p class="note">Worth knowing: &ldquo;values don't change&rdquo; doesn't have to mean the compiler rebuilds a thousand-item list every time it adds one &mdash; that's an internal matter. And <code>items[next_index()] += 1</code> must call <code>next_index()</code> <b>once</b>.</p>
 </div>
 
-<div class="d open">
-<h3>2 &nbsp;Two details of the new function signature</h3>
-<pre>fn f(a, b = 1, ...rest, k:, kw: 2, ...kw_rest)
 
-  is the ORDER enforced?     what happens if someone writes ...rest first?
-  when is `b = 1` computed?  Ruby computes it at call time, so
-                             fn f(a, b = a * 2)  works</pre>
-<p>Both are cheap to decide now and awkward later, because programs will depend on whichever we pick.</p>
-<p class="note">My suggestion: enforce the order with an error naming the correct one, and compute defaults at call time so they can refer to earlier parameters &mdash; that's Ruby's behaviour and it's the more useful of the two.</p>
-</div>
-
-<div class="d open">
-<h3>3 &nbsp;When do the old tests stop being the standard?</h3>
-<p>About ninety of our tests currently check that the new compiler produces <i>byte-for-byte what the old one produced</i>. A real front end will change those bytes &mdash; correctly. So at some point that test stops meaning &ldquo;still right&rdquo; and starts meaning &ldquo;still old&rdquo;.</p>
-<p class="note">Nothing currently schedules that moment, and if we don't pick one we'll either freeze the old output forever or quietly delete a real safety net. <b>My suggestion:</b> keep it until the specs that describe the same behaviour <i>in their own words</i> exist and are proven able to fail &mdash; then retire it in one deliberate step and record what it had been catching.</p>
-</div>
 
 <h2>Settled</h2>
+
+<div class="d done">
+<h3>The one-sentence statement of the whole problem</h3>
+<pre>Hey's recurring problem is not primarily missing cases.
+It is that authoritative facts have no authoritative home.</pre>
+<p>Better than &ldquo;one path, not five&rdquo;, and it covers everything we found this week: what an operator means and how tightly it binds, what arithmetic does, what counts as a name, how arguments bind to parameters, what an import exposes, what JSON accepts, which parts of a program contain which, how each stage lowers to the next, and which runtime pieces exist.</p>
+<p class="note"><b>Every one of those is currently decided in several places that disagree.</b> Each needs one definition that everything else is generated from &mdash; which is what the node schema does for one of them, and the operator table for another.</p>
+</div>
+
+<div class="d done">
+<h3>How the compiler stores your program &mdash; and why the reason changed</h3>
+<pre>maps stay the language's own thing
+
+but compiler nodes become GENERATED — one schema produces:
+  constructors · field slots · accessors · child lists
+  walkers · rewriters · validators · coverage checks
+
+no compiler code writes    node.body    or    {kind: 'for', ...}
+it writes                  for_body(node)     make_for_node(...)</pre>
+<p><b>The decision stands; the reasoning behind it was wrong, and that matters.</b> We both argued for pattern matching because it catches forgotten cases. Research tested that against five real defects here: <b>zero of the five would have been caught.</b> They're all <i>one fact decided in several places</i>, not <i>one place missing a case</i>.</p>
+<pre>the same fact implemented differently in N places  →  one source of truth
+a dispatch forgets a kind                          →  generated coverage check
+a walk forgets a child field                       →  generated child lists</pre>
+<p class="note">Pattern matching only helps the middle one, and only if you ban the catch-all arm. So the live bug where one walker forgets to visit <code>for</code> bodies &mdash; while six sibling walkers get it right &mdash; is evidence for <b>generating the walkers</b>, not for adding a language feature. CPython and Clang each landed on exactly this, both in languages that have no such feature.</p>
+</div>
+
+<div class="d done">
+<h3>When default values are worked out</h3>
+<pre>fn f(a, b = a * 2)     fine   — b can see a, already filled in
+fn f(a = b, b = 1)     error  — b isn't filled in yet</pre>
+<p>Left to right, as the call happens, each default able to see the ones before it and none of the ones after.</p>
+<p class="note">And calls are stored properly &mdash; the function, its plain arguments, its named arguments, and any spreads, each in its own place. Never one blob of text, which is how the current version does it.</p>
+</div>
+
+<div class="d done">
+<h3>Retiring the &ldquo;must match the old compiler exactly&rdquo; tests</h3>
+<pre>for each one:
+  1. say what it was ACTUALLY protecting
+  2. write a test of that
+  3. deliberately break the code and prove the new test fails
+  4. put the code back
+  5. mark the old one superseded
+
+then delete all the superseded ones in a single reviewed change</pre>
+<p>Not a date and not a milestone. Each test goes when &mdash; and only when &mdash; something better covers what it was really checking.</p>
+<p class="note">Exact-byte checks survive in one case: where the bytes themselves are a promise to someone else, like a published artifact or a stored file format. Not because the old compiler happened to emit them.</p>
+</div>
 
 <div class="d done">
 <h3>Two fixes going into the current version</h3>
