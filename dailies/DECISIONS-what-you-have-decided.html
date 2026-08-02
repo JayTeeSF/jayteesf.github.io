@@ -68,7 +68,7 @@
 <h2>Settled</h2>
 
 <div class="d done">
-<h3>Values never change; <code>set</code> changes an actor's state, not a name</h3>
+<h3>Bindings are immutable; <code>set</code> replaces what is in a state slot, not what a name means</h3>
 <pre>let count = 0
 set count += 1       ERROR — count is a name, and names are fixed
 
@@ -79,14 +79,15 @@ actor Counter
     set count += 1   FINE — count here is the actor's own state
   end
 end</pre>
-<p><b>This was the one contradiction on the page, and it resolves in favour of values that never change.</b> Every ordinary name in Hey is set once: <code>let</code>, a parameter, an import, a function name, a loop variable, an actor, a job. None of them can be pointed at something else later.</p>
+<p><b>This was the one contradiction on the page, and it resolves in favour of immutable bindings.</b> Every ordinary name in Hey is bound once: <code>let</code>, a parameter, an import, a function name, a loop variable, an actor, a job. None of them can be pointed at something else later.</p>
+<p class="note"><b>The precise wording matters, and this page said it loosely before.</b> It is <i>bindings</i> that are immutable &mdash; a name, once bound, keeps meaning the same thing forever. It is not that nothing anywhere changes: an actor's state slot changes constantly, by having a new value put into it. A slot is a box with an address; a binding is a name. <code>set</code> replaces the contents of the box. Nothing rebinds the name.</p>
 <p>The compound spellings survive &mdash; but they are <b>state-update</b> operators, not general assignment:</p>
 <pre>=   +=   -=   *=   /=   %=</pre>
-<p>They appear only after <code>set</code>, and the target must be state privately owned by the actor doing the writing. They cannot touch a local variable, a parameter, a map entry, a list element, a module name or a global.</p>
+<p>They appear only after <code>set</code>, and the target must be a state slot privately owned by whatever is doing the writing &mdash; <b>an actor, a monitor or a supervisor</b>. All three qualify for the same reason and no other construct does: each one handles its own messages one at a time, so no other execution can be looking at that slot while it changes. These operators cannot touch a local variable, a parameter, a map entry, a list element, a module name or a global.</p>
 <pre>let values = [1, 2, 3]
 values[0] += 1                                ERROR
 let updated = put(values, 0, values[0] + 1)   ← this is how you do it</pre>
-<p><b>Why the line is drawn there.</b> A state slot is a private location owned by one actor, not a name in your code. An actor handles its messages one at a time, so nothing else can be reading that slot while it changes. That is what makes it safe to allow &mdash; and it is exactly the promise an ordinary local variable cannot make. The moment a plain <code>let</code> can be rewritten, a value you were handed can change underneath you from somewhere else.</p>
+<p><b>Why the line is drawn there.</b> A state slot is a private location owned by one actor, monitor or supervisor &mdash; not a name in your code. Each of those handles its messages one at a time, so nothing else can be reading that slot while it changes. That serialised, isolated execution is the whole qualification, and it is exactly the promise an ordinary local variable cannot make. The moment a plain <code>let</code> can be rewritten, a value you were handed can change underneath you from somewhere else.</p>
 <p><b>What this buys the parser.</b> Hey has no assignment <i>expression</i> at all. <code>set name += expression</code> is a statement, parsed as one, and whether <code>name</code> is even allowed to be updated is answered afterwards by name resolution &mdash; not by the grammar. So the error is a sentence rather than a syntax complaint:</p>
 <pre>`count` is a fixed name and cannot be updated
 help: bind the result to a new name</pre>

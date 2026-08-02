@@ -148,7 +148,8 @@ flowchart TD
     LINK["7 · ASSEMBLE AND LINK&lt;br/&gt;heyc_link_llvm_ir_app&lt;br/&gt;runtime/heyc.c line 22693&lt;br/&gt;EXISTS"]
     RT["8 · RUNTIME&lt;br/&gt;values, actors, input and output&lt;br/&gt;runtime/hey_runtime.c&lt;br/&gt;EXISTS"]
     EXE["EXECUTABLE"]
-    OPTAB["OPERATOR TABLE — one source of truth&lt;br/&gt;21 rows, 16 columns&lt;br/&gt;MISSING — today 45-plus scattered sites"]
+    OPTAB["OPERATOR REGISTRY — one source of truth&lt;br/&gt;21 rows, 16 columns&lt;br/&gt;MISSING — today 45-plus scattered sites"]
+    HOSTGEN["HOST-SIDE GENERATOR&lt;br/&gt;never written in the Hey being built&lt;br/&gt;output checked in; make verify regenerates and diffs&lt;br/&gt;NO STAGE READS THE REGISTRY — each reads its projection"]
 
     SRC --&gt;|"text on disk"| TOK
     TOK --&gt;|"TOKEN STREAM — in memory, each token spanned"| TREE
@@ -160,12 +161,13 @@ flowchart TD
     LINK --&gt; EXE
     RT -.-&gt;|"linked in"| EXE
 
-    OPTAB -.-&gt;|"symbol, length, longest match wins"| TOK
-    OPTAB -.-&gt;|"precedence, associativity, arity"| TREE
-    OPTAB -.-&gt;|"overridability, lexical scope, imported binding"| NAMES
-    OPTAB -.-&gt;|"type evidence, result type"| HIR
-    OPTAB -.-&gt;|"lowering kind, can fail, decimal promotion"| MIR
-    OPTAB -.-&gt;|"instruction, predicate, runtime helper, message"| LLVM
+    OPTAB --&gt;|"the only edge out of the registry"| HOSTGEN
+    HOSTGEN -.-&gt;|"tokenizer projection — spelling, longest match"| TOK
+    HOSTGEN -.-&gt;|"parser projection — declared forms, precedence, associativity"| TREE
+    HOSTGEN -.-&gt;|"resolver projection — overridability, lexical scope, imported binding"| NAMES
+    HOSTGEN -.-&gt;|"HIR projection — semantic operation, short-circuit behaviour"| HIR
+    HOSTGEN -.-&gt;|"MIR projection — lowering strategy, runtime fallback"| MIR
+    HOSTGEN -.-&gt;|"LLVM projection — instruction, predicate, helper symbol"| LLVM
 
     classDef exists fill:#1f6f3f,stroke:#0d3b21,color:#ffffff
     classDef partial fill:#8a6d1f,stroke:#4a3a0d,color:#ffffff
@@ -197,7 +199,7 @@ flowchart TD
 flowchart TD
     subgraph FE["THE FRONT END — all new construction"]
         direction TB
-        T1["TOKENIZER — stdlib/HeyTokens.hey&lt;br/&gt;read_source_text_into_tokens&lt;br/&gt;OWNS: character classes; string, heredoc and&lt;br/&gt;interpolation boundaries; the shape of a number;&lt;br/&gt;longest-match operator symbols; and the ONE&lt;br/&gt;decision of whether a minus sign is a sign or a&lt;br/&gt;subtraction — read from the PREVIOUS TOKEN"]
+        T1["TOKENIZER — stdlib/HeyTokens.hey&lt;br/&gt;read_source_text_into_tokens&lt;br/&gt;OWNS: character classes; string, heredoc and&lt;br/&gt;interpolation boundaries; the shape of a number;&lt;br/&gt;longest-match operator symbols.&lt;br/&gt;DOES NOT own minus arity — it emits ONE MINUS&lt;br/&gt;token and never looks at the previous token"]
         T2["SYNTAX TREE — stdlib/HeySyntaxTree.hey&lt;br/&gt;group_tokens_into_statement_tree&lt;br/&gt;OWNS: precedence, associativity, arity,&lt;br/&gt;grouping, statement and block structure,&lt;br/&gt;every syntax error message"]
         T3["NAME RESOLUTION — stdlib/HeyNames.hey&lt;br/&gt;resolve_every_name_to_its_binding&lt;br/&gt;OWNS: scopes, shadowing, parameters, module&lt;br/&gt;imports, operator overrides in scope, actor&lt;br/&gt;state fields, every unknown-name error message"]
     end
@@ -212,7 +214,7 @@ flowchart TD
 
     OPT["OPERATOR TABLE"]
     OPT -.-&gt;|"symbol plus LENGTH — longest match wins;&lt;br/&gt;lives here once, not five times"| T1
-    OPT -.-&gt;|"precedence, associativity, arity, and&lt;br/&gt;whether this symbol can lead an expression"| T2
+    OPT -.-&gt;|"DECLARED FORMS — prefix, infix, postfix,&lt;br/&gt;state-update — plus precedence and&lt;br/&gt;associativity. The parser selects WHICH&lt;br/&gt;declared form applies, from grammar context."| T2
     OPT -.-&gt;|"which symbols a module is allowed to override"| T3
 
     classDef newwork fill:#8a2222,stroke:#4a0f0f,color:#ffffff
@@ -232,9 +234,9 @@ flowchart TD
 <table>
 <thead><tr><th>What is absent</th><th>What that absence costs, measured</th><th>What replaces it</th></tr></thead>
 <tbody>
-<tr><td>no tokenizer</td><td><b>11 separate decisions</b> about whether a <code>-</code> is a sign, a subtraction, or part of a number</td><td>one call to <code>decide_whether_this_minus_is_a_sign_or_a_subtraction</code>, reading the previous token</td></tr>
+<tr><td>no tokenizer, no parser</td><td><b>11 separate decisions</b> about whether a <code>-</code> is a sign, a subtraction, or part of a number</td><td><b>Corrected:</b> the tokenizer emits one <code>MINUS</code> token and decides nothing. The <i>parser</i> selects prefix or infix from grammar context, at one site, in the Pratt loop. An earlier version of this row proposed a tokenizer-side <code>decide_whether_this_minus_is_a_sign_or_a_subtraction</code> reading the previous token &mdash; that is superseded, because it keeps the decision in the stage that cannot answer it</td></tr>
 <tr><td>no tokenizer</td><td>the same two-character-lookahead guard is <b>copied 5 times</b> &mdash; <code>hey_repl.c:4336</code>, <code>heyc.c:17148</code>, <code>heyc.c:9018</code>, <code>HeyLlvm.hey:9173</code>, <code>HeyHir.hey:1260</code></td><td>longest-match-wins, once, in <code>find_the_longest_operator_symbol_at_this_position</code></td></tr>
-<tr><td>no tokenizer</td><td>two character sets answering the same question <b>differ by 8 characters</b> &mdash; <code>hey_repl.c:913</code> has 15, <code>heyc.c:15164</code> has 7 &mdash; and one entry in the longer set is a wrong answer <i>in the reference implementation</i>, which produced 3 recorded cross-path divergences</td><td>the question stops being askable: a token stream already knows what came before</td></tr>
+<tr><td>no tokenizer</td><td>two character sets answering the same question <b>differ by 8 characters</b> &mdash; <code>hey_repl.c:913</code> has 15, <code>heyc.c:15164</code> has 7 &mdash; and one entry in the longer set is a wrong answer <i>in the reference implementation</i>, which produced 3 recorded cross-path divergences</td><td>the question stops being askable &mdash; not because a token stream knows what came before, but because <b>no stage that sees characters is asked</b>. Arity is settled in the parser, from grammatical position</td></tr>
 <tr><td>no syntax tree</td><td><b>45-plus sites decide precedence, across 5 mutually inconsistent notions of it</b></td><td>one precedence ladder in <code>group_tokens_into_expression_tree</code>, read from the table</td></tr>
 <tr><td>no syntax tree</td><td>associativity is <b>emergent from the shape of a loop</b> &mdash; one scanner returns the first match, another returns the last, so <code>a == b == c</code> groups oppositely in two shipping paths</td><td>an <code>associativity</code> column that is read, not implied</td></tr>
 <tr><td>no syntax tree</td><td><code>HeyHir.hey</code> carries <b>16 hard-coded operator lists that do not agree</b>, and every split site hard-codes the marker width as <b>3</b> &mdash; right for <code>' + '</code>, silently wrong for <code>' and '</code>, <code>' or '</code> and <code>'..&lt;'</code></td><td>node kinds. There is no marker and no width</td></tr>
@@ -420,7 +422,7 @@ flowchart TD
 <tr><td>10</td><td><code>elision_predicate</code></td><td>MIR</td><td>a check the compiler can skip when it can prove it is unnecessary</td></tr>
 <tr><td>11</td><td><code>error_message</code></td><td>LLVM, interpreter</td><td>must express <b>two messages for one instruction</b>, keyed on how the user spelled it &mdash; this is deliberate, and matching it exactly is the contract</td></tr>
 <tr><td>12</td><td><code>lowering_kind</code></td><td>MIR</td><td>without it, <code>and</code>, <code>or</code> and <code>==</code> cannot be in the table at all</td></tr>
-<tr><td>13</td><td><code>sign_skip</code></td><td><b>tokenizer</b> &mdash; see the note</td><td>the whole leading-minus defect family</td></tr>
+<tr><td>13</td><td><code>declared_forms</code></td><td>parser projection</td><td>replaces <code>sign_skip</code>. Declares which forms a symbol HAS &mdash; prefix, infix, postfix, state-update. Selecting which one applies at a site is the parser's, from grammar context</td></tr>
 <tr><td>14</td><td><code>type_evidence</code></td><td>HIR</td><td>HIR derives this from four lists that do not agree</td></tr>
 <tr><td>15</td><td><code>result_type</code></td><td>HIR, interpreter</td><td><code>and</code> and <code>or</code> return a true-or-false, not their operand</td></tr>
 <tr><td>16</td><td><code>float_promotion</code></td><td>MIR</td><td>the 13-row decimal-parameter divergence family; one path decides statically, the other defers wholesale. The census recommends defaulting to defer</td></tr>
@@ -428,7 +430,9 @@ flowchart TD
 </table>
 </div>
 
-<p><b>Note on column 13.</b> The column stays; its meaning moves. Today it is a <i>character set</i> consulted by each splitter, and the two sets differ by 8 characters. With a tokenizer, the row instead declares <i>does this symbol have a leading form</i>, and the sign-versus-subtraction question is answered once from the previous token. Same column, consumed by a stage that can answer it correctly.</p>
+<p><b>Note on column 13 &mdash; corrected 2 August, and the correction is the point of the whole redesign.</b> The old column was <code>sign_skip</code>: a <i>character set</i> consulted by each splitter to decide whether a minus was a sign or a subtraction. The two shipping sets differ by 8 characters, one of them is missing <code>]</code>, and that is precisely why <code>arr[0] - 1</code> fails with &ldquo;undefined name&rdquo; today.</p>
+<p><b>An earlier version of this page proposed keeping the column and answering the question from the previous TOKEN instead of the previous CHARACTER. That is superseded and it was the wrong fix</b> &mdash; it is the same decision, made in the same stage, with a slightly better input. A tokenizer cannot answer it correctly no matter what it looks at, because whether a minus is negation or subtraction is a fact about grammatical position, not about what precedes it in the stream.</p>
+<p>So the column is replaced rather than relocated. <code>declared_forms</code> states which forms a symbol <i>has</i> &mdash; prefix, infix, postfix, state-update. The tokenizer emits one <code>MINUS</code> token, always, and consults nothing. <b>The parser selects which declared form applies, from grammar context.</b> That makes the entire leading-minus family unrepresentable rather than merely fixed, and it is why the ownership table above separates deciding from consuming.</p>
 
 <h3>Four kinds of lowering, and the three families that need more than one instruction</h3>
 
@@ -846,7 +850,9 @@ flowchart TB
 <p><b>What dissolves it is the host-generator ruling</b>, made for the node schema and applying identically here: the generator is written in a language already present in the build environment &mdash; Ruby, Python or C &mdash; and <b>never in the Hey being built</b>. Its output is checked in. The build does not run it; <code>make verify</code> regenerates and diffs against what is committed. There is no cycle because Hey is never on the generating side.</p>
 <p><b>So the objection lands on a design nobody is now proposing.</b> &ldquo;Checking the generated file in makes it a cache that needs a drift guard anyway&rdquo; is true &mdash; and the drift guard is the design, not a concession to it. &ldquo;Another language's generator makes that language a prerequisite for building Hey&rdquo; would be fatal if generation were a build step; it is not. Building Hey needs only the checked-in output. The host language is a prerequisite for <i>changing</i> the table, not for <i>building</i> the compiler, and that distinction is the whole of the disagreement.</p>
 <p>The single-source-of-truth design's own name for its alternative &mdash; <b>&ldquo;emit once, verify always&rdquo;</b> &mdash; is an exact description of what is now ruled. The two documents were never far apart; they were arguing about whether the generator runs during <code>make</code>, and it does not.</p>
-<p><b>Path: <code>docs/language/operators.tsv</code></b>, the single-source-of-truth design's choice, not the standard library's. The normative file is not consumed by any program at run time &mdash; only the derived copies are &mdash; so putting it in <code>stdlib/</code> would imply a dependency that does not exist. <i>This last one is the orchestrator's call rather than a maintainer ruling; say so if you want it elsewhere.</i></p>
+<p><b>Path: <code>compiler/schema/operators.tsv</code>. Not <code>stdlib/</code>, and &mdash; corrected 2 August &mdash; not <code>docs/</code> either.</b></p>
+<p><code>stdlib/</code> is wrong because no program consumes the normative file at run time; only the derived copies are consumed, so putting it there would imply a dependency that does not exist. <b><code>docs/</code> is wrong for the opposite reason: this is normative, machine-consumed source, and a path beginning <code>docs/</code> invites someone to treat it as prose that can be tidied.</b> It cannot. Editing it changes the language.</p>
+<p><code>compiler/schema/</code> also gives the other declarative sources somewhere to live together, which is the point of calling them sources of truth at all &mdash; the node-shape schema, the operator registry, the runtime and intrinsic registry, and the module export model are four files with one job, and they should be one directory rather than four conventions.</p>
 <p class="note">A second, smaller disagreement, already flagged above: the number of spec files that invoke a build. 42 of 760 in the program directive (over <code>specs/language</code>), 18 of 988 from a live search at this commit (over the whole <code>specs/</code> tree), with <code>specs/language</code> itself counted at 773 here and 760 there. A third census, the one behind <a href="../articles/testing-a-language-you-are-rebuilding.html">The Answer Key Cannot Be One of the Contestants</a>, uses 760 for <code>specs/language</code> and 964 for <code>specs/language</code> plus <code>specs/compiler</code>. Nobody has reconciled the three.</p>
 </div>
 

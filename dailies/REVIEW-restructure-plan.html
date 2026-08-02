@@ -170,17 +170,20 @@ and which exported function it denotes</pre>
 <div class="d done">
 <h3>1 &nbsp;Neither plain maps nor waiting for pattern matching</h3>
 <p><b>Use a closed, schema-generated node system that is private to the compiler.</b> Don't block the front end on adding user-visible records and pattern matching &mdash; and don't build the tree from unrestricted maps either.</p>
+<p><b>Nodes stay map-shaped.</b> What changes is that no compiler code writes or reads one by hand &mdash; every constructor and every accessor is generated from one schema, and the physical keys are private to the generated files.</p>
 <pre># generated from one schema, never written by hand
-fn syntax_binary(span, left, operator, right)
-  return [NODE_BINARY, span, left, operator, right]
+fn make_binary_expression(span, left, operator, right)
+  # builds a map with n_kind, n_span, n_left, n_operator, n_right
+  # in declared slot order, exact-sized, then frozen
 end
 
-fn syntax_binary_left(node)
-  return node[2]
+fn binary_expression_left(node)
+  # returns the n_left slot. compiler code never names that key.
 end</pre>
 <p>Generate from that one schema: constructors, accessors, required-field validation, child iteration, serialisation, debug printing, visitor dispatch, and the list of every node kind each pass handles. <b>A build should fail when a new node kind lacks a resolver or a lowering.</b></p>
-<p class="note">No compiler code writes <code>{kind: 'binary', left: ..., rite: ...}</code> directly &mdash; that is how a misspelled field and an incomplete visitor become permanent defects.</p>
-<p class="note"><b>The instinct about pattern matching was right, with one qualification.</b> Its main benefit here is detecting missing and redundant cases, not speed. But <b>static exhaustiveness requires a closed set of variants</b>, and arbitrary dynamic maps cannot provide one. If &ldquo;no user-facing types&rdquo; means no <i>required annotations</i>, sealed variants can still be added later without losing the ergonomics. So: closed schema with generated coverage checks <b>now</b>; records and pattern matching as a real language feature <b>later</b>; the front end waits for <b>neither</b>.</p>
+<p class="note">No compiler code writes <code>{kind: 'binary', left: ..., rite: ...}</code> directly &mdash; that is how a misspelled field and an incomplete visitor become permanent defects. The <code>n_</code> prefix on the physical keys is what makes the prohibition checkable: one search with no false positives finds every violation, and a stale read like <code>stmt.kind</code> against a generated node returns nothing rather than quietly returning something plausible.</p>
+<p class="note"><b>Correction &mdash; the earlier version of this section argued that the pattern-matching instinct was right, and it was not.</b> That argument said exhaustive matching would have protected the compiler, because Hey's defect history is missing cases. <b>Tested against five real defects here, zero would have been caught.</b> They are all <i>one fact implemented independently in several places</i>, or <i>a tree walk that omits a child</i> &mdash; neither of which exhaustiveness addresses. Exhaustive matching catches a total dispatch missing one variant, and a single wildcard arm switches the check off anyway.</p>
+<p class="note">The live example decides it: one walker descends into <code>while</code>, <code>until</code> and <code>for</code>; a walker twenty lines further down descends into <code>while</code> and <code>until</code> and forgets <code>for</code>. A generated child table and a generated walker make that omission <b>unrepresentable</b>. Pattern matching would not have noticed it. So the ruling is a closed, generated schema over map-shaped nodes <b>now</b>, and records and pattern matching remain available as ordinary language features later, on their own merits &mdash; <b>not as a prerequisite for anything, and not as the mechanism that fixes these defects.</b></p>
 </div>
 
 <div class="d done">
