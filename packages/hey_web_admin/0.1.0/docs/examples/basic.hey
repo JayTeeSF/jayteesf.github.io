@@ -1,0 +1,69 @@
+# A complete, runnable hey_web_admin in about 30 lines.
+#
+#   ./bin/heyc docs/examples/basic.hey
+#
+# It renders real screens and prints assertions about their BODIES. It
+# does not open a socket; `HeyAdmin.handle` is the engine and takes a
+# plain request record, which is also how every spec in this package
+# tests every screen.
+
+import 'stdlib:Text'
+import '../../main.hey'
+
+# Authorization is YOUR application's, and it is mandatory. Returning
+# anything that is not exactly `true` denies. A real one would check a
+# session, a signed cookie, or a header -- never a hardcoded true.
+fn authorize_everyone(request)
+  return true
+end
+
+module ExampleAdmin
+  fn config()
+    let store = HeyRecordStore.file('build/example_store')
+    let source = HeyAdminSource.record_store(store, 'widgets')
+    let fields = [
+      HeyAdminField.required_text('name', 'Name'),
+      HeyAdminField.long_text('notes', 'Notes')
+    ]
+    let widgets = HeyAdmin.resource('widgets', source, {fields: fields, singular: 'widget'})
+    return HeyAdmin.config('/admin', [widgets], {authorize: authorize_everyone})
+  end
+
+  fn handle(request)
+    return HeyAdmin.handle(ExampleAdmin.config(), request)
+  end
+end
+
+program
+  let wiped = command('rm -rf build/example_store')
+  let config = ExampleAdmin.config()
+  let booted = HeyAdminSource.boot(config.resources[0].source)
+
+  # The guard decides whether this admin may exist at all.
+  let allowed = HeyAdmin.mount_check(config)
+  says 'guard: ok=' + ('' + allowed.ok) + ' mode=' + allowed.value.mode
+
+  # Refused without an authorize callback -- no routes, not a warning.
+  let unguarded = HeyAdmin.mount_check(HeyAdmin.config('/admin', [], {}))
+  says 'unguarded: ok=' + ('' + unguarded.ok) + ' code=' + ('' + unguarded.code)
+
+  # CREATE, the way a browser posts it (percent-encoded, + for space).
+  let created = ExampleAdmin.handle({method: 'POST', path: '/admin/widgets', headers: {}, query: '', body: 'hey_admin_id=w1&name=Ada+Lovelace&notes=%3Cscript%3Ealert(1)%3C%2Fscript%3E'})
+  says 'create: status=' + ('' + created.status) + ' -> ' + created.headers.location
+
+  # LIST, and the payload comes back ESCAPED.
+  let listed = ExampleAdmin.handle({method: 'GET', path: '/admin/widgets', headers: {}, query: '', body: ''})
+  says 'list:   status=' + ('' + listed.status) + ' bytes=' + ('' + len(listed.body))
+  says '  shows the value:   ' + ('' + Text.contains?(listed.body, 'Ada Lovelace'))
+  says '  raw script tag:    ' + ('' + Text.contains?(listed.body, '<script>alert'))
+  says '  escaped instead:   ' + ('' + Text.contains?(listed.body, '&lt;script&gt;alert'))
+
+  # DELETE is POST-only. A GET renders a confirmation and removes nothing.
+  let confirm = ExampleAdmin.handle({method: 'GET', path: '/admin/widgets/w1/delete', headers: {}, query: '', body: ''})
+  let still_there = HeyAdminSource.fetch(config.resources[0].source, 'w1')
+  says 'GET delete: status=' + ('' + confirm.status) + ' record survived=' + ('' + still_there.ok)
+
+  let destroyed = ExampleAdmin.handle({method: 'POST', path: '/admin/widgets/w1/delete', headers: {}, query: '', body: ''})
+  let gone = HeyAdminSource.fetch(config.resources[0].source, 'w1')
+  says 'POST delete: status=' + ('' + destroyed.status) + ' record gone=' + ('' + (gone.ok == false))
+end
