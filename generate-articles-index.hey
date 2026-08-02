@@ -65,18 +65,40 @@ module ArticlesIndex
     return filename
   end
 
+  # An index entry may legitimately differ from the page's own <title>: a
+  # <title> is a browser tab and wants to be short, an index entry is a shelf
+  # label and wants to be descriptive. Without these overrides that difference
+  # had to be maintained BY HAND inside index.html, so running this generator
+  # silently REWROTE entries someone had written deliberately -- which is why
+  # people stopped running it and started hand-editing, which is how the index
+  # and the pages drifted apart in the first place.
+  #
+  # article-index-title / article-index-desc WIN when present, so each page
+  # carries its own index copy and this generator is IDEMPOTENT. Neither is
+  # required: omit them and <title> / article-desc are used exactly as before.
+  #
+  # This mirrors generate-dailies-index.hey:113-133, which grew the same two
+  # overrides on 2026-08-01 for the same reason. The two generators disagreeing
+  # was itself the bug -- a fact restated in two programs, corrected in one.
   private fn parse_article(path)
     let content = Files.read_text(path)
     let filename = Files.basename(path)
 
-    let title = ArticlesIndex.extract_title(content)
+    let title = ArticlesIndex.meta_value(content, 'article-index-title')
+    if title == ''
+      set title = ArticlesIndex.extract_title(content)
+    end
     if title == ''
       set title = ArticlesIndex.stem(filename)
     end
 
     let date = ArticlesIndex.meta_value(content, 'article-date')
     let bucket = ArticlesIndex.meta_value(content, 'article-bucket')
-    let desc = ArticlesIndex.meta_value(content, 'article-desc')
+
+    let desc = ArticlesIndex.meta_value(content, 'article-index-desc')
+    if desc == ''
+      set desc = ArticlesIndex.meta_value(content, 'article-desc')
+    end
 
     let missing = []
     if date == ''

@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="For months we answered the question &ldquo;does the language have architectural problems?&rdquo; with the bug we had just fixed. Four agents were told to enumerate instead of sample, and the real answer arrived in a night: the shipping front end has no parser.">
+  <meta name="article-date" content="2026-08-01">
+  <meta name="article-bucket" content="featured">
+  <meta name="article-desc" content="Fifty-eight defect investigations in a row told us fifty-eight things about fifty-eight lines and nothing about the shape of the thing. One night of enumeration found six structural facts, starting with the largest: there is no parser.">
+  <title>What We Found Under the Language</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem; padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border); border-radius: 0.7rem; background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .tablewrap { overflow-x: auto; }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .term { border-left-color: #6aa9e8; } }
+    :root[data-theme="dark"] .term { border-left-color: #6aa9e8; }
+    :root[data-theme="light"] .term { border-left-color: #2a78d6; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    figure { margin: 1.75rem 0 2rem; }
+    figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+    .figwrap { overflow-x: auto; }
+    figcaption { margin-top: 0.6rem; font-size: 0.9rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+<article>
+
+  <h1>What We Found Under the Language</h1>
+
+  <p class="lede">
+    For months the maintainer asked a version of the same question: does this language have
+    architectural problems, or just bugs? Every time, the honest answer we had was
+    &ldquo;here is the bug we just fixed.&rdquo; On the night of 1 August we stopped
+    investigating defects and told four agents to <em>enumerate</em> instead &mdash; not
+    &ldquo;find problems&rdquo; but &ldquo;list every place that decides X.&rdquo; The answer
+    came back before morning. The largest part of it is that the thing users compile with does
+    not have a parser.
+  </p>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>The verdict: this needs a new front end, not more fixes.</strong> The front
+        end that ships carries every expression &mdash; every <code>a + b * c</code> &mdash; as
+        an <strong>opaque string</strong>, and two later stages each re-read that string
+        character by character to work out what it meant. There is no <em>token</em> type
+        anywhere in the tree; a repo-wide search for one returns comments, plus a handful of
+        unrelated uses of the word in libraries that have nothing to do with compiling.</li>
+      <li><strong>The same decision is made in dozens of places and they disagree.</strong>
+        Operator precedence is decided at <strong>at least 45 sites</strong> across
+        <strong>5 mutually inconsistent</strong> notions of what precedence even is. What
+        counts as a letter in a name is decided by <strong>16 separate scanners</strong>, and
+        no two of them agree.</li>
+      <li><strong>Keyword arguments are used about 1,900 times and are not a feature.</strong>
+        No front end has a rule for them. They work because two built-in functions re-parse
+        their own raw argument text &mdash; one of them by testing for a single hard-coded
+        option name. A function you write yourself cannot take one.</li>
+      <li><strong>Disclosed weakness: this was a reading, not a run.</strong> No build was
+        executed &mdash; a release battery had the machine. The grammar report alone flags
+        <strong>36 of its claims as needing a run to confirm</strong>, and where the reports
+        disagreed we left the disagreement standing rather than picking a winner.</li>
+      <li><strong>Reproduce the headline in one line:</strong> search your own compiler for
+        its token type. If the grep is empty, every stage downstream is re-deriving the same
+        facts from raw text &mdash; and they will not all agree.</li>
+    </ul>
+  </div>
+
+  <figure>
+    <div class="figwrap">
+      <svg viewBox="0 0 900 300" width="900" style="max-width:100%;min-width:600px;height:auto"
+           role="img" aria-labelledby="f1t f1d"
+           font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+        <title id="f1t">The compiler pipeline, with the first three stages absent</title>
+        <desc id="f1d">A left-to-right chain of seven boxes. The first box, source text, is
+          solid. The next three &mdash; tokenizer, syntax tree, and name resolution &mdash; are
+          drawn as empty dashed outlines and labelled MISSING. The last three are solid:
+          meaning and types (noted as re-reading the text), the LLVM emitter (noted as
+          re-reading it again), and assemble, link and runtime. An arrow skips over the three missing boxes from
+          source text directly to the meaning-and-types stage and is labelled &ldquo;expression carried as
+          an opaque string.&rdquo;</desc>
+
+        <rect x="0" y="0" width="900" height="300" fill="#f7f7f5" stroke="#d9d9d4" stroke-width="1"/>
+        <text x="24" y="30" font-size="16" font-weight="700" fill="#22242a">The first three stages of the compiler do not exist</text>
+        <text x="24" y="50" font-size="12" fill="#55585f">Every downstream stage compensates by re-reading raw source text, and they do not agree about what it says.</text>
+
+        <rect x="24" y="120" width="104" height="56" rx="6" fill="#ffffff" stroke="#9a9a94" stroke-width="1.5"/>
+        <text x="76" y="144" font-size="11" fill="#22242a" text-anchor="middle">source</text>
+        <text x="76" y="160" font-size="11" fill="#22242a" text-anchor="middle">text</text>
+
+        <rect x="152" y="120" width="104" height="56" rx="6" fill="none" stroke="#c2410c" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <text x="204" y="144" font-size="11" fill="#c2410c" text-anchor="middle">tokenizer</text>
+        <text x="204" y="160" font-size="10" font-weight="700" fill="#c2410c" text-anchor="middle">MISSING</text>
+
+        <rect x="280" y="120" width="104" height="56" rx="6" fill="none" stroke="#c2410c" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <text x="332" y="144" font-size="11" fill="#c2410c" text-anchor="middle">syntax tree</text>
+        <text x="332" y="160" font-size="10" font-weight="700" fill="#c2410c" text-anchor="middle">MISSING</text>
+
+        <rect x="408" y="120" width="104" height="56" rx="6" fill="none" stroke="#c2410c" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <text x="460" y="144" font-size="11" fill="#c2410c" text-anchor="middle">name resolution</text>
+        <text x="460" y="160" font-size="10" font-weight="700" fill="#c2410c" text-anchor="middle">MISSING</text>
+
+        <rect x="536" y="120" width="104" height="56" rx="6" fill="#ffffff" stroke="#9a9a94" stroke-width="1.5"/>
+        <text x="588" y="144" font-size="11" fill="#22242a" text-anchor="middle">meaning + types</text>
+        <text x="588" y="160" font-size="10" fill="#55585f" text-anchor="middle">re-reads the text</text>
+
+        <rect x="664" y="120" width="104" height="56" rx="6" fill="#ffffff" stroke="#9a9a94" stroke-width="1.5"/>
+        <text x="716" y="144" font-size="11" fill="#22242a" text-anchor="middle">LLVM emitter</text>
+        <text x="716" y="160" font-size="10" fill="#55585f" text-anchor="middle">re-reads it again</text>
+
+        <rect x="792" y="120" width="84" height="56" rx="6" fill="#ffffff" stroke="#9a9a94" stroke-width="1.5"/>
+        <text x="834" y="144" font-size="11" fill="#22242a" text-anchor="middle">link &amp;</text>
+        <text x="834" y="160" font-size="11" fill="#22242a" text-anchor="middle">runtime</text>
+
+        <line x1="128" y1="148" x2="148" y2="148" stroke="#9a9a94" stroke-width="1.5"/>
+        <line x1="512" y1="148" x2="532" y2="148" stroke="#9a9a94" stroke-width="1.5"/>
+        <line x1="640" y1="148" x2="660" y2="148" stroke="#9a9a94" stroke-width="1.5"/>
+        <line x1="768" y1="148" x2="788" y2="148" stroke="#9a9a94" stroke-width="1.5"/>
+
+        <path d="M76 118 C 76 66, 588 66, 588 118" fill="none" stroke="#c2410c" stroke-width="2.5"/>
+        <polygon points="588,120 583,110 593,110" fill="#c2410c"/>
+        <text x="332" y="86" font-size="12" font-weight="700" fill="#c2410c" text-anchor="middle">expression carried as an opaque string</text>
+
+        <text x="24" y="216" font-size="11" fill="#55585f">Above all of it: four passes that rewrite the source text before any stage sees it. One of them deletes lines.</text>
+        <text x="24" y="236" font-size="11" fill="#55585f">After that, the position of a line in the file is no longer its line number &mdash; the likeliest reason error locations cannot be trusted.</text>
+        <text x="24" y="268" font-size="11" fill="#55585f">Source: static reading of the shipping tree at commit e6963689, 1 August 2026. No build was run.</text>
+      </svg>
+    </div>
+    <figcaption>
+      What a compiler normally does first, this one never does at all. Every claim in the
+      figure is from the enumeration reports of 1 August 2026 &mdash; the four censuses plus
+      the pipeline map that supplies the stage names &mdash; all read statically at commit
+      <code>e6963689</code>.
+    </figcaption>
+  </figure>
+
+  <h2>For months, the answer was always a bug</h2>
+
+  <p>
+    We have a good record on defects. Fifty-eight were catalogued and classified last week,
+    each with how it was found and what would have caught it earlier. That work is useful, and
+    it never once answered the maintainer's question, because a defect investigation is a
+    sample of size one. Fifty-eight in a row tell you fifty-eight things about fifty-eight
+    lines.
+  </p>
+
+  <p>
+    So the instruction changed. Not &ldquo;go find what is wrong&rdquo; &mdash; four agents were
+    each given a complete, boring list to produce. Every operator, in every implementation.
+    Every construct one emitter refuses. Every rule the grammar actually enforces.
+    Complete lists, with a file and line number beside every cell. Six things fell out,
+    ordered here by how much they should surprise you.
+  </p>
+
+  <h2>Finding one: there is no parser</h2>
+
+  <div class="aside term">
+    <h3>Parser</h3>
+    <p style="margin:0">The stage that reads source text once and turns it into a tree that
+    says what the program means. Everything after it works on the tree and never looks at the
+    text again. That is the point: the text is read once, so there is only one opinion about
+    it.</p>
+  </div>
+
+  <p>
+    The front end users actually compile with reads a line, decides what kind of statement it
+    is, and hands the expression part downstream <em>as text</em>. The meaning-and-types stage
+    scans that text for operators to guess at types. The LLVM emitter &mdash; the stage that
+    writes the low-level text a toolkit called LLVM turns into machine code &mdash; scans the
+    same text again to decide what instructions to emit. Two independent readings of the same
+    characters, by two separately written pieces of code, with no shared definition of what a
+    <code>-</code> is.
+  </p>
+
+  <p>
+    Above all of that sits something stranger. Before any of this begins, the source is
+    rewritten four times, and one of those passes <strong>deletes lines outright</strong>.
+    Nothing we could find maps the surviving lines back to the originals. That is the best
+    explanation we now have for a complaint we have carried for months &mdash; the line number
+    in an error message is not reliably the line the error is on &mdash; and it is one of the 36 claims that
+    report still has queued for a run. There has never been a column number either, because there is
+    nothing smaller than a line to attach one to.
+  </p>
+
+  <h2>Finding two: keyword arguments are used 1,900 times and are not a feature</h2>
+
+  <p>
+    Programs across our corpus write things like <code>Jobs.define('Reliable', Worker, count: 2,
+    capacity: 8)</code>. A scan finds roughly 1,900 such argument sites. There is no rule for
+    <code>name: value</code> in any front end. None. The general argument evaluator splits on
+    commas and hands each piece to the ordinary expression evaluator, which has no idea what a
+    colon is.
+  </p>
+
+  <p>
+    It works because two built-in functions take their arguments as one raw string and parse
+    the options themselves &mdash; one of them by testing whether the text starts with the
+    literal characters <code>workers:</code>. That is the mechanism, described in full.
+  </p>
+
+  <p>
+    The consequence is worth sitting with: <strong>a function a user writes cannot take a
+    keyword argument</strong>, because there is nothing to give it one. That last sentence is
+    read from the source and is one of those 36 claims queued for a run &mdash; it is the single
+    one we would most like to be wrong about. Either way, the corpus already depends on syntax
+    the language does not have.
+  </p>
+
+  <h2>Finding three: one decision, forty-five places, five different answers</h2>
+
+  <p>
+    Precedence is the rule that makes <code>2 + 3 * 4</code> equal 14 and not 20. In a normal
+    compiler it is a number in a table. Here it is the <em>shape of a call chain</em> &mdash;
+    which function calls which &mdash; and there are five different chains, so there are five
+    different notions of what precedence is. Counting every site that decides it gives at
+    least 45. Splitting an expression on a plus sign happens at 16 places in one file alone.
+  </p>
+
+  <figure>
+    <div class="figwrap">
+      <svg viewBox="0 0 880 300" width="880" style="max-width:100%;min-width:560px;height:auto"
+           role="img" aria-labelledby="f2t f2d"
+           font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+        <title id="f2t">How many independent places in the tree make one single decision</title>
+        <desc id="f2d">Five horizontal bars, longest at the top. Operator precedence: 45 sites.
+          What counts as a name character: 16 scanners. Splitting on the plus sign in one file:
+          16 places. What a leading minus sign means: 11 decisions. Which keywords open a
+          block: 4 lists, holding 5, 13, 11 and 12 keywords respectively.</desc>
+
+        <rect x="0" y="0" width="880" height="300" fill="#f7f7f5" stroke="#d9d9d4" stroke-width="1"/>
+        <text x="24" y="30" font-size="16" font-weight="700" fill="#22242a">One decision, made independently in many places</text>
+        <text x="24" y="50" font-size="12" fill="#55585f">Each bar is the number of separate sites in the tree that answer the same question. None of the groups fully agree.</text>
+
+        <text x="24" y="94" font-size="12" fill="#22242a">operator precedence</text>
+        <rect x="250" y="80" width="540" height="20" rx="3" fill="#c2410c"/>
+        <text x="800" y="95" font-size="12" font-weight="700" fill="#c2410c">45+</text>
+
+        <text x="24" y="134" font-size="12" fill="#22242a">what is a name character</text>
+        <rect x="250" y="120" width="192" height="20" rx="3" fill="#b45309"/>
+        <text x="452" y="135" font-size="12" font-weight="700" fill="#b45309">16</text>
+
+        <text x="24" y="174" font-size="12" fill="#22242a">splitting on &ldquo;+&rdquo;, one file</text>
+        <rect x="250" y="160" width="192" height="20" rx="3" fill="#b45309"/>
+        <text x="452" y="175" font-size="12" font-weight="700" fill="#b45309">16</text>
+
+        <text x="24" y="214" font-size="12" fill="#22242a">what a leading &ldquo;&minus;&rdquo; means</text>
+        <rect x="250" y="200" width="132" height="20" rx="3" fill="#b45309"/>
+        <text x="392" y="215" font-size="12" font-weight="700" fill="#b45309">11</text>
+
+        <text x="24" y="254" font-size="12" fill="#22242a">which keywords open a block</text>
+        <rect x="250" y="240" width="48" height="20" rx="3" fill="#8a6d3b"/>
+        <text x="308" y="255" font-size="12" font-weight="700" fill="#8a6d3b">4 lists &mdash; of 5, 13, 11 and 12 keywords</text>
+
+        <text x="24" y="286" font-size="11" fill="#55585f">Source: the operator and grammar enumerations of 1 August 2026, read statically at commit e6963689. No build was run.</text>
+      </svg>
+    </div>
+    <figcaption>
+      Every bar is one question the language has to answer exactly once. Today each is
+      answered many times, by code that was written separately and drifted.
+    </figcaption>
+  </figure>
+
+  <p>
+    The pattern repeats at every size. Sixteen scanners decide whether a character belongs to
+    a name, and no two agree: four accept an exclamation mark, some accept a dot, one accepts
+    a dollar sign. Four lists say which keywords open a block, holding 5, 13, 11 and 12
+    keywords &mdash; one list knows a keyword no other layer has heard of. Eleven separate
+    places decide whether a leading <code>-</code> is a subtraction, a negation, or part of a
+    number, and nothing decides it once. None of these is a bug. Each is a place where a future bug is
+    already paid for.
+  </p>
+
+  <h2>Finding four: the shipping emitter cannot see <code>a+b</code></h2>
+
+  <p>
+    The LLVM emitter that plain <code>heyc build</code> uses &mdash; the Hey-written one, and
+    the primary shipping path &mdash; finds operators by looking for a space, then the
+    operator, then another space. Every one of its scanners does this. So <code>a + b</code>
+    is an addition and <code>a+b</code> is not: the second is invisible to the addition
+    scanner and falls through as if it were one strange name. Of the four other
+    implementations, three split on the bare character and do not care about spaces; the
+    fourth requires spaces too.
+  </p>
+
+  <p>
+    Nobody decided that whitespace is significant in Hey. It is significant anyway, in one
+    implementation, as a consequence of how the scanners were written. It is also the single
+    largest mechanical change on the open-questions list: answering &ldquo;no, spaces do not
+    matter&rdquo; changes the shape of five scanners at once.
+  </p>
+
+  <h2>Finding five: two of the five implementations are the same file</h2>
+
+  <p>
+    Five separate implementations of Hey's expressions exist today. Two of them are the
+    interpreter &mdash; the thing that runs a program without compiling it &mdash; and the
+    older LLVM emitter written in C, and we have spent months describing those two as
+    independent implementations that check each other. Line 4 of the C emitter is
+    <code>#include "hey_repl.c"</code>. It includes the interpreter. The compiler builds the
+    two as a single file, so every function in the interpreter is already available, by name,
+    inside the C emitter.
+  </p>
+
+  <p>
+    Their duplication is therefore not structural. It is voluntary &mdash; and the code says so
+    out loud: one file carries a comment reading <em>&ldquo;both tables must stay
+    identical&rdquo;</em> directly above a verbatim second copy of a function that same file
+    already contains. That is good news. Voluntary duplication can simply be deleted, and
+    deleting it is the cheapest possible test of whether one shared operator table would work.
+  </p>
+
+  <h2>Finding six: fifteen things the shape cannot hold</h2>
+
+  <p>
+    One of the four reports closed by asking a different question: not what is wrong, but what
+    this architecture <em>structurally cannot express</em>. Fifteen answers. Seven of them:
+  </p>
+
+  <div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Cannot express</th><th>What that means in practice</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>A token</td><td>No unit smaller than a line exists, so no error can ever carry a column number.</td></tr>
+      <tr><td>Precedence as a number</td><td>Precedence cannot be queried, tested or printed &mdash; only executed.</td></tr>
+      <tr><td>Associativity &mdash; whether <code>a - b - c</code> groups from the left or the right</td><td>Nowhere written down. It falls out of whether a scan loop stops at the first operator it sees or the last. Four independent choices exist.</td></tr>
+      <tr><td>Balanced delimiters</td><td>All three depth counters count up and down without matching, so <code>(]</code> balances.</td></tr>
+      <tr><td>A keyword</td><td>Keywords are a text prefix test including the trailing space. <code>letters = 1</code> is safe from <code>let</code> only because of that space.</td></tr>
+      <tr><td>Two spellings of one operator</td><td><code>not</code> and <code>!</code> are unrelated string tests everywhere &mdash; which is how the shipping emitter came to implement one and not the other.</td></tr>
+      <tr><td>&ldquo;Invalid&rdquo; versus &ldquo;unsupported&rdquo;</td><td>Every refusal returns the same not-handled result and falls back, so a broken program and an unimplemented one are told apart only by accident.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    The delimiter row deserves a second read. Whether <code>(]</code> is an error is now a
+    decision someone has to make on purpose.
+  </p>
+
+  <h2>Why fifty-eight investigations in a row found nothing</h2>
+
+  <p>
+    Here is the part that generalises past our project. Every one of those defect
+    investigations was competent, and every one produced a fix, a test and a lesson. The sum
+    of all fifty-eight still contained no information about the shape of the system, because
+    <strong>sampling cannot find an architecture problem.</strong> You cannot sample your way
+    to &ldquo;there are 16 of these and no two agree.&rdquo; You have to count all 16.
+  </p>
+
+  <p>
+    The same failure showed up inside the project at every scale, which is how we know it is
+    not a story about carelessness. A verified memory-leak fix probed five expression shapes,
+    reported all five balanced, and shipped code that still leaked where users run it &mdash;
+    because none of its five shapes put arithmetic inside an actor, and neither did any of the
+    90 reference outputs guarding the change. What caught it was not a sharper test. It was a
+    survey of 106 programs: enumeration, not sampling. Elsewhere, a report said five sites
+    needed fixing; there were nine, and the ninth kept the defect alive after the other eight
+    were repaired.
+  </p>
+
+  <p>
+    Five probes that all happen to hit the one path that works will produce a clean report
+    every time, and the report will be honest. That is what makes this failure mode
+    expensive: nothing in it looks like a mistake while it is happening.
+  </p>
+
+  <h2>What follows, and what this does not yet prove</h2>
+
+  <p>
+    Six findings, one conclusion: the work is not a longer defect queue, it is the three
+    missing stages at the front of that first diagram. Tokens once. Tree once. Names resolved
+    once. Then the 45 precedence sites have somewhere to collapse to, the 16 name scanners
+    become one, and &ldquo;do spaces matter?&rdquo; becomes a decision recorded in one place
+    instead of an accident repeated in five.
+  </p>
+
+  <p>
+    What is <em>not</em> proven: any of it by execution. All four reports were read from source
+    with the machine busy, and 36 claims are queued as needing a run before they can be called
+    facts. The reports also disagreed with each other, and we left that standing: one counted
+    six operator scanners in the shipping emitter, another counted thirteen; one was briefed
+    that there were nine name scanners and found 16. Where they conflict, the conflict is the
+    finding.
+  </p>
+
+  <p>
+    The uncomfortable version: none of these six facts required a clever technique. They
+    required somebody to make a complete list. We had spent months asking a question only a
+    complete list can answer, and answering it with samples.
+  </p>
+
+  <div class="callout">
+    <h2>Where this goes next</h2>
+    <p style="margin:0">
+      This is the first of four documents written together. What the architecture becomes is
+      drawn stage by stage in <a href="../dailies/ARCHITECTURE-hey-restructured.html">The
+      Whole Diagram</a>, which also carries the glossary fixing one name per stage across all
+      four. What gets built and in what order is <a href="../dailies/PLAN-hey-restructure.html">The
+      Plan</a>. How we intend to know it worked &mdash; and the large part of the language no
+      outside checker can grade &mdash; is
+      <a href="testing-a-language-you-are-rebuilding.html">The Answer Key Cannot Be One of the
+      Contestants</a>.
+    </p>
+  </div>
+
+  <h2>Sources</h2>
+  <ul>
+    <li>Four enumeration reports produced 1 August 2026 against the working tree at commit
+      <code>e6963689</code>: the operator surface census (21 operators, every implementation),
+      the grammar as implemented, the construct census, and the fallback census. All four are
+      static readings; no build was run, and each carries a file and line reference per claim.</li>
+    <li>The defect forensics study of the same week &mdash; 58 fixed defects, classified by how
+      each was discovered &mdash; which is the source for the sampling argument in the closing
+      section and for the leak-fix and five-versus-nine cases.</li>
+    <li>The already-published account of our two emitters sharing their mistakes:
+      <a href="delete-the-code-and-see-if-the-test-fails.html">Delete the Code and See If the
+      Test Still Fails</a>.</li>
+    <li>The single-source-of-truth design pass for the operator table, and the restructure
+      program dated 2026-08-02, for the shape of what follows &mdash; drawn out in
+      <a href="../dailies/ARCHITECTURE-hey-restructured.html">The Whole Diagram</a> and
+      <a href="../dailies/PLAN-hey-restructure.html">The Plan</a>.</li>
+  </ul>
+
+</article>
+  </main>
+</body>
+</html>

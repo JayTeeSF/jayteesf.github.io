@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="The whole diagram: every stage of the restructured Hey pipeline, source text to executable, with the file and the entry-point function for each box, what each stage is forbidden to do, and the line that separates new construction from retained work.">
+<meta name="article-date" content="2026-08-02">
+<meta name="article-index-title" content="The architecture page — the whole diagram">
+<meta name="article-index-desc" content="Reference page. Find your bug's stage on the diagram, take the file and the function, check what that stage is not allowed to do. Includes the retain/rebuild line.">
+<title>The architecture of Hey, restructured · reference page</title>
+<style>
+  :root { --bg:#faf9f7; --ink:#16181a; --mute:#5d666b; --line:#e2e0dc; --card:#fff;
+          --accent:#0b6b70; --open:#9a5a06; --openbg:#fdf5e8; --donebg:#eef4f3;
+          --figbg:#ffffff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#101315; --ink:#eceef0; --mute:#98a2a8;
+          --line:#242a2d; --card:#171b1e; --accent:#52b3b5; --open:#d59a41; --openbg:#241c10;
+          --donebg:#132022; --figbg:#12171a; } }
+  :root[data-theme="dark"] { --bg:#101315; --ink:#eceef0; --mute:#98a2a8; --line:#242a2d;
+          --card:#171b1e; --accent:#52b3b5; --open:#d59a41; --openbg:#241c10; --donebg:#132022;
+          --figbg:#12171a; }
+  :root[data-theme="light"] { --bg:#faf9f7; --ink:#16181a; --mute:#5d666b; --line:#e2e0dc;
+          --card:#fff; --accent:#0b6b70; --open:#9a5a06; --openbg:#fdf5e8; --donebg:#eef4f3;
+          --figbg:#ffffff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:18px/1.7 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  main{max-width:58rem;margin:0 auto;padding:3rem 1.4rem 6rem}
+  .eyebrow{font-size:.72rem;letter-spacing:.15em;text-transform:uppercase;color:var(--mute);margin:0 0 .6rem}
+  h1{font-size:2.1rem;line-height:1.15;margin:0 0 .7rem;letter-spacing:-.02em}
+  .lede{color:var(--mute);margin:0 0 2.4rem;font-size:1.05rem;max-width:41rem}
+  h2{font-size:1.05rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);
+     margin:3.4rem 0 .9rem;font-weight:700;border-top:1px solid var(--line);padding-top:1.4rem}
+  h3{margin:2rem 0 .7rem;font-size:1.18rem;letter-spacing:-.01em}
+  p{max-width:41rem}
+  .box{border:1px solid var(--line);border-radius:7px;padding:1.2rem 1.3rem;margin:0 0 1.2rem;background:var(--card)}
+  .box.open{background:var(--openbg);border-left:3px solid var(--open)}
+  .box.done{background:var(--donebg)}
+  .box p:last-child{margin-bottom:0}
+  .box h3{margin-top:0}
+  pre{background:var(--figbg);border:1px solid var(--line);border-radius:5px;padding:.9rem 1rem;
+      margin:0 0 1rem;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+      font-size:.9rem;line-height:1.6}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}
+  a{color:var(--accent)}
+  .figwrap{overflow-x:auto;border:1px solid var(--line);border-radius:7px;background:var(--figbg);
+           padding:1rem;margin:0 0 .7rem}
+  pre.mermaid{border:0;background:transparent;padding:0;margin:0;text-align:center;
+              white-space:pre;font-size:.78rem;line-height:1.45;color:var(--mute)}
+  pre.mermaid[data-processed="true"]{color:inherit}
+  figure{margin:0 0 2rem}
+  figcaption{color:var(--mute);font-size:.9rem;max-width:41rem}
+  .tblwrap{overflow-x:auto;margin:0 0 1.6rem;border:1px solid var(--line);border-radius:7px;background:var(--card)}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:34rem}
+  th,td{text-align:left;padding:.55rem .8rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:700;
+     white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  td code{white-space:nowrap}
+  .chip{display:inline-block;padding:.1rem .5rem;border-radius:99px;font-size:.68rem;font-weight:700;
+        letter-spacing:.06em;color:#fff;white-space:nowrap}
+  .c-exists{background:#1f6f3f} .c-partial{background:#8a6d1f} .c-missing{background:#8a2222}
+  .c-rebuild{background:#8a4a1f} .c-shared{background:#1f4f7f} .c-dead{background:#4a4a4a}
+  .legend{display:flex;flex-wrap:wrap;gap:.5rem 1.1rem;margin:0 0 1.6rem;padding:0;list-style:none}
+  .legend li{font-size:.87rem;color:var(--mute)}
+  .theline{border:1px solid var(--line);border-radius:7px;overflow:hidden;margin:0 0 1.6rem;background:var(--card)}
+  .theline .half{padding:1.1rem 1.3rem}
+  .theline .above{background:rgba(138,34,34,.09)}
+  .theline .below{background:rgba(31,111,63,.09)}
+  .theline .rule{height:6px;background:#16181a;position:relative}
+  @media (prefers-color-scheme: dark){ .theline .rule{background:#eceef0} }
+  :root[data-theme="dark"] .theline .rule{background:#eceef0}
+  :root[data-theme="light"] .theline .rule{background:#16181a}
+  .theline .rulelabel{font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+        text-align:center;padding:.45rem 0;color:var(--mute);font-weight:700}
+  .theline h4{margin:0 0 .5rem;font-size:.78rem;letter-spacing:.12em;text-transform:uppercase}
+  .theline ul{margin:0;padding-left:1.1rem;font-size:.92rem}
+  .theline li{margin:.2rem 0}
+  footer{margin-top:3.5rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--mute);font-size:.85rem}
+  .note{color:var(--mute);font-size:.95rem;border-top:1px solid var(--line);padding-top:.85rem;margin-top:.9rem}
+  @media (max-width:38rem){ body{font-size:17px} main{padding:2rem 1.1rem 4rem} h1{font-size:1.6rem} }
+</style>
+</head>
+<body>
+<main>
+
+<p class="eyebrow">Hey &nbsp;·&nbsp; architecture &nbsp;·&nbsp; reference page &nbsp;·&nbsp; 2 August 2026</p>
+<h1>The whole diagram</h1>
+<p class="lede">Every stage of the restructured language, source text to running program. Each box names the file it lives in and the function you enter it through. Boxes that do not exist yet name the file they will be. This is a reference page, not an essay &mdash; find your bug's stage, take the file, go.</p>
+
+<div class="box">
+<h3>How to use this page</h3>
+<p><b>1.</b> Find the stage on <a href="#d1">the first diagram</a>.<br>
+<b>2.</b> Take the file and the entry-point function from <a href="#nav">the navigation table</a>. Bookmark that table; it is the whole point.<br>
+<b>3.</b> Read <a href="#mustnot">what that stage is forbidden to do</a>. Most defects in this codebase are one stage doing another stage's job.</p>
+</div>
+
+<div class="box">
+<h3>The other three documents, and the order to read them</h3>
+<p><b>1.</b> <a href="../articles/what-we-found-under-the-language.html">What We Found Under the Language</a> &mdash; what the enumeration turned up, and why fifty-eight defect investigations in a row never found it.<br>
+<b>2.</b> This page &mdash; what the architecture becomes.<br>
+<b>3.</b> <a href="PLAN-hey-restructure.html">The plan</a> &mdash; what gets built, in what order, and the risks.<br>
+<b>4.</b> <a href="../articles/testing-a-language-you-are-rebuilding.html">The Answer Key Cannot Be One of the Contestants</a> &mdash; how we will know it worked, and the large part of the language no outside checker can grade.</p>
+<p class="note">All four use the same name for the same stage. The <a href="#glossary">glossary at the bottom of this page</a> is that list, and it is the one to correct if any of them drifts.</p>
+</div>
+
+<div class="box open">
+<h3>Decisions needed from you &mdash; three, and two of them block drawing</h3>
+<p><b>1. How tightly do <code>not</code> and <code>!</code> bind?</b> They have three different answers today depending on which part of the toolchain you ask. So <code>!a == b</code> means <i>(not a) equals b</i> in one shipping path and <i>not (a equals b)</i> in another &mdash; and <a href="PLAN-hey-restructure.html">the plan</a> shows the same split for the word <code>not</code>. Ruby binds <code>!</code> tightest and <code>not</code> loosest. Whichever way you rule, three of the five paths move. <b>The order-of-operations table cannot be written until this is ruled.</b></p>
+<p><b>2. When do the saved expected outputs stop being &ldquo;whatever the old compiler emits&rdquo;?</b> Ninety saved files pin the new compiler's output byte for byte against the old one's. A new front end <i>will</i> change that output. Nobody has named the moment the comparison flips. <b>This blocks the restructure and it is on nobody's list.</b></p>
+<p><b>3. Is the operator table generated, or written by hand and checked?</b> Two of our own design documents disagree. See <a href="#disagree">where the sources disagree</a> at the bottom.</p>
+</div>
+
+<h2>Legend</h2>
+<ul class="legend">
+  <li><span class="chip c-exists">EXISTS / RETAIN</span> present, load-bearing, not touched</li>
+  <li><span class="chip c-partial">PARTIAL / COMPLETE IT</span> exists, incomplete, finished by addition</li>
+  <li><span class="chip c-rebuild">REBUILD</span> file and name survive, contents replaced</li>
+  <li><span class="chip c-missing">MISSING / NEW</span> no code does this anywhere in the tree</li>
+  <li><span class="chip c-shared">SHARED</span> one copy serving both consumers</li>
+  <li><span class="chip c-dead">DELETE</span> scheduled for removal, last</li>
+</ul>
+
+<h2 id="d1">Diagram 1 &mdash; the whole pipeline</h2>
+
+<p>Source text to executable. Every box is a stage. Every arrow is named after the thing that crosses it.</p>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart TD
+    SRC["SOURCE TEXT&lt;br/&gt;.hey files plus the import graph&lt;br/&gt;EXISTS"]
+    TOK["1 · TOKENIZER&lt;br/&gt;read_source_text_into_tokens&lt;br/&gt;stdlib/HeyTokens.hey — NEW FILE&lt;br/&gt;MISSING"]
+    TREE["2 · SYNTAX TREE&lt;br/&gt;group_tokens_into_statement_tree&lt;br/&gt;stdlib/HeySyntaxTree.hey — NEW FILE&lt;br/&gt;MISSING"]
+    NAMES["3 · NAME RESOLUTION&lt;br/&gt;resolve_every_name_to_its_binding&lt;br/&gt;stdlib/HeyNames.hey — NEW FILE&lt;br/&gt;MISSING"]
+    HIR["4 · MEANING PLUS TYPES — HIR&lt;br/&gt;lower_resolved_tree_to_hir&lt;br/&gt;stdlib/HeyHir.hey&lt;br/&gt;PARTIAL — purpose kept, mechanism rebuilt"]
+    MIR["5 · MACHINE SHAPES AND OPERATORS — MIR&lt;br/&gt;lower_hir_to_mir&lt;br/&gt;stdlib/HeyMir.hey&lt;br/&gt;PARTIAL — a placeholder today, REBUILD"]
+    LLVM["6 · LLVM TEXT EMISSION&lt;br/&gt;print_mir_unit_as_llvm_text&lt;br/&gt;stdlib/HeyLlvm.hey&lt;br/&gt;PARTIAL — 344 symbols and all decimals absent"]
+    LINK["7 · ASSEMBLE AND LINK&lt;br/&gt;heyc_link_llvm_ir_app&lt;br/&gt;runtime/heyc.c line 22693&lt;br/&gt;EXISTS"]
+    RT["8 · RUNTIME&lt;br/&gt;values, actors, input and output&lt;br/&gt;runtime/hey_runtime.c&lt;br/&gt;EXISTS"]
+    EXE["EXECUTABLE"]
+    OPTAB["OPERATOR TABLE — one source of truth&lt;br/&gt;21 rows, 16 columns&lt;br/&gt;MISSING — today 45-plus scattered sites"]
+
+    SRC --&gt;|"text on disk"| TOK
+    TOK --&gt;|"TOKEN STREAM — in memory, each token spanned"| TREE
+    TREE --&gt;|"SYNTAX TREE — in memory, untyped, unresolved"| NAMES
+    NAMES --&gt;|"RESOLVED TREE — same shape plus a binding id on every name"| HIR
+    HIR --&gt;|"HIR UNIT — text file, program.hir, schema hey-hir-core-v1"| MIR
+    MIR --&gt;|"MIR UNIT — text file, program.mir, schema hey-mir-core-v2"| LLVM
+    LLVM --&gt;|"LLVM IR — text file, out.ll"| LINK
+    LINK --&gt; EXE
+    RT -.-&gt;|"linked in"| EXE
+
+    OPTAB -.-&gt;|"symbol, length, longest match wins"| TOK
+    OPTAB -.-&gt;|"precedence, associativity, arity"| TREE
+    OPTAB -.-&gt;|"type evidence, result type"| HIR
+    OPTAB -.-&gt;|"lowering kind, can fail, decimal promotion"| MIR
+    OPTAB -.-&gt;|"instruction, predicate, runtime helper, message"| LLVM
+
+    classDef exists fill:#1f6f3f,stroke:#0d3b21,color:#ffffff
+    classDef partial fill:#8a6d1f,stroke:#4a3a0d,color:#ffffff
+    classDef missing fill:#8a2222,stroke:#4a0f0f,color:#ffffff
+    classDef plain fill:#3a3a3a,stroke:#111111,color:#ffffff
+
+    class SRC,LINK,RT exists
+    class HIR,MIR,LLVM partial
+    class TOK,TREE,NAMES,OPTAB missing
+    class EXE plain
+</pre>
+</div>
+<figcaption><b>Read it this way.</b> Everything red is new construction, and all of it is in the front end. Everything amber exists and is finished by adding to it or by replacing its insides &mdash; not by redesigning it. The green boxes are not touched at all. <i>Source: the architecture-diagram brief, 2026-08-02.</i></figcaption>
+</figure>
+
+<p><b>Terms, once.</b> A <b>tokenizer</b> splits text into words and symbols. A <b>syntax tree</b> records which operation contains which, so nothing has to be re-read as text later. <b>Name resolution</b> decides which <code>x</code> each <code>x</code> refers to. <b>HIR</b> and <b>MIR</b> are two written-down forms of the program between source and machine code: HIR carries Hey's own meaning and types, MIR carries machine-shaped types and instructions. <b>Lowering</b> means rewriting the program one step closer to the machine. <b>LLVM</b> is an off-the-shelf toolkit that turns a low-level text format &mdash; its <b>IR</b>, or intermediate representation &mdash; into real machine code for whatever chip you are on; Hey writes that text and lets LLVM do the rest. <b>Arity</b> is how many operands a symbol takes: the <code>-</code> in <code>a - b</code> takes two, the <code>-</code> in <code>-b</code> takes one.</p>
+
+<h3>What today's pipeline actually is, for contrast</h3>
+
+<p>There is no tokens box and no tree box today. <code>stdlib/HeyParser.hey</code> returns a list of forms with source locations &mdash; that is statement classification, not a tree. Its classifier ends by sniffing for punctuation: if the text contains a <code>+</code>, call it an expression (<code>stdlib/HeyParser.hey:152</code> (the grammar report puts the same rule at <code>:158</code>)). <code>stdlib/HeyAst.hey</code> is not a tree either; its own header calls it an &ldquo;AST-ish manifest&rdquo; and nothing on the compile path imports it. <code>stdlib/HeyExpressions.hey</code> is a catalogue of command-line easter eggs &mdash; the name is a false friend. A search of the compiler and standard library for the words <i>token</i>, <i>lex</i> or <i>lexer</i> turns up comments, plus a handful of unrelated uses of the word <i>token</i> in the input and pattern-matching libraries. Nothing on the compile path.</p>
+
+<h2 id="d2">Diagram 2 &mdash; the front end, expanded</h2>
+
+<p>This is the new part. Each box says what it <b>owns</b>. Each arrow says exactly what it <b>hands</b> the next stage.</p>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart TD
+    subgraph FE["THE FRONT END — all new construction"]
+        direction TB
+        T1["TOKENIZER — stdlib/HeyTokens.hey&lt;br/&gt;read_source_text_into_tokens&lt;br/&gt;OWNS: character classes; string, heredoc and&lt;br/&gt;interpolation boundaries; the shape of a number;&lt;br/&gt;longest-match operator symbols; and the ONE&lt;br/&gt;decision of whether a minus sign is a sign or a&lt;br/&gt;subtraction — read from the PREVIOUS TOKEN"]
+        T2["SYNTAX TREE — stdlib/HeySyntaxTree.hey&lt;br/&gt;group_tokens_into_statement_tree&lt;br/&gt;OWNS: precedence, associativity, arity,&lt;br/&gt;grouping, statement and block structure,&lt;br/&gt;every syntax error message"]
+        T3["NAME RESOLUTION — stdlib/HeyNames.hey&lt;br/&gt;resolve_every_name_to_its_binding&lt;br/&gt;OWNS: scopes, shadowing, parameters, module&lt;br/&gt;imports, operator overrides in scope, actor&lt;br/&gt;state fields, every unknown-name error message"]
+    end
+
+    SRC["SOURCE TEXT&lt;br/&gt;plus a FILE TABLE giving&lt;br/&gt;each path a stable file id"]
+    HIRBOX["HIR — stdlib/HeyHir.hey&lt;br/&gt;lower_resolved_tree_to_hir"]
+
+    SRC --&gt;|"bytes"| T1
+    T1 --&gt;|"TOKEN STREAM — a list in memory. Each token carries a kind,&lt;br/&gt;its text, and a span of file id plus line plus column.&lt;br/&gt;No precedence. No types. No names resolved."| T2
+    T2 --&gt;|"SYNTAX TREE — a node tree in memory. Every node carries a&lt;br/&gt;span. Operators are BINARY and UNARY NODES, not substrings.&lt;br/&gt;No types. Identifiers are still just text."| T3
+    T3 --&gt;|"RESOLVED TREE — same shape, plus a binding id on every&lt;br/&gt;identifier node and a binding table per scope.&lt;br/&gt;Still no types. Still no decisions about memory."| HIRBOX
+
+    OPT["OPERATOR TABLE"]
+    OPT -.-&gt;|"symbol plus LENGTH — longest match wins;&lt;br/&gt;lives here once, not five times"| T1
+    OPT -.-&gt;|"precedence, associativity, arity, and&lt;br/&gt;whether this symbol can lead an expression"| T2
+    OPT -.-&gt;|"which symbols a module is allowed to override"| T3
+
+    classDef newwork fill:#8a2222,stroke:#4a0f0f,color:#ffffff
+    classDef plain fill:#3a3a3a,stroke:#111111,color:#ffffff
+    class T1,T2,T3,OPT newwork
+    class SRC,HIRBOX plain
+</pre>
+</div>
+<figcaption>The three missing stages, and the exact artifact each one produces. <i>Source: the architecture-diagram brief, drawn from the operator-surface census.</i></figcaption>
+</figure>
+
+<h3>What the front end deletes, counted</h3>
+
+<p>These are not projected savings. Each row is a measured count of sites in the tree today.</p>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>What is absent</th><th>What that absence costs, measured</th><th>What replaces it</th></tr></thead>
+<tbody>
+<tr><td>no tokenizer</td><td><b>11 separate decisions</b> about whether a <code>-</code> is a sign, a subtraction, or part of a number</td><td>one call to <code>decide_whether_this_minus_is_a_sign_or_a_subtraction</code>, reading the previous token</td></tr>
+<tr><td>no tokenizer</td><td>the same two-character-lookahead guard is <b>copied 5 times</b> &mdash; <code>hey_repl.c:4336</code>, <code>heyc.c:17148</code>, <code>heyc.c:9018</code>, <code>HeyLlvm.hey:9173</code>, <code>HeyHir.hey:1260</code></td><td>longest-match-wins, once, in <code>find_the_longest_operator_symbol_at_this_position</code></td></tr>
+<tr><td>no tokenizer</td><td>two character sets answering the same question <b>differ by 8 characters</b> &mdash; <code>hey_repl.c:913</code> has 15, <code>heyc.c:15164</code> has 7 &mdash; and one entry in the longer set is a wrong answer <i>in the reference implementation</i>, which produced 3 recorded cross-path divergences</td><td>the question stops being askable: a token stream already knows what came before</td></tr>
+<tr><td>no syntax tree</td><td><b>45-plus sites decide precedence, across 5 mutually inconsistent notions of it</b></td><td>one precedence ladder in <code>group_tokens_into_expression_tree</code>, read from the table</td></tr>
+<tr><td>no syntax tree</td><td>associativity is <b>emergent from the shape of a loop</b> &mdash; one scanner returns the first match, another returns the last, so <code>a == b == c</code> groups oppositely in two shipping paths</td><td>an <code>associativity</code> column that is read, not implied</td></tr>
+<tr><td>no syntax tree</td><td><code>HeyHir.hey</code> carries <b>16 hard-coded operator lists that do not agree</b>, and every split site hard-codes the marker width as <b>3</b> &mdash; right for <code>' + '</code>, silently wrong for <code>' and '</code>, <code>' or '</code> and <code>'..&lt;'</code></td><td>node kinds. There is no marker and no width</td></tr>
+<tr><td>no syntax tree</td><td><code>hey_hir_receiver_expression_complete?</code> <b>refuses any expression containing a top-level binary operator</b> (<code>HeyHir.hey:589</code>) &mdash; a capability hole that exists only because there is no tree to walk</td><td>walk the tree</td></tr>
+<tr><td>no resolver</td><td>the emitter resolves names while emitting: <code>heyc_llvm_emit_expr</code> is a <b>single 1,120-line function whose arm order <i>is</i> the precedence</b> (<code>heyc.c:16115</code>)</td><td>resolution finishes before HIR; the emitter receives binding ids</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>The thing a table does not fix, said plainly.</b> A table makes each remaining decision cheap and checkable. <b>It does not make the parser a parser.</b> The three boxes above are that sentence's answer.</p>
+
+<h2 id="d3">Diagram 3 &mdash; the interpreter, on the same pipeline</h2>
+
+<p>The requirement is <b>one pathway serving both</b>: typing a line at the interpreter's prompt and building a program should go through the same code. Today the interpreter is at <b>zero percent</b> on that pathway. <code>runtime/hey_repl.c</code> contains <b>no references at all</b> to the HIR, MIR or LLVM modules &mdash; a count returns zero. It is a third independent implementation with its own splitters, its own precedence and its own table of built-in functions.</p>
+
+<p>There are two possible shapes. <b>The brief recommends the first, and this page draws it.</b></p>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart TD
+    LINE["PROMPT ENTRY — one line typed at the interpreter's prompt"]
+    FILE["SOURCE FILE — heyc build"]
+
+    T1["TOKENIZER&lt;br/&gt;stdlib/HeyTokens.hey"]
+    T2["SYNTAX TREE&lt;br/&gt;stdlib/HeySyntaxTree.hey"]
+    T3["NAME RESOLUTION&lt;br/&gt;stdlib/HeyNames.hey&lt;br/&gt;for a typed line: a DELTA against a scope&lt;br/&gt;that persists across entries&lt;br/&gt;resolve_names_in_this_form_against_the_session_scope"]
+    HIR["HIR&lt;br/&gt;stdlib/HeyHir.hey"]
+
+    EVAL["INTERPRETER — an HIR WALKER&lt;br/&gt;evaluate_this_hir_unit_in_this_session&lt;br/&gt;runtime/hey_repl.c, rebuilt&lt;br/&gt;calls the SAME runtime helpers the&lt;br/&gt;compiled path already calls"]
+
+    MIR["MIR&lt;br/&gt;stdlib/HeyMir.hey"]
+    LLVM["LLVM TEXT&lt;br/&gt;stdlib/HeyLlvm.hey"]
+    LINK["LINK&lt;br/&gt;runtime/heyc.c"]
+    RT["RUNTIME — runtime/hey_runtime.c&lt;br/&gt;ONE value model, ONE set of built-ins,&lt;br/&gt;shared by both consumers"]
+
+    LINE --&gt; T1
+    FILE --&gt; T1
+    T1 --&gt; T2
+    T2 --&gt; T3
+    T3 --&gt; HIR
+    HIR --&gt;|"THE JOIN AND THE FORK — recommendation a"| EVAL
+    HIR --&gt; MIR
+    MIR --&gt; LLVM
+    LLVM --&gt; LINK
+    EVAL --&gt; RT
+    LINK --&gt; RT
+
+    ALT["ALTERNATIVE b — the interpreter compiles every entry&lt;br/&gt;all the way through and runs it.&lt;br/&gt;Costs 0.68 seconds per NEW line today, not 0.019.&lt;br/&gt;See the cost note below."]
+    ALT -.-&gt; MIR
+
+    classDef shared fill:#1f4f7f,stroke:#0b2740,color:#ffffff
+    classDef newwork fill:#8a2222,stroke:#4a0f0f,color:#ffffff
+    classDef partial fill:#8a6d1f,stroke:#4a3a0d,color:#ffffff
+    classDef exists fill:#1f6f3f,stroke:#0d3b21,color:#ffffff
+    classDef alt fill:#4a4a4a,stroke:#111111,color:#cccccc
+
+    class T1,T2,T3 newwork
+    class HIR,MIR,LLVM partial
+    class LINK,RT exists
+    class EVAL shared
+    class ALT alt
+</pre>
+</div>
+<figcaption>Both consumers enter at the same door and part company at HIR. <i>Source: the architecture-diagram brief, section 3; the timing figures are from the working log, compile-cache measurement.</i></figcaption>
+</figure>
+
+<h3>What the interpreter must stop having its own copy of</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>What dies</th><th>Where it is today, in <code>runtime/hey_repl.c</code></th><th>Lines</th></tr></thead>
+<tbody>
+<tr><td>the expression precedence chain</td><td><code>eval_expr_with_env:4469</code> &rarr; <code>eval_additive_with_env:4451</code> &rarr; <code>eval_multiplicative_with_env:4431</code> &rarr; <code>eval_atom_with_env:4278</code></td><td>~200</td></tr>
+<tr><td>the five expression splitters</td><td><code>find_additive_operator:890</code>, <code>find_multiplicative_operator:922</code>, <code>find_half_open_range_operator:943</code>, <code>find_comparison_operator:963</code>, <code>find_word_operator:987</code></td><td>~120</td></tr>
+<tr><td>the statement dispatcher</td><td><code>eval_simple_statement:4581</code></td><td>large</td></tr>
+<tr><td>the block dispatcher</td><td><code>exec_lines_outer:4921</code></td><td>large</td></tr>
+<tr><td>built-in lookup keyed by string</td><td><code>call_builtin_function:3166</code> &mdash; re-keyed on resolved binding ids, not deleted</td><td>re-key</td></tr>
+<tr><td>re-scanning strings for interpolation</td><td>detector at <code>:1573</code>, close-scan at <code>:1584</code>, evaluation at <code>:1618</code></td><td>~80</td></tr>
+<tr><td>the sign-context character set</td><td><code>:913</code> &mdash; the divergent set lives here</td><td>1 char</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>What survives:</b> the value model and every built-in implementation. They live in <code>runtime/hey_runtime.c</code> and the compiled path <b>already</b> calls them &mdash; <code>hey_add:10821</code>, <code>hey_value_equal_raw:10955</code>, <code>hey_cmp_value:11013</code>, boxed helpers at <code>:25991-26025</code>. The interpreter's <i>semantics</i> are not the duplication. Its <i>parser</i> is.</p>
+
+<h3>Why the first option, and what the second actually costs</h3>
+
+<p>A correction worth making, because the number in circulation is the wrong one. The measurement is:</p>
+
+<pre>cold run cache + COLD pipeline cache ....... 203.18 s
+cold run cache + WARM pipeline cache .......   0.68 s
+warm run cache .............................   0.01-0.02 s</pre>
+
+<p><b>The 0.019-second figure is a cache hit on unchanged source. Every line you type at the prompt is by definition a cache miss.</b> The number the second option would pay per line is the middle one: <b>0.68 seconds</b>. That is not an interactive loop. It also needs either an in-process linker or a just-in-time compiler &mdash; that direction has been probed but not built &mdash; plus a story for how a session's accumulated definitions survive a process boundary.</p>
+
+<p><b>Three arguments for the first option.</b> It is what &ldquo;one pathway&rdquo; means: one tokenizer, one precedence ladder, one resolver, so divergences like the three different bindings of <code>not</code> become structurally impossible rather than merely fixed. It <b>retroactively upgrades the spec corpus</b> &mdash; today an interpreter-only spec exercises <i>zero</i> stages of the compile pathway; under this option it exercises <i>four of the seven</i>, for free. And it keeps a fast loop without compiling every line, which is the actual product requirement.</p>
+
+<p><b>What it costs:</b> the front half of a 5,976-line file is rewritten, and the HIR walker is genuinely new code &mdash; it is not a port of the existing evaluator, because it consumes a different input. Size it as new construction, not as clean-up.</p>
+
+<p><b>One line worth keeping open:</b> make the first option the default and expose the second as an explicit command, for a hot loop the user wants compiled. Once HIR is the shared join point, leaving that door open costs nothing.</p>
+
+<h2 id="d4">Diagram 4 &mdash; where the operator table lives, and who reads it</h2>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart TD
+    NORM["NORMATIVE SOURCE — one file&lt;br/&gt;operators.tsv&lt;br/&gt;21 operator rows, 16 columns"]
+    GEN["GENERATOR — tools/generate_operator_table.hey&lt;br/&gt;write_operator_table_for_c_to_path&lt;br/&gt;write_operator_table_for_hey_to_path"]
+    CINC["DERIVED FOR C&lt;br/&gt;runtime/hey_operators.inc"]
+    HEYMOD["DERIVED FOR HEY&lt;br/&gt;stdlib/HeyOperators.hey"]
+    DRIFT["DRIFT GATE&lt;br/&gt;check_that_the_generated_operator_tables_match_the_source&lt;br/&gt;runs in make verify"]
+
+    TOKC["TOKENIZER&lt;br/&gt;symbol, length, longest match"]
+    TREEC["SYNTAX TREE&lt;br/&gt;precedence, associativity, arity, prefix form"]
+    HIRC["HIR&lt;br/&gt;type evidence, result type"]
+    MIRC["MIR&lt;br/&gt;lowering kind, can fail, guard elision, decimal promotion"]
+    LLVMC["LLVM EMITTER&lt;br/&gt;instruction, predicate, runtime helper, message"]
+    REPLC["INTERPRETER&lt;br/&gt;result type, runtime helper, message"]
+
+    NORM --&gt; GEN
+    GEN --&gt; CINC
+    GEN --&gt; HEYMOD
+    NORM -.-&gt; DRIFT
+    CINC -.-&gt; DRIFT
+    HEYMOD -.-&gt; DRIFT
+
+    HEYMOD --&gt; TOKC
+    HEYMOD --&gt; TREEC
+    HEYMOD --&gt; HIRC
+    HEYMOD --&gt; MIRC
+    HEYMOD --&gt; LLVMC
+    CINC --&gt; REPLC
+
+    classDef norm fill:#1f4f7f,stroke:#0b2740,color:#ffffff
+    classDef gen fill:#8a6d1f,stroke:#4a3a0d,color:#ffffff
+    classDef consumer fill:#3a3a3a,stroke:#111111,color:#ffffff
+    class NORM norm
+    class GEN,CINC,HEYMOD,DRIFT gen
+    class TOKC,TREEC,HIRC,MIRC,LLVMC,REPLC consumer
+</pre>
+</div>
+<figcaption>One written-down truth, two derived copies because the consumers are in two languages, one gate over the seam. <b>The file path and the generate-versus-verify question are the one place our two design documents disagree</b> &mdash; see the bottom of this page. <i>Source: the architecture-diagram brief section 4 and the single-source-of-truth design.</i></figcaption>
+</figure>
+
+<h3>The 16 columns, and which stage reads each</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>#</th><th>Column</th><th>Read by</th><th>Why it exists</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>symbol</code></td><td>tokenizer</td><td>&mdash;</td></tr>
+<tr><td>2</td><td><code>length</code></td><td>tokenizer</td><td>every split site in HIR hard-codes the width as 3; <code>' and '</code> and <code>'..&lt;'</code> break it</td></tr>
+<tr><td>3</td><td><code>arity</code></td><td>tree</td><td>leading <code>-</code>, <code>!</code>, <code>not</code> versus the same symbols between two operands</td></tr>
+<tr><td>4</td><td><code>precedence</code></td><td>tree</td><td>7 levels today, spread over 45-plus sites</td></tr>
+<tr><td>5</td><td><code>associativity</code></td><td>tree</td><td>two shipping paths currently disagree for <code>==</code> and <code>..&lt;</code>, purely from the shape of a loop</td></tr>
+<tr><td>6</td><td><code>instr</code></td><td>LLVM</td><td>which machine instruction</td></tr>
+<tr><td>7</td><td><code>predicate</code></td><td>LLVM</td><td>a comparison needs to say <i>which</i> comparison; one existing function already models this correctly</td></tr>
+<tr><td>8</td><td><code>runtime_helper</code></td><td>LLVM, interpreter</td><td>the case where the value is boxed rather than a raw machine number</td></tr>
+<tr><td>9</td><td><code>can_fail</code></td><td>MIR</td><td>split out of what is one boolean today</td></tr>
+<tr><td>10</td><td><code>elision_predicate</code></td><td>MIR</td><td>a check the compiler can skip when it can prove it is unnecessary</td></tr>
+<tr><td>11</td><td><code>error_message</code></td><td>LLVM, interpreter</td><td>must express <b>two messages for one instruction</b>, keyed on how the user spelled it &mdash; this is deliberate, and matching it exactly is the contract</td></tr>
+<tr><td>12</td><td><code>lowering_kind</code></td><td>MIR</td><td>without it, <code>and</code>, <code>or</code> and <code>==</code> cannot be in the table at all</td></tr>
+<tr><td>13</td><td><code>sign_skip</code></td><td><b>tokenizer</b> &mdash; see the note</td><td>the whole leading-minus defect family</td></tr>
+<tr><td>14</td><td><code>type_evidence</code></td><td>HIR</td><td>HIR derives this from four lists that do not agree</td></tr>
+<tr><td>15</td><td><code>result_type</code></td><td>HIR, interpreter</td><td><code>and</code> and <code>or</code> return a true-or-false, not their operand</td></tr>
+<tr><td>16</td><td><code>float_promotion</code></td><td>MIR</td><td>the 13-row decimal-parameter divergence family; one path decides statically, the other defers wholesale. The census recommends defaulting to defer</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>Note on column 13.</b> The column stays; its meaning moves. Today it is a <i>character set</i> consulted by each splitter, and the two sets differ by 8 characters. With a tokenizer, the row instead declares <i>does this symbol have a leading form</i>, and the sign-versus-subtraction question is answered once from the previous token. Same column, consumed by a stage that can answer it correctly.</p>
+
+<h3>Four kinds of lowering, and the three families that need more than one instruction</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Kind</th><th>Operators</th><th>What the cell holds</th></tr></thead>
+<tbody>
+<tr><td><code>instr</code></td><td><code>+ - *</code> on whole numbers, the four orderings, <code>!</code></td><td>one instruction plus a predicate</td></tr>
+<tr><td><code>instr+guard</code></td><td>division and remainder</td><td>instruction, plus a failure message, plus when the check may be skipped</td></tr>
+<tr><td><code>control</code></td><td><code>and</code>, <code>or</code></td><td>a four-label short-circuit template &mdash; these need real branching, and both paths already emit that shape</td></tr>
+<tr><td><code>dispatch</code></td><td><code>==</code>, <code>!=</code>, and every boxed operand of every arithmetic operator</td><td>the name of a runtime helper &mdash; equality is a run-time type decision with 12 arms</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>The existence proof that this shape works</h3>
+
+<p>There are four incompatible operator-to-instruction maps inside <code>stdlib/HeyLlvm.hey</code> alone. Three of them <b>fail closed</b> on a symbol they do not know: they return nothing, and the caller has to cope. One of them <b>falls through</b> instead, returning a different operator's entry rather than refusing. It is unreachable today only because its single caller sits behind a character guard.</p>
+
+<p>The fourth map, <code>hey_llvm_cmp_word:5363</code>, is the model: it covers all six comparisons in 19 lines, uniformly, and it is <b>the only operator family in the tree with no recorded defect</b>. Every comparison divergence in the ledger is about operand handling, never about which comparison got chosen. <b>When the table is complete, it works.</b> That is the whole argument for building one.</p>
+
+<h3>The surface the table must cover, exhaustively</h3>
+
+<p><b>21 rows.</b> Arithmetic <code>+ - * / %</code> and a leading <code>-</code>; comparison <code>== != &lt; &lt;= &gt; &gt;=</code>; logical <code>and or not !</code>; the range <code>..&lt;</code>; subscript; member access; and the statement forms <code>let</code>, <code>set</code>, <code>state</code> and bare <code>=</code>.</p>
+
+<p><b>The absences are exhaustive and they matter more than they look.</b> There is no exponent operator, no compound assignment such as <code>+=</code>, no <code>&amp;&amp;</code> or <code>||</code>, no bitwise anything, no pipeline operator, no null-coalescing, no ternary, and <b>no inclusive range</b> &mdash; <code>..&lt;</code> is the only range spelling. The ruling on operator overrides says a module may only reuse an <b>existing</b> operator symbol. <b>The moment overrides ship, this list becomes the language's public contract.</b> Adding an exponent operator is cheap now and expensive later &mdash; and note that it groups right-to-left, which the current string-splitting architecture <b>structurally cannot express</b>. So it is a mechanism change, not a new row.</p>
+
+<h2 id="d5">Diagram 5 &mdash; where specs attach, and the gap</h2>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart TD
+    subgraph TODAY["TODAY — where the 988 spec files actually land"]
+        direction TB
+        S1["EXECUTABLE SPECS — language 773,&lt;br/&gt;compiler 205, conformance 10.&lt;br/&gt;another census counts language at 760 —&lt;br/&gt;see the discrepancy note.&lt;br/&gt;The overwhelming majority run&lt;br/&gt;through the INTERPRETER ONLY"]
+        S2["18 of 988 spec files invoke a build — 988 is all&lt;br/&gt;of specs/. The program directive records 42 of 760,&lt;br/&gt;and its 760 is specs/language alone.&lt;br/&gt;Not the same denominator — see the note"]
+        S3["SAVED-OUTPUT SPECS — compared byte for byte&lt;br/&gt;24 HIR files, MIR files, 90 LLVM files"]
+        S4["SHELL GATES — 296 files in test/&lt;br/&gt;of which 276 are gate scripts&lt;br/&gt;example corpus floor 106, fallbacks 0"]
+    end
+
+    I["INTERPRETER — runtime/hey_repl.c&lt;br/&gt;a THIRD independent implementation.&lt;br/&gt;ZERO references to HIR, MIR or LLVM"]
+    HIRS["HIR"]
+    MIRS["MIR"]
+    LLVMS["LLVM TEXT"]
+    APP["BUILT EXECUTABLE"]
+
+    S1 --&gt; I
+    S2 --&gt; APP
+    S3 --&gt; HIRS
+    S3 --&gt; MIRS
+    S3 --&gt; LLVMS
+    S4 --&gt; APP
+
+    GAP["THE GAP THIS DIAGRAM EXISTS TO SHOW&lt;br/&gt;an interpreter-only spec today exercises&lt;br/&gt;ZERO stages of the compile pathway"]
+    I -.-&gt; GAP
+
+    classDef gap fill:#8a2222,stroke:#4a0f0f,color:#ffffff
+    classDef ok fill:#1f6f3f,stroke:#0d3b21,color:#ffffff
+    classDef plain fill:#3a3a3a,stroke:#111111,color:#ffffff
+    class GAP,I gap
+    class S3 ok
+    class S1,S2,S4,HIRS,MIRS,LLVMS,APP plain
+</pre>
+</div>
+<figcaption>Today. Almost every spec lands on a path that shares nothing with the compiler.</figcaption>
+</figure>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart LR
+    SPEC["ANY EXECUTABLE SPEC"]
+    TOKS["TOKENIZER"]
+    TREES["SYNTAX TREE"]
+    NAMESS["RESOLVER"]
+    HIRS2["HIR"]
+    EVALS["HIR WALKER — interpreter"]
+    MIRS2["MIR"]
+    LLVMS2["LLVM"]
+    APPS["EXECUTABLE"]
+
+    SPEC --&gt; TOKS --&gt; TREES --&gt; NAMESS --&gt; HIRS2
+    HIRS2 --&gt; EVALS
+    HIRS2 --&gt; MIRS2 --&gt; LLVMS2 --&gt; APPS
+
+    NOTE["Every spec, including an interpreter-only one, now&lt;br/&gt;exercises FOUR SHARED STAGES. Specs that invoke&lt;br/&gt;a build additionally cover MIR and LLVM.&lt;br/&gt;The 91 percent stops being dead weight&lt;br/&gt;without rewriting any of it."]
+    EVALS -.-&gt; NOTE
+
+    classDef shared fill:#1f4f7f,stroke:#0b2740,color:#ffffff
+    classDef plain fill:#3a3a3a,stroke:#111111,color:#ffffff
+    class TOKS,TREES,NAMESS,HIRS2 shared
+    class SPEC,EVALS,MIRS2,LLVMS2,APPS,NOTE plain
+</pre>
+</div>
+<figcaption>The same picture under the target. This is the strongest argument for joining the interpreter to the pipeline at HIR. <i>Source: the architecture-diagram brief, section 5.</i></figcaption>
+</figure>
+
+<h3>Which kind of spec reaches which stage</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Stage</th><th>Spec kind that reaches it</th><th>Where those live today</th><th>Coverage today</th></tr></thead>
+<tbody>
+<tr><td>tokenizer</td><td>any executable spec, once the interpreter joins the pipeline; plus saved token dumps if a tap is added</td><td>none</td><td><b>none &mdash; the stage does not exist</b></td></tr>
+<tr><td>syntax tree</td><td>any executable spec, once the interpreter joins; plus saved tree dumps</td><td>none</td><td><b>none &mdash; the stage does not exist</b></td></tr>
+<tr><td>resolver</td><td>scope, shadowing, import and unknown-name specs</td><td>scattered in <code>specs/language</code>, exercising the interpreter's ad-hoc resolution</td><td><b>none as a stage</b></td></tr>
+<tr><td>HIR</td><td>saved <code>.hir</code> output</td><td><code>specs/hir/*.hir</code> &mdash; 24 files, driver <code>tools/check_hir_mir_goldens.hey</code></td><td>thin but real</td></tr>
+<tr><td>MIR</td><td>saved <code>.mir</code> output</td><td><code>specs/mir/*.mir</code></td><td>thin but real</td></tr>
+<tr><td>LLVM</td><td>byte-identical <code>.ll</code> output</td><td><code>specs/llvm/*.ll</code> &mdash; 90 files, contract <code>specs/compiler/1122_hey_llvm_emitter_contract.hey</code>, driver <code>test/regression_hey_llvm_emitter.sh</code></td><td><b>strongest layer in the tree</b></td></tr>
+<tr><td>link and run</td><td>specs that invoke a build; the example-corpus gate</td><td>18 spec files; <code>test/regression_hey_llvm_receipts.sh</code></td><td><b>9 percent of specs</b></td></tr>
+<tr><td>runtime</td><td>the conformance ledger</td><td><code>test/fixtures/conformance/arithmetic_ledger.tsv</code> &mdash; 95 live rows, 40 marked as cross-path divergences</td><td>measured, honest</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Three things about specs a diagram should not hide</h3>
+
+<p><b>1. The corpus gate's instrument is bent.</b> Zero fallbacks over 106 examples is not evidence of coverage. One example (<code>examples/slot_table_accumulator.hey:24-27</code>) admits in a comment that a hash table was rewritten as a stride walk <i>because the remainder operator does not lower</i>. The corpus is selected on the outcome being measured. It is a statement about the examples folder, not about Hey.</p>
+
+<p><b>2. The byte-identity contract points the wrong way and has no exit.</b> <code>test/regression_hey_llvm_emitter.sh</code> makes the <i>old</i> emitter the reference for the component whose purpose is to let the old emitter be deleted. So every improvement to the new one must first reproduce the old one's bytes, including its mistakes. A new front end <b>will</b> change the emitted output. No moment is scheduled when the saved outputs stop being &ldquo;whatever the old one emits&rdquo; and become the pipeline's own. <b>This blocks the restructure.</b></p>
+
+<p><b>3. The count discrepancy is unresolved, and part of it is the denominator.</b> The program directive says 42 of 760 spec files invoke a build; its 760 is <code>specs/language</code> alone. A live search at this commit returns <b>18 of 988</b>, and its 988 is the whole <code>specs/</code> tree. So the two fractions are not over the same population. What is still unreconciled: a live count of <code>specs/language</code> by itself returns <b>773</b>, not 760, and whether the 42 counts invocations rather than files. Do not quote either fraction without saying which directory it is over.</p>
+
+<h2 id="d6">Diagram 6 &mdash; today versus target, and the line</h2>
+
+<p>This is the diagram that makes the schedule believable. <b>The line is the only thing on it that matters.</b> Everything above the line is new construction. Everything below it is work you already own.</p>
+
+<div class="theline">
+  <div class="half above">
+    <h4>Above the line &mdash; new construction, and this is all of it</h4>
+    <ul>
+      <li><b>Tokenizer</b> &mdash; <code>stdlib/HeyTokens.hey</code>, new file</li>
+      <li><b>Syntax tree</b> &mdash; <code>stdlib/HeySyntaxTree.hey</code>, new file</li>
+      <li><b>Name resolution</b> &mdash; <code>stdlib/HeyNames.hey</code>, new file</li>
+      <li><b>Operator table</b> &mdash; one source, two derived copies, one gate</li>
+    </ul>
+  </div>
+  <div class="rule"></div>
+  <div class="rulelabel">RETAIN &nbsp;/&nbsp; REBUILD</div>
+  <div class="half below">
+    <h4>Below the line &mdash; retained, in three grades</h4>
+    <ul>
+      <li><span class="chip c-rebuild">REBUILD</span> <b>HIR</b> &mdash; purpose kept, every type-inference path replaced</li>
+      <li><span class="chip c-rebuild">REBUILD</span> <b>MIR</b> &mdash; it is a placeholder today, not a stage</li>
+      <li><span class="chip c-rebuild">REBUILD</span> <b>Interpreter</b> &mdash; front half of the file only</li>
+      <li><span class="chip c-partial">COMPLETE IT</span> <b>LLVM emitter</b> &mdash; addition only: 344 runtime symbols, decimals, three missing operations</li>
+      <li><span class="chip c-exists">RETAIN</span> <b>Assemble and link</b> &mdash; untouched</li>
+      <li><span class="chip c-exists">RETAIN</span> <b>Runtime</b> &mdash; untouched. The value model and every built-in stay exactly as they are</li>
+    </ul>
+  </div>
+</div>
+
+<p><b>Read the grades carefully.</b> &ldquo;Retained&rdquo; and &ldquo;unchanged&rdquo; are not the same claim. Two of the four retained-and-rebuilt boxes are genuinely new code inside an old file.</p>
+
+<figure>
+<div class="figwrap">
+<pre class="mermaid">
+flowchart TB
+    subgraph TODAY["TODAY — five paths, no front end"]
+        direction TB
+        TA["SOURCE TEXT"]
+        TB1["HeyParser — a statement classifier that&lt;br/&gt;ends in a punctuation sniff. NOT a parser."]
+        TC["HeyHir — 16 disagreeing operator lists;&lt;br/&gt;types inferred by matching text"]
+        TD["HeyMir — LOWERS NO OPERATORS.&lt;br/&gt;Passes raw source text through.&lt;br/&gt;One source-path header per unit."]
+        TE["HeyLlvm — RE-SCANS every expression.&lt;br/&gt;8 named splitters plus 5 inline scanners.&lt;br/&gt;205 of 573 symbols reachable. No decimals."]
+        TF["heyc.c native emitter — the SILENT FALLBACK.&lt;br/&gt;One 1120-line function whose arm order&lt;br/&gt;IS the precedence."]
+        TG["hey_repl.c interpreter — a THIRD implementation.&lt;br/&gt;Its own 5 splitters, own precedence, own built-ins."]
+        TH["The emit-C path — a fifth lane, borrowing&lt;br/&gt;splitters from BOTH other lanes."]
+        TA --&gt; TB1 --&gt; TC --&gt; TD --&gt; TE
+        TD --&gt; TF
+        TA --&gt; TG
+        TA --&gt; TH
+    end
+
+    subgraph TARGET["TARGET — one pathway, two consumers"]
+        direction TB
+        subgraph NEWC["NEW CONSTRUCTION — above the line"]
+            direction TB
+            NA["TOKENIZER — stdlib/HeyTokens.hey"]
+            NB["SYNTAX TREE — stdlib/HeySyntaxTree.hey"]
+            NC["NAME RESOLUTION — stdlib/HeyNames.hey"]
+            ND["OPERATOR TABLE — 1 source, 2 copies, 1 gate"]
+        end
+        subgraph KEEP["RETAINED BACK END — below the line"]
+            direction TB
+            KA["HIR — KEEP PURPOSE, REBUILD MECHANISM&lt;br/&gt;stdlib/HeyHir.hey"]
+            KB["MIR — REBUILD&lt;br/&gt;stdlib/HeyMir.hey"]
+            KC["LLVM TEXT — KEEP AND COMPLETE&lt;br/&gt;stdlib/HeyLlvm.hey"]
+            KD["HIR WALKER — REBUILD&lt;br/&gt;runtime/hey_repl.c, front half"]
+            KE["LINK — KEEP — runtime/heyc.c"]
+            KF["RUNTIME — KEEP UNCHANGED&lt;br/&gt;runtime/hey_runtime.c"]
+            KA --&gt; KB --&gt; KC --&gt; KE
+            KA --&gt; KD
+            KE --&gt; KF
+            KD --&gt; KF
+        end
+        NA --&gt; NB --&gt; NC --&gt; KA
+        ND -.-&gt; NA
+        ND -.-&gt; KB
+    end
+
+    DEL["DELETED LAST, NOT BEFORE&lt;br/&gt;the native LLVM emitter, about 14.9k lines;&lt;br/&gt;the emit-C path's duplicate precedence;&lt;br/&gt;7 of the 8 build modes.&lt;br/&gt;NOT droppable until the new emitter lowers&lt;br/&gt;whole-number division and remainder."]
+
+    TODAY -.-&gt;|"restructure"| TARGET
+    TF -.-&gt; DEL
+    TH -.-&gt; DEL
+
+    classDef newwork fill:#8a2222,stroke:#4a0f0f,color:#ffffff,stroke-width:3px
+    classDef rebuild fill:#8a4a1f,stroke:#4a250d,color:#ffffff
+    classDef complete fill:#8a6d1f,stroke:#4a3a0d,color:#ffffff
+    classDef keep fill:#1f6f3f,stroke:#0d3b21,color:#ffffff
+    classDef dead fill:#4a4a4a,stroke:#111111,color:#cccccc
+
+    class NA,NB,NC,ND newwork
+    class KA,KB,KD rebuild
+    class KC complete
+    class KE,KF keep
+    class DEL,TF,TH dead
+    class TA,TB1,TC,TD,TE,TG dead
+</pre>
+</div>
+<figcaption>Five paths collapse into one pathway with two consumers. The deletion box happens last, and one item in it is still the shipping path for whole-number division today. <i>Source: the architecture-diagram brief, section 6.</i></figcaption>
+</figure>
+
+<h3>The verdict per box</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Box</th><th>Verdict</th><th>What survives</th><th>What is new work</th></tr></thead>
+<tbody>
+<tr><td>tokenizer</td><td><span class="chip c-missing">NEW</span></td><td>nothing</td><td>all of it</td></tr>
+<tr><td>syntax tree</td><td><span class="chip c-missing">NEW</span></td><td>nothing</td><td>all of it</td></tr>
+<tr><td>resolver</td><td><span class="chip c-missing">NEW</span></td><td>nothing</td><td>all of it, plus a <i>second</i> entry point for typed-line deltas</td></tr>
+<tr><td>operator table</td><td><span class="chip c-missing">NEW</span></td><td>the shape, proven by <code>hey_llvm_cmp_word:5363</code></td><td>the normative file, the derived copies, the drift gate</td></tr>
+<tr><td>HIR</td><td><span class="chip c-rebuild">KEEP PURPOSE, REBUILD MECHANISM</span></td><td>the text schema; the header; binding-id assignment in <code>hey_hir_assign_binding_ids:2086</code>; the validators; the application-versus-library distinction</td><td>every type-inference path. All 16 operator lists delete. Inference becomes a walk over typed nodes, reading the table</td></tr>
+<tr><td>MIR</td><td><span class="chip c-rebuild">REBUILD</span></td><td>the serializer, the header, <code>hey_mir_abi_type</code> with its 13 representation types, the validators</td><td>operator lowering, basic blocks, explicit boxing &mdash; see below</td></tr>
+<tr><td>LLVM emitter</td><td><span class="chip c-partial">KEEP AND COMPLETE</span></td><td>all of it</td><td>addition only: 344 runtime symbols, decimals, three missing MIR operations</td></tr>
+<tr><td>interpreter</td><td><span class="chip c-rebuild">REBUILD</span></td><td>the value model and every built-in &mdash; they live in the runtime and the compiled path already calls them</td><td>the walker itself; built-in lookup keyed on binding ids</td></tr>
+<tr><td>link, runtime</td><td><span class="chip c-exists">RETAIN</span></td><td>all of it</td><td>none</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>The MIR question, answered directly</h2>
+
+<p><b>Does MIR survive as-is, become a real structure, or get absorbed?</b> It survives as a stage &mdash; but as a rebuild, not a clean-up. <b>MIR is partly new construction.</b></p>
+
+<p><b>The evidence that today's MIR is a placeholder.</b> Take the checked-in pair for one program, <code>specs/hir/020_functions_and_loops.hir</code> and <code>specs/mir/020_functions_and_loops.mir</code>. The entire difference between them is: type names substituted, one cosmetic block marker inserted, one extra terminator, two extra header lines, and a changed schema string. <b>The operand text is unchanged.</b> HIR says <code>store acc:Int = acc + i</code>; MIR says <code>store acc:i64 = acc + i</code>. The right-hand side is still raw Hey source. <code>stdlib/HeyMir.hey:285-286</code> states it outright: MIR expressions are raw text.</p>
+
+<p>Three findings confirm it. Search <code>stdlib/HeyMir.hey</code> for any arithmetic or comparison operator and you get <b>zero hits</b> &mdash; it lowers no operators. Its one operator-shaped act is <i>re-detecting</i> the range operator textually at <code>:221</code> to choose a loop shape &mdash; it performs a parse in order to make a lowering decision, which is exactly the anti-pattern. And one validator function is duplicated <b>verbatim</b> from <code>HeyHir.hey:2344</code> at <code>HeyMir.hey:254</code>.</p>
+
+<h3>Why keep the stage at all &mdash; the five jobs, of which it does one</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>MIR's job</th><th>Status today</th></tr></thead>
+<tbody>
+<tr><td>1. source types to representation types</td><td><b>DONE</b> &mdash; <code>hey_mir_abi_type:21-60</code>, 13 types</td></tr>
+<tr><td>2. <b>operator forms to instruction forms</b>, carrying the lowering kind</td><td><b>NOT DONE</b> &mdash; this is the whole gap</td></tr>
+<tr><td>3. structured control flow to basic blocks</td><td><b>NOT DONE</b> &mdash; emits one cosmetic block marker and keeps loops as structured keywords</td></tr>
+<tr><td>4. explicit boxing and unboxing decisions</td><td><b>NOT DONE</b></td></tr>
+<tr><td>5. ownership</td><td>partly present &mdash; the ownership suffix exists in the MIR grammar</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>Job 2 is the load-bearing one</b>, and it is what turns the LLVM emitter from a compiler into a printer. A printer is testable, portable to a second back end, and able to obey the rule already written in its own header. Without job 2, MIR is a rename pass and you would be right to ask why it is a stage.</p>
+
+<h3>Text or structure?</h3>
+
+<p><b>MIR stays a text file on disk and becomes a real structure in memory.</b> The on-disk text form is load-bearing and it works: it is what the saved outputs pin, what the checker validates, what the dump flag produces, and what the cache stores. Do not throw that away. <b>The defect is not that MIR is text. The defect is that MIR text contains unlowered source expressions.</b> The same argument applies to HIR: keep the text, make it structural.</p>
+
+<h3>The source-path header problem, and the fix</h3>
+
+<p>Today a unit carries <b>one</b> <code>source</code> line &mdash; written at <code>HeyHir.hey:2039</code>, read back at <code>HeyMir.hey:1132</code>, re-emitted at <code>:1138</code>, validated at <code>:1368</code>. A unit built from many imported files carries one path. <b>Per-file provenance is destroyed at HIR, not at MIR;</b> MIR merely inherits the loss.</p>
+
+<p><b>The fix is small.</b> Provenance belongs on the record, not the unit header. The header carries a <b>file table</b>: one line per contributing file, with an id, a path and a hash &mdash; which also fixes cache keying, since today it hashes a single source hash. Every HIR and MIR record then carries a <b>span</b>: a file id, a line and a column. The tokenizer is where spans are minted, so this is free once the front end exists and impossible before it. Cost: one small integer per record. Benefit: an error message from the emitter can name a line in the file it came from, which today it structurally cannot.</p>
+
+<h2 id="nav">The navigation table &mdash; bookmark this one</h2>
+
+<p>Find your stage. Go to the file. Enter at the function.</p>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>#</th><th>Stage</th><th>Status</th><th>File</th><th>Entry point</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>driver</td><td><span class="chip c-exists">EXISTS</span></td><td><code>tools/hey_selfc.hey</code></td><td>the <code>program</code> block at <code>:903</code>; the stage host is <code>tools/hey_selfc_pipeline.hey</code></td></tr>
+<tr><td>1</td><td>tokenizer</td><td><span class="chip c-missing">MISSING</span></td><td><code>stdlib/HeyTokens.hey</code> &mdash; <b>will be</b></td><td><code>read_source_text_into_tokens</code></td></tr>
+<tr><td>2</td><td>syntax tree</td><td><span class="chip c-missing">MISSING</span></td><td><code>stdlib/HeySyntaxTree.hey</code> &mdash; <b>will be</b></td><td><code>group_tokens_into_statement_tree</code></td></tr>
+<tr><td>3</td><td>name resolution</td><td><span class="chip c-missing">MISSING</span></td><td><code>stdlib/HeyNames.hey</code> &mdash; <b>will be</b></td><td><code>resolve_every_name_to_its_binding</code>; typed-line entry <code>resolve_names_in_this_form_against_the_session_scope</code></td></tr>
+<tr><td>4</td><td>HIR</td><td><span class="chip c-partial">PARTIAL</span></td><td><code>stdlib/HeyHir.hey</code></td><td>today <code>hey_hir_emit_file_to_path:2226</code> &rarr; <code>hey_hir_emit_tree_identity_value:2195</code>; <b>will be</b> <code>lower_resolved_tree_to_hir</code></td></tr>
+<tr><td>5</td><td>MIR</td><td><span class="chip c-partial">PARTIAL</span></td><td><code>stdlib/HeyMir.hey</code></td><td>today <code>hey_mir_lower_file_to_path_value:1476</code> &rarr; <code>hey_mir_lower_text_value:1124</code>; <b>will be</b> <code>lower_hir_to_mir</code></td></tr>
+<tr><td>6</td><td>LLVM text</td><td><span class="chip c-partial">PARTIAL</span></td><td><code>stdlib/HeyLlvm.hey</code></td><td><code>hey_llvm_emit_file_to_path_value:15049</code> &rarr; <code>hey_llvm_emit_text_value:10770</code>; <b>will be</b> <code>print_mir_unit_as_llvm_text</code></td></tr>
+<tr><td>7</td><td>link</td><td><span class="chip c-exists">EXISTS</span></td><td><code>runtime/heyc.c</code></td><td><code>heyc_link_llvm_ir_app:22693</code></td></tr>
+<tr><td>8</td><td>runtime</td><td><span class="chip c-exists">EXISTS</span></td><td><code>runtime/hey_runtime.c</code></td><td><code>hey_add:10821</code>, <code>hey_value_equal_raw:10955</code>, <code>hey_cmp_value:11013</code>, boxed helpers <code>:25991-26025</code></td></tr>
+<tr><td>9</td><td>interpreter</td><td><span class="chip c-dead">THIRD IMPL</span></td><td><code>runtime/hey_repl.c</code></td><td>today <code>eval_expr_with_env:4469</code>, <code>eval_simple_statement:4581</code>, <code>exec_lines_outer:4921</code>; <b>will be</b> <code>evaluate_this_hir_unit_in_this_session</code></td></tr>
+<tr><td>10</td><td>operator table</td><td><span class="chip c-missing">MISSING</span></td><td><code>operators.tsv</code> &rarr; <code>stdlib/HeyOperators.hey</code> + <code>runtime/hey_operators.inc</code> &mdash; <b>will be</b>. <b>The directory is not settled</b> &mdash; see <a href="#disagree">where the sources disagree</a></td><td><code>find_the_operator_row_for_this_symbol</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Paths scheduled for deletion &mdash; know where they are so you do not fix them</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Path</th><th>File</th><th>Entry point</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td>native LLVM emitter</td><td><code>runtime/heyc.c</code></td><td><code>heyc_llvm_emit_expr:16115</code></td><td>~14.9k lines; <b>the shipping path for whole-number division and remainder today</b></td></tr>
+<tr><td>native MIR consumer</td><td><code>runtime/heyc.c</code></td><td><code>heyc_build_llvm_from_mir:22966</code></td><td>the silent fallback target</td></tr>
+<tr><td>emit-C path</td><td><code>runtime/heyc.c</code></td><td><code>heyc_emit_c_app:23742</code> &rarr; <code>heyc_emit_expr_c:3808</code></td><td>private back door; owns no splitter, borrows from both other paths</td></tr>
+<tr><td>fast whole-number C sub-path</td><td><code>runtime/heyc.c</code></td><td><code>heyc_emit_fast_int_c_for_loaded:4653</code> &rarr; <code>heyc_fast_expr_c:4279</code></td><td>copies characters verbatim, so <b>C's order of operations applies, not Hey's</b></td></tr>
+<tr><td>C mirror</td><td><code>stdlib/HeyC.hey</code></td><td><code>hey_c_runtime_top_op_value:1822</code></td><td>a <b>fourth</b> independent associativity choice &mdash; <code>a - b - c</code> groups the other way from every other path</td></tr>
+<tr><td>vestigial</td><td><code>stdlib/HeyAst.hey</code>, <code>stdlib/HeySemantics.hey</code></td><td>&mdash;</td><td>not imported by anything on the compile path</td></tr>
+<tr><td>false friend</td><td><code>stdlib/HeyExpressions.hey</code></td><td>&mdash;</td><td>a catalogue of command-line easter eggs. Nothing to do with expressions</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>The instrumentation to build before any of this</h3>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>What</th><th>Where</th><th>State</th></tr></thead>
+<tbody>
+<tr><td>the silent fallback</td><td><code>tools/hey_selfc.hey:1023</code> reduces the whole attempt to one true-or-false; the error text is <b>never read anywhere in the file</b></td><td><b>the precise per-line diagnostic is computed at <code>HeyLlvm.hey:15055</code> and thrown away</b></td></tr>
+<tr><td>the only surviving signal</td><td>a route label in the build receipt, <code>tools/hey_selfc.hey:1065</code></td><td>says the fallback happened, never why or on which line</td></tr>
+<tr><td>the flag people mistake for a strict flag</td><td><code>HEY_SELFC_MIR_CONSUMER</code>, read at <code>:1012</code> and <code>:1016</code></td><td>does the <b>opposite</b> &mdash; it forces the fallback permanently. It is a bisect aid</td></tr>
+<tr><td><b>the fix</b></td><td>add a mode that prints the error and fails instead of falling back</td><td><b>about six lines, around the discard at <code>:1023</code>.</b> Do it first. It turns every existing build into a survey, and it is the only thing that can tell you when the port is finished</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="mustnot">What each stage must not do</h2>
+
+<p>A stage that can reach back into an earlier one is how the current tangle happened. The right-hand column is the live example of the rule being broken.</p>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Stage</th><th>Must not</th><th>The live example</th></tr></thead>
+<tbody>
+<tr><td><b>tokenizer</b></td><td>know precedence; know whether an expression is well formed; open another file; resolve a name</td><td>&mdash; new stage</td></tr>
+<tr><td><b>syntax tree</b></td><td>know types; resolve names; know anything about machine representation; <b>re-read source text</b> &mdash; it consumes tokens only; decide whether <code>+</code> means addition or joining text</td><td>today the classifier ends in a search for the character <code>+</code></td></tr>
+<tr><td><b>name resolution</b></td><td>rewrite the tree's shape; infer types; know representation types</td><td>today nothing does this at all, so the emitter does it while emitting: <code>heyc_llvm_emit_expr:16115</code></td></tr>
+<tr><td><b>HIR</b></td><td>know the runtime layout, machine types, C names or target details &mdash; <i>its own header's rule, and it is obeyed</i>; <b>re-scan expressions as text</b> &mdash; <i>also its own rule, and it is broken 16 times</i></td><td><code>hey_hir_expr_type:798-815</code> &mdash; the order in which it tries operators <b>is</b> the precedence</td></tr>
+<tr><td><b>MIR</b></td><td>reopen source files &mdash; <i>its own header's rule</i>; <b>carry raw source text in operand position</b>; decide a loop's shape by inspecting a string</td><td><code>hey_mir_unboxed_range_for?:221</code> decides range-versus-collection by searching the expression text</td></tr>
+<tr><td><b>LLVM emitter</b></td><td>reopen source files, parse expressions, or infer source-level types &mdash; MIR is its complete input. <b>That is its own header, <code>HeyLlvm.hey:1-9</code></b></td><td>it has <b>8 named splitters and 5 inline scanners</b> &mdash; a second census of the same file counted <b>six</b>, on a narrower definition; both are printed rather than reconciled. It is stranded, not disobedient: MIR hands it text</td></tr>
+<tr><td><b>link</b></td><td>know anything about Hey syntax</td><td>&mdash; clean</td></tr>
+<tr><td><b>runtime</b></td><td>know anything about source syntax</td><td>&mdash; clean</td></tr>
+<tr><td><b>interpreter</b></td><td>have its own parser, its own precedence, or a built-in table keyed by string</td><td>today it has all three</td></tr>
+<tr><td><b>operator table</b></td><td>be hand-copied into any consumer</td><td>the property-sugar table has five hand-copies and shipped a wrong answer &mdash; the drift checker caught it <i>after</i> it shipped</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>The pattern to notice:</b> four of these rules are already written down, in the headers of the very files that break them. Writing more rules will not help. <b>The front end and a real MIR are what make the existing rules obeyable.</b></p>
+
+<h2>The artifacts between stages</h2>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Between</th><th>Artifact</th><th>Kind</th><th>Today</th><th>Target</th></tr></thead>
+<tbody>
+<tr><td>source &rarr; tokenizer</td><td>the files plus a <b>file table</b></td><td>file</td><td>one source-path string</td><td>a table: one line per contributing file, with id, path and hash</td></tr>
+<tr><td>tokenizer &rarr; tree</td><td><b>token stream</b></td><td><b>structure, in memory</b></td><td>does not exist</td><td>a list of kind, text and span; add a dump flag for saved-output specs</td></tr>
+<tr><td>tree &rarr; resolver</td><td><b>syntax tree</b></td><td><b>structure, in memory</b></td><td>does not exist</td><td>a node tree, every node spanned; add a dump flag</td></tr>
+<tr><td>resolver &rarr; HIR</td><td><b>resolved tree</b></td><td><b>structure, in memory</b></td><td>does not exist</td><td>same shape plus a binding id on every identifier and a binding table per scope</td></tr>
+<tr><td>HIR &rarr; MIR</td><td><b>HIR unit</b></td><td><b>text file</b> &mdash; <code>program.hir</code></td><td>operands are raw source text</td><td>a serialisation of a typed tree; operands structured; records carry spans</td></tr>
+<tr><td>MIR &rarr; LLVM</td><td><b>MIR unit</b></td><td><b>text file</b> &mdash; <code>program.mir</code></td><td><b>operands are raw source text</b>; one source header per unit; a cosmetic block marker</td><td>operators already lowered to instruction forms; real basic blocks; explicit boxing; file table plus per-record spans</td></tr>
+<tr><td>LLVM &rarr; link</td><td><b>LLVM IR</b></td><td><b>text file</b> &mdash; <code>out.ll</code></td><td>works; pinned by 90 saved files</td><td>unchanged in form &mdash; but the saved files' <i>reference</i> must move</td></tr>
+<tr><td>HIR &rarr; interpreter</td><td><b>HIR unit</b></td><td><b>structure, in memory</b></td><td>does not exist &mdash; the interpreter never sees HIR</td><td>the join point</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>The rule this table encodes:</b> anything that crosses a cache boundary is a text file, because the cache and the saved-output specs depend on it. Everything inside one run of the program is a structure. Today that rule is inverted at both places it matters: the front-end artifacts that should be structures do not exist, and the mid-pipeline artifacts that are text carry un-lowered text inside them.</p>
+
+<h2>The three biggest deltas, in order</h2>
+
+<div class="box">
+<h3>1 &nbsp;The front end does not exist, and it causes most of what is downstream</h3>
+<p>Three missing stages. Every scattered decision below them &mdash; 45-plus precedence sites across 5 inconsistent notions, 16 disagreeing operator lists in HIR, 8 named plus 5 inline scanners in the new emitter (a second census counted six &mdash; unreconciled), 11 leading-minus decisions, 5 copies of one two-character guard, 2 character sets differing by 8 characters &mdash; exists <b>because</b> there is no token stream and no tree. <b>This is the new construction, and it is the only new construction.</b></p>
+</div>
+
+<div class="box">
+<h3>2 &nbsp;MIR is a placeholder, not a stage &mdash; rebuild, not clean-up</h3>
+<p>It lowers zero operators. The entire step from HIR to MIR is a type-name substitution plus a header rewrite. Its one operator-shaped act is re-parsing the range operator out of a string to pick a loop shape. Until MIR carries lowered operator forms, the rule written in the emitter's own header &mdash; never reopen source files, never parse expressions &mdash; <b>cannot be obeyed by anyone.</b> You should see this on the diagram, not discover it in month two.</p>
+</div>
+
+<div class="box">
+<h3>3 &nbsp;The interpreter is a third implementation at zero percent, and fixing it is worth more than it costs</h3>
+<p>The recommendation is that it joins the pipeline at HIR and becomes a walker over HIR. Its value model and its built-ins already live in the runtime and are already shared &mdash; only its parser dies. The payoff is not just removing duplication: <b>it retroactively converts 91 percent of the spec corpus from exercising zero shared stages to exercising four</b>, without rewriting a single spec. Compiling every entry instead would cost <b>0.68 seconds per new line</b> today, not the 0.019-second warm-cache figure &mdash; that number is a cache hit on unchanged source, and a typed line is by definition a miss.</p>
+</div>
+
+<h2>What could not be drawn, and why</h2>
+
+<p>Seven things. Each is a box that would be hand-waving.</p>
+
+<div class="box">
+<p><b>1. How tightly <code>not</code> and <code>!</code> bind.</b> Three different answers across the paths today. A documentation page asserts that all maintained paths share the same precedence &mdash; <b>that sentence is false</b>. Needs a ruling <i>before</i> the parser is written. Whichever way it goes, three of five paths move.</p>
+<p><b>2. What a syntax-tree node is physically made of &mdash; the largest unknown here.</b> The front end is to be written in Hey itself. Hey has no algebraic data types, no pattern matching, no closures beyond one binding form, and no lambda syntax. So a tree node has to be a boxed map, which means <i>every</i> node access is a boxed map lookup &mdash; and collections are 45 of the 344 runtime symbols the new emitter cannot reach, the remainder operator does not lower, and the new emitter <b>cannot compile itself today</b>. <b>The compiler's own core data structure needs language features the compiler cannot currently compile.</b> Three ways out are visible &mdash; write the front end against the interpreter first, complete the collection surface first, or add a record type to the language &mdash; and none can be sized without a build. This is the schedule risk that is not on the phase list.</p>
+<p><b>3. The byte-identity contract has no exit.</b> See the decisions block at the top.</p>
+<p><b>4. The interpreter's resolver is a different function from the batch resolver.</b> A typed line resolves a <i>delta</i> against a scope that persists across entries, including redefining something bound three entries ago. The entry point is named; scope persistence is not designed &mdash; in particular, what happens when an entry redefines a function an earlier entry captured.</p>
+<p><b>5. Actor lowering does not fit the diagram cleanly.</b> The new emitter has a separate two-pass actor path covering 8 of 26 operations; one tail-call form has no branch at all; one operation is missing from all three paths. Whether actors get their own family of MIR operations or ride the ordinary call path is undecided. One MIR box is drawn; it may be two.</p>
+<p><b>6. The emit-C path and its fast sub-path have no home in the target.</b> The fast sub-path copies characters verbatim into C, so C's order of operations applies rather than Hey's. It is a fifth set of semantics. It is drawn as a deletion, but it is reachable today and nobody has ruled it out of scope in writing.</p>
+<p><b>7. The spec count discrepancy.</b> 42 of 760 (<code>specs/language</code>) versus 18 of 988 (all of <code>specs/</code>), with <code>specs/language</code> itself counted at both 760 and 773. Unreconciled.</p>
+</div>
+
+<h2 id="disagree">Where the sources disagree</h2>
+
+<div class="box open">
+<p><b>The operator table: generated, or written by hand and verified?</b> The two design documents behind this page do not agree, and the disagreement is not cosmetic.</p>
+<p>The <b>architecture-diagram brief</b> draws a generator, <code>tools/generate_operator_table.hey</code>, producing both derived copies from <code>stdlib/operators.tsv</code>, with a drift gate over the result.</p>
+<p>The <b>single-source-of-truth design</b> refuses to generate, and gives a reason: the C compiler needs the derived C file in order to build, and a Hey generator needs the C compiler in order to run. <b>That is a hard cycle.</b> Both escapes fail &mdash; checking the generated file in makes it a cache that needs a drift guard anyway, and using another language's generator makes that language a prerequisite for building Hey, which a standing rule refuses in terms. Its name for the alternative is &ldquo;emit once, verify always&rdquo;: keep a generator as an on-demand convenience, never as a build step. It also puts the normative file at <code>docs/language/operators.tsv</code>, not in the standard library.</p>
+<p><b>They agree on the important part:</b> one normative file, exactly two derived copies because the consumers are in two languages, one guarded seam. They disagree on the path and on whether the derivation runs at build time. <b>This needs your call before the first row is written.</b></p>
+<p class="note">A second, smaller disagreement, already flagged above: the number of spec files that invoke a build. 42 of 760 in the program directive (over <code>specs/language</code>), 18 of 988 from a live search at this commit (over the whole <code>specs/</code> tree), with <code>specs/language</code> itself counted at 773 here and 760 there. A third census, the one behind <a href="../articles/testing-a-language-you-are-rebuilding.html">The Answer Key Cannot Be One of the Contestants</a>, uses 760 for <code>specs/language</code> and 964 for <code>specs/language</code> plus <code>specs/compiler</code>. Nobody has reconciled the three.</p>
+</div>
+
+<h2 id="glossary">Glossary &mdash; one name per stage, used by all four documents</h2>
+
+<p>Reference. The left column is the name to use in prose. The middle column is what it is, in one line. The right column is the file, for when you need to go there. <b>If one of the four documents uses a different word for one of these, that document is wrong.</b></p>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>Name to use</th><th>What it is</th><th>Where it lives</th></tr></thead>
+<tbody>
+<tr><td><b>tokenizer</b></td><td>splits text into words and symbols, once</td><td><code>stdlib/HeyTokens.hey</code> &mdash; will be</td></tr>
+<tr><td><b>syntax tree</b></td><td>records which operation contains which, so nothing is re-read as text later</td><td><code>stdlib/HeySyntaxTree.hey</code> &mdash; will be</td></tr>
+<tr><td><b>name resolution</b></td><td>decides which <code>x</code> each <code>x</code> refers to. Not &ldquo;name lookup&rdquo;</td><td><code>stdlib/HeyNames.hey</code> &mdash; will be</td></tr>
+<tr><td><b>meaning and types</b> (HIR)</td><td>the program written down with Hey's own meaning and Hey's own types</td><td><code>stdlib/HeyHir.hey</code></td></tr>
+<tr><td><b>machine shapes and operators</b> (MIR)</td><td>the same program with machine-shaped types and real instructions. Not &ldquo;the middle stage&rdquo;</td><td><code>stdlib/HeyMir.hey</code></td></tr>
+<tr><td><b>LLVM emitter</b></td><td>writes the low-level text LLVM turns into machine code. Not &ldquo;the code generator&rdquo; &mdash; there are two of them and the distinction matters</td><td>Hey-written, and the shipping one: <code>stdlib/HeyLlvm.hey</code></td></tr>
+<tr><td><b>the C LLVM emitter</b></td><td>the older one, written in C. The silent fallback, and still the shipping path for whole-number division and remainder</td><td><code>runtime/heyc.c</code></td></tr>
+<tr><td><b>assemble and link</b></td><td>turns that text into an executable</td><td><code>runtime/heyc.c</code></td></tr>
+<tr><td><b>runtime</b></td><td>values, actors, input and output. Shared by everything</td><td><code>runtime/hey_runtime.c</code></td></tr>
+<tr><td><b>the interpreter</b></td><td>runs a program without compiling it; its interactive face is <b>the prompt</b>. Not &ldquo;the shell&rdquo; &mdash; that is the operating system's. A third independent implementation today</td><td><code>runtime/hey_repl.c</code></td></tr>
+<tr><td><b>operator table</b></td><td>one written-down row per operator; the thing 45-plus scattered sites collapse into</td><td><code>operators.tsv</code> &mdash; directory not settled</td></tr>
+<tr><td><b>spec</b></td><td>an executable test: a small Hey program checked in beside the answer it must produce</td><td><code>specs/</code></td></tr>
+<tr><td><b>lane</b> / <b>path</b></td><td>one of the five separate implementations of Hey's expressions that exist today</td><td>&mdash;</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Reading order for somebody new</h2>
+
+<p><b>1.</b> Diagram 1 &mdash; the shape. <b>2.</b> The navigation table &mdash; bookmark it. <b>3.</b> What each stage must not do &mdash; most bugs are there. <b>4.</b> The operator census if your bug is arithmetic; the construct census if your bug is something that works on one path and not another. <b>5.</b> What could not be drawn, before you propose a design &mdash; check it is not already blocked.</p>
+
+<footer>
+<p>Drawn 2 August 2026 against the working branch. <b>Static reading only &mdash; no build was run</b> while this was written; a release battery was in flight. Every file and line reference here is either cited from the two censuses or verified directly against the working tree; where two sources disagree, the discrepancy is stated rather than resolved silently.</p>
+<p>Function names on this page follow the naming rule: verb first, sentence-like, no abbreviations. Existing files keep their old convention until a change touches them, and the two conventions coexist during the transition. That is expected, not a defect.</p>
+<p>Sources: the architecture-diagram set, the operator-surface census, the construct-surface census, the mirror-fallback census, the single-source-of-truth design, and the restructure program directive.</p>
+</footer>
+
+</main>
+
+<script type="module">
+  // Diagrams are Mermaid blocks. If the renderer is unavailable the blocks
+  // remain readable as their own source text.
+  try {
+    const dark = (document.documentElement.dataset.theme === 'dark') ||
+      (document.documentElement.dataset.theme !== 'light' &&
+       window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const m = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+    m.default.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: {
+        background: 'transparent',
+        primaryColor: dark ? '#171b1e' : '#ffffff',
+        primaryTextColor: dark ? '#eceef0' : '#16181a',
+        primaryBorderColor: dark ? '#3a4245' : '#c9c7c1',
+        lineColor: dark ? '#8b969b' : '#5d666b',
+        textColor: dark ? '#eceef0' : '#16181a',
+        fontSize: '13px',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace'
+      }
+    });
+    await m.default.run({ querySelector: 'pre.mermaid' });
+  } catch (e) {
+    /* no renderer: the pre blocks stay as legible source */
+  }
+</script>
+</body>
+</html>
