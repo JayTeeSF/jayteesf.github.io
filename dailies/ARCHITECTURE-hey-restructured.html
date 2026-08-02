@@ -112,10 +112,12 @@
 </div>
 
 <div class="box open">
-<h3>Decisions needed from you &mdash; three, and two of them block drawing</h3>
-<p><b>1. How tightly do <code>not</code> and <code>!</code> bind?</b> They have three different answers today depending on which part of the toolchain you ask. So <code>!a == b</code> means <i>(not a) equals b</i> in one shipping path and <i>not (a equals b)</i> in another &mdash; and <a href="PLAN-hey-restructure.html">the plan</a> shows the same split for the word <code>not</code>. Ruby binds <code>!</code> tightest and <code>not</code> loosest. Whichever way you rule, three of the five paths move. <b>The order-of-operations table cannot be written until this is ruled.</b></p>
-<p><b>2. When do the saved expected outputs stop being &ldquo;whatever the old compiler emits&rdquo;?</b> Ninety saved files pin the new compiler's output byte for byte against the old one's. A new front end <i>will</i> change that output. Nobody has named the moment the comparison flips. <b>This blocks the restructure and it is on nobody's list.</b></p>
-<p><b>3. Is the operator table generated, or written by hand and checked?</b> Two of our own design documents disagree. See <a href="#disagree">where the sources disagree</a> at the bottom.</p>
+<h3>Decisions needed from you &mdash; none. All three are ruled.</h3>
+<p>This block asked for three decisions, two of which blocked drawing. <b>All three have since been answered, and the page has been reconciled to them.</b> It is kept rather than deleted because what a document was blocked on is worth being able to look up.</p>
+<p><b>1. How tightly do <code>not</code> and <code>!</code> bind? &mdash; RULED.</b> Ruby's rules exactly: <code>!</code> binds tightest, <code>not</code> loosest, <code>&amp;&amp;</code> tighter than <code>||</code>, and <code>and</code>/<code>or</code> equal and loosest. <code>&amp;&amp;</code> and <code>||</code> are added to the language. The order-of-operations table was unblocked by this and is written.</p>
+<p><b>2. When do the saved expected outputs stop pinning the old compiler? &mdash; RULED, and the answer is not a date.</b> Each byte-identity test first states what it was really protecting, then is replaced by a test of <i>that</i> contract; exact-byte tests remain only where the bytes are themselves the public contract. Each replacement must be mutation-proven &mdash; deliberately break the implementation and show the new test fails &mdash; before the old fixture is marked superseded.</p>
+<p><b>3. Is the operator table generated, or written by hand and checked? &mdash; GENERATED.</b> One registry, one host-side generator, per-stage projections, and a drift gate that regenerates and diffs against what is committed. <a href="#d4">Diagram 4</a> is the settled shape. The two design documents that disagreed are reconciled in its favour; see <a href="#disagree">where the sources disagree</a>.</p>
+<p class="note">Decisions on the language itself live on <a href="DECISIONS-what-you-have-decided.html">the standing decisions page</a>, which is the current one to read. Nothing there is waiting on a maintainer answer either.</p>
 </div>
 
 <h2>Legend</h2>
@@ -160,6 +162,7 @@ flowchart TD
 
     OPTAB -.-&gt;|"symbol, length, longest match wins"| TOK
     OPTAB -.-&gt;|"precedence, associativity, arity"| TREE
+    OPTAB -.-&gt;|"overridability, lexical scope, imported binding"| NAMES
     OPTAB -.-&gt;|"type evidence, result type"| HIR
     OPTAB -.-&gt;|"lowering kind, can fail, decimal promotion"| MIR
     OPTAB -.-&gt;|"instruction, predicate, runtime helper, message"| LLVM
@@ -334,55 +337,76 @@ warm run cache .............................   0.01-0.02 s</pre>
 
 <p><b>One line worth keeping open:</b> make the first option the default and expose the second as an explicit command, for a hot loop the user wants compiled. Once HIR is the shared join point, leaving that door open costs nothing.</p>
 
-<h2 id="d4">Diagram 4 &mdash; where the operator table lives, and who reads it</h2>
+<h2 id="d4">Diagram 4 &mdash; Operator Registry: generated projections and stage ownership</h2>
+
+<div class="d">
+<p><b>This diagram is a companion to the pipeline diagram, not a duplicate of it, and the two do different jobs.</b> The generator boundary <i>enforces consistency</i> &mdash; no stage can hold a private copy of a fact. This table <i>documents semantic ownership</i>, which is a different guarantee: it stops a stage consuming a column it has no business acting on.</p>
+<p><b>The failure it exists to prevent:</b> the LLVM emitter consumes an instruction column, and must not conclude from that that it may reinterpret arithmetic semantics. Consuming a column is not authority over what the column means. Every semantic decision belongs to the registry; every stage below it is executing a decision already made.</p>
+</div>
 
 <figure>
 <div class="figwrap">
 <pre class="mermaid">
 flowchart TD
-    NORM["NORMATIVE SOURCE — one file&lt;br/&gt;operators.tsv&lt;br/&gt;21 operator rows, 16 columns"]
-    GEN["GENERATOR — tools/generate_operator_table.hey&lt;br/&gt;write_operator_table_for_c_to_path&lt;br/&gt;write_operator_table_for_hey_to_path"]
-    CINC["DERIVED FOR C&lt;br/&gt;runtime/hey_operators.inc"]
-    HEYMOD["DERIVED FOR HEY&lt;br/&gt;stdlib/HeyOperators.hey"]
-    DRIFT["DRIFT GATE&lt;br/&gt;check_that_the_generated_operator_tables_match_the_source&lt;br/&gt;runs in make verify"]
+    NORM["REGISTRY COLUMNS — one normative source&lt;br/&gt;21 operator rows, 16 columns&lt;br/&gt;every semantic decision is made HERE"]
+    GEN["HOST-SIDE GENERATOR&lt;br/&gt;independent of the new Hey front end&lt;br/&gt;deterministic, checked-in output"]
+    DRIFT["DRIFT GATE&lt;br/&gt;regenerate, then diff against what is committed&lt;br/&gt;runs in make verify"]
 
-    TOKC["TOKENIZER&lt;br/&gt;symbol, length, longest match"]
-    TREEC["SYNTAX TREE&lt;br/&gt;precedence, associativity, arity, prefix form"]
-    HIRC["HIR&lt;br/&gt;type evidence, result type"]
-    MIRC["MIR&lt;br/&gt;lowering kind, can fail, guard elision, decimal promotion"]
-    LLVMC["LLVM EMITTER&lt;br/&gt;instruction, predicate, runtime helper, message"]
-    REPLC["INTERPRETER&lt;br/&gt;result type, runtime helper, message"]
+    TOKP["TOKENIZER PROJECTION&lt;br/&gt;spelling · longest match"]
+    PARP["PARSER PROJECTION&lt;br/&gt;arity · precedence&lt;br/&gt;associativity / non-associativity"]
+    RESP["RESOLVER PROJECTION&lt;br/&gt;overridability · lexical scope&lt;br/&gt;imported binding"]
+    HIRP["HIR PROJECTION&lt;br/&gt;semantic operation&lt;br/&gt;short-circuit behaviour"]
+    MIRP["MIR PROJECTION&lt;br/&gt;lowering strategy · runtime fallback"]
+    LLVMP["LLVM PROJECTION&lt;br/&gt;instruction · predicate · helper symbol"]
 
     NORM --&gt; GEN
-    GEN --&gt; CINC
-    GEN --&gt; HEYMOD
     NORM -.-&gt; DRIFT
-    CINC -.-&gt; DRIFT
-    HEYMOD -.-&gt; DRIFT
+    GEN -.-&gt; DRIFT
 
-    HEYMOD --&gt; TOKC
-    HEYMOD --&gt; TREEC
-    HEYMOD --&gt; HIRC
-    HEYMOD --&gt; MIRC
-    HEYMOD --&gt; LLVMC
-    CINC --&gt; REPLC
+    GEN --&gt; TOKP
+    GEN --&gt; PARP
+    GEN --&gt; RESP
+    GEN --&gt; HIRP
+    GEN --&gt; MIRP
+    GEN --&gt; LLVMP
 
     classDef norm fill:#1f4f7f,stroke:#0b2740,color:#ffffff
     classDef gen fill:#8a6d1f,stroke:#4a3a0d,color:#ffffff
     classDef consumer fill:#3a3a3a,stroke:#111111,color:#ffffff
     class NORM norm
-    class GEN,CINC,HEYMOD,DRIFT gen
-    class TOKC,TREEC,HIRC,MIRC,LLVMC,REPLC consumer
+    class GEN,DRIFT gen
+    class TOKP,PARP,RESP,HIRP,MIRP,LLVMP consumer
 </pre>
 </div>
-<figcaption>One written-down truth, two derived copies because the consumers are in two languages, one gate over the seam. <b>The file path and the generate-versus-verify question are the one place our two design documents disagree</b> &mdash; see the bottom of this page. <i>Source: the architecture-diagram brief section 4 and the single-source-of-truth design.</i></figcaption>
+<figcaption>Registry columns &rarr; one host generator &rarr; six per-stage projections. <b>A stage never reads the registry; it reads the projection cut for it</b>, so it is structurally unable to consult a column it does not own. The drift gate regenerates and diffs against what is committed, which is what makes a checked-in derived file safe. <i>The sixth projection &mdash; the resolver &mdash; was missing from this page until 2 August: the page routed the table to the parser but not to name resolution, while D16 puts override scope and D18 puts operator-binding resolution squarely in the resolver.</i></figcaption>
 </figure>
 
-<h3>The 16 columns, and which stage reads each</h3>
+<h3>Owns and decides, versus merely consumes</h3>
 
 <div class="tblwrap">
 <table>
-<thead><tr><th>#</th><th>Column</th><th>Read by</th><th>Why it exists</th></tr></thead>
+<thead><tr><th>Stage</th><th>What it DECIDES</th><th>What it only CONSUMES</th><th>What it must never do</th></tr></thead>
+<tbody>
+<tr><td><b>Registry</b></td><td><b>Every semantic fact about every operator.</b> Spelling, forms, precedence, associativity, overridability, meaning, lowering, failure behaviour</td><td>&mdash;</td><td>Be edited in one derived copy instead of at source</td></tr>
+<tr><td><b>Tokenizer</b></td><td>Where one token ends and the next begins</td><td>Spelling, longest match</td><td>Decide arity. It emits one <code>MINUS</code> token and never inspects the previous character</td></tr>
+<tr><td><b>Parser</b></td><td><b>Which declared form applies at this site</b> &mdash; prefix or infix &mdash; from grammar context, and the resulting tree shape</td><td>Arity forms, precedence, associativity and non-associativity</td><td>Invent a precedence, or let an import change one. <code>**</code> is non-associative: chaining is an error, not a right-associative default</td></tr>
+<tr><td><b>Resolver</b></td><td><b>Which binding, if any, a symbol denotes</b>, and whether a <code>set</code> target is an updateable state slot</td><td>Overridability, lexical scope, imported binding</td><td>Alter precedence or associativity. An import supplies <i>meaning</i>, never <i>shape</i> (D18), and its effect stops at the file (D16)</td></tr>
+<tr><td><b>HIR</b></td><td>The control-flow shape a short-circuit operator becomes</td><td>Semantic operation, short-circuit behaviour</td><td>Emit <code>&amp;&amp;</code>, <code>||</code>, <code>and</code>, <code>or</code> as eager calls. They are branches</td></tr>
+<tr><td><b>MIR</b></td><td>Block structure, branch placement, temporaries</td><td>Lowering strategy, runtime fallback</td><td>Choose different arithmetic than HIR asked for. Truncating integer division is a registry fact (D9), not a lowering convenience</td></tr>
+<tr><td><b>LLVM emitter</b></td><td><b>Nothing semantic.</b> Emission is mechanical</td><td>Instruction, predicate, helper symbol</td><td><b>Reinterpret arithmetic semantics because it consumes an instruction column.</b> Holding the instruction name is not authority over what the operation means</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note"><b>Read the last row as the general rule.</b> Every stage below the registry is executing a decision already taken. When a stage disagrees with the registry, the stage is wrong &mdash; and the reason to write that down is that the opposite instinct is what produced the current state, where one fact is decided in forty-five places and no two of them are quite the same.</p>
+
+<h3>The 16 columns, and which projection carries each</h3>
+
+<p class="note">The heading below used to read &ldquo;which stage <i>reads</i> each&rdquo;. No stage reads a column: it reads a projection cut from that column by the generator. The distinction is the whole point of the table above.</p>
+
+<div class="tblwrap">
+<table>
+<thead><tr><th>#</th><th>Column</th><th>Carried to (projection)</th><th>Why it exists</th></tr></thead>
 <tbody>
 <tr><td>1</td><td><code>symbol</code></td><td>tokenizer</td><td>&mdash;</td></tr>
 <tr><td>2</td><td><code>length</code></td><td>tokenizer</td><td>every split site in HIR hard-codes the width as 3; <code>' and '</code> and <code>'..&lt;'</code> break it</td></tr>
@@ -815,11 +839,14 @@ flowchart TB
 
 <h2 id="disagree">Where the sources disagree</h2>
 
-<div class="box open">
-<p><b>The operator table: generated, or written by hand and verified?</b> The two design documents behind this page do not agree, and the disagreement is not cosmetic.</p>
-<p>The <b>architecture-diagram brief</b> draws a generator, <code>tools/generate_operator_table.hey</code>, producing both derived copies from <code>stdlib/operators.tsv</code>, with a drift gate over the result.</p>
-<p>The <b>single-source-of-truth design</b> refuses to generate, and gives a reason: the C compiler needs the derived C file in order to build, and a Hey generator needs the C compiler in order to run. <b>That is a hard cycle.</b> Both escapes fail &mdash; checking the generated file in makes it a cache that needs a drift guard anyway, and using another language's generator makes that language a prerequisite for building Hey, which a standing rule refuses in terms. Its name for the alternative is &ldquo;emit once, verify always&rdquo;: keep a generator as an on-demand convenience, never as a build step. It also puts the normative file at <code>docs/language/operators.tsv</code>, not in the standard library.</p>
-<p><b>They agree on the important part:</b> one normative file, exactly two derived copies because the consumers are in two languages, one guarded seam. They disagree on the path and on whether the derivation runs at build time. <b>This needs your call before the first row is written.</b></p>
+<div class="box">
+<p><b>The operator table: generated, or written by hand and verified? &mdash; RESOLVED 2 August, and the two positions turn out to converge.</b> Both documents were right about the thing they were each protecting.</p>
+<p>The <b>architecture-diagram brief</b> drew a generator producing both derived copies from a normative file, with a drift gate over the result.</p>
+<p>The <b>single-source-of-truth design</b> refused to generate, and its reason was sound: the C compiler needs the derived C file in order to build, and a Hey generator needs the C compiler in order to run. <b>That is a hard cycle</b>, and it is the same cycle the node-schema generator would have hit.</p>
+<p><b>What dissolves it is the host-generator ruling</b>, made for the node schema and applying identically here: the generator is written in a language already present in the build environment &mdash; Ruby, Python or C &mdash; and <b>never in the Hey being built</b>. Its output is checked in. The build does not run it; <code>make verify</code> regenerates and diffs against what is committed. There is no cycle because Hey is never on the generating side.</p>
+<p><b>So the objection lands on a design nobody is now proposing.</b> &ldquo;Checking the generated file in makes it a cache that needs a drift guard anyway&rdquo; is true &mdash; and the drift guard is the design, not a concession to it. &ldquo;Another language's generator makes that language a prerequisite for building Hey&rdquo; would be fatal if generation were a build step; it is not. Building Hey needs only the checked-in output. The host language is a prerequisite for <i>changing</i> the table, not for <i>building</i> the compiler, and that distinction is the whole of the disagreement.</p>
+<p>The single-source-of-truth design's own name for its alternative &mdash; <b>&ldquo;emit once, verify always&rdquo;</b> &mdash; is an exact description of what is now ruled. The two documents were never far apart; they were arguing about whether the generator runs during <code>make</code>, and it does not.</p>
+<p><b>Path: <code>docs/language/operators.tsv</code></b>, the single-source-of-truth design's choice, not the standard library's. The normative file is not consumed by any program at run time &mdash; only the derived copies are &mdash; so putting it in <code>stdlib/</code> would imply a dependency that does not exist. <i>This last one is the orchestrator's call rather than a maintainer ruling; say so if you want it elsewhere.</i></p>
 <p class="note">A second, smaller disagreement, already flagged above: the number of spec files that invoke a build. 42 of 760 in the program directive (over <code>specs/language</code>), 18 of 988 from a live search at this commit (over the whole <code>specs/</code> tree), with <code>specs/language</code> itself counted at 773 here and 760 there. A third census, the one behind <a href="../articles/testing-a-language-you-are-rebuilding.html">The Answer Key Cannot Be One of the Contestants</a>, uses 760 for <code>specs/language</code> and 964 for <code>specs/language</code> plus <code>specs/compiler</code>. Nobody has reconciled the three.</p>
 </div>
 
