@@ -1,0 +1,34 @@
+import '../../main.hey'
+
+# The smallest useful cache: one memory layer and the application behind it.
+# For a persistent layer, inject a HeyRecordStore-shaped binding -- see
+# README.md "The layer model".
+
+fn basic_render(key)
+  says 'rendering ' + key
+  return 'page:' + key
+end
+
+program
+  let cache = HeyCache.open({
+    namespace: 'pages',
+    layers: [HeyCache.memory_layer('mem', {})],
+    default_ttl_ms: 60000,
+    clock: HeyCache.fixed_clock(1000),
+  })
+
+  let cold = HeyCache.fetch(cache, 'home', basic_render, {})
+  says cold.value
+  says cold.computed
+
+  # Second call: served from the memory layer, the app is not touched.
+  let warm = HeyCache.fetch(cold.cache, 'home', basic_render, {})
+  says warm.value
+  says warm.computed
+  says warm.layer
+
+  # A minute later it has expired and the app is asked again.
+  let later = HeyCache.advance(warm.cache, 60000)
+  let again = HeyCache.fetch(later, 'home', basic_render, {})
+  says again.computed
+end
