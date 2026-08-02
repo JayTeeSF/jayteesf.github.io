@@ -1,0 +1,55 @@
+# hey_reports — a runnable example.
+#
+#   heyc docs/examples/basic.hey
+#
+# Writes five SVG files into tmp/. `bin/check` runs this file and then
+# feeds every tmp/example-*.svg to rsvg-convert, which is a renderer
+# that has never heard of Hey -- so a chart that only LOOKS like SVG
+# fails the gate.
+
+import 'stdlib:Files'
+import '../../src/main.hey'
+
+program
+  let ready = Files.ensure_dir('tmp')
+
+  # Real data. Five weekdays, three delivery surfaces.
+  let days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  let web = Reports.series('Web', [120, 305, 210, 380, 260])
+  let mobile = Reports.series('Mobile', [90, 150, 260, 210, 340])
+  let tv = Reports.series('TV', [20, 40, 35, 60, 55])
+
+  let bars = Reports.labelled(
+    Reports.chart('bar', 'Signups by day', days, [web, mobile, tv]),
+    'Weekday', 'Signups')
+
+  let trend = Reports.labelled(
+    Reports.chart('line', 'Signups trend', days, [web, mobile, tv]),
+    'Weekday', 'Signups')
+
+  let share = Reports.chart('pie', 'Share by surface',
+    ['Web', 'Mobile', 'TV'],
+    [Reports.series('Total', [1275, 1050, 210])])
+
+  # ONE model, three surfaces. The chart never mentions a pixel.
+  let a = Files.write_text('tmp/example-bar-web.svg', ReportsSvg.render(bars, ReportsTheme.web()))
+  let b = Files.write_text('tmp/example-line-web.svg', ReportsSvg.render(trend, ReportsTheme.web()))
+  let c = Files.write_text('tmp/example-pie-web.svg', ReportsSvg.render(share, ReportsTheme.web()))
+  let d = Files.write_text('tmp/example-bar-tv.svg', ReportsSvg.render(bars, ReportsTheme.tv()))
+  let e = Files.write_text('tmp/example-bar-mobile.svg', ReportsSvg.render(bars, ReportsTheme.mobile()))
+
+  says 'bar-web    ' + Files.size('tmp/example-bar-web.svg') + ' bytes'
+  says 'line-web   ' + Files.size('tmp/example-line-web.svg') + ' bytes'
+  says 'pie-web    ' + Files.size('tmp/example-pie-web.svg') + ' bytes'
+  says 'bar-tv     ' + Files.size('tmp/example-bar-tv.svg') + ' bytes'
+  says 'bar-mobile ' + Files.size('tmp/example-bar-mobile.svg') + ' bytes'
+
+  # A television consumes a scene document, not markup.
+  let scene = HeyReports.render_for(bars, 'tv')
+  let f = Files.write_text('tmp/example-bar-tv.scene.json', to_json(scene.scene))
+  says 'bar-tv scene ' + Files.size('tmp/example-bar-tv.scene.json') + ' bytes, ' + scene.scene.widgets.length + ' widgets'
+
+  # A caller that wants a raster does the conversion itself; the
+  # package hands over the command and runs nothing.
+  says 'raster: ' + ReportsRaster.implemented?() + ' (run: ' + Text.join(ReportsRaster.argv('rsvg-convert', 'tmp/example-bar-web.svg', 'tmp/example-bar-web.png', 1600), ' ') + ')'
+end
