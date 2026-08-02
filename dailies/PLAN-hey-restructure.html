@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="article-desc" content="The restructure plan in plain English: the three targets that define done, what is kept and what is rebuilt, the phases and how each is verified, why it can move fast, and the risks and unknowns stated rather than smoothed over.">
+<meta name="article-desc" content="The restructure plan in plain English: the three targets that define done, what is kept and what is rebuilt, the fifteen-step runway the phases are built on, how each phase is verified, why it can move fast, and the risks and unknowns stated rather than smoothed over.">
 <meta name="article-index-title" content="The plan — restructuring Hey">
-<meta name="article-index-desc" content="Three targets define done. What we keep, what we rebuild, in what order, and how we'll know it worked — including what is not yet sized.">
+<meta name="article-index-desc" content="Three targets define done. What we keep, what we rebuild, the fifteen steps in order, and how we'll know it worked — including what is not yet sized.">
 <meta name="article-date" content="2026-08-02">
 <title>The plan &middot; Hey &middot; restructure</title>
 <style>
@@ -79,10 +79,13 @@
 
 
 <div class="d open" style="margin:0 0 1.6rem">
-<h3>Updated 2 August &mdash; two corrections and a reordering</h3>
-<p><b>1. The parser decides what <code>-</code> means, not the tokenizer.</b> The tokenizer always emits a MINUS token; the parser decides prefix or infix from context, which is what Pratt parsing was designed for. This doesn't just tidy the current lexical guess &mdash; it makes the <code>arr[0] - 1</code> bug family <b>unrepresentable</b>, because the previous-character set stops existing.</p>
-<p><b>2. Don't complete the self-hosted emitter against the old intermediate form.</b> Keep the fallback counter. But that form still carries raw source expressions which the emitter re-parses, so every handler written against it is a handler that must be migrated or thrown away &mdash; and each one enlarges the surface that has to move.</p>
-<p><b>3. &ldquo;Non-copying access&rdquo; is two jobs at opposite ends.</b> Verification found that <b>construction</b> must move earlier &mdash; every node currently costs a JSON parse of the two-character document <code>{}</code>, and there is no sized constructor in that lane at all. But <b>reading</b> must stay late: a child fetch is spelled at fifteen sites across five modules today and in exactly one generated file afterwards, so doing it early means doing the hard version and then doing it again.</p>
+<h3>Updated 2 August &mdash; one reordering and five corrections</h3>
+<p><b>1. The front end comes first. The emitter is finished last, against the new MIR.</b> An earlier version of this page scheduled &ldquo;finish the Hey-written LLVM emitter&rdquo; before the front end existed. That is backwards. Today's intermediate form still carries raw source expressions which the emitter re-parses, so every handler written against it is a handler that must be migrated or thrown away &mdash; and each one enlarges the surface that has to move. Keep the fallback counter from day one; finish the emitter when it is being handed real instructions.</p>
+<p><b>2. The parser decides what <code>-</code> means, not the tokenizer.</b> The tokenizer always emits one MINUS token and never inspects the previous character; the parser decides prefix or infix from grammar context, which is what Pratt parsing was designed for. This doesn't just tidy the current lexical guess &mdash; it makes the <code>arr[0] - 1</code> bug family <b>unrepresentable</b>, because the previous-character set stops existing.</p>
+<p><b>3. The compiler's core data structure is ruled, and the reasoning we used to get there was wrong.</b> Compiler nodes stay <b>map-shaped</b> and become a <b>generated</b> subsystem produced from one schema. Records and pattern matching are <b>not</b> prerequisites and the front end waits for neither. The old argument &mdash; Hey's defects are missing cases, so exhaustive matching would protect us &mdash; was tested against five real defects and <b>zero of the five</b> would have been caught.</p>
+<p><b>4. The byte-for-byte tests have an exit, and it is not a date.</b> They retire <i>per test</i>: each one states what it was really protecting, is replaced by a test of that, and the replacement is proven able to fail before the old fixture is marked superseded.</p>
+<p><b>5. The runtime does not stay unchanged.</b> It gains an exact-sized constructor for compiler nodes, then a direct borrowed read, and one bug fix that belongs to it alone.</p>
+<p><b>6. &ldquo;Non-copying access&rdquo; is two jobs at opposite ends.</b> Verification found that <b>construction</b> must move earlier &mdash; every node currently costs a JSON parse of the two-character document <code>{}</code>, and there is no sized constructor in that lane at all. But <b>reading</b> must stay late: a child fetch is spelled at fifteen sites across five modules today and in exactly one generated file afterwards, so doing it early means doing the hard version and then doing it again.</p>
 <p class="note">Full reasoning: <a href="REVIEW-restructure-plan.html">Review of the restructure plan</a>. Settled outcomes: <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>.</p>
 </div>
 <div class="d">
@@ -97,7 +100,7 @@
 <li><b>Fannkuch.</b></li>
 <li><b>1BRC</b> &mdash; the billion-row challenge.</li>
 </ol>
-<p class="note">When all three run on the restructured pathway at or above where they run today, we are ready. <b>These are the exit criteria. Nothing else is.</b> No phase below is finished because it feels finished.</p>
+<p class="note">When all three run on the restructured pathway at or above where they run today, we are ready. <b>These are the exit criteria. Nothing else is.</b> Not &ldquo;all specs green&rdquo;, and no phase below is finished because it feels finished.</p>
 </div>
 
 <p>One thing you said reorganises the work more than anything else: you will keep running the current version until the new one is good. Until now every landing had to leave the shipped compiler working, which forced small reversible steps. That constraint is lifted here. The obvious risk is a path nobody checks, so <b>the specs replace the release cadence as the thing that keeps us honest.</b> A <i>spec</i>, here and below, is an executable test: a small Hey program checked in beside the answer it is required to produce.</p>
@@ -110,24 +113,62 @@
 <div class="row n"><span class="what">Tokenizer</span><span class="tag">new</span></div>
 <div class="row n"><span class="what">Syntax tree</span><span class="tag">new</span></div>
 <div class="row n"><span class="what">Name resolution</span><span class="tag">new</span></div>
+<div class="row n"><span class="what">Compiler node subsystem</span><span class="tag">new, and generated</span></div>
 <div class="row m"><span class="what">Meaning and types (HIR)</span><span class="tag">purpose kept, mechanism rebuilt</span></div>
 <div class="row m"><span class="what">Machine shapes and operators (MIR)</span><span class="tag">partly new construction</span></div>
 <div class="row k"><span class="what">LLVM emitter</span><span class="tag">keep and complete</span></div>
 <div class="row k"><span class="what">Assemble and link</span><span class="tag">keep</span></div>
-<div class="row k"><span class="what">Runtime</span><span class="tag">keep unchanged</span></div>
+<div class="row m"><span class="what">Runtime</span><span class="tag">keep, plus three additions</span></div>
 </div>
-<p class="figcap">Every red box is new; all of it is in the front end. Green is untouched. Each row is a stage on <a href="ARCHITECTURE-hey-restructured.html#d1">the first diagram of the architecture page</a>, under the same name. Source: the architecture diagram set, 2 August 2026.</p>
+<p class="figcap">Every red box is new; all of it is in the front end or in the machinery that holds the front end's data. Green is untouched. Each row is a stage on <a href="ARCHITECTURE-hey-restructured.html#d1">the first diagram of the architecture page</a>, under the same name. Source: the architecture diagram set, 2 August 2026.</p>
 
 <p><b>Machine shapes and operators &mdash; MIR, the stage between meaning and instructions &mdash; is the one you should see now rather than discover in month two.</b> It is supposed to turn meaning into instructions. Today it renames types and rewrites a header, and that is all: compare the checked-in before-and-after files for one program and the right-hand side of every line is still raw Hey source text. Its own source says so &mdash; "expressions are raw text". Search it for a single arithmetic operator and you get nothing.</p>
 
 <p>So the LLVM emitter downstream re-reads expressions itself, with thirteen hand-written scanners &mdash; a second census of the same file counted six, on a narrower definition, and neither count has been reconciled &mdash; while the comment at the top of its own file forbids exactly that. It is not disobedient. It is stranded.</p>
 
+<h2>The runtime's three additions</h2>
+
+<p>The earlier version of this page said the runtime was unchanged. That was wrong, and the correction is small but load-bearing &mdash; two of the three are the only reason the node subsystem is affordable at all.</p>
+
+<div class="d">
+<p><b>1. An exact-sized constructor for compiler nodes.</b> Today making a node means parsing the two-character JSON document <code>{}</code> and then inserting fields one at a time, growing the map as it goes. The new call is told up front how many fields the node has, fills them, and <b>freezes the node when it is complete.</b> No parsing, no repeated insertion, no growth. This is runway step 3, and it is early because it is cheap and everything after it is measured with it.</p>
+<p><b>2. A direct borrowed read of one slot.</b> Fetching a child currently copies. Borrowing does not. This is the late half of the same performance fix &mdash; runway step 8 &mdash; and it is late on purpose: a child fetch is spelled at fifteen sites across five modules today and in exactly one generated file afterwards.</p>
+<p><b>3. <code>Json.encode</code> must refuse a callable.</b> It currently writes <code>null</code>, silently, with no error and no warning &mdash; the exact class of defect this whole effort is about. It must fail with an error that names the path: <code>Json.encode cannot encode Callable at $.key</code>. This one is a bug fix, not architecture, and it does not wait for anything.</p>
+</div>
+
+<h2>The runway &mdash; fifteen steps, in this order</h2>
+
+<p>The phases below are built on this. It is one ordered list because most of the ordering is forced: you cannot generate walkers before there is a schema, you cannot rename a physical key before every read goes through a generated accessor, and you cannot finish the emitter before it is being handed instructions instead of text.</p>
+
+<pre> 0  preserve behaviour — counters and regression tests, nothing else changes
+ 1  census every node population — syntax, HIR, MIR, diagnostics
+ 2  the explicit-index node schema, and the host-side generator that reads it
+ 3  the exact-sized node constructor
+ 4  generate the compatibility layer — constructors, accessors, walkers, validators
+ 5  move every node CONSTRUCTION onto the generated constructors
+ 6  move every READ and every child traversal onto the generated accessors
+ 7  cut the physical keys over to n_ names — one deliberate cutover
+ 8  direct borrowed slot reads — the late half of the performance fix
+ 9  source manager, tokenizer, parser
+10  resolver, imports, operator bindings, module graph
+11  rebuild HIR and MIR so that neither carries a raw expression
+12  interpreter and its prompt onto the shared HIR
+13  drive both legacy counters to zero
+14  delete the bootstrap compatibility paths</pre>
+
+<div class="d">
+<h3>Three things about that list that are easy to miss</h3>
+<p><b>Steps 5, 6 and 7 are one migration in three passes, and the order is the whole trick.</b> First every place that <i>makes</i> a node goes through a generated constructor. Then every place that <i>reads</i> one goes through a generated accessor. Only then do the physical key names change &mdash; and because nothing outside the generated file types those names any more, the rename is a single deliberate cutover rather than a migration. <b>There is no dual-key period.</b> A period where both the old and the new key work is precisely the shape this whole effort exists to eliminate: one fact, live in two places, with nothing forcing them to agree. If a hand-written access survives step 6, step 7 is where it fails loudly &mdash; which is the point.</p>
+<p><b>The generator is written in a host language that is already in the build environment</b> &mdash; Ruby, Python or C &mdash; and <b>never in the Hey being built.</b> Its output is checked in. The build does not run it; <code>make verify</code> regenerates it and diffs against what is committed. <b>There is no bootstrap cycle, because Hey is never on the generating side.</b> The host language is a prerequisite for <i>changing</i> the schema, not for <i>building</i> the compiler, and that distinction is the whole of it.</p>
+<p><b>Step 13 is two independent counters, not one.</b> The first counts uses of the legacy local <code>set</code> &mdash; changeable local variables, which the language no longer has and the current compiler is full of, available only to a named list of compiler files. The second counts builds that fell back to the old front end. <b>Either can reach zero while the other is nowhere near it</b>, which is exactly why they are counted separately and why step 14 waits for both.</p>
+</div>
+
 <h2>The phases</h2>
 
 <div class="phase">
-<h3>0 &nbsp;Make the silent hand-off loud</h3>
-<p>When the Hey-written LLVM emitter meets something it cannot handle, the build quietly hands that program to the older C one. The precise reason is computed and then thrown away, and no switch prints it. About six lines of work.</p>
-<p class="v"><b>Verified by:</b> every build becomes a counter. Until this exists, "finish the port" has no finish line. It goes first because everything after it is measured with it.</p>
+<h3>0 &nbsp;Make the silent hand-off loud &mdash; <span style="color:var(--mute);font-weight:400">runway 0</span></h3>
+<p>When the Hey-written LLVM emitter meets something it cannot handle, the build quietly hands that program to the older C one. The precise reason is computed and then thrown away, and no switch prints it. About six lines of work. The legacy-<code>set</code> counter starts here too, and the existing regression suite is pinned before anything moves.</p>
+<p class="v"><b>Verified by:</b> every build becomes a counter. Until this exists, &ldquo;finish the port&rdquo; has no finish line. It goes first because everything after it is measured with it.</p>
 </div>
 
 <div class="phase">
@@ -137,25 +178,31 @@
 </div>
 
 <div class="phase">
-<h3>2 &nbsp;Finish the Hey-written LLVM emitter</h3>
-<p>Pure addition. Two independent counts agree that it can do nothing the C one cannot, so this is a one-directional port and never a merge. The work list is a specific 344 runtime facilities it does not yet reach, plus floating point, which it has none of.</p>
-<p class="v"><b>Verified by:</b> phase 0's counter reaching zero across the example corpus &mdash; after the corpus is checked for selection bias, since at least one example in it was written around a gap rather than exposing one, and says so in a comment.</p>
+<h3>2 &nbsp;The node subsystem &mdash; <span style="color:var(--mute);font-weight:400">runway 1 to 8</span></h3>
+<p>How the compiler stores your program, decided once and then generated. A node stays a <b>map</b> &mdash; maps are the language's own thing and they are not being taken away from it &mdash; but no compiler code writes or reads one by hand any more. One schema produces the constructors, the field slots, the accessors, the child lists, the walkers, the rewriters, the validators and the coverage checks. Count the populations first (step 1), because that census is what sizes everything after it.</p>
+<p class="v"><b>Verified by:</b> a build that <b>fails when a new node kind has no resolver and no lowering</b> &mdash; the generated coverage check. Plus <code>make verify</code> regenerating the whole layer and finding no difference from what is committed. And, at steps 3 and 8, the node-construction and node-read costs measured before and after.</p>
 </div>
 
 <div class="phase">
-<h3>3 &nbsp;The interpreter</h3>
-<p>The scheduling surprise. The <i>interpreter</i> &mdash; the thing that runs a program without compiling it, and whose interactive face is the prompt &mdash; shares no code with the new pathway. Not one reference. So "one pathway serving both compiling and typing a line" is at 0% for the interpreter half. The recommendation is that it stops parsing for itself and walks the same typed form the compiler produces. Its values and built-ins already live in the shared runtime; only its parser dies.</p>
-<p class="v"><b>Verified by:</b> the existing interpreter-driven specs passing unchanged &mdash; which is also the payoff, because that one change takes the overwhelming majority of our specs from exercising none of the compile pathway to exercising four stages of it.</p>
+<h3>3 &nbsp;The front end &mdash; <span style="color:var(--mute);font-weight:400">runway 9 to 12</span></h3>
+<p>The three missing stages, in order: a source manager that gives every file a stable id so an error can name the file it came from; the tokenizer; the parser. Then the resolver, with imports, operator bindings and the module graph. Then HIR and MIR are rebuilt so that <b>neither carries a raw expression in operand position</b> &mdash; that is the step that turns the LLVM emitter from a compiler into a printer. Last, the interpreter stops parsing for itself and walks the same HIR the compiler produces; its values and built-ins already live in the shared runtime, so only its parser dies.</p>
+<p class="v"><b>Verified by:</b> shadow mode &mdash; run the new front end on every build while the old back end still executes, which establishes parse coverage across the whole repository without the back end being finished. Then the existing interpreter-driven specs passing unchanged, which is also the payoff: that one change takes the overwhelming majority of our specs from exercising none of the compile pathway to exercising four stages of it.</p>
 </div>
 
 <div class="phase">
-<h3>4 &nbsp;Delete the old paths</h3>
-<p>Only now, and per the standing rule: a path is switched off after the specs that pin its behaviour exist <i>and</i> have been proven able to fail. Record what it was catching before it goes. The C LLVM emitter cannot be dropped until phase 2 completes &mdash; integer division and remainder still run through it.</p>
+<h3>4 &nbsp;Finish the Hey-written LLVM emitter &mdash; against the new MIR</h3>
+<p>Pure addition, and now against a form that hands it lowered instructions rather than text. Two independent counts agree that it can do nothing the C one cannot, so this is a one-directional port and never a merge. The work list is a specific 344 runtime facilities it does not yet reach, plus floating point, which it has none of. <b>This is the phase that moved.</b> Doing it earlier would have meant writing hundreds of handlers around the shape the front end replaces.</p>
+<p class="v"><b>Verified by:</b> phase 0's fallback counter reaching zero across the example corpus &mdash; after the corpus is checked for selection bias, since at least one example in it was written around a gap rather than exposing one, and says so in a comment.</p>
+</div>
+
+<div class="phase">
+<h3>5 &nbsp;Delete the old paths &mdash; <span style="color:var(--mute);font-weight:400">runway 13 and 14</span></h3>
+<p>Only now, and per the standing rule: a path is switched off after the specs that pin its behaviour exist <i>and</i> have been proven able to fail. Record what it was catching before it goes. Both legacy counters must read zero first. The C LLVM emitter cannot be dropped until phase 4 completes &mdash; integer division and remainder still run through it.</p>
 <p class="v"><b>Verified by:</b> deleting the implementation and watching the spec go red, one path at a time.</p>
 </div>
 
 <div class="phase">
-<h3>5 &nbsp;Apps on top</h3>
+<h3>6 &nbsp;Apps on top</h3>
 <p>Run the real applications, find the regressions and the new bugs, write a spec for each. Your own loop &mdash; and the app teams already file exactly this kind of report.</p>
 <p class="v"><b>Verified by:</b> the three exit criteria at the top of this page.</p>
 </div>
@@ -168,22 +215,25 @@
 
 <p><b>And the port is addition only.</b> Measured twice, by two different methods, which is why it is worth stating flatly: the Hey-written LLVM emitter can do <b>nothing</b> the C one cannot. Both declare the same 573 facilities; the Hey one reaches 205, the C one about 549, and the 344-item difference <i>is</i> the work list. Nothing has to be reconciled or merged. Honest caveat: that proof is at the level of runtime calls, so a construct handled entirely inline by one and not the other would be invisible to it. Settling it to certainty needs a build we have not run.</p>
 
+<h2>The risk that turned out not to be one</h2>
+
+<div class="d goal">
+<h3>The core data structure &mdash; ruled, and the reasoning reversed</h3>
+<p>This page used to carry, as its largest risk, the sentence <i>&ldquo;the compiler's core data structure needs features the compiler cannot compile&rdquo;</i>: the front end is written in Hey, a syntax tree wants records and pattern matching, Hey has neither, so nothing can start until one of three unsized options is chosen. <b>That framing is retired.</b></p>
+<p>Compiler nodes stay <b>map-shaped</b> and become <b>generated</b>. Records and pattern matching are not prerequisites for anything on the runway; if they are added later they are added as a language feature on their own merits, not as something the front end is waiting on.</p>
+<p><b>The reason matters more than the ruling, because the argument we were both making was tested and failed.</b> We wanted pattern matching because it catches forgotten cases. Research took five real defects from our own record and asked which would have been caught. <b>Zero of five.</b> They are not &ldquo;a dispatch missing a variant&rdquo;. They are <i>one fact decided in several places that disagree</i>, and <i>a walk that omits a child</i>.</p>
+<pre>the same fact implemented differently in N places  →  one source of truth
+a walk forgets a child field                       →  generated child lists
+a dispatch forgets a kind                          →  generated coverage check</pre>
+<p>Only the third of those is a pattern-matching problem, and only if you ban the catch-all arm. So the live bug where one walker forgets to visit <code>for</code> bodies &mdash; while six sibling walkers get it right &mdash; is evidence for <b>generating the walkers</b>, not for adding a language feature.</p>
+<p class="note">Two large compilers already paid for the alternative. Python describes its syntax tree in a small declaration file and generates the structures, the constructors and the visitors from it &mdash; in a language that had no pattern matching at all when it did so. LLVM built a whole declaration language for the same reason and says so plainly: to remove structural knowledge that would otherwise be written out by hand in many places and drift apart. Neither reached for a type-system feature. Both reached for one declaration and a generator.</p>
+</div>
+
 <h2>The risks, named</h2>
 
 <div class="d risk">
-<h3>The compiler's core data structure needs features the compiler cannot compile</h3>
-<p>The front end is to be written in Hey. A syntax tree wants records and pattern matching; Hey has neither, so a tree node has to be a general-purpose map and every step through the tree becomes a map lookup. Collections are 45 of the 344 facilities the Hey LLVM emitter cannot yet reach, integer division and remainder are on the same list, and it cannot compile itself today for that reason.</p>
-<p>Three ways out &mdash; write the front end against the interpreter first, finish the collections work first, or add a record type to the language &mdash; and <b>none can be sized without a build we have not run.</b> This is a schedule risk and it is not on the phase list.</p>
-</div>
-
-<div class="d risk">
 <h3>The interpreter is a third implementation at 0%</h3>
-<p>Called out twice on purpose. The compile half has a written list of what is missing; the interpreter half has none, because both surveys can only see what the new pathway <i>refuses</i>, and the interpreter never asks it anything.</p>
-</div>
-
-<div class="d risk">
-<h3>The rule that pins the new emitter has no exit</h3>
-<p>Every change to the Hey-written LLVM emitter must currently reproduce the C one's output byte for byte, against 90 stored samples. A new front end <i>will</i> change those bytes, and nobody has defined the moment when those samples stop being "whatever the old path emits" and become the new pipeline's own. Until that moment is defined, the contract that protects us also blocks us.</p>
+<p>Called out twice on purpose. The compile half has a written list of what is missing; the interpreter half has none, because both surveys can only see what the new pathway <i>refuses</i>, and the interpreter never asks it anything. Runway step 12 is where it joins, and the HIR walker is genuinely new code &mdash; not a port of the existing evaluator, because it consumes a different input. Size it as new construction.</p>
 </div>
 
 <div class="d risk">
@@ -191,30 +241,69 @@
 <p>An audit of all 276 gate scripts found <b>215 that no automated lane invokes</b>, 51 with no way to run them at all, and &mdash; the larger problem &mdash; 83 of the 159 that print a summary line make at least three claims the script never measured. A hard-coded summary cannot go partly red. Phase 1 is not just more specs; it is specs whose failure has been watched. The audit is written up in <a href="../articles/testing-a-language-you-are-rebuilding.html">The Answer Key Cannot Be One of the Contestants</a>.</p>
 </div>
 
-<h2>Decide before code is written</h2>
+<div class="d risk">
+<h3>The middle of the runway is not costed</h3>
+<p>Steps 2 through 8 are sized by the census at step 1, and that census has not been run. We know the shape of the work and the order it has to happen in; we do not yet know how many node kinds, how many construction sites, or how many read sites there are. <b>The census is cheap and it is first for that reason.</b></p>
+</div>
 
-<div class="d open">
-<h3>What does <code>not</code> bind to?</h3>
-<pre>not a == b
+<h2>How the byte-for-byte tests retire</h2>
 
-  the interpreter reads it as   (not a) == b
-  the compiler reads it as      not (a == b)
-  a third path doesn't recognise the word at all
-  the language reference asserts a fourth thing:
-    that they all agree</pre>
-<p class="note">The same split, spelled <code>!</code> rather than <code>not</code>, is the first decision on <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a>. Those readings come from reading the source, not from running it &mdash; the survey that found them says so and marks the printed values as still needing a build. What is not in doubt is that the orderings cannot all be right.</p>
-<p>Whichever way this is ruled, three of the five places that answer it today have to move. This is the one item where writing the rule down <i>changes</i> the language rather than recording it, so measurement cannot settle it. And it has to be settled before the parser is written, because the parser is what makes it one answer.</p>
-<p class="note">Two smaller ones in the same category: whether keyword arguments (<code>f(count: 2)</code>) are a real feature or get removed, and whether Hey gets an exponent operator. The second is cheap now and expensive later &mdash; the moment modules can reuse operator symbols, the built-in list becomes a public contract.</p>
+<div class="d">
+<p>Every change to the Hey-written LLVM emitter must currently reproduce the C one's output byte for byte, against 90 stored samples. A new front end <b>will</b> change those bytes. This used to be listed here as a risk with no exit; it is now a procedure, and the exit is <b>per test</b> rather than a date or a milestone.</p>
+<pre>for each stored sample:
+  1. say what it was ACTUALLY protecting
+  2. write a test of that
+  3. deliberately break the code and prove the new test fails
+  4. put the code back
+  5. mark the old one superseded
+
+then delete all the superseded ones in a single reviewed change</pre>
+<p>What replaces what:</p>
+<pre>what it actually protected        what replaces it
+program result                    semantic output / error test
+interpreted vs compiled agree     cross-lane behaviour test
+diagnostic wording and spans      normalised diagnostic snapshot
+token / tree / HIR / MIR shape    canonical structural snapshot
+an optimisation happened          MIR or LLVM pattern assertion
+instruction selection             assembly pattern test
+reproducible public artifact      exact-byte test REMAINS
+ABI or serialised format          exact-byte test REMAINS</pre>
+<p class="note"><b>Step 3 is the one that is easy to skip and must not be.</b> A replacement test that has never been watched failing is not a replacement; it is a second thing that cannot fail, which is the problem this page already names two sections up. And exact bytes survive only where the bytes are themselves a promise to somebody else &mdash; a reproducible artifact, an ABI, a stored file format &mdash; not because the old compiler happened to emit them.</p>
+</div>
+
+<h2>Answered before code is written</h2>
+
+<p>This section used to be a list of open questions. They are ruled, and the answers are recorded here because the parser is what makes each of them one answer rather than five. Full statements are on <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>.</p>
+
+<div class="d">
+<h3>How <code>and</code>, <code>or</code>, <code>not</code> and <code>!</code> bind</h3>
+<pre>!1 == 2        is   (!1) == 2         !  binds very tight
+not 1 == 2     is   not (1 == 2)      not binds very loose
+
+a &amp;&amp; b || c    is   (a &amp;&amp; b) || c     &amp;&amp; binds tighter than ||
+a and b or c   is   (a and b) or c    and/or are EQUAL, and loosest</pre>
+<p><b>Ruby's rules exactly, and <code>&amp;&amp;</code> and <code>||</code> are being added</b> &mdash; Hey does not have them today. Two spellings on purpose: <code>&amp;&amp;</code> and <code>||</code> for combining values, <code>and</code> and <code>or</code> for control flow. Measured against Ruby rather than copied from a table.</p>
+<p class="note">Three of the five places that answer this today have to move, and one of them does not recognise the word <code>not</code> at all. One thing we get for free: Ruby's famous trap is <code>y = 1 and 2</code> quietly binding <code>1</code>, because in Ruby <code>=</code> is an expression that binds tighter than <code>and</code>. Hey has no assignment expression, so <code>=</code> has no precedence to lose and the trap is <b>ungrammatical</b>, not merely unlikely.</p>
+</div>
+
+<div class="d">
+<h3>The other five, in one place</h3>
+<p><b>Whole-number division stays as it is.</b> <code>-7 / 2</code> is <code>-3</code>, rounding toward zero, like C and Go. Ruby's answer is <code>-4</code> and it is available by an opt-in import, per file, for anyone who wants it.</p>
+<p><b><code>**</code> is a library function that declares a symbol</b>, not something built into the compiler &mdash; which makes it the first real exercise of the import system on something that matters. It is <b>non-associative</b>: <code>2 ** 3 ** 2</code> is an error asking which you meant, rather than a guess.</p>
+<p><b>Default arguments are worked out at call time</b>, left to right, each one able to see the parameters before it and none of the ones after. So <code>fn f(a, b = a * 2)</code> is fine and <code>fn f(a = b, b = 1)</code> is an error.</p>
+<p><b>Operator overrides are lexically scoped to one file.</b> A file that imports Ruby's arithmetic gets Ruby's arithmetic; the libraries it calls keep the behaviour they were written and tested against.</p>
+<p><b>Precedence comes from the symbol, and never from the module.</b> Two languages that let modules set precedence were tested, and in both an import <i>silently changed how an expression parsed</i>. An import supplies meaning, never shape.</p>
+<p class="note">Keyword arguments were on the old list as &ldquo;a real feature or removed?&rdquo;. They are a real feature: the function signature is settled, the parameter order is enforced, and about 1,900 existing call sites stop being a thing the compiler fakes by re-reading its own text.</p>
 </div>
 
 <h2>What is not yet sized</h2>
 
-<p>Four things, stated so they are not a surprise later. <b>The bootstrap route</b> above &mdash; three options, none costed. <b>The interpreter</b> &mdash; 0% and unmeasured. <b>The byte-for-byte exit</b> &mdash; no trigger defined. <b>Actor lowering</b> &mdash; whether actors get their own instruction family or ride the ordinary call path is undecided, and one actor operation is missing from all three implementations.</p>
+<p>Three things, stated so they are not a surprise later. <b>The middle of the runway</b> &mdash; steps 2 through 8, pending the census at step 1. <b>The interpreter</b> &mdash; 0% and unmeasured, and new construction rather than a port. <b>Actor lowering</b> &mdash; whether actors get their own instruction family or ride the ordinary call path is undecided, and one actor operation is missing from all three implementations.</p>
 
 <p>Two places our own documents disagree, reported rather than quietly picked. <b>Spec coverage:</b> the program directive says 42 of 760 specs invoke a real build; a fresh count says 18 of 988. Part of that is the denominator &mdash; the 760 is one directory, the 988 is the whole spec tree, and a live count of that one directory returns 773 rather than 760. Unreconciled, and quoting either fraction without naming its directory is how the next drift starts. Both describe the same shape: the overwhelming majority of our specs never compile anything. <b>Chained comparisons</b> (<code>a == b == c</code>): one survey reads the interpreter as grouping to the right, a later one reads the same code as rejecting it outright and marks its own claim as needing a run to confirm. Neither has been executed.</p>
 
 <footer>
-<p>Drawn from the restructure program directive (2 August 2026) and six research briefs: the architecture diagram set, the operator surface census, the grammar as implemented, the construct surface census, the code-generator fallback census, and the falsifiability census. Every number above traces to one of them; where two disagree, both are printed. Claims marked as needing a build have not been run.</p>
+<p>Drawn from the restructure program directive (2 August 2026), the architecture review, and six research briefs: the architecture diagram set, the operator surface census, the grammar as implemented, the construct surface census, the code-generator fallback census, and the falsifiability census. Every number above traces to one of them; where two disagree, both are printed. Claims marked as needing a build have not been run. Where this page and <a href="DECISIONS-what-you-have-decided.html">the decisions page</a> or <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a> differ, those two are the authority and this one is the error.</p>
 </footer>
 
 </main>
