@@ -48,41 +48,72 @@
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 4</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 5</p>
 <h1>What you've decided</h1>
 <p class="lede">Every decision in plain English, with what it means and where it stands. Kept current — bookmark this rather than the numbered <i>Ask</i> pages, which are snapshots of a moment.</p>
 
-<h2 class="open-h">Waiting on you &mdash; three things</h2>
+<h2 class="open-h">Waiting on you &mdash; one thing</h2>
 
 <div class="d open">
-<h3>1 &nbsp;What does <code>not</code> bind to?</h3>
-<pre>not a == b
+<h3>1 &nbsp;Any other operators you want? The window is closing</h3>
+<pre>added by the last two decisions:   &&   ||
 
-  some parts of the system read it as   (not a) == b
-  others read it as                     not (a == b)
-  the language reference says            a third thing</pre>
-<p>Three different answers ship today, and the documentation asserts a position none of them takes. <b>This is the one place where writing the rule down <i>changes</i> the language</b> &mdash; we can't record a fact that doesn't exist yet.</p>
-<p class="note">It has to be settled before the new parser is written, because the parser is what makes it one answer.</p>
+not in the language today:         **      (exponent)
+                                   += -= etc
+                                   & | ^   (bitwise)
+                                   ..      (inclusive range; only ..&lt; exists)</pre>
+<p>Once modules can override operators, the list becomes a <b>public contract</b> &mdash; a module may only claim a symbol the language already has. <b>An operator we don't add now can never be claimed later.</b></p>
+<p class="note">Adding one now is a row in a table. <code>**</code> is the exception and costs more: it's right-associative, and nothing in the current design can express that &mdash; so it's a mechanism change, not a row. Worth knowing before you choose.</p>
 </div>
-<div class="d open">
-<h3>2 &nbsp;Are keyword arguments a real feature?</h3>
-<pre>tasks.map(work, workers: 4)      used about 1,900 times
 
-  but there is no rule for `name: value` anywhere in the language.
-  it works because two built-ins re-read their own raw text,
-  including a hard-coded check for the word "workers:".
-
-  so a function YOU write cannot take one.</pre>
-<p>It looks like a feature, it's used throughout, and it isn't in the language. <b>Make it real, or remove it and change the ~1,900 call sites?</b></p>
-<p class="note">This is also the root of the bug where <code>workers: 4</code> fails in your own site tooling. Same cause.</p>
-</div>
-<div class="d open">
-<h3>3 &nbsp;Two unfinished fixes &mdash; live or abandoned?</h3>
-<pre>a failed web request answers 500 instead of an empty 200
-a job-name registry</pre>
-<p>Both written in the last two days, neither in any plan, both on branches. <b>Finish them, or drop them?</b></p>
-</div>
 <h2>Settled</h2>
+
+<div class="d done">
+<h3>Two fixes going into the current version</h3>
+<pre>a web request that fails now answers 500
+  &mdash; today it can answer an empty 200, which reads as success
+
+jobs get a name registry
+  &mdash; define a job by name and get it back, instead of re-creating it</pre>
+<p>Both were written days ago, sat on branches in no plan, and were nearly deleted in the folder prune. You confirmed both are wanted, so they join the current version rather than the rebuild.</p>
+</div>
+
+<div class="d done">
+<h3>What a function signature looks like</h3>
+<pre>fn ultimate_fn(req, opt = 1, ...rest, kw_req:, kw_opt: 2, ...kw_rest)
+  # this is the valid order, and it is enforced
+end
+
+  req          required
+  opt = 1      optional, with a default
+  ...rest      everything else positional, as a list
+  kw_req:      required, by name
+  kw_opt: 2    optional, by name, with a default
+  ...kw_rest   every other named argument, as a map</pre>
+<p>Ruby's shape, with one deliberate difference: <b>no block parameter.</b> Ruby needs <code>&amp;block</code> because blocks are a special thing that isn't a value. Ours are &mdash; you pass a function like any other argument, so there's nothing to convert and no second syntax to learn.</p>
+<p class="note"><b>Why <code>...</code> and not Ruby's <code>*</code> and <code>**</code>:</b> Hey already spreads with <code>...</code>, and it already means both things depending on what it's spreading &mdash; <code>[...items]</code> for a list, <code>{...options}</code> for a map. The same rule extends here: the first <code>...</code> comes before any named parameter and collects a list; the second comes after and collects a map. One spelling, no new concept. Ruby needs two because it has no general spread.</p>
+</div>
+
+<div class="d done">
+<h3>How <code>and</code>, <code>or</code> and <code>not</code> bind</h3>
+<pre>!1 == 2        is   (!1) == 2         !  binds very tight
+not 1 == 2     is   not (1 == 2)      not binds very loose
+
+a && b || c    is   (a && b) || c     && binds tighter than ||
+a and b or c   is   (a and b) or c    and/or are EQUAL, and loosest</pre>
+<p>Ruby's rules exactly, and <code>&amp;&amp;</code> and <code>||</code> get added &mdash; Hey doesn't have them today. Two spellings on purpose: <code>&amp;&amp;</code> and <code>||</code> for combining values, <code>and</code> and <code>or</code> for control flow.</p>
+<p class="note">Measured against Ruby rather than copied from a table &mdash; the first attempt used values where several readings gave the same answer and proved nothing. <b>One good thing we may get for free:</b> Ruby's famous trap is <code>y = 1 and 2</code> assigning <code>1</code>, because <code>=</code> is an expression that binds tighter than <code>and</code>. Hey has no bare <code>=</code> &mdash; only <code>let</code> and <code>set</code> statements &mdash; so the trap may be unwritable here. Being checked before we copy the rule wholesale.</p>
+</div>
+
+<div class="d done">
+<h3>Functions can live in lists and maps &mdash; but never in JSON</h3>
+<pre>let handlers = { on_save: save_it, on_quit: quit_now }
+handlers.on_save(document)              works
+
+Json.encode(handlers)                   stops with an error</pre>
+<p>Storing a function in a list or a map is ordinary and supported. <b>Writing one to JSON is refused.</b></p>
+<p class="note">Two reasons, and the second is the serious one. JSON has no function type, so anything we invented would be a lie to every other program that reads it &mdash; and the obvious encoding, a string starting with <code>&amp;</code>, can't be told apart from a string that genuinely starts with <code>&amp;</code>. More importantly: <b>a JSON document that can name a function to call is a way in.</b> Load an untrusted file, get a value that resolves to something destructive by name. That exact shape has burned Ruby, Python and Java. If we ever want it, it's opt-in with a list of permitted names &mdash; never the default.</p>
+</div>
 
 <div class="d done">
 <h3>What &ldquo;done&rdquo; means</h3>
