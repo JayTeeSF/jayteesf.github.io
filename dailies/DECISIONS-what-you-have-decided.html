@@ -48,22 +48,37 @@
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 6</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 7</p>
 <h1>What you've decided</h1>
 <p class="lede">Every decision in plain English, with what it means and where it stands. Kept current — bookmark this rather than the numbered <i>Ask</i> pages, which are snapshots of a moment.</p>
 
-<h2 class="open-h">Waiting on you &mdash; one thing</h2>
+<h2 class="open-h">Waiting on you &mdash; three things</h2>
 
 <div class="d open">
-<h3>1 &nbsp;Any other operators you want? The window is closing</h3>
-<pre>added by the last two decisions:   &&   ||
+<h3>1 &nbsp;The compiler needs language features the compiler can't compile</h3>
+<pre>a syntax tree wants:   records with named fields
+                       "if it's one of these shapes, do that"
 
-not in the language today:         **      (exponent)
-                                   += -= etc
-                                   & | ^   (bitwise)
-                                   ..      (inclusive range; only ..&lt; exists)</pre>
-<p>Once modules can override operators, the list becomes a <b>public contract</b> &mdash; a module may only claim a symbol the language already has. <b>An operator we don't add now can never be claimed later.</b></p>
-<p class="note">Adding one now is a row in a table. <code>**</code> is the exception and costs more: it's right-associative, and nothing in the current design can express that &mdash; so it's a mechanism change, not a row. Worth knowing before you choose.</p>
+Hey has today:         maps with string keys, and if/else</pre>
+<p>The new front end has to <i>build</i> a tree of the program. In most languages that's a record type plus pattern matching. Hey has neither &mdash; so either we build the tree out of plain maps and live with it, or we add those features to the language first.</p>
+<p class="note">This is the biggest unsized risk in the whole plan. Maps work and cost nothing to start; they're slower and easier to get wrong. Adding the features is the right long answer and delays everything behind it. <b>I'd start with maps and measure</b> &mdash; but you should know the choice is being made.</p>
+</div>
+
+<div class="d open">
+<h3>2 &nbsp;Two details of the new function signature</h3>
+<pre>fn f(a, b = 1, ...rest, k:, kw: 2, ...kw_rest)
+
+  is the ORDER enforced?     what happens if someone writes ...rest first?
+  when is `b = 1` computed?  Ruby computes it at call time, so
+                             fn f(a, b = a * 2)  works</pre>
+<p>Both are cheap to decide now and awkward later, because programs will depend on whichever we pick.</p>
+<p class="note">My suggestion: enforce the order with an error naming the correct one, and compute defaults at call time so they can refer to earlier parameters &mdash; that's Ruby's behaviour and it's the more useful of the two.</p>
+</div>
+
+<div class="d open">
+<h3>3 &nbsp;When do the old tests stop being the standard?</h3>
+<p>About ninety of our tests currently check that the new compiler produces <i>byte-for-byte what the old one produced</i>. A real front end will change those bytes &mdash; correctly. So at some point that test stops meaning &ldquo;still right&rdquo; and starts meaning &ldquo;still old&rdquo;.</p>
+<p class="note">Nothing currently schedules that moment, and if we don't pick one we'll either freeze the old output forever or quietly delete a real safety net. <b>My suggestion:</b> keep it until the specs that describe the same behaviour <i>in their own words</i> exist and are proven able to fail &mdash; then retire it in one deliberate step and record what it had been catching.</p>
 </div>
 
 <h2>Settled</h2>
@@ -76,6 +91,44 @@ not in the language today:         **      (exponent)
 jobs get a name registry
   &mdash; define a job by name and get it back, instead of re-creating it</pre>
 <p>Both were written days ago, sat on branches in no plan, and were nearly deleted in the folder prune. You confirmed both are wanted, so they join the current version rather than the rebuild.</p>
+</div>
+
+<div class="d done">
+<h3>The complete operator set &mdash; now closed</h3>
+<pre>arithmetic     +   -   *   /   %   **
+comparison     ==  !=  <   <=  >   >=
+boolean        &&  ||  and  or  not  !
+bitwise        &   |   ^   <<  >>
+assignment     =   +=  -=  *=  /=  %=
+range          ..&lt;   ..
+spread         ...</pre>
+<p>Everything in <b>bold</b> below is new: <code>**</code>, <code>&amp;&amp;</code>, <code>||</code>, the compound assignments, all the bitwise ones, and inclusive <code>..</code>.</p>
+<p class="note"><b>Why now, and why this is the last cheap moment:</b> once a module can claim a symbol, the list is a public contract &mdash; a module may only claim something the language already has. An operator we don't add now can never be claimed later.</p>
+<p class="note"><b>Does a bigger table slow the compiler? No.</b> A tokenizer is a machine that walks characters; one more symbol is one more step it already knew how to take. Compile time grows with how much code <i>you</i> write, not with how many operators exist. It <i>is</i> expensive in the current design &mdash; every operator there is another pass over the text, which is why the same decision is made in 45-plus places. So this was a language question, not a speed question.</p>
+</div>
+
+<div class="d done">
+<h3>One <code>pow</code>, not two &mdash; and why the obvious shortcut is wrong</h3>
+<pre>Math.pow(2, 3)       8      whole in, whole out
+Math.pow(2.0, 3.0)   8.0    decimals in, decimal out
+
+  same function. no pow_f.</pre>
+<p>Rust needs two functions because it makes you write the types down, and whole numbers and decimals are different types there. Hey doesn't &mdash; a value knows what it is at run time, so one function handles both, exactly as Python does.</p>
+<p class="note"><b>It isn't slow.</b> For <code>2 ** 3</code> the compiler already knows both are whole numbers and emits the whole-number path with no check at all. Only when it genuinely can't tell does it look &mdash; the same deal <code>+</code> already gets.</p>
+<p class="note"><b>The shortcut you floated &mdash; convert everything to a decimal, convert back if it ends in .0 &mdash; is not slow, it's WRONG.</b> Measured:
+<br><code>3 ** 40</code> should be <code>12157665459056928801</code>; through a decimal it comes back <code>...768</code>, <b>wrong by 33</b>.
+<br><code>10 ** 23</code> comes back <b>wrong by 8,388,608</b>.
+<br>Past about 9 quadrillion a decimal can't hold every whole number, so the round trip loses digits silently. You suspected it was bad; that's the reason.</p>
+</div>
+
+<div class="d done">
+<h3>Ranges &mdash; where we come out ahead of Ruby</h3>
+<pre>1 ..&lt; 5     1 2 3 4        already existed
+1 ..  5     1 2 3 4 5      new
+
+Ruby:  1...5  excludes,  1..5  includes    &mdash; one dot apart</pre>
+<p>Ruby's two ranges differ by a single dot, which is a long-standing readability complaint. Ours differ by a visible <code>&lt;</code>, which reads as &ldquo;up to but less than&rdquo;.</p>
+<p class="note">And Ruby's spelling wasn't available to us anyway: Ruby's exclusive range is <code>...</code>, which is <i>already</i> Hey's spread operator. Keeping <code>..&lt;</code> avoided a collision we would otherwise have walked into.</p>
 </div>
 
 <div class="d done">
