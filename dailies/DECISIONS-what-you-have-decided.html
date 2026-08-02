@@ -48,48 +48,77 @@
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 2</p>
 <h1>What you've decided</h1>
 <p class="lede">Every decision in plain English, with what it means and where it stands. Kept current — bookmark this rather than the numbered <i>Ask</i> pages, which are snapshots of a moment.</p>
 
-<h2 class="open-h">Waiting on you &mdash; three things</h2>
+<h2 class="open-h">Waiting on you &mdash; two things, both needed before a parser is written</h2>
 
 <div class="d open">
-<h3>1 &nbsp;How decimals print, for very large numbers</h3>
-<pre>says 100.0     now 1e2  →  100.0        agreed, no question here
+<h3>1 &nbsp;What does <code>not</code> bind to?</h3>
+<pre>not a == b
 
-says 100000000000000.0
-     exactly like Ruby    100000000000000.0
-     shortest wins        1.0e+14</pre>
-<p>You said &ldquo;match Ruby&rdquo;, but the rule you wrote was &ldquo;whichever is shorter&rdquo;. They only disagree above about a hundred trillion. <b>Which one?</b></p>
-<p class="note">Cheap either way. One function renders every decimal in the language, so this is a small change whichever you pick.</p>
+  some parts of the system read it as   (not a) == b
+  others read it as                     not (a == b)
+  the language reference says            a third thing</pre>
+<p>Three different answers ship today, and the documentation asserts a position none of them takes. <b>This is the one place where writing the rule down <i>changes</i> the language</b> &mdash; we can't record a fact that doesn't exist yet.</p>
+<p class="note">It has to be settled before the new parser is written, because the parser is what makes it one answer.</p>
 </div>
 
 <div class="d open">
-<h3>2 &nbsp;When a number gets too big</h3>
-<pre>9223372036854775807 + 1
+<h3>2 &nbsp;Are keyword arguments a real feature?</h3>
+<pre>tasks.map(work, workers: 4)      used about 1,900 times
 
-  now     -9223372036854775808     wraps around, silently
-  Ruby     9223372036854775808     just keeps counting</pre>
-<p>You described the good answer and I hadn't offered it: <b>ask the chip whether it overflowed &mdash; it already knows &mdash; and redo that one calculation in a wider type.</b> Almost always no, so almost always free.</p>
-<p class="note">That's how Ruby and JavaScript engines actually do it. My original three options were all worse than yours. <b>Take it?</b></p>
-</div>
+  but there is no rule for `name: value` anywhere in the language.
+  it works because two built-ins re-read their own raw text,
+  including a hard-coded check for the word "workers:".
 
-<div class="d open">
-<h3>3 &nbsp;Nine old work folders</h3>
-<p>Kept back from the prune because deleting them would lose something. Four questions:</p>
-<pre>design notes         ~4,000 lines that exist nowhere else,
-                     including a long research document you asked for
-                     → move into docs, or let go?
-
-a proven dead end    someone showed an optimisation doesn't work
-                     → save the finding, then delete?
-
-three unfinished     from the last two days, in no plan
-fixes                → live, or abandoned?</pre>
+  so a function YOU write cannot take one.</pre>
+<p>It looks like a feature, it's used throughout, and it isn't in the language. <b>Make it real, or remove it and change the ~1,900 call sites?</b></p>
+<p class="note">This is also the root of the bug where <code>workers: 4</code> fails in your own site tooling. Same cause.</p>
 </div>
 
 <h2>Settled</h2>
+
+<div class="d done">
+<h3>Your version is pinned, and we build the new one separately</h3>
+<pre>git checkout stable          ← what you run; only moves when you say so
+last-known-good-2026-08-02   ← the same commit, as a permanent tag</pre>
+<p>Your checkout is on <code>stable</code> now rather than on our deploy branch, so nothing we push can move it under you. The tag's message lists everything known broken at that point, with workarounds, so you don't rediscover them.</p>
+<p class="note">The restructured language is built on separate branches. Nothing touches your version until you ask &mdash; and when it does, the existing apps have to be ported, which is its own milestone.</p>
+</div>
+
+<div class="d done">
+<h3>Hey gets a real front end</h3>
+<p>There is currently no parser. Expressions are carried as plain text and re-read by later stages; a four-pass rewriter runs over the source first and one of its passes deletes lines, which is why error locations can't be trusted.</p>
+<p class="note">The new pipeline is <code>Hey source → tokens → syntax tree → HIR → MIR → machine code</code>, one path serving both compiling and the interactive shell. The runtime and the code generator are kept; the front end is new.</p>
+</div>
+
+<div class="d done">
+<h3>How decimals print</h3>
+<pre>says 100.0                  1e2  →  100.0
+says 100000000000000.0      exactly what Ruby prints</pre>
+<p>Ruby's real rule, not &ldquo;whichever is shorter&rdquo; &mdash; the two disagree above about a hundred trillion, and we checked Ruby's actual behaviour against 2,000 random numbers rather than assuming it.</p>
+</div>
+
+<div class="d done">
+<h3>When a number gets too big</h3>
+<pre>9223372036854775807 + 1   →   9223372036854775808</pre>
+<p>Your design: <b>ask the chip whether it overflowed &mdash; it already knows &mdash; and redo that one calculation in a wider type.</b> Almost always no, so almost always free. That's how Ruby and JavaScript engines actually do it, and all three of my original options were worse.</p>
+</div>
+
+<div class="d done">
+<h3>Old work folders</h3>
+<p><b>Done.</b> 11 deleted, 4.9&nbsp;GB down to 3.1&nbsp;GB. The writing that existed nowhere else &mdash; about 4,000 lines, including the research document you asked for, and the proven dead end &mdash; is now in <code>~/dev/cagents/human/jayteesf/docs/</code> with a manifest giving the exact command to restore each one. Keep or delete as you like; nothing needs it.</p>
+<p class="note">Two folders were kept rather than moved because they hold unfinished code, not documents. They're the third question below.</p>
+</div>
+
+<div class="d open">
+<h3>3 &nbsp;Two unfinished fixes &mdash; live or abandoned?</h3>
+<pre>a failed web request answers 500 instead of an empty 200
+a job-name registry</pre>
+<p>Both written in the last two days, neither in any plan, both on branches. <b>Finish them, or drop them?</b></p>
+</div>
 
 <div class="d done">
 <h3>Negative division stays as it is</h3>
