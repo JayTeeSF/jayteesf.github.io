@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Four remaining Hey import-resolver choices, with primary-source research and concrete code consequences. Receiver position, lexical shadowing, module exposure, concealment, reflection, and chain resolution are already settled.">
+  <title>Four choices remain for Hey imports and dotted calls · decision docket</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f7f4ed; --ink:#20211f; --muted:#5d615b; --panel:#ffffff; --line:#c8c4b9; --accent:#7447c8; --accent-soft:rgba(116,71,200,.10); --good:#176b45; --code:#f0eee8; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#171816; --ink:#f3f1ea; --muted:#b7b9b2; --panel:#232521; --line:#50544c; --accent:#c4a7ff; --accent-soft:rgba(196,167,255,.12); --good:#79d7a8; --code:#1d1f1c; } }
+    :root[data-theme="light"] { --bg:#f7f4ed; --ink:#20211f; --muted:#5d615b; --panel:#ffffff; --line:#c8c4b9; --accent:#7447c8; --accent-soft:rgba(116,71,200,.10); --good:#176b45; --code:#f0eee8; }
+    :root[data-theme="dark"] { --bg:#171816; --ink:#f3f1ea; --muted:#b7b9b2; --panel:#232521; --line:#50544c; --accent:#c4a7ff; --accent-soft:rgba(196,167,255,.12); --good:#79d7a8; --code:#1d1f1c; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.58 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { width:min(1040px,calc(100% - 32px)); margin:0 auto; padding:42px 0 90px; }
+    h1 { max-width:900px; margin:.15em 0 .25em; font:800 clamp(2.25rem,6vw,5.2rem)/.96 ui-serif,Georgia,serif; letter-spacing:-.035em; }
+    h2 { margin:2.1em 0 .55em; font:750 clamp(1.5rem,3vw,2.2rem)/1.1 ui-serif,Georgia,serif; }
+    h3 { margin:0 0 .35em; font-size:1.15rem; }
+    p { max-width:78ch; }
+    a { color:var(--accent); }
+    code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    code { background:var(--code); padding:.08em .28em; border-radius:4px; }
+    pre { margin:.75rem 0; padding:15px; overflow:auto; background:var(--code); border:1px solid var(--line); border-radius:10px; line-height:1.42; font-size:.9rem; }
+    .eyebrow { color:var(--accent); font-weight:800; letter-spacing:.09em; text-transform:uppercase; font-size:.78rem; }
+    .lede { font-size:1.2rem; color:var(--muted); max-width:74ch; }
+    .verdict, .settled, .research, .ruling-box { border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:18px 20px; margin:22px 0; }
+    .verdict { border-left:6px solid var(--accent); }
+    .settled { border-left:6px solid var(--good); }
+    .settled ul { columns:2; column-gap:36px; }
+    .settled li { break-inside:avoid; margin:.3rem 0; }
+    .decision { margin:28px 0; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--panel); }
+    .decision-number { color:var(--accent); font-weight:800; font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; }
+    .question { font-size:1.25rem; font-weight:750; margin:.25rem 0 1rem; }
+    .option { display:block; border:1px solid var(--line); border-radius:12px; padding:15px; margin:12px 0; cursor:pointer; }
+    .option:hover, .option:focus-within { border-color:var(--accent); background:var(--accent-soft); }
+    .option input { margin-right:9px; transform:translateY(1px); }
+    .option-title { font-weight:800; }
+    .option-note { display:block; margin:.35rem 0 0 27px; color:var(--muted); }
+    .implication { margin:10px 0 0 27px; }
+    .recommended { color:var(--good); font-size:.78rem; font-style:normal; text-transform:uppercase; letter-spacing:.04em; }
+    .sources { font-size:.91rem; color:var(--muted); }
+    .ruling-box { position:sticky; bottom:10px; box-shadow:0 10px 35px rgba(0,0,0,.14); }
+    textarea { width:100%; min-height:180px; resize:vertical; border:1px solid var(--line); background:var(--code); color:var(--ink); padding:12px; border-radius:9px; font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    button { border:1px solid var(--accent); color:var(--ink); background:var(--accent-soft); border-radius:9px; padding:9px 13px; font-weight:750; cursor:pointer; margin:8px 7px 0 0; }
+    button.primary { background:var(--accent); color:#fff; }
+    .status { display:inline-block; color:var(--good); font-weight:750; min-width:10ch; }
+    .small { color:var(--muted); font-size:.9rem; }
+    @media (max-width:700px) { main { width:min(100% - 20px,1040px); padding-top:25px; } .settled ul { columns:1; } .decision { padding:16px; } .ruling-box { position:static; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Hey · decision docket · 3 August 2026</div>
+  <h1>The import model is settled. Four edge choices remain.</h1>
+  <p class="lede">Receiver position, lexical shadowing, public/private boundaries, automatic supported forms, <code>conceals</code>, built-ins, reflection metadata, and chain resolution are no longer questions. This page asks only the four choices that still change source code or diagnostics.</p>
+
+  <section class="verdict">
+    <strong>Verdict first:</strong> Hey can support <code>account.deposit(25)</code> without classes or runtime method lookup. Imports determine a lexical candidate set; the resolver rewrites the call to <code>deposit(account, 25)</code>; HIR stores the selected binding. The remaining choices are collision and selector ergonomics.
+  </section>
+
+  <section class="settled">
+    <h2>Already settled — do not vote again</h2>
+    <ul>
+      <li>The receiver is argument one; every other argument stays in order.</li>
+      <li>Inner lexical scope wins; at one scope, the later declaration wins.</li>
+      <li>Every shadowing override emits a compile-time warning with both locations.</li>
+      <li><code>as</code> renames the module namespace; exposed bindings may also be renamed.</li>
+      <li>Every module ends with an explicit <code>exposes</code> surface.</li>
+      <li>Private helpers remain callable inside their defining module.</li>
+      <li>Adopted exposures automatically enable the forms the module declares.</li>
+      <li><code>forms:</code> narrows adopted forms; <code>conceals</code> removes selected ones.</li>
+      <li><code>stdlib:BuiltIns</code> is the implicit outermost exposure and is concealable.</li>
+      <li><code>Reflection.module</code> must report public names and supported forms.</li>
+      <li>Each segment of a receiver chain resolves independently.</li>
+      <li>Runtime executes the direct chosen call; it does not resolve imports.</li>
+    </ul>
+    <pre>account.deposit(25, 50, 100)
+# compile-time lowering
+deposit(account, 25, 50, 100)</pre>
+  </section>
+
+  <section class="research">
+    <h2>What the research changed</h2>
+    <p>C# demonstrates the first-parameter static-call model. Kotlin demonstrates statically resolved extension syntax. Elixir and Haskell demonstrate lexical selective imports, hiding, explicit public surfaces, and private local helpers. Rust makes the callable-field collision visible by requiring parentheses for a field call. Python keeps programmatic module loading separate from lexical import syntax.</p>
+    <p class="sources">Hey authority: <a href="DECISIONS-what-you-have-decided.html">standing decisions</a> &middot; <a href="2026-08-02-the-full-ladder.html">full restructure ladder</a>. Primary sources: <a href="https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/extension-methods">C# extension members</a> · <a href="https://kotlinlang.org/docs/extensions.html">Kotlin extensions</a> · <a href="https://elixir-lang.org/getting-started/alias-require-and-import.html">Elixir imports</a> · <a href="https://www.haskell.org/onlinereport/haskell2010/haskellch5.html">Haskell modules</a> · <a href="https://doc.rust-lang.org/reference/expressions/field-expr.html">Rust field calls</a> · <a href="https://docs.python.org/3/library/importlib.html">Python programmatic imports</a>.</p>
+  </section>
+
+  <form id="decision-form">
+    <h2>The four remaining decisions</h2>
+
+    <section class="decision" data-decision="D35">
+      <div class="decision-number">Decision 35</div>
+      <div class="question">When <code>value.name(...)</code> matches both a callable field and an imported receiver function, which meaning wins?</div>
+
+      <label class="option"><input type="radio" name="D35" value="A — callable field wins; imported receiver function remains available by qualified or unqualified explicit call"><span class="option-title">A — Callable field wins</span> <em class="recommended">Kotlin/C#-like</em><span class="option-note">Preserves the standing promise that callable fields use direct dotted syntax.</span><div class="implication"><pre>import './Actions.hey' exposing: [on_save]
+let handlers = {on_save: save_locally}
+
+handlers.on_save(document)          # save_locally(document)
+on_save(handlers, document)         # imported function
+Actions.on_save(handlers, document) # qualified imported function</pre></div></label>
+
+      <label class="option"><input type="radio" name="D35" value="B — ordinary lexical latest-wins rule applies with a warning; parenthesized field call reaches a shadowed callable field"><span class="option-title">B — Latest lexical decision wins, with warning</span> <em class="recommended">Maintainer leaning</em><span class="option-note">One conflict rule governs names and receiver forms. Ignoring the warning accepts the later binding.</span><div class="implication"><pre>let handlers = {on_save: save_locally}
+import './Actions.hey' exposing: [on_save] # later in this scope
+
+handlers.on_save(document)   # on_save(handlers, document)
+(handlers.on_save)(document) # explicitly call the stored field
+
+warning: receiver form `on_save` shadows callable field syntax here</pre></div></label>
+
+      <label class="option"><input type="radio" name="D35" value="C — ambiguous dotted call is a compile-time error; source must spell either the field call or module call explicitly"><span class="option-title">C — Refuse the ambiguous dotted spelling</span><span class="option-note">Safest reading, but unlike the settled lexical latest-wins rule.</span><div class="implication"><pre>handlers.on_save(document)          # ERROR: two meanings
+(handlers.on_save)(document)        # callable field
+Actions.on_save(handlers, document) # imported function</pre></div></label>
+    </section>
+
+    <section class="decision" data-decision="D39">
+      <div class="decision-number">Decision 39</div>
+      <div class="question">What should happen when dotted syntax names no eligible receiver binding in lexical scope?</div>
+
+      <label class="option"><input type="radio" name="D39" value="A — compile-time error names the missing dotted form, nearby qualified candidate, source locations, and exact exposing/forms fix"><span class="option-title">A — Actionable compile-time error</span> <em class="recommended">Recommended</em><span class="option-note">No guessing. The compiler shows the candidate it found but was not allowed to adopt.</span><div class="implication"><pre>import './bank_account.hey'
+account.deposit(25)
+
+error: no dotted `deposit` is visible in this scope
+  candidate: BankAccount.deposit at ./bank_account.hey:12
+  declared forms: [:qualified, :unqualified, :dotted]
+  help: import './bank_account.hey' exposing: [deposit]
+        or call BankAccount.deposit(account, 25)</pre></div></label>
+
+      <label class="option"><input type="radio" name="D39" value="B — warn and automatically use the nearest qualified module candidate even though it was not exposed"><span class="option-title">B — Warn, then auto-use a qualified candidate</span><span class="option-note">Convenient, but a bare import would silently acquire dotted behavior and weaken <code>exposing</code>.</span><div class="implication"><pre>import './bank_account.hey'
+account.deposit(25)
+# warning, then BankAccount.deposit(account, 25)</pre></div></label>
+
+      <label class="option"><input type="radio" name="D39" value="C — report only a generic undefined receiver-call error"><span class="option-title">C — Terse undefined-call error</span><span class="option-note">Simple implementation, poor guidance when the required module is already imported.</span><div class="implication"><pre>error: undefined receiver call `deposit`</pre></div></label>
+    </section>
+
+    <section class="decision" data-decision="D40">
+      <div class="decision-number">Decision 40</div>
+      <div class="question">How should an importing file rename individual exposed bindings?</div>
+
+      <label class="option"><input type="radio" name="D40" value="A — use language-level `old as new` selector entries"><span class="option-title">A — <code>old as new</code> entries</span><span class="option-note">Reads like imports in many languages and does not pretend the selector list is a runtime map.</span><div class="implication"><pre>import 'stdlib:RubyMath' as RM \
+  exposing: [div as ruby_div, mod as ruby_mod] \
+  conceals: [floor_div]</pre></div></label>
+
+      <label class="option"><input type="radio" name="D40" value="B — use map-like selector entries where keys are original names and values are local aliases"><span class="option-title">B — Map-like remapping</span> <em class="recommended">Maintainer proposal</em><span class="option-note">Compact and data-shaped, but the grammar must make clear these are compile-time name tokens, not evaluated map values.</span><div class="implication"><pre>import 'stdlib:RubyMath' as RM \
+  exposing: [{div: ruby_div}, {mod: ruby_mod}] \
+  conceals: [floor_div]</pre></div></label>
+
+      <label class="option"><input type="radio" name="D40" value="C — accept both selector spellings and normalize them into one static import-selector node"><span class="option-title">C — Accept both</span><span class="option-note">Most accommodating, but creates two permanent spellings for one operation—the exact style split the four-word import design tried to avoid.</span><div class="implication"><pre>exposing: [div as ruby_div, {mod: ruby_mod}]
+# both become selector(original_name, local_name)</pre></div></label>
+    </section>
+
+    <section class="decision" data-decision="D41">
+      <div class="decision-number">Decision 41</div>
+      <div class="question">May an import selector list be reused or expanded, and if so when is it evaluated?</div>
+
+      <label class="option"><input type="radio" name="D41" value="A — allow literal selectors plus spreads from a dedicated compile-time exposure manifest; arbitrary runtime arrays/maps remain invalid"><span class="option-title">A — Dedicated compile-time manifest</span> <em class="recommended">Best fit for reuse</em><span class="option-note">Supports generated/reusable policy without making lexical bindings depend on runtime data.</span><div class="implication"><pre>exposure_manifest ruby_math_names = [
+  {div: ruby_div},
+  {mod: ruby_mod}
+]
+
+import 'stdlib:RubyMath' exposing: [...ruby_math_names]
+# manifest is resolved while compiling this file</pre></div></label>
+
+      <label class="option"><input type="radio" name="D41" value="B — first version accepts only selectors written directly in the import declaration"><span class="option-title">B — Literal selectors only, for now</span><span class="option-note">Smallest parser/resolver surface. Repetition remains until a compile-time manifest design is separately adopted.</span><div class="implication"><pre>import 'stdlib:RubyMath' \
+  exposing: [{div: ruby_div}, {mod: ruby_mod}]</pre></div></label>
+
+      <label class="option"><input type="radio" name="D41" value="C — allow an arbitrary runtime list/map expression to determine imported names"><span class="option-title">C — Runtime-computed selector collection</span><span class="option-note">Not compatible with static lexical resolution. This would require a separate dynamic module-loading API and values accessed through that module object.</span><div class="implication"><pre>let names = Env.production? ? production_names : debug_names
+import 'stdlib:RubyMath' exposing: [...names] # cannot define compile-time scope
+
+# A future separate feature could instead be:
+let module = Modules.load('stdlib:RubyMath')
+module.call('div', -7, 2)</pre></div></label>
+    </section>
+  </form>
+
+  <section class="ruling-box" aria-labelledby="ruling-heading">
+    <h2 id="ruling-heading">Your current ruling</h2>
+    <p class="small">Selections save in this browser immediately. The text below is regenerated after every change.</p>
+    <textarea id="ruling-output" readonly aria-label="Selected rulings"></textarea>
+    <div>
+      <button type="button" class="primary" id="copy-ruling">Copy ruling</button>
+      <button type="button" id="download-ruling">Download text</button>
+      <button type="button" id="reset-ruling">Reset choices</button>
+      <span class="status" id="copy-status" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <h2>After you rule</h2>
+  <p>The selected text should be copied into the standing decisions page, the repository's human design documentation, and executable resolver contracts. The new parser/resolver should not implement any option that remains unselected.</p>
+</main>
+<script>
+(function () {
+  'use strict';
+  var STORAGE_KEY = 'hey-import-receiver-docket-2026-08-03-v2';
+  var form = document.getElementById('decision-form');
+  var output = document.getElementById('ruling-output');
+  var status = document.getElementById('copy-status');
+
+  function selectedRulings() {
+    var names = ['D35', 'D39', 'D40', 'D41'];
+    return names.map(function (name) {
+      var selected = form.querySelector('input[name="' + name + '"]:checked');
+      return selected ? name + ': ' + selected.value : name + ': [not yet selected]';
+    });
+  }
+
+  function rulingText() {
+    return [
+      'HEY IMPORT/RECEIVER RULING — 2026-08-03',
+      '',
+      'Already settled:',
+      '- receiver becomes argument one; all remaining arguments preserve order',
+      '- lexical nearest/latest binding wins with compile-time warnings',
+      '- modules end with explicit exposes declarations; private helpers remain internal',
+      '- adopted declarations enable their supported forms; conceals removes selected forms',
+      '- stdlib:BuiltIns is the concealable default outer exposure',
+      '- Reflection.module reports public exposure names and forms',
+      '- receiver chains resolve each segment independently',
+      '',
+      'Remaining rulings:',
+      selectedRulings().join('\n')
+    ].join('\n');
+  }
+
+  function saveAndRender() {
+    var saved = {};
+    Array.prototype.forEach.call(form.querySelectorAll('input[type="radio"]:checked'), function (input) {
+      saved[input.name] = input.value;
+    });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch (ignore) {}
+    output.value = rulingText();
+    status.textContent = '';
+  }
+
+  function restore() {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch (ignore) {}
+    Object.keys(saved).forEach(function (name) {
+      var inputs = form.querySelectorAll('input[name="' + name + '"]');
+      Array.prototype.forEach.call(inputs, function (input) {
+        if (input.value === saved[name]) input.checked = true;
+      });
+    });
+    output.value = rulingText();
+  }
+
+  function fallbackCopy(text) {
+    var helper = document.createElement('textarea');
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+    helper.select();
+    var copied = false;
+    try { copied = document.execCommand('copy'); } catch (ignore) {}
+    document.body.removeChild(helper);
+    return copied;
+  }
+
+  function copyRuling() {
+    var text = rulingText();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        status.textContent = 'Copied.';
+      }, function () {
+        status.textContent = fallbackCopy(text) ? 'Copied.' : 'Copy failed.';
+      });
+    } else {
+      status.textContent = fallbackCopy(text) ? 'Copied.' : 'Copy failed.';
+    }
+  }
+
+  function downloadRuling() {
+    var blob = new Blob([rulingText() + '\n'], {type: 'text/plain;charset=utf-8'});
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'hey-import-receiver-ruling-2026-08-03.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 0);
+  }
+
+  function resetRuling() {
+    form.reset();
+    try { localStorage.removeItem(STORAGE_KEY); } catch (ignore) {}
+    saveAndRender();
+    status.textContent = 'Reset.';
+  }
+
+  form.addEventListener('change', saveAndRender);
+  document.getElementById('copy-ruling').addEventListener('click', copyRuling);
+  document.getElementById('download-ruling').addEventListener('click', downloadRuling);
+  document.getElementById('reset-ruling').addEventListener('click', resetRuling);
+  restore();
+
+  if (new URLSearchParams(window.location.search).get('selftest') === '1') {
+    var picks = {D35: 1, D39: 0, D40: 1, D41: 0};
+    Object.keys(picks).forEach(function (name) {
+      var inputs = form.querySelectorAll('input[name="' + name + '"]');
+      inputs[picks[name]].checked = true;
+      inputs[picks[name]].dispatchEvent(new Event('change', {bubbles: true}));
+    });
+    var text = rulingText();
+    var passed = text.indexOf('D35: B') !== -1 && text.indexOf('D39: A') !== -1 &&
+      text.indexOf('D40: B') !== -1 && text.indexOf('D41: A') !== -1 &&
+      output.value === text;
+    document.body.setAttribute('data-selftest', passed ? 'pass' : 'fail');
+  }
+}());
+</script>
+</body>
+</html>

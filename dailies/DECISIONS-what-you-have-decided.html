@@ -50,7 +50,7 @@
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 2 August 2026 · rev 12</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; standing page &nbsp;·&nbsp; updated 3 August 2026 · rev 13</p>
 <h1>What you've decided</h1>
 <p class="lede">Every decision in plain English, with what it means and where it stands. Kept current — bookmark this rather than the numbered <i>Ask</i> pages, which are snapshots of a moment.</p>
 
@@ -58,10 +58,15 @@
 <p><b>The reasoning behind these lives on its own page:</b> <a href="REVIEW-restructure-plan.html">Review of the restructure plan</a> &mdash; the published plan read against the shipping snapshot, with two corrections, the five unknowns measured, a parser that segfaults at a thousand statements, and the arguments behind the three rulings below.</p>
 </div>
 
-<h2>Waiting on you &mdash; nothing</h2>
+<h2>Waiting on you — four import/resolver choices</h2>
 
 <div class="d">
-<p>The one open contradiction &mdash; <code>+=</code> against values that never change &mdash; <b>is now ruled</b>, and it is the first entry under Settled. Nothing on this page is waiting on you.</p>
+<p>Four import/resolver edge choices remain: callable-field precedence, the
+exact missing-receiver diagnostic, individual exposure-alias grammar, and
+reusable compile-time exposure manifests. The settled receiver, lexical
+warning, module-surface, concealment, built-in, reflection, and chain rules
+are recorded below. Choose the remaining behavior in
+<a href="2026-08-03-callable-fields-and-import-manifests-decision-docket.html">the current decision docket</a>.</p>
 </div>
 
 
@@ -369,6 +374,70 @@ inf.to_i()  stops with an error</pre>
 <p><b>Done.</b> 11 deleted, 4.9&nbsp;GB down to 3.1&nbsp;GB. The writing that existed nowhere else &mdash; about 4,000 lines, including the research document you asked for, and the proven dead end &mdash; is now in <code>~/dev/cagents/human/jayteesf/docs/</code> with a manifest giving the exact command to restore each one. Keep or delete as you like; nothing needs it.</p>
 <p class="note">Two folders were kept rather than moved because they hold unfinished code, not documents. They're the third question below.</p>
 </div>
+
+<!-- HEY-IMPORT-RESOLVER-DECISIONS:BEGIN -->
+<section id="import-resolver-decisions-2026-08-03">
+  <h3>Imports and object-looking calls stay lexical and static</h3>
+
+  <pre><code>account.deposit(25, 50, 100)
+# resolves at compile time to:
+deposit(account, 25, 50, 100)</code></pre>
+
+  <p>The receiver is always argument one, and every argument written inside the
+  parentheses follows it without being dropped, reordered or reinterpreted.
+  The result is an ordinary direct function call, not a method lookup.</p>
+
+  <p>Conflicts use lexical scope. An inner declaration beats an outer one; at the
+  same scope, the later declaration or import wins. The compiler warns and
+  points to both locations. Renaming, a narrower <code>exposing:</code> list or
+  <code>conceals:</code> removes the warning. Runtime never repeats this choice:
+  HIR already contains the selected binding.</p>
+
+  <pre><code>module BankAccount
+  fn deposit(account, amount) ... end
+  private fn valid_amount?(amount) ... end
+
+  exposes deposit forms: [:qualified, :unqualified, :dotted]
+end</code></pre>
+
+  <p>Every module ends with an explicit <code>exposes</code> surface. Functions
+  omitted from it remain private outside the module, while exposed functions
+  may continue calling those private helpers internally. Re-export is explicit.
+  The same authoritative exposure record feeds the compiler and
+  <code>Reflection.module(...)</code>, including each public name, supported
+  forms, operator symbol when present and source location.</p>
+
+  <p><code>exposing:</code> adopts selected public names and the forms the module
+  says they support. <code>forms:</code> can narrow those forms.
+  <code>conceals:</code> removes selected adopted or default names from the
+  current lexical scope. Built-ins become the public surface of
+  <code>stdlib:BuiltIns</code>, adopted at the outermost scope by default and
+  concealable like any other exposure.</p>
+
+<pre><code>import 'stdlib:RubyMath' as RM \
+  exposing: [div] \
+  conceals: [mod]
+
+# The per-binding alias spelling for `div` remains one of the open choices.</code></pre>
+
+  <p>Individual exposure aliases are required, but their exact selector spelling
+  remains open. Arbitrary runtime arrays or maps cannot create lexical bindings
+  after compilation; reusable selector sets, if adopted, must be compile-time
+  manifests. Dynamic module loading would be a separate module-value API.</p>
+
+  <p>Receiver chains resolve each segment independently:</p>
+
+  <pre><code>account.deposit(25).withdraw(10).current_balance()
+# equivalent binding structure:
+current_balance(withdraw(deposit(account, 25), 10))</code></pre>
+
+  <p><strong>Four choices remain:</strong> callable-field precedence, the exact
+  missing-receiver diagnostic, individual alias-selector grammar and reusable
+  compile-time selector manifests. They are presented with code consequences in
+  <a href="2026-08-03-callable-fields-and-import-manifests-decision-docket.html">the
+  current decision docket</a>.</p>
+</section>
+<!-- HEY-IMPORT-RESOLVER-DECISIONS:END -->
 
 <h2>In progress</h2>
 <div class="d">

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="article-bucket" content="almost">
+  <meta name="description" content="Hey can support account.deposit(25) as a compile-time rewrite to deposit(account, 25), preserving immutable values and static lexical imports without classes or runtime method lookup.">
+  <title>Dot Syntax Without Objects · Hey</title>
+  <style>
+    :root { color-scheme:light dark; --bg:#fbfaf6; --ink:#20221f; --muted:#61655e; --panel:#fff; --line:#d3d0c6; --accent:#7047b7; --soft:rgba(112,71,183,.10); --warn:#8c5b00; --code:#f1efe9; }
+    @media (prefers-color-scheme:dark) { :root { --bg:#161815; --ink:#f2f0e9; --muted:#babdb5; --panel:#222520; --line:#4f554b; --accent:#c8adff; --soft:rgba(200,173,255,.12); --warn:#f1bd62; --code:#1c1f1b; } }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:18px/1.62 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+    article { width:min(850px,calc(100% - 30px)); margin:0 auto; padding:42px 0 86px; }
+    h1 { margin:.15em 0 .2em; font:800 clamp(2.5rem,7vw,5.6rem)/.94 ui-serif,Georgia,serif; letter-spacing:-.04em; }
+    h2 { margin:2em 0 .45em; font:760 1.75rem/1.1 ui-serif,Georgia,serif; }
+    p, li { max-width:72ch; }
+    a { color:var(--accent); }
+    code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    code { background:var(--code); padding:.08em .28em; border-radius:4px; }
+    pre { overflow:auto; background:var(--code); border:1px solid var(--line); border-radius:10px; padding:15px; line-height:1.42; font-size:.9rem; }
+    .eyebrow { color:var(--accent); font-weight:800; text-transform:uppercase; letter-spacing:.09em; font-size:.75rem; }
+    .lede { color:var(--muted); font-size:1.18rem; }
+    .status { border:1px solid var(--warn); background:var(--panel); padding:14px 17px; border-radius:11px; }
+    .tldr { border:1px solid var(--line); border-left:6px solid var(--accent); background:var(--panel); padding:16px 20px; border-radius:12px; }
+    .tldr li { margin:.35rem 0; }
+    figure { margin:24px 0 32px; border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:15px; overflow-x:auto; }
+    figure svg { display:block; min-width:650px; width:100%; height:auto; }
+    figcaption { margin-top:10px; color:var(--muted); font-size:.88rem; }
+    .aside { border-left:4px solid var(--accent); padding:.2rem 0 .2rem 1rem; color:var(--muted); }
+    .sources, footer { margin-top:2rem; color:var(--muted); font-size:.9rem; }
+    .gloss-pop { position:absolute; z-index:20; max-width:330px; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:9px; padding:11px; box-shadow:0 8px 25px rgba(0,0,0,.2); }
+    @media (max-width:650px) { article { width:min(100% - 20px,850px); padding-top:25px; } }
+  </style>
+</head>
+<body>
+<article>
+  <div class="eyebrow">Hey language design · explored, not yet shipped</div>
+  <h1>Dot Syntax Without Objects</h1>
+  <p class="lede">The nice-looking call can stay. The class system does not have to come with it.</p>
+
+  <p class="status"><strong>Status:</strong> design direction adopted; generic import and receiver resolution are not in the shipping compiler. Four edge choices remain open.</p>
+
+  <section class="tldr">
+    <strong>TL;DR</strong>
+    <ul>
+      <li><strong>Build it:</strong> <code>account.deposit(25)</code> can be a compile-time rewrite to <code>deposit(account, 25)</code>.</li>
+      <li>The receiver is always argument one; every other argument stays in order.</li>
+      <li>Imports are lexical and inspectable. Runtime does not search for methods.</li>
+      <li><strong>Weakness disclosed:</strong> callable map fields and imported receiver functions can claim the same dotted spelling; that precedence is not ruled yet.</li>
+      <li>Reproduce the reasoning from the linked Kotlin, C#, Rust, Elixir, Haskell, and Python language documentation.</li>
+    </ul>
+  </section>
+
+  <figure>
+    <svg viewBox="0 0 760 270" role="img" aria-labelledby="chart-title chart-desc">
+      <title id="chart-title">Dotted syntax becomes one statically resolved direct call</title>
+      <desc id="chart-desc">Source dotted call flows through lexical imports and the resolver into a direct function call with the receiver inserted first. There is no runtime method lookup.</desc>
+      <rect x="20" y="75" width="205" height="90" rx="14" fill="#ebe4f8" stroke="#7047b7" stroke-width="2"/>
+      <text x="122" y="110" text-anchor="middle" font-family="system-ui" font-size="16" fill="#221d2d">account.deposit(25)</text>
+      <text x="122" y="137" text-anchor="middle" font-family="system-ui" font-size="13" fill="#5b5267">source spelling</text>
+      <path d="M235 120 H335" stroke="#7047b7" stroke-width="4" marker-end="url(#arrow)"/>
+      <rect x="345" y="35" width="175" height="170" rx="14" fill="#edf5ef" stroke="#176b45" stroke-width="2"/>
+      <text x="432" y="72" text-anchor="middle" font-family="system-ui" font-size="16" fill="#173326">resolver</text>
+      <text x="432" y="104" text-anchor="middle" font-family="system-ui" font-size="13" fill="#315f48">lexical imports</text>
+      <text x="432" y="127" text-anchor="middle" font-family="system-ui" font-size="13" fill="#315f48">exposed forms</text>
+      <text x="432" y="150" text-anchor="middle" font-family="system-ui" font-size="13" fill="#315f48">warnings + binding ID</text>
+      <text x="432" y="181" text-anchor="middle" font-family="system-ui" font-size="12" fill="#315f48">compile time only</text>
+      <path d="M530 120 H620" stroke="#176b45" stroke-width="4" marker-end="url(#arrow2)"/>
+      <rect x="630" y="75" width="110" height="90" rx="14" fill="#f7edda" stroke="#8c5b00" stroke-width="2"/>
+      <text x="685" y="108" text-anchor="middle" font-family="system-ui" font-size="14" fill="#3a2c10">deposit(</text>
+      <text x="685" y="130" text-anchor="middle" font-family="system-ui" font-size="14" fill="#3a2c10">account, 25)</text>
+      <text x="685" y="151" text-anchor="middle" font-family="system-ui" font-size="12" fill="#6f5420">direct call</text>
+      <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7047b7"/></marker><marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#176b45"/></marker></defs>
+    </svg>
+    <figcaption>Design flow, 3 August 2026. The selected binding and complete argument list are stored before runtime.</figcaption>
+  </figure>
+
+  <h2>The tempting syntax is not the dangerous part</h2>
+  <p>When you see <code>account.deposit(25)</code>, it is easy to assume the language must attach methods to an account object. It does not. <a href="https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/extension-methods">C# extension methods</a> are static methods that can be called with instance-looking syntax; the receiver is represented by the first parameter. <a href="https://kotlinlang.org/docs/extensions.html">Kotlin says explicitly</a> that extensions do not add members to the extended class and are resolved statically.</p>
+
+  <pre>account.deposit(25, 50, 100)
+# resolver produces
+deposit(account, 25, 50, 100)</pre>
+
+  <p>That is Hey's rule. It keeps immutable values and module functions while giving a Ruby reader the left-to-right call shape they expect.</p>
+
+  <h2>The real feature is lexical scope</h2>
+  <p>The compiler needs to know which <code>deposit</code> the file adopted. <a href="https://elixir-lang.org/getting-started/alias-require-and-import.html">Elixir's imports and aliases are lexical</a> and can be narrowed with inclusion or exclusion lists. <a href="https://www.haskell.org/onlinereport/haskell2010/haskellch5.html">Haskell separates module exports from import restrictions and hiding</a>. Those are better guides than a runtime method table.</p>
+
+  <pre>import './bank_account.hey' exposing: [deposit]
+let updated = account.deposit(25)</pre>
+
+  <p>Hey resolves the import, records one binding identity, and warns when a nearer or later declaration shadows another. Ignore the warning and the lexical winner still wins—but runtime never repeats the contest.</p>
+
+  <p class="aside"><dfn>Lexical</dfn> means the answer comes from where the code is written: inner scopes beat outer ones, and the compiler can point to both declarations.</p>
+
+  <h2>Public, private, visible, concealed</h2>
+  <p>A module ends with an explicit <code>exposes</code> surface. Private helpers remain available inside that module but are not callable outside it, matching the public/private boundary documented by <a href="https://elixir-lang.org/getting-started/modules-and-functions.html">Elixir</a>. An importing file may adopt exposures, rename them, narrow their supported forms, or <code>conceals</code> selected defaults.</p>
+
+  <pre>import 'stdlib:RubyMath' as RM \
+  exposing: [{div: ruby_div}] \
+  conceals: [mod]</pre>
+
+  <p>The exact alias-selector spelling above is still a choice, not a shipped promise. The important invariant is already fixed: module metadata tells both the compiler and <code>Reflection.module(...)</code> which public names and forms exist.</p>
+
+  <h2>One collision still deserves a real decision</h2>
+  <p>Hey already allows functions in maps and promises <code>handlers.on_save(document)</code>. What if an imported receiver function named <code>on_save</code> is also visible?</p>
+
+  <p>Kotlin and C# generally favor a real member over an extension. Rust avoids the same ambiguity syntactically: its reference says <code>value.name(...)</code> is parsed as a method call, while a callable field must be written <code>(value.name)(...)</code>. Hey could preserve callable fields, apply its normal latest-lexical-binding rule with a warning, or reject the ambiguous spelling. The docket shows what each choice does to actual code.</p>
+
+  <h2>Dynamic loading is not a dynamic import list</h2>
+  <p>A runtime array cannot decide which lexical names exist after compilation. Python makes the distinction clear: ordinary imports are language syntax, while <a href="https://docs.python.org/3/library/importlib.html">programmatic loading uses <code>importlib.import_module</code></a>. Hey can later add a separate module-value loader. Reusable <code>exposing</code> lists, if adopted, must be compile-time manifests or generated source.</p>
+
+  <h2>Discovery matters as much as spelling</h2>
+<p>A receiver form is only friendly when a reader can discover where it came from. That is why the design includes exposure metadata rather than treating dotted syntax as compiler folklore. <code>Reflection.module('stdlib:RubyMath')</code> must be able to report the public function name, its supported forms, its operator symbol when it has one, and its source location. Editor tooling can use the same record to complete after a dot, explain an override warning, or show the qualified call that avoids a conflict.</p>
+
+<p>This also keeps built-ins honest. Instead of a secret list scattered through the parser and emitters, built-ins become the default outer exposure of <code>stdlib:BuiltIns</code>. A file can conceal one, shadow one with a visible warning, or import the module explicitly to compare behavior. The feature becomes inspectable language data rather than a set of exceptions that only the compiler remembers.</p>
+
+<h2>The payoff</h2>
+  <p>You get code that reads naturally, stays immutable, and compiles to direct calls. Library authors publish one inspectable surface. Importers choose what enters scope. Warnings make overrides loud. The runtime stays out of the naming business.</p>
+
+  <p>The syntax looks object-oriented. The architecture remains functions, values, modules, and one resolver with an authoritative answer.</p>
+
+  <section class="sources">
+    <strong>Primary sources:</strong> <a href="https://kotlinlang.org/docs/extensions.html">Kotlin extensions</a>; <a href="https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/extension-methods">C# extension members</a>; <a href="https://doc.rust-lang.org/reference/expressions/field-expr.html">Rust field expressions</a>; <a href="https://elixir-lang.org/getting-started/alias-require-and-import.html">Elixir imports</a>; <a href="https://elixir-lang.org/getting-started/modules-and-functions.html">Elixir private functions</a>; <a href="https://www.haskell.org/onlinereport/haskell2010/haskellch5.html">Haskell modules</a>; <a href="https://docs.python.org/3/tutorial/modules.html">Python modules</a>; <a href="https://docs.python.org/3/library/importlib.html">Python importlib</a>.
+  </section>
+
+  <footer>Unshipped design article. Every source example is a target contract, not a claim about the current compiler.</footer>
+</article>
+</body>
+</html>
