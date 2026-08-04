@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="article-desc" content="An architecture review of the Hey restructure plan against the shipping snapshot: two corrections, six measurements, three rulings, the exact-node clarification, and the current forced-runway evidence.">
+  <meta name="article-desc" content="An architecture review of the Hey restructure plan against the shipping snapshot: two corrections, six measurements, three rulings, the exact-node clarification, and the current forced-runway evidence through generated reads and physical slots.">
   <meta name="article-index-title" content="Review of the restructure plan &mdash; evidence, rulings, and the exact-node clarification">
-  <meta name="article-index-desc" content="The published plan read against the shipping snapshot: the parser owns minus arity, the old raw-text emitter must not become the architecture, five unknowns and parser scaling measured, three open questions ruled, and exact generated compiler nodes clarified without discarding the original evidence.">
+  <meta name="article-index-desc" content="The published plan read against the shipping snapshot: the parser owns minus arity, the old raw-text emitter must not become the architecture, five unknowns and parser scaling measured, three open questions ruled, and generated compiler-node construction, reads, traversal and physical storage clarified without discarding the original evidence.">
 <title>Review of the restructure plan · Hey</title>
 <style>
   :root { --bg:#faf9f7; --ink:#16181a; --mute:#5d666b; --line:#e2e0dc; --card:#fff;
@@ -74,12 +74,11 @@ ul,ol{padding-left:1.35rem}
 
 <p class="eyebrow">Hey &nbsp;·&nbsp; architecture review &nbsp;·&nbsp; 2 August 2026 &nbsp;·&nbsp; revised 3 August 2026</p>
 <h1>Review of the restructure plan</h1>
-<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, rulings on the three open questions, the resolution of the one contradiction in the decided set, and &mdash; new in the 3 August revision &mdash; the exact-node clarification and current forced-runway evidence. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the evidence, rejected alternatives and reasoning.</p>
+<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, rulings on the three open questions, the resolution of the one contradiction in the decided set, and &mdash; new in the 3 August revision &mdash; the exact-node clarification and current forced-runway evidence through generated reads and physical storage. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the evidence, rejected alternatives and reasoning.</p>
 <div class="panel authority">
 <span class="panel-label">Role of this document</span>
 <p>This Review is authoritative for evidence, measurements, rejected alternatives and the reasons behind the plan. It is not the sole normative specification. Settled language and product behavior lives in <a href="DECISIONS-what-you-have-decided.html">Decisions</a>; stage ownership and forbidden duplication live in <a href="ARCHITECTURE-hey-restructured.html">Architecture</a>; migration order and exit criteria live in <a href="PLAN-hey-restructure.html">Plan</a>. <a href="2026-08-02-the-full-ladder.html">The Full Ladder</a> indexes the four and reports current progress.</p>
 </div>
-
 
 <div class="d">
 <p><b>The conclusion the documents reach is right:</b> Hey does not need another round of parser-like fixes. It needs <b>one authoritative front end and a prohibition against rediscovering syntax downstream</b>.</p>
@@ -278,25 +277,29 @@ ABI or serialised format          exact-byte test REMAINS</pre></div>
 <td>Private exact node inside the existing <code>HeyValue</code> ABI</td>
 <td>Preserves immutable value flow and temporary named-property compatibility; enables one allocation, indexed slots, generated validation and traversal, and later borrowed reads.</td>
 <td>Requires retain/release rules, interpreter/native/LLVM hooks, conditional linker support, SDK packaging and explicit legacy conversion.</td>
-<td><b>Chosen and implemented for runway step 5.</b></td>
+<td><b>Chosen and implemented through runway step 7.</b></td>
 </tr>
 </tbody>
 </table></div>
 </div>
 
 <div class="d done">
-<h3>The implemented bridge</h3>
-<p>The active parser now calls generated <code>HeyCompilerNodes.make_*</code> functions. Those functions create a private exact value that crosses the existing boxed <code>HeyValue</code> ABI. The runtime recognizes the private node tag, owns its lifetime, and rejects generic mutation and generic JSON encoding. Generated APIs provide immutable replacement and recursive conversion.</p>
-<p>Native-C and LLVM-direct applications link the compiler-node object only when private node builtins are referenced. SDK staging carries the object beside the ordinary runtime. Parser caches and stdlib sidecar responses call the one recursive legacy adapter before JSON transport and reconstruct exact nodes at the active parser boundary.</p>
+<h3>The implemented bridge, reads and physical cutover</h3>
+<p>The active parser calls generated <code>HeyCompilerNodes.make_*</code> functions. Those functions create a private exact value that crosses the existing boxed <code>HeyValue</code> ABI. The runtime recognizes the private node tag, owns its lifetime, and rejects generic mutation and generic JSON encoding. Generated APIs provide immutable replacement and recursive conversion.</p>
+<p>Native-C and LLVM-direct applications link the compiler-node object only when private node builtins are referenced. SDK staging carries the object beside the ordinary runtime. Parser caches and stdlib sidecar responses call the one recursive legacy adapter before JSON transport and reconstruct exact nodes at the receiving parser boundary in both the persistent-sidecar and one-shot lanes. Compiled generated-reader and child-traversal calls lower directly to the private bridge in both native <code>heyc</code> and the self-hosted <code>HeyLlvm</code> emitter, so exact nodes are never marshalled as ordinary stdlib-call arguments.</p>
 <pre>Hey parser construction
     └─▶ generated make_KIND(...)
           └─▶ private exact HeyValue node
-                ├─▶ generated reads / rewrites
+                ├─▶ generated logical readers
+                ├─▶ generated schema child traversal
+                ├─▶ physical n_ slots only
                 ├─▶ explicit to_legacy only for cache or transport
                 └─▶ explicit from_legacy at the parser boundary</pre>
-<p>The migration meter moved from <b>55 reviewed direct node-map constructions to zero</b>. This is materially different from wrappers that still return maps.</p>
-<p class="note"><b>Benefits:</b> invalid shapes and extra fields become unrepresentable through normal APIs; construction fills final storage once; traversal comes from the schema; the legacy boundary is visible, countable and deletable; and Hey retains immutable value semantics.</p>
-<p class="note"><b>Costs:</b> the runtime and every execution lane need bridge awareness; C-boundary ownership requires focused tests; generic serialisation must fail closed; temporary property-read compatibility can hide step-6 debt; and the migration schema must not ossify into the final expression-tree schema.</p>
+<p>The construction migration moved from <b>55 reviewed direct node-map constructions to zero</b>. The read migration now reports <b>zero direct compiler-node reads, zero unreviewed signatures and zero stale review rows</b>. Recursive semantic validation and C reachability scanning consume the generated child table.</p>
+<p>The review also caught two facts a mechanical rename would have missed. <code>job.worker</code> is a worker-name value, not a child node; and the parser's final dynamic fallback still returned a map-shaped pseudo-node. The schema now marks the worker correctly and the fallback constructs a generated <code>unsupported</code> node.</p>
+<p>Exact storage now contains only physical names such as <code>n_kind</code>, <code>n_source</code> and <code>n_body</code>. The exact value does not carry duplicate logical keys. The recursive legacy adapter produces ordinary logical-key maps for transport. A temporary logical-name lookup alias remains compatibility debt until step 8 replaces property lookup with direct borrowed indexed reads.</p>
+<p class="note"><b>Benefits:</b> invalid shapes and extra fields become unrepresentable through normal APIs; construction fills final storage once; traversal comes from the schema; the legacy boundary is visible, countable and deletable; active callers no longer name physical keys; and Hey retains immutable value semantics.</p>
+<p class="note"><b>Costs:</b> the runtime and every execution lane need bridge awareness; C-boundary ownership requires focused tests; generic serialisation must fail closed; the temporary logical lookup alias must still be deleted; and the migration schema must not ossify into the final expression-tree schema.</p>
 </div>
 
 <div class="panel authority">
@@ -385,10 +388,10 @@ not           capturing arbitrary surrounding locals</pre>
 <tbody>
 <tr><td>0&ndash;4</td><td>Preserve behavior, census nodes, generate schema, exact construction and compatibility APIs.</td><td><span class="status green">Verified green</span></td></tr>
 <tr><td>5</td><td>Move every active construction through generated exact APIs.</td><td><span class="status green">Verified green: 55 &rarr; 0</span></td></tr>
-<tr><td>6</td><td>Move every read and child traversal through generated doors.</td><td><b>Next</b></td></tr>
-<tr><td>7</td><td>Perform one physical <code>n_</code> slot/key cutover.</td><td>Blocked on step 6</td></tr>
-<tr><td>8</td><td>Make generated reads direct and borrowed; remeasure.</td><td>Blocked on step 7</td></tr>
-<tr><td>9</td><td>Build source manager, tokenizer and parser together through generated nodes.</td><td>Source/tokenizer partial; candidate parser missing</td></tr>
+<tr><td>6</td><td>Move every read and child traversal through generated doors.</td><td><span class="status green">Verified green: 0 direct reads</span></td></tr>
+<tr><td>7</td><td>Perform one physical <code>n_</code> slot/key cutover.</td><td><span class="status green">Verified green: no dual storage keys</span></td></tr>
+<tr><td>8</td><td>Make generated reads direct and borrowed; remeasure.</td><td><b>Next</b></td></tr>
+<tr><td>9</td><td>Build source manager, tokenizer and parser together through generated nodes.</td><td>Source/tokenizer green candidate; candidate parser missing</td></tr>
 <tr><td>10&ndash;14</td><td>Resolver, structural HIR/MIR, shared interpreter, zero counters and compatibility deletion.</td><td><span class="status red">Red</span></td></tr>
 </tbody>
 </table></div>
@@ -401,9 +404,8 @@ not           capturing arbitrary surrounding locals</pre>
 <div class="d">
 <h3>The next evidence required</h3>
 <ol>
-<li>A complete step-6 census and zero meter for generic node reads and handwritten child traversal.</li>
-<li>A single step-7 physical <code>n_</code> cutover with no dual-key compatibility interval.</li>
-<li>Step-8 direct borrowed-reader lifetime tests and performance measurements.</li>
+<li>Step-8 direct borrowed-reader lifetime tests and before/after performance measurements.</li>
+<li>Removal of generic property lookup and the temporary logical-name alias from the active compiler-node read path.</li>
 <li>A candidate parser that consumes only candidate tokens and creates only final generated syntax nodes.</li>
 <li>Parser scaling at 100, 500, 1,000 and larger statement/block populations using explicit bounded storage.</li>
 <li>Resolver and module-graph evidence for imports, receiver calls, operators and state slots.</li>
@@ -428,13 +430,15 @@ not           capturing arbitrary surrounding locals</pre>
 13  compiler nodes are constructed only through generated exact APIs
 14  compiler node reads and child traversal go only through generated doors
 15  generic mutation and generic JSON encoding reject private exact nodes
-16  every legacy node conversion is explicit, counted and deletable</pre></div>
+16  every legacy node conversion is explicit, counted and deletable
+17  exact nodes store only physical n_ slots; logical keys exist only in legacy transport
+18  generated borrowed readers may not outlive their owning exact node</pre></div>
 
 <h2>Bottom line</h2>
 <div class="d">
-<p>The first implementation foundation is the <b>node schema, exact-node bridge, source manager and operator registry</b> &mdash; not another patch to the raw-text emitter. The forced runway then moves construction, reads and physical storage through the generated doors before the candidate parser can become authoritative.</p>
+<p>The first implementation foundation is the <b>node schema, exact-node bridge, source manager and operator registry</b> &mdash; not another patch to the raw-text emitter. The forced runway has now moved construction, reads, child traversal and physical storage through generated doors.</p>
 <p><b>Shadow mode remains the migration mechanism:</b> candidate lexical and parsing work can run on every build while the old back end still executes, but it must consume the generated node representation before integration into normal compilation. Shadow mode establishes repository-wide parse coverage, diagnostics, parser performance and import-graph correctness <b>without requiring the back end to be finished</b>. Every accidental old syntax the new parser rejects goes into an adjudicated compatibility ledger rather than being silently accepted or silently dropped.</p>
-<p class="note">The next proof is not another node constructor. It is that every node read and traversal goes through the generated schema, allowing one physical cutover and then direct borrowed access before the new parser takes control.</p>
+<p class="note">The next proof is direct borrowed indexed access with explicit lifetime rules and measurements. After that, the candidate parser can begin constructing the final structural syntax tree.</p>
 </div>
 
 <h2>Companion documents</h2>
@@ -444,10 +448,11 @@ not           capturing arbitrary surrounding locals</pre>
 <li><a href="ARCHITECTURE-hey-restructured.html">Architecture</a> &mdash; stage ownership and forbidden duplication</li>
 <li><a href="PLAN-hey-restructure.html">Plan</a> &mdash; migration steps and exit criteria</li>
 <li><a href="2026-08-03-the-front-end-has-a-lexical-layer.html">The front end has a lexical layer</a> &mdash; 3 August implementation status</li>
+<li><a href="../articles/2026-08-03-from-fenwick-trees-to-attention.html">From Fenwick trees to attention</a> &mdash; the new data-structure, algorithm and educational ML layer</li>
 </ul>
 
 <footer>
-<p>Architecture review, 2 August 2026, revised 3 August 2026. The snapshot measurements were taken against <code>stable</code> v0.99.475a commit <code>77ae81e8</code>; the exact-node and runway sections record the verified 3 August state. Settled outcomes are on <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>; stage ownership is on <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a>; the phased migration is on <a href="PLAN-hey-restructure.html">the plan page</a>; and the current forced order is indexed by <a href="2026-08-02-the-full-ladder.html">The Full Ladder</a>. Sources retained for the external claims: Pratt's original top-down operator precedence paper, the ESTree specification, Maranget on pattern-matching exhaustiveness, the Ruby method-syntax documentation, Python's <code>ast</code> module, LLVM FileCheck, the rustc development guide, the Tokio scheduler notes, the Pony ORCA paper, Clang cross-compilation, and Apple's static-framework documentation.</p>
+<p>Architecture review, 2 August 2026, revised 3 August 2026. The snapshot measurements were taken against <code>stable</code> v0.99.475a commit <code>77ae81e8</code>; the exact-node and runway sections record the verified 3 August state through steps 6 and 7. Settled outcomes are on <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>; stage ownership is on <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a>; the phased migration is on <a href="PLAN-hey-restructure.html">the plan page</a>; and the current forced order is indexed by <a href="2026-08-02-the-full-ladder.html">The Full Ladder</a>. Sources retained for the external claims: Pratt's original top-down operator precedence paper, the ESTree specification, Maranget on pattern-matching exhaustiveness, the Ruby method-syntax documentation, Python's <code>ast</code> module, LLVM FileCheck, the rustc development guide, the Tokio scheduler notes, the Pony ORCA paper, Clang cross-compilation, and Apple's static-framework documentation.</p>
 </footer>
 
 </main>
