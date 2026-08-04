@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+  <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="article-desc" content="An architecture review of the Hey restructure plan against the shipping snapshot, with two corrections to the plan, six new measurements, and rulings on the three open questions.">
-<meta name="article-index-title" content="Review of the restructure plan &mdash; two corrections and three rulings">
-<meta name="article-index-desc" content="The published plan read against the shipping snapshot: two corrections (the parser decides what minus means, not the tokenizer; do not finish the emitter against the old intermediate form), the five unknowns measured, a parser that segfaults at a thousand statements, and rulings on all three open questions.">
+  <meta name="article-desc" content="An architecture review of the Hey restructure plan against the shipping snapshot: two corrections, six measurements, three rulings, the exact-node clarification, and the current forced-runway evidence.">
+  <meta name="article-index-title" content="Review of the restructure plan &mdash; evidence, rulings, and the exact-node clarification">
+  <meta name="article-index-desc" content="The published plan read against the shipping snapshot: the parser owns minus arity, the old raw-text emitter must not become the architecture, five unknowns and parser scaling measured, three open questions ruled, and exact generated compiler nodes clarified without discarding the original evidence.">
 <title>Review of the restructure plan · Hey</title>
 <style>
   :root { --bg:#faf9f7; --ink:#16181a; --mute:#5d666b; --line:#e2e0dc; --card:#fff;
@@ -40,19 +40,46 @@
   footer{margin-top:3.5rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--mute);font-size:.85rem}
   @media (max-width:30rem){ body{font-size:17px} main{padding:2rem 1.1rem 4rem} h1{font-size:1.75rem} }
 </style>
-<style>
+  <style>
   .scrollbox{overflow-x:auto;margin:0 0 1.1rem}
   .scrollbox pre{min-width:38rem;margin:0}
   .open-h{color:var(--open)!important}
   .d.open h3{color:var(--open)}
-</style>
+:root{--danger:#9b332c;--dangerbg:#fff0ee}
+@media (prefers-color-scheme:dark){:root{--danger:#ff9189;--dangerbg:#281615}}
+:root[data-theme="dark"]{--danger:#ff9189;--dangerbg:#281615}
+:root[data-theme="light"]{--danger:#9b332c;--dangerbg:#fff0ee}
+.panel{border:1px solid var(--line);border-radius:7px;padding:1.15rem 1.3rem;margin:0 0 1.1rem;background:var(--card)}
+.panel p:last-child,.panel ul:last-child,.panel ol:last-child,.panel blockquote:last-child{margin-bottom:0}
+.panel.authority{border-left:4px solid var(--accent)}
+.panel.green{border-left:4px solid var(--accent);background:var(--donebg)}
+.panel.amber{border-left:4px solid var(--open);background:var(--openbg)}
+.panel.red{border-left:4px solid var(--danger);background:var(--dangerbg)}
+.panel-label{display:block;margin:0 0 .55rem;font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+table{width:100%;border-collapse:collapse;margin:0 0 1.1rem;font-size:.94rem}
+th,td{padding:.7rem .75rem;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--bg)}
+.table-scroll{overflow-x:auto;margin:0 0 1.1rem}
+.table-scroll table{min-width:48rem;margin:0}
+blockquote{margin:.8rem 0;padding:.15rem 0 .15rem 1rem;border-left:3px solid var(--line);color:var(--mute)}
+ul,ol{padding-left:1.35rem}
+.status{font-weight:700;white-space:nowrap}
+.status.green{color:var(--accent)}
+.status.red{color:var(--danger)}
+.small{color:var(--mute);font-size:.9rem}
+  </style>
 </head>
 <body>
 <main>
 
-<p class="eyebrow">Hey &nbsp;·&nbsp; architecture review &nbsp;·&nbsp; 2 August 2026</p>
+<p class="eyebrow">Hey &nbsp;·&nbsp; architecture review &nbsp;·&nbsp; 2 August 2026 &nbsp;·&nbsp; revised 3 August 2026</p>
 <h1>Review of the restructure plan</h1>
-<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, rulings on the three open questions, and &mdash; new in this revision &mdash; the resolution of the one contradiction the review found in the decided set. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the reasoning.</p>
+<p class="lede">A read of the published architecture and plan against the shipping snapshot, with two corrections, six measurements the plan was missing, rulings on the three open questions, the resolution of the one contradiction in the decided set, and &mdash; new in the 3 August revision &mdash; the exact-node clarification and current forced-runway evidence. <a href="DECISIONS-what-you-have-decided.html">The decisions page</a> carries the settled outcomes; this page carries the evidence, rejected alternatives and reasoning.</p>
+<div class="panel authority">
+<span class="panel-label">Role of this document</span>
+<p>This Review is authoritative for evidence, measurements, rejected alternatives and the reasons behind the plan. It is not the sole normative specification. Settled language and product behavior lives in <a href="DECISIONS-what-you-have-decided.html">Decisions</a>; stage ownership and forbidden duplication live in <a href="ARCHITECTURE-hey-restructured.html">Architecture</a>; migration order and exit criteria live in <a href="PLAN-hey-restructure.html">Plan</a>. <a href="2026-08-02-the-full-ladder.html">The Full Ladder</a> indexes the four and reports current progress.</p>
+</div>
+
 
 <div class="d">
 <p><b>The conclusion the documents reach is right:</b> Hey does not need another round of parser-like fixes. It needs <b>one authoritative front end and a prohibition against rediscovering syntax downstream</b>.</p>
@@ -169,21 +196,27 @@ and which exported function it denotes</pre>
 
 <div class="d done">
 <h3>1 &nbsp;Neither plain maps nor waiting for pattern matching</h3>
-<p><b>Use a closed, schema-generated node system that is private to the compiler.</b> Don't block the front end on adding user-visible records and pattern matching &mdash; and don't build the tree from unrestricted maps either.</p>
-<p><b>Nodes stay map-shaped.</b> What changes is that no compiler code writes or reads one by hand &mdash; every constructor and every accessor is generated from one schema, and the physical keys are private to the generated files.</p>
+<p><b>Use a closed, schema-generated node system that is private to the compiler.</b> Don't block the front end on adding user-visible records and pattern matching &mdash; and don't build the tree from unrestricted ordinary maps either.</p>
+<p><b>Nodes remain logically field-shaped and immutable at the Hey interface.</b> Their authoritative physical representation is a private, closed, generated exact-slot value. Ordinary maps survive only across one explicit compatibility or transport boundary while legacy consumers remain.</p>
+<div class="panel green">
+<span class="panel-label">Corrected rule</span>
+<blockquote>Named-field ergonomics describe the compiler-facing interface. Exact generated slots describe the storage. Neither implies classes, generic mutable objects, or unrestricted map-shaped compiler trees.</blockquote>
+</div>
 <pre># generated from one schema, never written by hand
 fn make_binary_expression(span, left, operator, right)
-  # builds a map with n_kind, n_span, n_left, n_operator, n_right
-  # in declared slot order, exact-sized, then frozen
+  # allocates one exact private node value, fills the declared slots,
+  # validates required fields, then publishes the immutable value
 end
 
 fn binary_expression_left(node)
-  # returns the n_left slot. compiler code never names that key.
+  # reads the declared left slot through the generated API;
+  # after the runway cutover this becomes a direct borrowed slot read
 end</pre>
-<p>Generate from that one schema: constructors, accessors, required-field validation, child iteration, serialisation, debug printing, visitor dispatch, and the list of every node kind each pass handles. <b>A build should fail when a new node kind lacks a resolver or a lowering.</b></p>
-<p class="note">No compiler code writes <code>{kind: 'binary', left: ..., rite: ...}</code> directly &mdash; that is how a misspelled field and an incomplete visitor become permanent defects. The <code>n_</code> prefix on the physical keys is what makes the prohibition checkable: one search with no false positives finds every violation, and a stale read like <code>stmt.kind</code> against a generated node returns nothing rather than quietly returning something plausible.</p>
+<p>Generate from that one schema: constructors, stable kind and field indexes, accessors, immutable replacement, required-field validation, child iteration, serialisation adapters, debug printing, visitor dispatch, and the list of every node kind each pass handles. <b>A build should fail when a new node kind lacks a resolver or a lowering.</b></p>
+<p class="note">No compiler code writes <code>{kind: 'binary', left: ..., rite: ...}</code> directly &mdash; that is how a misspelled field and an incomplete visitor become permanent defects. The schema owns the private <code>n_</code> names and slot indexes. A one-time physical cutover makes every remaining direct read searchable, while ordinary maps remain available only through the explicit legacy adapter.</p>
+<p class="note"><b>This is a clarification, not a reversal of Hey's no-classes, immutable-value direction.</b> The exact node is still a value. It has no public mutating methods, no user-defined class identity and no hidden mutable object protocol. A generated functional replacement operation returns another exact value.</p>
 <p class="note"><b>Correction &mdash; the earlier version of this section argued that the pattern-matching instinct was right, and it was not.</b> That argument said exhaustive matching would have protected the compiler, because Hey's defect history is missing cases. <b>Tested against five real defects here, zero would have been caught.</b> They are all <i>one fact implemented independently in several places</i>, or <i>a tree walk that omits a child</i> &mdash; neither of which exhaustiveness addresses. Exhaustive matching catches a total dispatch missing one variant, and a single wildcard arm switches the check off anyway.</p>
-<p class="note">The live example decides it: one walker descends into <code>while</code>, <code>until</code> and <code>for</code>; a walker twenty lines further down descends into <code>while</code> and <code>until</code> and forgets <code>for</code>. A generated child table and a generated walker make that omission <b>unrepresentable</b>. Pattern matching would not have noticed it. So the ruling is a closed, generated schema over map-shaped nodes <b>now</b>, and records and pattern matching remain available as ordinary language features later, on their own merits &mdash; <b>not as a prerequisite for anything, and not as the mechanism that fixes these defects.</b></p>
+<p class="note">The live example decides it: one walker descends into <code>while</code>, <code>until</code> and <code>for</code>; a walker twenty lines further down descends into <code>while</code> and <code>until</code> and forgets <code>for</code>. A generated child table and a generated walker make that omission <b>unrepresentable</b>. Pattern matching would not have noticed it. So the ruling is a closed, generated schema over exact immutable compiler nodes <b>now</b>, and records and pattern matching remain available as ordinary language features later, on their own merits &mdash; <b>not as a prerequisite for anything, and not as the mechanism that fixes these defects.</b></p>
 </div>
 
 <div class="d done">
@@ -209,6 +242,66 @@ reproducible public artifact      exact-byte test REMAINS
 ABI or serialised format          exact-byte test REMAINS</pre></div>
 <p>For each: name the old invariant, add the new test, <b>deliberately break the implementation and prove the new test fails</b>, restore, run both, mark the golden superseded. Then delete all superseded goldens in one reviewed change.</p>
 <p class="note">Exact bytes survive only where bytes are part of the public contract &mdash; not because the old compiler happened to emit them.</p>
+</div>
+
+<h2>The 3 August exact-node clarification and implementation update</h2>
+
+<div class="d">
+<h3>What led us astray</h3>
+<ol>
+<li><b>One phrase carried two meanings.</b> &ldquo;Map-shaped&rdquo; referred both to named-field ergonomics and to the concrete hash/map storage used by the bootstrap compiler.</li>
+<li><b>The Review combined compatibility and destination language.</b> It correctly favored incremental migration, but did not draw the boundary between temporary ordinary-map transport and final exact storage sharply enough.</li>
+<li><b>Step 3 landed before the Hey-facing ownership bridge was designed.</b> Exact C nodes existed, but the active parser could not safely own or pass them. That made step 5 look like a naming rewrite when it was really an ABI and lifetime problem.</li>
+<li><b>A later handoff omitted Review from the authority list.</b> Instead of reconciling the ambiguity, the repository silently narrowed the source set. No decision authorized that omission.</li>
+</ol>
+<p class="note"><b>The lesson is not &ldquo;avoid staged migration.&rdquo;</b> The lesson is to name the compatibility layer and the destination representation separately. A transition can preserve field syntax and JSON caches without making ordinary maps authoritative forever.</p>
+</div>
+
+<div class="d">
+<h3>The trade-off, stated explicitly</h3>
+<div class="table-scroll"><table>
+<thead><tr><th>Approach</th><th>Pros</th><th>Cons</th><th>Decision</th></tr></thead>
+<tbody>
+<tr>
+<td>Keep ordinary maps as final compiler nodes</td>
+<td>Minimal bootstrap work; current property reads, interpreter, JSON and caches continue unchanged.</td>
+<td>String-key lookup; generic mutation; accidental fields; repeated clone/write; no exact size; no indexed borrowed reads; invalid shapes remain representable.</td>
+<td><b>Rejected as final storage.</b></td>
+</tr>
+<tr>
+<td>Expose raw C pointers as a separate compiler object model</td>
+<td>Fast and direct; easy to make exact.</td>
+<td>Creates a class-like foreign object API, complicates ownership throughout Hey and splits value semantics.</td>
+<td><b>Rejected.</b></td>
+</tr>
+<tr>
+<td>Private exact node inside the existing <code>HeyValue</code> ABI</td>
+<td>Preserves immutable value flow and temporary named-property compatibility; enables one allocation, indexed slots, generated validation and traversal, and later borrowed reads.</td>
+<td>Requires retain/release rules, interpreter/native/LLVM hooks, conditional linker support, SDK packaging and explicit legacy conversion.</td>
+<td><b>Chosen and implemented for runway step 5.</b></td>
+</tr>
+</tbody>
+</table></div>
+</div>
+
+<div class="d done">
+<h3>The implemented bridge</h3>
+<p>The active parser now calls generated <code>HeyCompilerNodes.make_*</code> functions. Those functions create a private exact value that crosses the existing boxed <code>HeyValue</code> ABI. The runtime recognizes the private node tag, owns its lifetime, and rejects generic mutation and generic JSON encoding. Generated APIs provide immutable replacement and recursive conversion.</p>
+<p>Native-C and LLVM-direct applications link the compiler-node object only when private node builtins are referenced. SDK staging carries the object beside the ordinary runtime. Parser caches and stdlib sidecar responses call the one recursive legacy adapter before JSON transport and reconstruct exact nodes at the active parser boundary.</p>
+<pre>Hey parser construction
+    └─▶ generated make_KIND(...)
+          └─▶ private exact HeyValue node
+                ├─▶ generated reads / rewrites
+                ├─▶ explicit to_legacy only for cache or transport
+                └─▶ explicit from_legacy at the parser boundary</pre>
+<p>The migration meter moved from <b>55 reviewed direct node-map constructions to zero</b>. This is materially different from wrappers that still return maps.</p>
+<p class="note"><b>Benefits:</b> invalid shapes and extra fields become unrepresentable through normal APIs; construction fills final storage once; traversal comes from the schema; the legacy boundary is visible, countable and deletable; and Hey retains immutable value semantics.</p>
+<p class="note"><b>Costs:</b> the runtime and every execution lane need bridge awareness; C-boundary ownership requires focused tests; generic serialisation must fail closed; temporary property-read compatibility can hide step-6 debt; and the migration schema must not ossify into the final expression-tree schema.</p>
+</div>
+
+<div class="panel authority">
+<span class="panel-label">What did not change</span>
+<p>Hey remains immutable-first and does not add classes as a language mechanism. Actors own mutable state and concurrency. Named functions plus binding remain the default higher-order mechanism. The tokenizer does not decide operator arity or precedence. The resolver owns imports, receiver-call binding and module identity. HIR and MIR must be structural. Interpreter and compiler must converge on shared HIR. Every compatibility path remains temporary and must be deleted at the end of the runway.</p>
 </div>
 
 <h2>The contradiction in the decided set &mdash; now resolved</h2>
@@ -286,6 +379,39 @@ not           capturing arbitrary surrounding locals</pre>
 <p class="note">JSON always rejects them &mdash; <code>Json.encode cannot encode Callable at $.key</code> &mdash; never a silent <code>null</code>, which is what ships today.</p>
 </div>
 
+<h2>The corrected runway interpretation</h2>
+<div class="table-scroll"><table>
+<thead><tr><th>Steps</th><th>Purpose</th><th>Current state on 3 August</th></tr></thead>
+<tbody>
+<tr><td>0&ndash;4</td><td>Preserve behavior, census nodes, generate schema, exact construction and compatibility APIs.</td><td><span class="status green">Verified green</span></td></tr>
+<tr><td>5</td><td>Move every active construction through generated exact APIs.</td><td><span class="status green">Verified green: 55 &rarr; 0</span></td></tr>
+<tr><td>6</td><td>Move every read and child traversal through generated doors.</td><td><b>Next</b></td></tr>
+<tr><td>7</td><td>Perform one physical <code>n_</code> slot/key cutover.</td><td>Blocked on step 6</td></tr>
+<tr><td>8</td><td>Make generated reads direct and borrowed; remeasure.</td><td>Blocked on step 7</td></tr>
+<tr><td>9</td><td>Build source manager, tokenizer and parser together through generated nodes.</td><td>Source/tokenizer partial; candidate parser missing</td></tr>
+<tr><td>10&ndash;14</td><td>Resolver, structural HIR/MIR, shared interpreter, zero counters and compatibility deletion.</td><td><span class="status red">Red</span></td></tr>
+</tbody>
+</table></div>
+
+<div class="panel red">
+<span class="panel-label">Ordering correction</span>
+<p>The earlier closing shorthand could be read as &ldquo;build the shadow tokenizer and parser immediately after generating the node schema.&rdquo; The Full Ladder's forced runway is more precise: migrate node construction, reads and physical storage through steps 5&ndash;8 before the candidate parser becomes authoritative. Lexical work may be built and gated early, but normal compilation must not integrate the candidate until it consumes the generated node representation.</p>
+</div>
+
+<div class="d">
+<h3>The next evidence required</h3>
+<ol>
+<li>A complete step-6 census and zero meter for generic node reads and handwritten child traversal.</li>
+<li>A single step-7 physical <code>n_</code> cutover with no dual-key compatibility interval.</li>
+<li>Step-8 direct borrowed-reader lifetime tests and performance measurements.</li>
+<li>A candidate parser that consumes only candidate tokens and creates only final generated syntax nodes.</li>
+<li>Parser scaling at 100, 500, 1,000 and larger statement/block populations using explicit bounded storage.</li>
+<li>Resolver and module-graph evidence for imports, receiver calls, operators and state slots.</li>
+<li>Structural HIR/MIR receipts proving raw expression source is gone.</li>
+<li>Shared HIR interpretation and full ordinary-input shadow parity before cutover.</li>
+</ol>
+</div>
+
 <h2>The invariants worth encoding as tests</h2>
 <div class="scrollbox"><pre>1   only the tokenizer reads characters to identify tokens
 2   only the parser decides syntax, precedence and operator arity
@@ -298,16 +424,30 @@ not           capturing arbitrary surrounding locals</pre>
 9   every operator exists in one registry
 10  every front-end operation is bounded-stack and ~linear in source size
 11  no unsupported value silently becomes nil or JSON null
-12  fallback use is counted and can only decrease</pre></div>
+12  fallback use is counted and can only decrease
+13  compiler nodes are constructed only through generated exact APIs
+14  compiler node reads and child traversal go only through generated doors
+15  generic mutation and generic JSON encoding reject private exact nodes
+16  every legacy node conversion is explicit, counted and deletable</pre></div>
 
 <h2>Bottom line</h2>
 <div class="d">
-<p>The first implementation artifact is the <b>node schema, source manager, operator registry, and shadow-mode tokenizer and parser</b> &mdash; not another patch to the raw-text emitter.</p>
-<p><b>Shadow mode</b> is the mechanism: run the new front end on every build while the old back end still executes. That establishes parse coverage across the whole repository, diagnostics, parser performance and import-graph correctness <b>without requiring the back end to be finished</b>. Every accidental old syntax the new parser rejects goes into an adjudicated compatibility ledger rather than being silently accepted or silently dropped.</p>
+<p>The first implementation foundation is the <b>node schema, exact-node bridge, source manager and operator registry</b> &mdash; not another patch to the raw-text emitter. The forced runway then moves construction, reads and physical storage through the generated doors before the candidate parser can become authoritative.</p>
+<p><b>Shadow mode remains the migration mechanism:</b> candidate lexical and parsing work can run on every build while the old back end still executes, but it must consume the generated node representation before integration into normal compilation. Shadow mode establishes repository-wide parse coverage, diagnostics, parser performance and import-graph correctness <b>without requiring the back end to be finished</b>. Every accidental old syntax the new parser rejects goes into an adjudicated compatibility ledger rather than being silently accepted or silently dropped.</p>
+<p class="note">The next proof is not another node constructor. It is that every node read and traversal goes through the generated schema, allowing one physical cutover and then direct borrowed access before the new parser takes control.</p>
 </div>
 
+<h2>Companion documents</h2>
+<ul>
+<li><a href="2026-08-02-the-full-ladder.html">The Full Ladder</a> &mdash; index, status and forced order</li>
+<li><a href="DECISIONS-what-you-have-decided.html">Decisions</a> &mdash; settled language and product rulings</li>
+<li><a href="ARCHITECTURE-hey-restructured.html">Architecture</a> &mdash; stage ownership and forbidden duplication</li>
+<li><a href="PLAN-hey-restructure.html">Plan</a> &mdash; migration steps and exit criteria</li>
+<li><a href="2026-08-03-the-front-end-has-a-lexical-layer.html">The front end has a lexical layer</a> &mdash; 3 August implementation status</li>
+</ul>
+
 <footer>
-<p>Architecture review, 2 August 2026, against <code>stable</code> v0.99.475a commit <code>77ae81e8</code>. Settled outcomes are on <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>; the diagrams are on <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a> and the phased plan on <a href="PLAN-hey-restructure.html">the plan page</a>. Sources for the external claims: Pratt's original top-down operator precedence paper, the ESTree specification, Maranget on pattern-matching exhaustiveness, the Ruby method-syntax documentation, Python's <code>ast</code> module, LLVM FileCheck, the rustc development guide, the Tokio scheduler notes, the Pony ORCA paper, Clang cross-compilation, and Apple's static-framework documentation.</p>
+<p>Architecture review, 2 August 2026, revised 3 August 2026. The snapshot measurements were taken against <code>stable</code> v0.99.475a commit <code>77ae81e8</code>; the exact-node and runway sections record the verified 3 August state. Settled outcomes are on <a href="DECISIONS-what-you-have-decided.html">the decisions page</a>; stage ownership is on <a href="ARCHITECTURE-hey-restructured.html">the architecture page</a>; the phased migration is on <a href="PLAN-hey-restructure.html">the plan page</a>; and the current forced order is indexed by <a href="2026-08-02-the-full-ladder.html">The Full Ladder</a>. Sources retained for the external claims: Pratt's original top-down operator precedence paper, the ESTree specification, Maranget on pattern-matching exhaustiveness, the Ruby method-syntax documentation, Python's <code>ast</code> module, LLVM FileCheck, the rustc development guide, the Tokio scheduler notes, the Pony ORCA paper, Clang cross-compilation, and Apple's static-framework documentation.</p>
 </footer>
 
 </main>
