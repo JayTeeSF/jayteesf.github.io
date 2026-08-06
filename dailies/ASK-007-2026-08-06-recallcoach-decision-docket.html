@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="Nine open questions in RecallCoach, each with what was actually measured on the running server, what other people did about the same problem, and two or three options to rule on: the missing LLM key, the import link that expires, the 750 KB upload ceiling, modern Anki's zstd format, where images live, a background worker that stopped without saying why, answer revision, open registration, and the TV markdown release.">
+<meta name="article-index-title" content="Ask #7 &mdash; RecallCoach: nine things I need you to decide">
+<meta name="article-index-desc" content="Production has no LLM key, so every AI button quietly returns fake data. The import link dies after 15 minutes. Uploads cap at 750 KB, not the 5 MB we said. A generation worker stops without logging why. Nine decisions, with the measurements and the prior art.">
+<title>RecallCoach &mdash; nine decisions</title>
+<style>
+  :root {
+    --ground:#f6f5f2; --panel:#fff; --ink:#171820; --muted:#565a6b; --faint:#7d8192;
+    --line:#e0dedb; --accent:#31407e; --accent-soft:#e7e9f4; --signal:#8a5a12;
+    --signal-soft:#f6eddd; --stop:#8f3030;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#101118; --panel:#181a24; --ink:#eceef5; --muted:#a2a7b8; --faint:#7f8494;
+      --line:#262936; --accent:#8f9fe0; --accent-soft:#1a1e30; --signal:#d0a04e;
+      --signal-soft:#26200f; --stop:#d98080; }
+  }
+  :root[data-theme="dark"] { --ground:#101118; --panel:#181a24; --ink:#eceef5; --muted:#a2a7b8;
+    --faint:#7f8494; --line:#262936; --accent:#8f9fe0; --accent-soft:#1a1e30; --signal:#d0a04e;
+    --signal-soft:#26200f; --stop:#d98080; }
+  :root[data-theme="light"] { --ground:#f6f5f2; --panel:#fff; --ink:#171820; --muted:#565a6b;
+    --faint:#7d8192; --line:#e0dedb; --accent:#31407e; --accent-soft:#e7e9f4; --signal:#8a5a12;
+    --signal-soft:#f6eddd; --stop:#8f3030; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font:16.5px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
+  .mono, code { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums; font-size:0.92em; }
+  main { max-width:53rem; margin:0 auto; padding:3.2rem 1.3rem 6rem; }
+  .eyebrow { font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);
+    font-weight:620; margin:0 0 0.7rem; }
+  h1 { font-size:clamp(1.8rem,4.2vw,2.45rem); line-height:1.13; margin:0 0 0.7rem;
+    letter-spacing:-0.021em; text-wrap:balance; font-weight:680; }
+  .standfirst { font-size:1.09rem; color:var(--muted); margin:0 0 2.4rem; max-width:42rem; text-wrap:pretty; }
+  h2 { font-size:1.26rem; margin:3.2rem 0 0.5rem; letter-spacing:-0.013em; text-wrap:balance; font-weight:660; }
+  h3 { font-size:1.02rem; margin:1.6rem 0 0.4rem; font-weight:640; }
+  p { margin:0 0 1rem; text-wrap:pretty; }
+  strong { font-weight:660; }
+  a { color:var(--accent); }
+
+  .note { border-left:2.5px solid var(--accent); background:var(--accent-soft);
+    padding:0.95rem 1.15rem; margin:1.4rem 0; border-radius:0 3px 3px 0; }
+  .note.warn { border-left-color:var(--signal); background:var(--signal-soft); }
+  .note.settled { border-left-color:var(--faint); background:transparent; border-left-style:dashed; }
+  .note p:last-child { margin-bottom:0; }
+  .note .tag { display:block; font-size:0.69rem; letter-spacing:0.12em; text-transform:uppercase;
+    font-weight:660; color:var(--faint); margin-bottom:0.4rem; }
+
+  ul.rules { list-style:none; margin:0 0 1rem; padding:0; display:grid; gap:0.55rem; }
+  ul.rules li { padding-left:1.1rem; position:relative; color:var(--muted); font-size:0.96rem; }
+  ul.rules li::before { content:""; position:absolute; left:0; top:0.62em; width:5px; height:5px;
+    background:var(--accent); border-radius:50%; }
+  ul.rules b { color:var(--ink); font-weight:640; }
+
+  .decision { border:1px solid var(--line); border-radius:4px; background:var(--panel);
+    margin:1.2rem 0 0; overflow:hidden; }
+  .decision-head { padding:1.15rem 1.25rem 0.9rem; }
+  .decision-head .kicker { font-size:0.7rem; letter-spacing:0.13em; text-transform:uppercase;
+    color:var(--accent); font-weight:660; }
+  .decision-head h3 { margin:0.35rem 0 0.45rem; font-size:1.15rem; letter-spacing:-0.012em; }
+  .decision-head p { margin:0 0 0.6rem; color:var(--muted); font-size:0.96rem; }
+  .decision-head p:last-child { margin-bottom:0; }
+  .opts { display:grid; }
+  .opt { display:grid; grid-template-columns:auto 1fr; gap:0.85rem; padding:0.95rem 1.25rem;
+    border-top:1px solid var(--line); cursor:pointer; transition:background 0.12s ease; }
+  .opt:hover { background:var(--accent-soft); }
+  .opt input { margin:0.35rem 0 0; accent-color:var(--accent); width:1rem; height:1rem; }
+  .opt .id { font-size:0.74rem; font-weight:680; color:var(--faint); letter-spacing:0.06em; }
+  .opt .title { font-weight:620; margin:0.1rem 0 0.25rem; }
+  .opt .why { color:var(--muted); font-size:0.93rem; margin:0; }
+  .opt .why em { color:var(--ink); font-style:normal; font-weight:600; }
+  .rec { display:inline-block; font-size:0.66rem; letter-spacing:0.09em; text-transform:uppercase;
+    font-weight:680; color:var(--accent); border:1px solid var(--accent); border-radius:2px;
+    padding:0.05rem 0.36rem; margin-left:0.45rem; vertical-align:0.12em; }
+  .opt:has(input:checked) { background:var(--accent-soft); }
+
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:0.85rem 1rem;
+    overflow-x:auto; margin:1rem 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:0.86rem; line-height:1.5; }
+
+  #ruling { margin-top:2.6rem; border:1px solid var(--accent); border-radius:4px;
+    background:var(--panel); overflow:hidden; }
+  #ruling .rhead { padding:0.7rem 1rem; border-bottom:1px solid var(--accent); font-size:0.72rem;
+    letter-spacing:0.11em; text-transform:uppercase; color:var(--accent); font-weight:620; }
+  #ruling .body { padding:1.1rem 1.25rem; }
+  textarea { width:100%; min-height:9rem; resize:vertical; background:var(--ground); color:var(--ink);
+    border:1px solid var(--line); border-radius:3px; padding:0.8rem 0.9rem;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.87rem; line-height:1.55; }
+  button { font:inherit; font-size:0.9rem; font-weight:620; cursor:pointer; background:var(--accent);
+    color:var(--panel); border:0; border-radius:3px; padding:0.5rem 0.95rem; margin-top:0.75rem; }
+  button:focus-visible, .opt:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+  .scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:0.9rem; }
+  th,td { text-align:left; padding:0.5rem 0.7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); font-weight:620; }
+  td:first-child { color:var(--ink); font-weight:600; white-space:nowrap; }
+  td { color:var(--muted); }
+  footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line);
+    color:var(--faint); font-size:0.85rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">RecallCoach &middot; decision docket &middot; 6 August 2026</p>
+  <h1>Nine things I need you to decide</h1>
+  <p class="standfirst">Every one of these came out of running the thing rather than reading it. Some are choices with no right answer; some are places where what we promised and what the server can actually do have come apart. Where somebody else has already solved the same problem, I went and found out what they did and why.</p>
+
+  <div class="note">
+    <span class="tag">How to use this page</span>
+    <p>Pick an option in each box. At the bottom there is a <strong>Copy ruling</strong> button that produces a short text block &mdash; paste it back and that is the whole ruling. You do not have to answer all nine; anything left blank stays open.</p>
+    <p><strong>Bugs are not on this page.</strong> Two were found and fixed today without asking you &mdash; see <em>Not on this page</em> at the bottom. These nine are choices, or things I should not decide with your money or your users.</p>
+  </div>
+
+  <h2>What is actually running</h2>
+  <p>One Hetzner CPX11 &mdash; 2 vCPU, 2&nbsp;GB of RAM, <strong>no swap</strong> &mdash; hosting both <span class="mono">quiz.jayteesf.com</span> and <span class="mono">prayer.his-service.net</span> behind one shared proxy that routes on the Host header. Everything below is bounded by that box.</p>
+  <div class="scroll">
+  <table>
+    <tr><th>What</th><th>Measured</th><th>Where</th></tr>
+    <tr><td>LLM provider</td><td>unset &rarr; defaults to <span class="mono">fake</span>; key is empty</td><td><span class="mono">.kamal/secrets</span>, <span class="mono">config/deploy.yml</span></td></tr>
+    <tr><td>Request body cap</td><td>1&nbsp;MiB, enforced by the runtime before any handler runs</td><td><span class="mono">HEY_WEB_MUX_REQ_MAX</span></td></tr>
+    <tr><td>Anki upload cap</td><td>768,000 bytes (base64 costs 33%)</td><td><span class="mono">domain/apkg_import.hey</span></td></tr>
+    <tr><td>Import link life</td><td>15 minutes, single use</td><td><span class="mono">domain/ingest_tokens.hey</span></td></tr>
+    <tr><td>Stalled generation job</td><td><span class="mono">running</span>, 0 generated, 14 pending, 257 polls, no error logged</td><td>production job record</td></tr>
+    <tr><td>Modern Anki exports</td><td>refused by name, with the re-export instruction</td><td><span class="mono">domain/apkg_import.hey</span></td></tr>
+  </table>
+  </div>
+
+  <h2>The decisions</h2>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R1</span>
+      <h3>Production has no LLM. Whose key runs the generator?</h3>
+      <p>This is why "run every card through AI" produces nothing usable on the live site. <span class="mono">LLM_API_KEY</span> ships empty and the provider falls back to <span class="mono">fake</span>, so the server accepts the request, manufactures distractors and returns 200. <strong>Nothing warns anybody.</strong> Every other decision on this page is downstream of this one.</p>
+    </div>
+    <div class="opts" data-q="R1">
+      <label class="opt">
+        <input type="radio" name="R1" value="R1-a — one server key, JayTeeSF LLC pays, metered per account">
+        <span><span class="id">R1-a</span><span class="rec">Recommended</span>
+          <p class="title">One server key. The company pays.</p>
+          <p class="why">Set the key in Kamal secrets and point the provider at a real model. Per-account metering already exists, so you can see who spends what and cap it before it hurts.
+          <em>The cost is real and bounded:</em> roughly one model call per card, so a 500-card topic is a knowable number you can price later. <em>The exposure is that anyone who can register can spend it</em> &mdash; which is why R8 exists and should be answered with this one.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R1" value="R1-b — each teacher supplies their own key">
+        <span><span class="id">R1-b</span>
+          <p class="title">Bring your own key</p>
+          <p class="why">Each teacher pastes their own provider key into account settings; the cost is theirs and the cap is theirs. <em>It also kills the demo</em> &mdash; nobody evaluating a new tool pastes an API key to try it &mdash; and it means we now store other people's credentials, which raises the stakes on everything in the security layer by a lot for a product this young.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R1" value="R1-c — server key, but generation is invite-only for now">
+        <span><span class="id">R1-c</span>
+          <p class="title">Server key, invite-only generation</p>
+          <p class="why">Same as R1-a, but the AI actions are gated to accounts you have let in. <em>Safest spend, slowest growth</em>, and it needs the invite mechanism from R8 to exist first. Reasonable if you want the live site to be a demo you personally hand out rather than a signup funnel.</p>
+        </span>
+      </label>
+    </div>
+    <div class="note warn">
+      <span class="tag">Regardless of which you pick</span>
+      <p>The silence is a defect and I will fix it either way: with no real provider configured, a deployed server should <strong>refuse</strong> AI requests and say so, not return convincing fake distractors. Today the only way to find out is to read the output and notice it is wrong.</p>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R2</span>
+      <h3>The import button dies after 15 minutes. Should it?</h3>
+      <p>You asked this directly: do you drag the bookmark, use it, and throw it away every time? <strong>Yes, today, and that is bad.</strong> The token baked into the button is deliberately short-lived <em>and</em> single-use, so every import means: create a link, drag a new button to the bookmarks bar, use it once, delete it.</p>
+      <p>That design is defensible for a credential that travels &mdash; it is why a token scraped out of a proxy log is almost certainly already dead. It is just the wrong trade for a button you are meant to keep.</p>
+    </div>
+    <div class="opts" data-q="R2">
+      <label class="opt">
+        <input type="radio" name="R2" value="R2-a — one durable, revocable sender token: drag once, keep it, revoke from the import page">
+        <span><span class="id">R2-a</span><span class="rec">Recommended</span>
+          <p class="title">A durable sender token you can revoke</p>
+          <p class="why">Drag the button once and keep it. The import page lists your senders and has a Revoke button beside each. This is what every other "send to&hellip;" bookmarklet does &mdash; read-later services have shipped exactly this shape for fifteen years.
+          <em>What you are accepting:</em> a token sitting in your bookmarks bar that can create decks in your account until you revoke it. Its only power is "import a deck" &mdash; it cannot read, delete, or run a room &mdash; but it is a standing credential where today there is a disposable one.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R2" value="R2-b — keep one-time tokens, but make re-minting one click and stop requiring a re-drag">
+        <span><span class="id">R2-b</span>
+          <p class="title">Keep it disposable, make it painless</p>
+          <p class="why">Same security, better ergonomics: the button on the import page updates itself, so you press one thing and re-drag. <em>It does not actually solve the problem</em> &mdash; you still cannot keep the bookmark &mdash; but it keeps the credential disposable, which matters more if R8 lands on open registration.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R2" value="R2-c — durable token, but scoped to one deck and shown only while signed in">
+        <span><span class="id">R2-c</span>
+          <p class="title">Durable, but narrower</p>
+          <p class="why">The middle path: the token lasts, but it only works while your RecallCoach session is also alive, so a stolen bookmark is useless on someone else's machine. <em>Costs a cross-origin session check</em> the sender does not do today, and browsers are increasingly hostile to exactly that pattern, so it may quietly stop working.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R3</span>
+      <h3>You asked for 5&nbsp;MB uploads. The ceiling is 750&nbsp;KB.</h3>
+      <p>The runtime caps request bodies at 1&nbsp;MiB and enforces it <em>before any of our code runs</em> &mdash; an oversized request gets a bare 400 the app never sees and cannot explain. Anki packages arrive base64-encoded, which costs 33%, so the honest cap is 768,000 bytes. I set it there and wrote honest messages rather than leaving a 5&nbsp;MB promise that fails as a blank error.</p>
+      <p>This is an ordinary problem. Reverse proxies, tunnels and managed hosts all cap request bodies, and <a href="https://tus.io/protocols/resumable-upload">the tus resumable-upload protocol</a> exists largely because of it. Notably, tus's own advice is <em>not</em> to chunk unless a server limit forces you to, because chunking costs throughput. Here it forces you.</p>
+    </div>
+    <div class="opts" data-q="R3">
+      <label class="opt">
+        <input type="radio" name="R3" value="R3-a — chunked upload in ~512 KB parts, assembled server-side">
+        <span><span class="id">R3-a</span><span class="rec">Recommended</span>
+          <p class="title">Chunk it, ~512&nbsp;KB per part</p>
+          <p class="why">The browser slices the file, posts parts into an upload session, the server appends and assembles on the last one. Ten parts for a 5&nbsp;MB deck. <em>Roughly two days of work</em> across the browser side, a new session record and resume semantics &mdash; and it also buys the real progress bar that a single-shot POST can never have.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R3" value="R3-b — raise the runtime's request cap upstream">
+        <span><span class="id">R3-b</span>
+          <p class="title">Raise the cap in the runtime</p>
+          <p class="why">One constant, then a Hey release, then rebuild both apps. Cheapest to write. <em>It is also a whole-host change on a 2&nbsp;GB box with no swap:</em> a 16&nbsp;MB cap means four HTTP workers can each be holding 16&nbsp;MB of body plus copies of it. That is how the machine gets killed, and it would take the prayer site down with it.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R3" value="R3-c — leave the cap, point big decks at CSV and Brainscape">
+        <span><span class="id">R3-c</span>
+          <p class="title">Leave it. CSV is the real road.</p>
+          <p class="why">Honest today, and CSV import handles the decks people actually have. <em>The cost is positioning:</em> "import your Anki deck" is a headline claim, and a 750&nbsp;KB ceiling makes it true only for small ones.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R4</span>
+      <h3>Modern Anki exports. Do we learn to read them?</h3>
+      <p>Anki 2.1.50 and newer compress the collection with Zstandard. We detect that by name and refuse it with the exact fix &mdash; re-export with "support older Anki versions" ticked &mdash; translated into all four languages. It is an honest refusal, but it asks every user to know that a checkbox exists.</p>
+      <p>Everyone hits this. <a href="https://eikowagenknecht.com/posts/understanding-the-anki-apkg-format/">The format write-up</a> notes that few tools besides Anki itself handle it; Anki add-ons themselves had no bundled decompressor and reach for an external library. Nobody reimplemented zstd &mdash; they all linked the real one.</p>
+    </div>
+    <div class="opts" data-q="R4">
+      <label class="opt">
+        <input type="radio" name="R4" value="R4-a — bind libzstd the way hey_sqlite3 binds SQLite">
+        <span><span class="id">R4-a</span><span class="rec">Recommended</span>
+          <p class="title">Link the real zstd</p>
+          <p class="why">Exactly the pattern already in this repo for SQLite, and decompression is essentially one function call. <em>The note fields we read are ordinary text columns</em>, so the protobuf that the newer schema uses for configuration should not be in our path &mdash; I would confirm that on a real file before committing to it. Cost: one more native dependency in the image.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R4" value="R4-b — implement zstd decompression in Hey">
+        <span><span class="id">R4-b</span>
+          <p class="title">Write a decompressor in Hey</p>
+          <p class="why">No new native dependency, and the existing inflate code proves it is possible. <em>zstd is not inflate</em> &mdash; this is weeks, not days, and it is weeks spent on something the world already solved.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R4" value="R4-c — keep the named refusal, improve the instructions">
+        <span><span class="id">R4-c</span>
+          <p class="title">Keep refusing, say it better</p>
+          <p class="why">Costs nothing and the message already names the exact remedy. <em>It is a tax on every single Anki user</em>, forever, for a format that has been the default for years now.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R5</span>
+      <h3>Where do images live in the long run?</h3>
+      <p>You said blobs in SQLite would "likely be very slow, so we'll need a better long term strategy". They are stored that way now, on the same volume as everything else.</p>
+      <p>The measurement points the other way. SQLite's own benchmark, <a href="https://sqlite.org/fasterthanfs.html">35% Faster Than The Filesystem</a>, finds small blobs read and write about a third faster from the database than from individual files, and several times faster on some platforms; the filesystem only wins somewhere above 100&nbsp;KB. So for diagrams and thumbnails the intuition is backwards, and for full-size photos it is right.</p>
+      <p><strong>Storage is not the real constraint.</strong> This runtime cannot emit a binary HTTP body at all &mdash; response length is measured with a C string function, so a zero byte truncates the response. Images come back base64 inside JSON or not at all, and that costs more than any storage choice on this list.</p>
+    </div>
+    <div class="opts" data-q="R5">
+      <label class="opt">
+        <input type="radio" name="R5" value="R5-a — keep SQLite blobs; spend the effort on the binary-response path instead">
+        <span><span class="id">R5-a</span><span class="rec">Recommended</span>
+          <p class="title">Keep the blobs. Fix the response path.</p>
+          <p class="why">No new infrastructure, no second bill, and the backup story stays one story &mdash; the volume is already pushed to a git repository on a schedule. <em>The work moves into the runtime</em>, where it also benefits every other Hey app you ship.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R5" value="R5-b — object storage (R2/S3), served straight to the browser">
+        <span><span class="id">R5-b</span>
+          <p class="title">Object storage, served directly</p>
+          <p class="why">Sidesteps the binary-body problem completely: the browser fetches the image from the bucket and our server never carries the bytes. It also takes image traffic off a 2&nbsp;GB box. <em>Costs a vendor, a credential, a CORS story, and splits the backup into two systems</em> &mdash; and right now everything you own is on one volume you can restore in one step.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R5" value="R5-c — plain files on the volume, served by the proxy">
+        <span><span class="id">R5-c</span>
+          <p class="title">Files on the volume</p>
+          <p class="why">Cheap, obvious, and the backup still covers it. <em>The shared proxy routes by hostname to app containers</em> and does not serve static files today, so this is less free than it sounds &mdash; and it is the option SQLite's own benchmark says is slowest for small files.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R6</span>
+      <h3>A worker stopped and did not say why. How hard do we chase it?</h3>
+      <p>On the live server, bulk generation for a 14-card deck sat as <span class="mono">running</span> with nothing generated and all fourteen cards still pending, its timestamp never moving, while the page polled 257 times. The job starts as queued and marks itself running before it does anything &mdash; so the worker started, then stopped, and wrote neither progress nor a failure. <strong>Nothing was logged as an error.</strong> I do not know the cause.</p>
+      <p>What I shipped is a guard, not a fix: a heartbeat every minute and a three-minute staleness check, so the job now reports itself failed instead of spinning forever.</p>
+      <p>This failure has a standard name &mdash; an orphaned job &mdash; and two standard treatments. <a href="https://www.bigbinary.com/blog/increase-reliability-of-background-job-processing-using-super_fetch-of-sidekiq-pro">Sidekiq's approach</a> moves a claimed job into a per-process private queue and reaps what is left when a process dies, and recovery can take anywhere from five minutes to three hours. <a href="https://elixirforum.com/t/oban-reliable-and-observable-job-processing/22449?page=2">Oban</a> requires a minute of heartbeat before it rescues. Both agree on the shape &mdash; a claim with an owner, a heartbeat, a reaper &mdash; and <em>neither tells you why a worker stopped</em>. That is what per-attempt logging is for.</p>
+    </div>
+    <div class="opts" data-q="R6">
+      <label class="opt">
+        <input type="radio" name="R6" value="R6-a — log each attempt, wait for it to happen once more, then fix the actual cause">
+        <span><span class="id">R6-a</span><span class="rec">Recommended</span>
+          <p class="title">Instrument it and wait for one more</p>
+          <p class="why">Log entry and exit around each card's model call with the card id. The very next stall then names the card and the step, and the guard means users get an honest failure in the meantime. <em>Cheapest, and it fixes the real thing rather than the symptom</em> &mdash; but it needs the bug to happen again, so it is not a today answer.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R6" value="R6-b — rebuild on a lease-and-reaper model now">
+        <span><span class="id">R6-b</span>
+          <p class="title">Owner, lease, reaper &mdash; now</p>
+          <p class="why">The architecture the job systems above converged on, and it makes stalls self-healing. About a day. <em>The trap:</em> if the cause is deterministic &mdash; one card that always kills the worker &mdash; an automatic retry turns a visible stall into an invisible loop that quietly spends model calls forever.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R6" value="R6-c — drop the background worker: one card per request, driven by the page">
+        <span><span class="id">R6-c</span>
+          <p class="title">No background worker at all</p>
+          <p class="why">The page already polls; let it drive instead. There is nothing to orphan, progress is exact, and a failure names its card. <em>This is the option most likely to just work for "run the whole deck through AI" today.</em> But it costs one request per card and the tab has to stay open &mdash; which directly contradicts what you asked for earlier, that the background job should finish and still be there when you come back. Worth choosing only if you would rather have it reliable than unattended.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R7</span>
+      <h3>A student changes their answer. What happens to the first one?</h3>
+      <p>You asked for revision: a student can change their answer until the teacher moves on. The trap is underneath &mdash; responses are durable rows and end-of-quiz scoring folds over all of them, so if a revision <em>appends</em> a row, the student who changed their mind gets counted twice.</p>
+    </div>
+    <div class="opts" data-q="R7">
+      <label class="opt">
+        <input type="radio" name="R7" value="R7-a — update the existing response in place">
+        <span><span class="id">R7-a</span><span class="rec">Recommended</span>
+          <p class="title">Overwrite the response in place</p>
+          <p class="why">Keyed by room, question and participant, so there is only ever one row per student per question and the scoring code needs no changes at all &mdash; it is correct by construction rather than by everyone remembering. <em>You lose the first answer</em>, which is the one piece of genuinely interesting data here.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R7" value="R7-b — append revisions, score last-wins">
+        <span><span class="id">R7-b</span>
+          <p class="title">Keep every answer, score the last</p>
+          <p class="why">First instinct versus considered answer is real pedagogical signal, and the classroom-response literature in the repo cares about exactly that. <em>The cost is that every future reader of responses must remember to deduplicate</em>, and the one that forgets silently double-counts a student's score. That is a bug that will not show up in a test.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R7" value="R7-c — append with a superseded flag">
+        <span><span class="id">R7-c</span>
+          <p class="title">Append, and mark the old one superseded</p>
+          <p class="why">History kept, one boolean to filter on. <em>Still one place to get wrong</em>, but it is a flag anyone can see rather than a convention they have to know.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R8</span>
+      <h3>Who is allowed to create an account?</h3>
+      <p>The sign-in panels on the live site offer "Create an account". Pair this with R1: if the company key is funding generation, then whoever can register can spend it.</p>
+    </div>
+    <div class="opts" data-q="R8">
+      <label class="opt">
+        <input type="radio" name="R8" value="R8-a — invite code required to register, for now">
+        <span><span class="id">R8-a</span><span class="rec">Recommended</span>
+          <p class="title">Invite code, while it is young</p>
+          <p class="why">One field, one list, and it makes the spend in R1-a a knowable number. You can hand codes to the teachers you actually want feedback from. <em>It is a gate you can remove in an afternoon</em> once the metering has told you what a real user costs; going the other way, after a bill, is worse.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R8" value="R8-b — open registration, rely on per-account AI metering and rate limits">
+        <span><span class="id">R8-b</span>
+          <p class="title">Open, and lean on the meters</p>
+          <p class="why">The metering and rate limiting already exist, so the spend is capped per account rather than unbounded. <em>Right if the goal is people finding it and trying it</em> &mdash; and the App Store listing you want eventually assumes exactly this. The exposure is a stranger's free generation quota, not your whole balance.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R8" value="R8-c — open registration, but AI actions unlock only on request">
+        <span><span class="id">R8-c</span>
+          <p class="title">Open to sign up, gated to generate</p>
+          <p class="why">Anyone can create a room and run their own questions; the AI buttons say "ask for access". <em>Keeps the demo open while the expensive part stays yours to grant</em> &mdash; at the cost of a two-tier account state to build and explain.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R9</span>
+      <h3>The TV can render emphasis now. Do we ship it and start using it?</h3>
+      <p>The tvOS package renders bold, italic and code spans, with a flanking rule so that <span class="mono">2 * 3 * 4</span> does not italicise the 3 and fill-in-the-blank stems full of underscores survive intact &mdash; that rule exists because testing the parser caught what reading it did not. But the lockfile still points at the previous version and <strong>nothing on the server sends emphasis</strong>, so the feature is currently invisible.</p>
+    </div>
+    <div class="opts" data-q="R9">
+      <label class="opt">
+        <input type="radio" name="R9" value="R9-a — release the package, then let the generator emphasise the operative term">
+        <span><span class="id">R9-a</span><span class="rec">Recommended</span>
+          <p class="title">Release it, then use it</p>
+          <p class="why">Run the full release &mdash; version bump, publish, lockfile, status mirror &mdash; then let the question writer bold the word the question turns on. <em>This is the same problem the punctuation fix solved:</em> a whole class reads one screen from the back of a room, and emphasis is the cheapest legibility win left.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R9" value="R9-b — release the package, send no markdown yet">
+        <span><span class="id">R9-b</span>
+          <p class="title">Release it, do not use it yet</p>
+          <p class="why">The TV is ready whenever you want it, nothing on screen changes, and there is no chance of a stray asterisk showing up in front of a class. <em>Costs nothing except that the capability sits idle.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R9" value="R9-c — hold both until there is a reason">
+        <span><span class="id">R9-c</span>
+          <p class="title">Hold both</p>
+          <p class="why">Nothing to do, nothing to break. <em>Unreleased native code rots</em> &mdash; it will need revisiting at the next tvOS version whether or not anyone used it.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <h2>Not on this page</h2>
+  <div class="note settled">
+    <span class="tag">Fixed today, no ruling needed</span>
+    <p><strong>The Brainscape button was importing the web page instead of the deck.</strong> It appended <span class="mono">.csv</span> to whatever URL you were standing on &mdash; which is only right on a page nobody browses. From a deck's Browse, Edit or Study screen it asked the site for a route that does not exist, and the single-page app answered 200 with its own shell. That HTML parsed perfectly well as a spreadsheet, so the import produced fourteen "cards" whose fronts were the page's own JavaScript. It now takes the deck id out of the URL and builds the real export link, refuses any response that is a web page, and says so plainly when it cannot tell which deck you mean. The parser refuses HTML documents too, so neither import door can do this again.</p>
+    <p><strong>Hidden elements were not hidden</strong>, which is why an empty text box appeared in the AI dialogs, and the password fields now have a show/hide control.</p>
+  </div>
+  <div class="note settled">
+    <span class="tag">Real, but not decisions</span>
+    <p>The equation editor and image field on questions are blocked behind R5 and wait on it. The soundtrack needs a human vocalist, not a ruling. Image occlusion is deferred by your own instruction and stays deferred.</p>
+  </div>
+
+  <div id="ruling">
+    <div class="rhead">Your ruling</div>
+    <div class="body">
+      <textarea id="out" readonly></textarea>
+      <button id="copy">Copy ruling</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>RecallCoach &mdash; decision docket, 6 August 2026. A JayTeeSF LLC product. Measurements taken from the running production server at <span class="mono">quiz.jayteesf.com</span> and from the source tree on the same day; external practice cited inline. Decisions are numbered R1&ndash;R9 so they do not collide with the Hey language dockets.</p>
+  </footer>
+</main>
+<script>
+  (function () {
+    var out = document.getElementById('out');
+    var qs = [
+      { name: 'R1', label: 'R1  LLM provider and whose key pays' },
+      { name: 'R2', label: 'R2  import bookmarklet lifetime' },
+      { name: 'R3', label: 'R3  upload ceiling (750 KB vs 5 MB)' },
+      { name: 'R4', label: 'R4  modern Anki / zstd support' },
+      { name: 'R5', label: 'R5  long-term image storage' },
+      { name: 'R6', label: 'R6  generation worker stall' },
+      { name: 'R7', label: 'R7  answer revision semantics' },
+      { name: 'R8', label: 'R8  who can register' },
+      { name: 'R9', label: 'R9  TV markdown release' }
+    ];
+    function render() {
+      var lines = ['RECALLCOACH — RULING, 6 AUGUST 2026', ''], any = false;
+      qs.forEach(function (q) {
+        var sel = document.querySelector('input[name="' + q.name + '"]:checked');
+        lines.push(q.label + ':');
+        lines.push('  ' + (sel ? sel.value : '(not yet decided)'));
+        lines.push('');
+        if (sel) any = true;
+      });
+      out.value = any ? lines.join('\n').trim() : 'Nothing selected yet.';
+    }
+    document.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      r.addEventListener('change', render);
+    });
+    document.getElementById('copy').addEventListener('click', function () {
+      out.select();
+      var b = this;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out.value);
+        else document.execCommand('copy');
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = 'Copy ruling'; }, 1600);
+      } catch (e) { b.textContent = 'Select the text above and copy'; }
+    });
+    render();
+  })();
+</script>
+</body>
+</html>
