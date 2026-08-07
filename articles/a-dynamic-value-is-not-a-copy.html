@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-date" content="2026-08-07">
+<meta name="article-bucket" content="almost">
+<meta name="article-desc" content="Hey still needs dynamic values at genuine runtime boundaries. It does not need to allocate and copy every value to get them. The design rule is tag and share: native scalars when known, references to immutable storage when shared, and zero payload copies either way.">
+<meta name="article-index-title" content="A Dynamic Value Is Not a Copy">
+<meta name="article-index-desc" content="Dynamic typing does not require box-and-copy execution. The design rule for Hey is simpler: keep known values native, represent unknown values with a small tag and handle, and borrow the same immutable payload instead of cloning it.">
+<title>A Dynamic Value Is Not a Copy</title>
+<style>
+  :root {
+    --ground:#f4f6f8; --panel:#ffffff; --panel2:#e9eef3;
+    --ink:#10161d; --mid:#3f4b57; --muted:#687481;
+    --line:#cfd8e1; --strong:#aebac6;
+    --good:#08745f; --good-bg:#e1f2ed;
+    --warn:#9a4f0c; --warn-bg:#f9eadb;
+    --bad:#a02d26; --bad-bg:#f9e5e2;
+    --blue:#245b91; --blue-bg:#e3edf7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark) {
+    :root {
+      --ground:#0c1117; --panel:#131a22; --panel2:#1a2430;
+      --ink:#e8edf3; --mid:#bdc7d2; --muted:#8f9dab;
+      --line:#2d3945; --strong:#465563;
+      --good:#55cdb5; --good-bg:#0e2c27;
+      --warn:#f0a35d; --warn-bg:#302013;
+      --bad:#ef7b72; --bad-bg:#321817;
+      --blue:#77afe7; --blue-bg:#132a42;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink); font:17px/1.66 var(--sans); -webkit-font-smoothing:antialiased; }
+  main { width:min(900px,calc(100% - 32px)); margin:0 auto; padding:48px 0 80px; }
+  .eyebrow { margin:0 0 12px; color:var(--muted); font:700 11px/1.4 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+  h1 { margin:0; max-width:18ch; font-size:clamp(34px,7vw,58px); line-height:1.04; letter-spacing:-.035em; }
+  .lede { max-width:66ch; margin:18px 0 0; color:var(--mid); font-size:19px; }
+  .status { display:inline-block; margin-top:20px; padding:6px 10px; border:1px solid var(--bad); background:var(--bad-bg); color:var(--bad); border-radius:999px; font:750 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+  h2 { margin:44px 0 12px; font-size:26px; line-height:1.18; letter-spacing:-.018em; }
+  h3 { margin:28px 0 8px; font-size:19px; }
+  p { max-width:70ch; margin:0 0 14px; }
+  a { color:var(--blue); text-underline-offset:2px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--panel2); border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
+  pre { overflow:auto; margin:18px 0; padding:16px 18px; background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--blue); border-radius:5px; font:13px/1.6 var(--mono); }
+  pre code { padding:0; border:0; background:none; font-size:inherit; }
+  .tldr { margin:30px 0 0; padding:20px 22px; background:var(--panel); border:1px solid var(--line); border-left:5px solid var(--good); border-radius:6px; }
+  .tldr h2 { margin:0 0 10px; font:800 12px/1.3 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--good); }
+  .tldr ul { margin:0; padding-left:20px; }
+  .tldr li { margin:7px 0; }
+  .figure-wrap { overflow-x:auto; margin:24px 0 8px; background:var(--panel); border:1px solid var(--line); border-radius:7px; }
+  figure { margin:0; min-width:720px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { padding:12px 16px 14px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+  .aside { margin:20px 0; padding:15px 18px; background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--warn); border-radius:5px; color:var(--mid); }
+  .aside strong { color:var(--ink); }
+  table { width:100%; border-collapse:collapse; margin:18px 0; background:var(--panel); border:1px solid var(--line); font-size:14px; }
+  th, td { text-align:left; vertical-align:top; padding:11px 12px; border-bottom:1px solid var(--line); }
+  th { background:var(--panel2); color:var(--muted); font:750 11px/1.4 var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+  tr:last-child td { border-bottom:0; }
+  .verdict { margin:36px 0 0; padding:20px 22px; background:var(--good-bg); border:1px solid var(--good); border-radius:6px; }
+  .verdict p { margin:0; font-size:19px; }
+  .related, .terms { margin-top:38px; padding-top:20px; border-top:1px solid var(--line); }
+  .related ul, .terms dl { margin:10px 0 0; }
+  .terms dt { margin-top:12px; font-weight:750; }
+  .terms dd { margin:3px 0 0; color:var(--mid); max-width:68ch; }
+  footer { margin-top:42px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font:12px/1.7 var(--mono); }
+  @media (max-width:620px) {
+    main { width:min(100% - 24px,900px); padding-top:30px; }
+    .tldr { padding:17px 18px; }
+    th, td { padding:9px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Hey language · runtime design note · 7 August 2026</p>
+  <h1>A Dynamic Value Is Not a Copy</h1>
+  <p class="lede">Hey can keep Ruby-like dynamic values without returning to the allocation-and-copy behavior that made immutable code painfully slow. The key is to separate a <em>type question</em> from a <em>storage strategy</em>.</p>
+  <span class="status">Explored, not yet fully shipped</span>
+
+  <section class="tldr" aria-labelledby="tldr-title">
+    <h2 id="tldr-title">TL;DR</h2>
+    <ul>
+      <li><strong>Verdict: keep dynamic values, reject box-and-copy execution.</strong> A runtime type tag may be necessary; copying the payload is not.</li>
+      <li>When the compiler knows the type, integers and booleans stay native, while strings and collections keep references to immutable backing storage.</li>
+      <li>At a genuinely dynamic boundary, use a small tagged handle, inspect its tag, and borrow the existing payload.</li>
+      <li><strong>Weakness:</strong> Hey still has legacy paths where “boxed” can mean allocation, cloning, or stringification. This policy is the destination, not a claim that every path already follows it.</li>
+      <li><strong>Falsifiability:</strong> increase a dynamic read, comparison, or same-process actor-send loop from thousands to hundreds of thousands of iterations; payload-copy bytes must remain zero and allocator counts must not grow with the loop.</li>
+    </ul>
+  </section>
+
+  <div class="figure-wrap">
+    <figure aria-labelledby="fig-title fig-desc">
+      <svg viewBox="0 0 960 420" role="img" xmlns="http://www.w3.org/2000/svg">
+        <title id="fig-title">Three value paths: native, shared immutable, and dynamic tagged handle</title>
+        <desc id="fig-desc">Known scalars stay native. Immutable payloads are referenced and shared. Dynamic values add a tag check but still point to the same payload. A crossed-out path shows allocation, deep copy, stringification, and reboxing.</desc>
+        <rect width="960" height="420" fill="#f8fafc"/>
+        <text x="40" y="42" font-family="system-ui" font-size="26" font-weight="700" fill="#10161d">The cost we want: a tag check, not a payload copy</text>
+
+        <rect x="40" y="78" width="260" height="108" rx="12" fill="#e3edf7" stroke="#245b91" stroke-width="2"/>
+        <text x="62" y="108" font-family="system-ui" font-size="16" font-weight="700" fill="#173e65">Type known at compile time</text>
+        <text x="62" y="138" font-family="ui-monospace,monospace" font-size="15" fill="#10161d">42 → i64</text>
+        <text x="62" y="163" font-family="ui-monospace,monospace" font-size="15" fill="#10161d">true → i1</text>
+
+        <rect x="350" y="78" width="260" height="108" rx="12" fill="#e1f2ed" stroke="#08745f" stroke-width="2"/>
+        <text x="372" y="108" font-family="system-ui" font-size="16" font-weight="700" fill="#07594a">Immutable payload</text>
+        <text x="372" y="138" font-family="ui-monospace,monospace" font-size="15" fill="#10161d">handle → backing store</text>
+        <text x="372" y="163" font-family="system-ui" font-size="14" fill="#3f4b57">share, borrow, or transfer</text>
+
+        <rect x="660" y="78" width="260" height="108" rx="12" fill="#f9eadb" stroke="#9a4f0c" stroke-width="2"/>
+        <text x="682" y="108" font-family="system-ui" font-size="16" font-weight="700" fill="#743a08">Type unknown until runtime</text>
+        <text x="682" y="138" font-family="ui-monospace,monospace" font-size="15" fill="#10161d">{ tag, payload/ref }</text>
+        <text x="682" y="163" font-family="system-ui" font-size="14" fill="#3f4b57">inspect tag; borrow same data</text>
+
+        <path d="M300 132 H345" stroke="#5c7084" stroke-width="3" marker-end="url(#arrow)"/>
+        <path d="M610 132 H655" stroke="#5c7084" stroke-width="3" marker-end="url(#arrow)"/>
+
+        <rect x="120" y="250" width="720" height="112" rx="12" fill="#f9e5e2" stroke="#a02d26" stroke-width="2"/>
+        <text x="150" y="280" font-family="system-ui" font-size="16" font-weight="700" fill="#7a211b">The path we are removing</text>
+        <text x="150" y="318" font-family="ui-monospace,monospace" font-size="16" fill="#10161d">allocate box → deep-copy payload → stringify → rebox → repeat</text>
+        <line x1="142" y1="268" x2="818" y2="346" stroke="#a02d26" stroke-width="7" opacity=".75"/>
+        <line x1="818" y1="268" x2="142" y2="346" stroke="#a02d26" stroke-width="7" opacity=".75"/>
+
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L0,6 L9,3 z" fill="#5c7084"/>
+          </marker>
+        </defs>
+      </svg>
+      <figcaption>Design diagram, not benchmark data. The intended rule is “tag and share”: dynamic dispatch may add a tag check, but it must not clone an immutable payload.</figcaption>
+    </figure>
+  </div>
+
+  <h2>The word “boxed” is doing too many jobs</h2>
+  <p>When a compiler says a value is “boxed,” that may mean only that its type is not statically known. But the same word is often used for a much more expensive implementation: allocate a wrapper, copy the payload into it, pass the wrapper, then extract or copy the payload again.</p>
+  <p>Those are different decisions. Hey still needs runtime type information in places such as heterogeneous values, generic APIs, the REPL, actor messages, and JSON-shaped data. It does not follow that those values must be copied.</p>
+
+  <div class="aside"><strong>The useful distinction:</strong> “dynamic” answers <em>when do we know the type?</em> “Box-and-copy” answers <em>how do we store and move the value?</em> The first can be necessary while the second remains a bug.</div>
+
+  <h2>Three representations, one language</h2>
+  <table>
+    <thead><tr><th>Situation</th><th>Representation</th><th>Payload movement</th></tr></thead>
+    <tbody>
+      <tr><td>Known integer or boolean</td><td>Native machine value</td><td>None</td></tr>
+      <tr><td>Known immutable string, bytes, array, or map</td><td>Reference or handle to backing storage</td><td>None for reads, calls, and returns</td></tr>
+      <tr><td>Runtime type genuinely unknown</td><td>Small tagged value containing an immediate scalar or a reference</td><td>Tag check only; borrow the payload</td></tr>
+      <tr><td>Process, network, persistence, or device boundary</td><td>Explicit serialization</td><td>Copy allowed, visible, and measured</td></tr>
+    </tbody>
+  </table>
+
+  <p>The compiler should erase the dynamic machinery whenever it proves the type. Where it cannot, the runtime should inspect the tag and use the same backing storage. That keeps Ruby-like ergonomics without charging every operation the cost of a heap allocation.</p>
+
+  <h2>What dynamic <code>find</code> should do</h2>
+  <p>A recent compiler bug made the distinction concrete. A generic operand reached a string helper, which converted the value to text before checking whether it was actually a string. An integer such as <code>123</code> silently became <code>"123"</code>. The operation succeeded, but the language semantics were wrong.</p>
+
+  <pre><code>known String + known String
+  → direct string search
+
+known Bytes + known Bytes
+  → direct byte search
+
+dynamic Value + dynamic Value
+  → inspect both tags
+  → String/String: borrow both string payloads
+  → Bytes/Bytes: borrow both byte payloads
+  → anything else: Hey type error</code></pre>
+
+  <p>The important line is the one that is absent: there is no generic “convert to string” step. A runtime helper may cost a tag comparison. It must not turn type checking into coercion, and it must not duplicate the data merely to inspect it.</p>
+
+  <h2>Where quadratic copying comes from</h2>
+  <p>Immutability becomes expensive only when an implementation rebuilds everything. If an accumulator of length 1 is copied to make length 2, then copied again to make length 3, the total work after <em>n</em> updates is roughly <code>1 + 2 + … + n</code>. That is the quadratic trap.</p>
+  <p>The escape is not visible mutation in user code. It is better representation: structural sharing for persistent collections, transient builders before publication, and in-place reuse when ownership proves the old value has no surviving aliases.</p>
+  <p>For same-process actors, immutable messages should be transferred or shared. Deep copying belongs at explicit process and network boundaries—not between two actors living in the same runtime.</p>
+
+  <h2>The performance contract</h2>
+  <p>This design is only useful if it is measurable. The runtime should expose counters such as <code>payload_copy_bytes</code>, <code>actor_send_payload_copy_bytes</code>, <code>borrow_promotions</code>, and <code>container_full_rebuilds</code>. Then the gates become blunt and hard to game:</p>
+  <ul>
+    <li>A dynamic scalar comparison copies zero payload bytes.</li>
+    <li>A read from a dynamic string or collection borrows existing storage.</li>
+    <li>A same-process actor send copies zero immutable payload bytes.</li>
+    <li>Repeated spread or indexed update grows approximately linearly when prior versions are dead.</li>
+    <li>Retained historical versions share unchanged branches rather than rebuilding the whole collection.</li>
+  </ul>
+
+  <h2>What is not yet true</h2>
+  <p>This is the policy Hey is converging on, not a victory lap. The compiler still uses the name <code>boxed</code> for several paths that do not all have the same cost or semantics. Some helpers still allocate, clone, or stringify where a tag check and borrow should be enough. Renaming the representation to <code>Value</code> or <code>tagged_value</code> would make the intended contract harder to misunderstand, but the name change is less important than the counters.</p>
+
+  <div class="verdict"><p><strong>The verdict:</strong> Hey should preserve dynamic values and remove box-and-copy behavior. The target cost of uncertainty is one tag check. The target cost of immutability is sharing—not duplication.</p></div>
+
+  <section class="related">
+    <h2>Related reading</h2>
+    <ul>
+      <li><a href="boxed-values-and-fast-languages.html">Boxed Values and Fast Languages</a> — what boxed representations cost and what the current benchmarks prove.</li>
+      <li><a href="sugar-over-fast-immutables.html">Sugar Over Fast Immutables</a> — how compilers hide builders and ownership-aware reuse behind immutable syntax.</li>
+      <li><a href="designing-heys-actors.html">Designing Hey’s Actors</a> — the actor-side reason immutable messages must be cheap to share.</li>
+    </ul>
+  </section>
+
+  <section class="terms">
+    <h2>Terms used here</h2>
+    <dl>
+      <dt>Tagged value</dt><dd>A small runtime representation carrying a type tag plus an immediate scalar or a reference to existing payload storage.</dd>
+      <dt>Borrow</dt><dd>A temporary, non-owning view of a value that does not copy or outlive its valid scope.</dd>
+      <dt>Structural sharing</dt><dd>Building a new immutable collection by reusing unchanged branches and replacing only the changed path.</dd>
+      <dt>Copy-on-write</dt><dd>Sharing storage until a write occurs, then detaching only when the storage is not uniquely owned.</dd>
+    </dl>
+    <p><a href="glossary.html">Full Hey glossary →</a></p>
+  </section>
+
+  <footer>
+    Published as a design note: the representation policy is decided, while complete runtime adoption remains in progress.<br>
+    Figure provenance: architecture derived from the Hey compiler/runtime design discussion, 2026-08-07.
+  </footer>
+</main>
+</body>
+</html>
