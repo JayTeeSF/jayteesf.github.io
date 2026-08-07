@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="The Hey standard library exposes 2,329 public functions. The evaluator holds 2,048. It is already 281 past a hard limit whose overflow behaviour is to print one line and silently discard the definition. The brief that opened this work estimated 500 to 600 functions; the real figure is four times that. Five decisions about what a core standard library is for, what happens to the half of the stdlib that is the compiler implementing itself, and whether a blessed middle tier exists.">
+<meta name="article-index-title" content="Ask #9 &mdash; Hey: the standard library is past a hard limit">
+<meta name="article-index-desc" content="2,329 public functions against a 2,048 limit that drops definitions silently on overflow. Half the stdlib is the compiler implementing itself, which changes what the target even means. Five rulings before any extraction starts.">
+<title>Hey &mdash; the standard library is past a hard limit</title>
+<style>
+  :root {
+    --ground:#f6f5f2; --panel:#fff; --ink:#171820; --muted:#565a6b; --faint:#7d8192;
+    --line:#e0dedb; --accent:#31407e; --accent-soft:#e7e9f4; --signal:#8a5a12;
+    --signal-soft:#f6eddd; --stop:#8f3030;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#101118; --panel:#181a24; --ink:#eceef5; --muted:#a2a7b8; --faint:#7f8494;
+      --line:#262936; --accent:#8f9fe0; --accent-soft:#1a1e30; --signal:#d0a04e;
+      --signal-soft:#26200f; --stop:#d98080; }
+  }
+  :root[data-theme="dark"] { --ground:#101118; --panel:#181a24; --ink:#eceef5; --muted:#a2a7b8;
+    --faint:#7f8494; --line:#262936; --accent:#8f9fe0; --accent-soft:#1a1e30; --signal:#d0a04e;
+    --signal-soft:#26200f; --stop:#d98080; }
+  :root[data-theme="light"] { --ground:#f6f5f2; --panel:#fff; --ink:#171820; --muted:#565a6b;
+    --faint:#7d8192; --line:#e0dedb; --accent:#31407e; --accent-soft:#e7e9f4; --signal:#8a5a12;
+    --signal-soft:#f6eddd; --stop:#8f3030; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font:16.5px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
+  .mono, code { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums; font-size:0.92em; }
+  main { max-width:53rem; margin:0 auto; padding:3.2rem 1.3rem 6rem; }
+  .eyebrow { font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);
+    font-weight:620; margin:0 0 0.7rem; }
+  h1 { font-size:clamp(1.8rem,4.2vw,2.45rem); line-height:1.13; margin:0 0 0.7rem;
+    letter-spacing:-0.021em; text-wrap:balance; font-weight:680; }
+  .standfirst { font-size:1.09rem; color:var(--muted); margin:0 0 2.4rem; max-width:42rem; text-wrap:pretty; }
+  h2 { font-size:1.26rem; margin:3.2rem 0 0.5rem; letter-spacing:-0.013em; text-wrap:balance; font-weight:660; }
+  h3 { font-size:1.02rem; margin:1.6rem 0 0.4rem; font-weight:640; }
+  p { margin:0 0 1rem; text-wrap:pretty; }
+  strong { font-weight:660; }
+  a { color:var(--accent); }
+
+  .note { border-left:2.5px solid var(--accent); background:var(--accent-soft);
+    padding:0.95rem 1.15rem; margin:1.4rem 0; border-radius:0 3px 3px 0; }
+  .note.warn { border-left-color:var(--signal); background:var(--signal-soft); }
+  .note.settled { border-left-color:var(--faint); background:transparent; border-left-style:dashed; }
+  .note p:last-child { margin-bottom:0; }
+  .note .tag { display:block; font-size:0.69rem; letter-spacing:0.12em; text-transform:uppercase;
+    font-weight:660; color:var(--faint); margin-bottom:0.4rem; }
+
+  ul.rules { list-style:none; margin:0 0 1rem; padding:0; display:grid; gap:0.55rem; }
+  ul.rules li { padding-left:1.1rem; position:relative; color:var(--muted); font-size:0.96rem; }
+  ul.rules li::before { content:""; position:absolute; left:0; top:0.62em; width:5px; height:5px;
+    background:var(--accent); border-radius:50%; }
+  ul.rules b { color:var(--ink); font-weight:640; }
+
+  .decision { border:1px solid var(--line); border-radius:4px; background:var(--panel);
+    margin:1.2rem 0 0; overflow:hidden; }
+  .decision-head { padding:1.15rem 1.25rem 0.9rem; }
+  .decision-head .kicker { font-size:0.7rem; letter-spacing:0.13em; text-transform:uppercase;
+    color:var(--accent); font-weight:660; }
+  .decision-head h3 { margin:0.35rem 0 0.45rem; font-size:1.15rem; letter-spacing:-0.012em; }
+  .decision-head p { margin:0 0 0.6rem; color:var(--muted); font-size:0.96rem; }
+  .decision-head p:last-child { margin-bottom:0; }
+  .opts { display:grid; }
+  .opt { display:grid; grid-template-columns:auto 1fr; gap:0.85rem; padding:0.95rem 1.25rem;
+    border-top:1px solid var(--line); cursor:pointer; transition:background 0.12s ease; }
+  .opt:hover { background:var(--accent-soft); }
+  .opt input { margin:0.35rem 0 0; accent-color:var(--accent); width:1rem; height:1rem; }
+  .opt .id { font-size:0.74rem; font-weight:680; color:var(--faint); letter-spacing:0.06em; }
+  .opt .title { font-weight:620; margin:0.1rem 0 0.25rem; }
+  .opt .why { color:var(--muted); font-size:0.93rem; margin:0; }
+  .opt .why em { color:var(--ink); font-style:normal; font-weight:600; }
+  .rec { display:inline-block; font-size:0.66rem; letter-spacing:0.09em; text-transform:uppercase;
+    font-weight:680; color:var(--accent); border:1px solid var(--accent); border-radius:2px;
+    padding:0.05rem 0.36rem; margin-left:0.45rem; vertical-align:0.12em; }
+  .opt:has(input:checked) { background:var(--accent-soft); }
+
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:0.85rem 1rem;
+    overflow-x:auto; margin:1rem 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:0.86rem; line-height:1.5; }
+
+  #ruling { margin-top:2.6rem; border:1px solid var(--accent); border-radius:4px;
+    background:var(--panel); overflow:hidden; }
+  #ruling .rhead { padding:0.7rem 1rem; border-bottom:1px solid var(--accent); font-size:0.72rem;
+    letter-spacing:0.11em; text-transform:uppercase; color:var(--accent); font-weight:620; }
+  #ruling .body { padding:1.1rem 1.25rem; }
+  textarea { width:100%; min-height:9rem; resize:vertical; background:var(--ground); color:var(--ink);
+    border:1px solid var(--line); border-radius:3px; padding:0.8rem 0.9rem;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.87rem; line-height:1.55; }
+  button { font:inherit; font-size:0.9rem; font-weight:620; cursor:pointer; background:var(--accent);
+    color:var(--panel); border:0; border-radius:3px; padding:0.5rem 0.95rem; margin-top:0.75rem; }
+  button:focus-visible, .opt:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+  .scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:0.9rem; }
+  th,td { text-align:left; padding:0.5rem 0.7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); font-weight:620; }
+  td:first-child { color:var(--ink); font-weight:600; white-space:nowrap; }
+  td { color:var(--muted); }
+  footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line);
+    color:var(--faint); font-size:0.85rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Hey language &middot; decision docket &middot; 6 August 2026</p>
+  <h1>The standard library is 281 functions past a hard limit</h1>
+  <p class="standfirst">You asked me to aim for a core of about 100 functions and push the rest into packages. Before commissioning that I counted, and two things changed the shape of the request: the library is four times larger than the brief assumed, and roughly half of it is not library at all &mdash; it is the compiler implementing itself. Five rulings, and nothing gets extracted until they land.</p>
+
+  <div class="note">
+    <span class="tag">How to use this page</span>
+    <p>Pick an option in each box, then use <strong>Copy ruling</strong> at the bottom and paste the block back to me. Anything left blank stays open. These are numbered <strong>S1&ndash;S5</strong> so they cannot collide with the RecallCoach dockets.</p>
+  </div>
+
+  <h2>The correction, first</h2>
+
+  <div class="note warn">
+    <span class="tag">Correction to the opening estimate</span>
+    <p><strong>The brief said "about 500&ndash;600" functions. Counted on the tree today, the public surface is 2,329</strong> across 111 modules, with 679 more private ones, for 3,008 declarations in total. The estimate was out by roughly four times, and in the direction that makes the problem worse rather than better.</p>
+    <p>The limit is real and I found it: <span class="mono">HEY_REPL_MAX_FUNCTIONS</span> is <strong>2,048</strong>, a fixed array in <span class="mono">runtime/hey_repl.c</span>. So the public surface already exceeds it by <strong>281</strong>.</p>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">The part that should worry us more than the count</span>
+    <p>What the limit does on overflow is print one line to stderr &mdash; <span class="mono">too many function definitions</span> &mdash; and then <strong>silently discard the definition</strong>. The function is simply not registered, so nothing fails at that moment. It fails later, somewhere else, as an unknown function, with nothing connecting it back to the cause.</p>
+    <p><strong>A capacity limit that drops work instead of stopping is its own defect</strong>, and shrinking the standard library does not fix it &mdash; it only moves us back under the ceiling so the trap is armed again rather than sprung. I have filed it separately. Ruling S5 is whether it gets fixed now or later.</p>
+  </div>
+
+  <h2>The split that changes the target</h2>
+  <p>The 2,329 is two very different populations sharing one namespace:</p>
+  <table>
+    <thead><tr><th>Population</th><th>Public functions</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td>Compiler implementation</td><td class="mono">1,129</td><td><span class="mono">HeyC</span> 231, <span class="mono">HeyLlvm</span> 152, <span class="mono">HeyHir</span> 122, <span class="mono">HeyParser</span> 118, <span class="mono">HeyCompilerNodes</span> 117&hellip;</td></tr>
+      <tr><td>User-facing API</td><td class="mono">1,200</td><td><span class="mono">Collections</span> 55, <span class="mono">Files</span> 48, <span class="mono">Text</span> 43, <span class="mono">Cli</span> 43, <span class="mono">Net</span> 40&hellip;</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Half the "standard library" is Hey compiling Hey.</strong> Those are not functions a programmer calls; they are the self-hosting machinery, and they are in the table only because they live in <span class="mono">stdlib/</span>. That matters for the target: a proposal that reaches 100 by counting the compiler as "moved to a package" has not answered your question, and a proposal that treats <span class="mono">HeyLlvm</span> like <span class="mono">Text</span> will break self-hosting.</p>
+  <p>So "100 most important functions" is a decision about the <strong>1,200</strong>, not the 2,329 &mdash; and the compiler half needs a different answer, which is S2.</p>
+
+  <h2>What I have commissioned already</h2>
+  <p>Research is briefed and gated: five markdown documents, one each for <strong>Go, C++, Ruby, Python and Rust</strong>, written to recover two things rather than inventory features &mdash; the <em>inclusion principle</em> each language stated, and the <em>exclusion mechanism</em> it uses to keep the rest out and still usable. Python's PEP 594, which argued and executed the removal of stdlib modules, is the single most relevant document to this decision and is called out in the brief.</p>
+  <p>Nothing downstream starts on a guess: the core-100 proposal waits for the research, the article waits for the proposal to settle, and extraction waits for the proposal to be <em>decided</em> &mdash; which is what this page is for.</p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision S1</span>
+      <h3>What principle decides whether something belongs in core?</h3>
+      <p>The count is a consequence of the principle, not a target to hit by trimming. Every language on the research list has one, stated or implied, and they differ sharply.</p>
+    </div>
+    <div class="opts" data-q="S1">
+      <label class="opt">
+        <input type="radio" name="S1" value="S1-a — cannot be written outside core: only things needing compiler, runtime or syscall privilege stay">
+        <span><span class="id">S1-a</span><span class="rec">Recommended</span>
+        <strong>Only what cannot be written as a package.</strong> If it needs compiler, runtime or syscall privilege, it stays; if a third party could have written it, it goes. Rust's instinct. Gives the smallest, most defensible core and the clearest test, and is the only option where "about 100" is a natural outcome rather than a quota.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S1" value="S1-b — the first hour: what a newcomer needs before installing anything">
+        <span><span class="id">S1-b</span>
+        <strong>What a newcomer needs in the first hour.</strong> Read a file, print, split a string, make an HTTP request. Optimises for the demo and the tutorial. Larger than S1-a and fuzzier at the edges, but friendlier, and closer to Go's actual behaviour despite Go's stated minimalism.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S1" value="S1-c — hard cap of 100, ranked by measured usage, everything below the line goes">
+        <span><span class="id">S1-c</span>
+        <strong>A hard cap, ranked by measured call sites.</strong> Count real usage across the corpus and cut at 100. Objective and instantly actionable, but it encodes what we happen to have written rather than what a language ought to offer, and it will keep something ugly while cutting something obvious.</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision S2</span>
+      <h3>What happens to the 1,129 compiler functions?</h3>
+      <p>They must stay reachable or Hey stops self-hosting. They also have no business in a user's function table, and they are the single biggest contributor to the overflow.</p>
+    </div>
+    <div class="opts" data-q="S2">
+      <label class="opt">
+        <input type="radio" name="S2" value="S2-a — compile-time-only namespace, loaded by the compiler, never in a user program's table">
+        <span><span class="id">S2-a</span><span class="rec">Recommended</span>
+        <strong>A compile-time-only namespace.</strong> The compiler loads them; a user program never does, so they stop consuming table slots entirely. Rust's <span class="mono">core</span>/<span class="mono">std</span>/<span class="mono">alloc</span> split is the closest existing analogue and the research is briefed to report on it. Removes over half the pressure without moving a single user-facing function.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S2" value="S2-b — extract the compiler modules into a package like everything else">
+        <span><span class="id">S2-b</span>
+        <strong>Treat them as a package.</strong> Uniform rule, no new concept. But the compiler would then depend on the package system it compiles, and the bootstrap ordering problem that creates is real and unpleasant.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S2" value="S2-c — leave them; count only user-facing functions against the target">
+        <span><span class="id">S2-c</span>
+        <strong>Leave them where they are.</strong> Scope the whole exercise to the 1,200. Cheapest, and legitimate if the limit is raised &mdash; but it leaves half the surface unaddressed and the ceiling still close.</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision S3</span>
+      <h3>Is there a blessed middle tier?</h3>
+      <p>Every language on the list grew one, because "not core" and "unvetted stranger's code" are not the same claim. Go has <span class="mono">golang.org/x</span>; Ruby has default and bundled gems; Python has a shrinking equivalent.</p>
+    </div>
+    <div class="opts" data-q="S3">
+      <label class="opt">
+        <input type="radio" name="S3" value="S3-a — yes, a first-party package set shipped with the toolchain but versioned separately">
+        <span><span class="id">S3-a</span><span class="rec">Recommended</span>
+        <strong>Yes &mdash; first-party, shipped, separately versioned.</strong> Installed with the toolchain so the first hour still works, but released on its own cadence and removable. Keeps the ergonomics that make Hey pleasant while letting core stay small.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S3" value="S3-b — no middle tier: core, then ordinary third-party packages, nothing between">
+        <span><span class="id">S3-b</span>
+        <strong>No middle tier.</strong> Core, then the open ecosystem. Honest and simple; it is also the arrangement that produced the dependency failures the research is asked to report on.</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision S4</span>
+      <h3>Does extraction wait for the article?</h3>
+      <p>The article is commissioned through the editorial process, with graphics showing what leaves the core. Publishing before the move means describing a plan; after means describing a fact.</p>
+    </div>
+    <div class="opts" data-q="S4">
+      <label class="opt">
+        <input type="radio" name="S4" value="S4-a — article first, on the decision and the research; extraction follows">
+        <span><span class="id">S4-a</span><span class="rec">Recommended</span>
+        <strong>Article first, on the decision.</strong> The interesting story is the reasoning and the comparative research, and it is publishable the moment S1&ndash;S3 land. It also puts the principle in public before the migration, which is the honest order.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S4" value="S4-b — extract first, article reports the completed move with before/after numbers">
+        <span><span class="id">S4-b</span>
+        <strong>Extract first.</strong> Stronger numbers, real before/after. Costs months of lead time and risks the article never being written once the work is done.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S4" value="S4-c — both: publish the decision now, a second piece on the migration later">
+        <span><span class="id">S4-c</span>
+        <strong>Both, as a pair.</strong> Decision piece now, migration piece after. Twice the editorial work; matches how the existing three-article plan is already structured.</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision S5</span>
+      <h3>When does the silent truncation get fixed?</h3>
+      <p>Independent of everything above. Today, exceeding 2,048 prints a line and drops the definition. Whatever the core ends up being, that behaviour should not survive.</p>
+    </div>
+    <div class="opts" data-q="S5">
+      <label class="opt">
+        <input type="radio" name="S5" value="S5-a — fix now: fail loudly and name the function that could not be registered">
+        <span><span class="id">S5-a</span><span class="rec">Recommended</span>
+        <strong>Now, and make it loud.</strong> Refuse to continue, and name the function that could not be registered. Small, self-contained, and it converts a silent wrong answer into an honest stop &mdash; the same shape as the other diagnostics fixed this week.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S5" value="S5-b — raise the limit and make it dynamic, fix the silence at the same time">
+        <span><span class="id">S5-b</span>
+        <strong>Grow the table, and fix the silence too.</strong> A dynamic array removes the ceiling entirely. More invasive, and it weakens the argument for reduction by removing the forcing function.</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="S5" value="S5-c — defer until after the reduction lands">
+        <span><span class="id">S5-c</span>
+        <strong>Defer.</strong> If the core shrinks far enough the limit stops being reachable in practice. Leaves the trap armed for anyone whose own program plus core crosses the line.</span>
+      </label>
+    </div>
+  </div>
+
+  <div id="ruling">
+    <div class="rhead">Your ruling</div>
+    <div class="body">
+      <textarea id="out" readonly></textarea>
+      <button id="copy">Copy ruling</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>Hey language &mdash; decision docket, 6 August 2026. A JayTeeSF LLC document. Every number on this page was counted on the working tree at HEAD the same day: 111 modules, 2,329 public and 679 private function declarations, the 1,129/1,200 split, and the 2,048 limit at <span class="mono">runtime/hey_repl.c:17</span>. The comparative research is commissioned but not yet written, and nothing on this page depends on it. Decisions S1&ndash;S5 do not collide with the RecallCoach dockets.</p>
+  </footer>
+</main>
+<script>
+  (function () {
+    var out = document.getElementById('out');
+    var qs = [
+      { name: 'S1', label: 'S1  the inclusion principle for core' },
+      { name: 'S2', label: 'S2  what happens to the compiler modules' },
+      { name: 'S3', label: 'S3  blessed middle tier' },
+      { name: 'S4', label: 'S4  article before or after extraction' },
+      { name: 'S5', label: 'S5  the silent truncation' }
+    ];
+    function render() {
+      var lines = ['HEY — RULING, 6 AUGUST 2026 (ASK #9, STANDARD LIBRARY)', ''], any = false;
+      qs.forEach(function (q) {
+        var sel = document.querySelector('input[name="' + q.name + '"]:checked');
+        lines.push(q.label + ':');
+        lines.push('  ' + (sel ? sel.value : '(not yet decided)'));
+        lines.push('');
+        if (sel) any = true;
+      });
+      out.value = any ? lines.join('\n').trim() : 'Nothing selected yet.';
+    }
+    document.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      r.addEventListener('change', render);
+    });
+    document.getElementById('copy').addEventListener('click', function () {
+      out.select();
+      var b = this;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out.value);
+        else document.execCommand('copy');
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = 'Copy ruling'; }, 1600);
+      } catch (e) { b.textContent = 'Select the text above and copy'; }
+    });
+    render();
+  })();
+</script>
+</body>
+</html>
