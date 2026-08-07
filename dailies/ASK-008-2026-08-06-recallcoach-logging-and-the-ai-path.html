@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="article-desc" content="A follow-on docket to Ask #7. Two rulings turned out to rest on premises that do not survive checking: the logs cannot hold an answer history, because Kamal gives us a 10 MB ring buffer that dies with the container, and a local language model cannot run on the server at all, because the smallest useful one needs more memory than the whole box has. Plus the answer to why the AI only writes multiple-choice questions, which turns out to be cheaper to fix than anyone expected: three of the four question types need no AI at all. Seven decisions, and what shipped today.">
+<meta name="article-index-title" content="Ask #8 &mdash; RecallCoach: two rulings that need revisiting, and five new ones">
+<meta name="article-index-desc" content="A revised answer cannot be recovered from the logs: it is a 10 MB ring buffer that dies on redeploy. A local model cannot run on the server: 2 GB of RAM, and the smallest useful model needs 4.7 GB. And the reason the AI only writes multiple choice is not cost — three of the four question types need no model at all.">
+<title>RecallCoach &mdash; logging, and the AI path</title>
+<style>
+  :root {
+    --ground:#f6f5f2; --panel:#fff; --ink:#171820; --muted:#565a6b; --faint:#7d8192;
+    --line:#e0dedb; --accent:#31407e; --accent-soft:#e7e9f4; --signal:#8a5a12;
+    --signal-soft:#f6eddd; --stop:#8f3030;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#101118; --panel:#181a24; --ink:#eceef5; --muted:#a2a7b8; --faint:#7f8494;
+      --line:#262936; --accent:#8f9fe0; --accent-soft:#1a1e30; --signal:#d0a04e;
+      --signal-soft:#26200f; --stop:#d98080; }
+  }
+  :root[data-theme="dark"] { --ground:#101118; --panel:#181a24; --ink:#eceef5; --muted:#a2a7b8;
+    --faint:#7f8494; --line:#262936; --accent:#8f9fe0; --accent-soft:#1a1e30; --signal:#d0a04e;
+    --signal-soft:#26200f; --stop:#d98080; }
+  :root[data-theme="light"] { --ground:#f6f5f2; --panel:#fff; --ink:#171820; --muted:#565a6b;
+    --faint:#7d8192; --line:#e0dedb; --accent:#31407e; --accent-soft:#e7e9f4; --signal:#8a5a12;
+    --signal-soft:#f6eddd; --stop:#8f3030; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font:16.5px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
+  .mono, code { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums; font-size:0.92em; }
+  main { max-width:53rem; margin:0 auto; padding:3.2rem 1.3rem 6rem; }
+  .eyebrow { font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);
+    font-weight:620; margin:0 0 0.7rem; }
+  h1 { font-size:clamp(1.8rem,4.2vw,2.45rem); line-height:1.13; margin:0 0 0.7rem;
+    letter-spacing:-0.021em; text-wrap:balance; font-weight:680; }
+  .standfirst { font-size:1.09rem; color:var(--muted); margin:0 0 2.4rem; max-width:42rem; text-wrap:pretty; }
+  h2 { font-size:1.26rem; margin:3.2rem 0 0.5rem; letter-spacing:-0.013em; text-wrap:balance; font-weight:660; }
+  h3 { font-size:1.02rem; margin:1.6rem 0 0.4rem; font-weight:640; }
+  p { margin:0 0 1rem; text-wrap:pretty; }
+  strong { font-weight:660; }
+  a { color:var(--accent); }
+
+  .note { border-left:2.5px solid var(--accent); background:var(--accent-soft);
+    padding:0.95rem 1.15rem; margin:1.4rem 0; border-radius:0 3px 3px 0; }
+  .note.warn { border-left-color:var(--signal); background:var(--signal-soft); }
+  .note.settled { border-left-color:var(--faint); background:transparent; border-left-style:dashed; }
+  .note p:last-child { margin-bottom:0; }
+  .note .tag { display:block; font-size:0.69rem; letter-spacing:0.12em; text-transform:uppercase;
+    font-weight:660; color:var(--faint); margin-bottom:0.4rem; }
+
+  ul.rules { list-style:none; margin:0 0 1rem; padding:0; display:grid; gap:0.55rem; }
+  ul.rules li { padding-left:1.1rem; position:relative; color:var(--muted); font-size:0.96rem; }
+  ul.rules li::before { content:""; position:absolute; left:0; top:0.62em; width:5px; height:5px;
+    background:var(--accent); border-radius:50%; }
+  ul.rules b { color:var(--ink); font-weight:640; }
+
+  .decision { border:1px solid var(--line); border-radius:4px; background:var(--panel);
+    margin:1.2rem 0 0; overflow:hidden; }
+  .decision-head { padding:1.15rem 1.25rem 0.9rem; }
+  .decision-head .kicker { font-size:0.7rem; letter-spacing:0.13em; text-transform:uppercase;
+    color:var(--accent); font-weight:660; }
+  .decision-head h3 { margin:0.35rem 0 0.45rem; font-size:1.15rem; letter-spacing:-0.012em; }
+  .decision-head p { margin:0 0 0.6rem; color:var(--muted); font-size:0.96rem; }
+  .decision-head p:last-child { margin-bottom:0; }
+  .opts { display:grid; }
+  .opt { display:grid; grid-template-columns:auto 1fr; gap:0.85rem; padding:0.95rem 1.25rem;
+    border-top:1px solid var(--line); cursor:pointer; transition:background 0.12s ease; }
+  .opt:hover { background:var(--accent-soft); }
+  .opt input { margin:0.35rem 0 0; accent-color:var(--accent); width:1rem; height:1rem; }
+  .opt .id { font-size:0.74rem; font-weight:680; color:var(--faint); letter-spacing:0.06em; }
+  .opt .title { font-weight:620; margin:0.1rem 0 0.25rem; }
+  .opt .why { color:var(--muted); font-size:0.93rem; margin:0; }
+  .opt .why em { color:var(--ink); font-style:normal; font-weight:600; }
+  .rec { display:inline-block; font-size:0.66rem; letter-spacing:0.09em; text-transform:uppercase;
+    font-weight:680; color:var(--accent); border:1px solid var(--accent); border-radius:2px;
+    padding:0.05rem 0.36rem; margin-left:0.45rem; vertical-align:0.12em; }
+  .opt:has(input:checked) { background:var(--accent-soft); }
+
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:0.85rem 1rem;
+    overflow-x:auto; margin:1rem 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:0.86rem; line-height:1.5; }
+
+  #ruling { margin-top:2.6rem; border:1px solid var(--accent); border-radius:4px;
+    background:var(--panel); overflow:hidden; }
+  #ruling .rhead { padding:0.7rem 1rem; border-bottom:1px solid var(--accent); font-size:0.72rem;
+    letter-spacing:0.11em; text-transform:uppercase; color:var(--accent); font-weight:620; }
+  #ruling .body { padding:1.1rem 1.25rem; }
+  textarea { width:100%; min-height:9rem; resize:vertical; background:var(--ground); color:var(--ink);
+    border:1px solid var(--line); border-radius:3px; padding:0.8rem 0.9rem;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.87rem; line-height:1.55; }
+  button { font:inherit; font-size:0.9rem; font-weight:620; cursor:pointer; background:var(--accent);
+    color:var(--panel); border:0; border-radius:3px; padding:0.5rem 0.95rem; margin-top:0.75rem; }
+  button:focus-visible, .opt:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+  .scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:0.9rem; }
+  th,td { text-align:left; padding:0.5rem 0.7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); font-weight:620; }
+  td:first-child { color:var(--ink); font-weight:600; white-space:nowrap; }
+  td { color:var(--muted); }
+  footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line);
+    color:var(--faint); font-size:0.85rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">RecallCoach &middot; decision docket &middot; 6 August 2026 &middot; second sitting</p>
+  <h1>Two of your rulings rest on things that are not true</h1>
+  <p class="standfirst">Not your fault &mdash; they were true-sounding, and nobody had checked. Both came out of building what you asked for and hitting the wall. The rest of this page is five more choices, including the two that came out of your questions today about question types, and a list of what shipped while I was finding out.</p>
+
+  <div class="note">
+    <span class="tag">How to use this page</span>
+    <p>Same as last time. Pick an option in each box, then use <strong>Copy ruling</strong> at the bottom and paste the block back to me. Anything left blank stays open. Decisions continue the numbering from Ask&nbsp;#7, so these are <strong>R10&ndash;R16</strong> and do not collide with anything already ruled.</p>
+  </div>
+
+  <h2>The two corrections, first</h2>
+
+  <div class="note warn">
+    <span class="tag">Correction to R7-a</span>
+    <p><strong>You ruled that a revised answer should be recoverable from the logs. The logs cannot hold it</strong> &mdash; and the reason has nothing to do with privacy, so it would have bitten us even if the policy question were settled.</p>
+    <p>Our deploy config has no logging section. Kamal therefore falls back to Docker's default file driver at <span class="mono">max-size=10m</span>, and Docker's <span class="mono">max-file</span> defaults to <strong>1</strong>. That is a ten-megabyte ring buffer: when it fills, the oldest lines are discarded silently. It also <strong>dies with its container</strong>, so a redeploy starts a fresh one, and old containers are pruned after five deploys. A revision history that evaporates on the sixth deploy is not a history &mdash; it is a way to lose the data slowly enough that nobody notices until they need it.</p>
+    <p>The good news is that what you actually asked to recover &mdash; <em>was it revised, by whom, on which question, when</em> &mdash; needs no answer text at all, and I have built that. The question of keeping the original answer itself is R10 below.</p>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">Correction to the local-model plan</span>
+    <p><strong>A local model cannot run on the server.</strong> Qwen2.5-7B compressed to four bits is about 4.7&nbsp;GB of weights. The box has <strong>2&nbsp;GB of RAM in total, and no swap</strong>, shared with MySQL, the proxy and your prayer app. So the failure mode is not "slow" &mdash; it is the kernel's out-of-memory killer taking down the website. Even a 1.5B model does not fit.</p>
+    <p>And on two shared CPU cores it would not be usable if it did: a published study of CPU inference found 7B-class models on one or two threads "frequently led to timeouts, as the context windows could not be filled within 1 minute." That is under two words a second, on the same cores that serve the pages.</p>
+  </div>
+
+  <h2>What is actually running</h2>
+  <p>Unchanged from Ask&nbsp;#7: one Hetzner CPX11 &mdash; 2 vCPU, 2&nbsp;GB, no swap &mdash; carrying <span class="mono">quiz.jayteesf.com</span> and <span class="mono">prayer.his-service.net</span> behind one proxy. Production still has <strong>no LLM key</strong>, so every AI button still returns manufactured questions from the offline stand-in. That is the R1 ruling working as designed, but it is worth saying plainly that it is still the state of the live site.</p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R10</span>
+      <h3>When a student changes their answer, what happens to the first one?</h3>
+      <p>Today the row is overwritten and the original is gone. You asked for it back. Since the logs cannot hold it, the choice is whether to keep it properly in the database or to settle for knowing that a change happened.</p>
+      <p>Worth knowing what the two open-source products do, because it is the same answer twice: <strong>Moodle</strong> never overwrites &mdash; every submission is a numbered step, shown to teachers as a "Response history" table and hidden from students. <strong>Canvas</strong> records each answer as an event, visible through a per-course View Log that is <em>off by default</em>. Kahoot locks your first tap; Google Forms overwrites and keeps nothing. So teachers do not universally expect this, and where it exists it is a permissioned database feature.</p>
+      <p>One constraint that rules out the cheap version of "keep everything": the amended children's-privacy rule (16 CFR 312.10, in force since April) requires a written retention policy and <strong>forbids indefinite retention</strong>, and four state student-privacy laws require deleting a named student's data on request. You cannot delete one student out of an append-only log file. You can out of a table.</p>
+    </div>
+    <div class="opts" data-q="R10">
+      <label class="opt">
+        <input type="radio" name="R10" value="R10-a — keep superseded answers in the database, append-only, plus the content-free log line">
+        <span><span class="id">R10-a</span><span class="rec">Recommended</span>
+          <p class="title">Keep the old answers, in the database</p>
+          <p class="why">Stop overwriting: mark the old answer superseded and add the new one alongside. There is exactly one place in the code where the overwrite happens, and the answers are already stored as a list, so the shape is most of the way there &mdash; about half a day. <em>You get the full history, it survives redeploys, and you can still delete one student when asked.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R10" value="R10-b — content-free revision events only; the original answer text is not kept">
+        <span><span class="id">R10-b</span>
+          <p class="title">Just record that it changed</p>
+          <p class="why">Already built today: who, which question, which revision, when &mdash; no answer text anywhere. <em>Answers the question you asked and costs nothing more</em>, but the first answer itself is genuinely gone, and "he originally put C" is unanswerable.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R10" value="R10-c — leave it; overwriting is fine and no history is kept">
+        <span><span class="id">R10-c</span>
+          <p class="title">Leave it alone</p>
+          <p class="why">What Google Forms does. <em>Nothing to build, nothing to retain, nothing to leak</em> &mdash; and if a student says the app lost their answer, we have no way to check.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R11</span>
+      <h3>The AI path after copy/paste</h3>
+      <p>You ruled copy/paste as the answer for now, and it ships. The question is what comes next, because "local model" &mdash; the follow-up you named &mdash; turns out not to be a cost strategy. Here is the arithmetic, with my volume assumption stated so you can attack it: roughly 200 generation calls a month, about 1,500 words in and 1,000 out each.</p>
+      <div class="scroll">
+      <table>
+        <tr><th>Path</th><th>Cost to you</th><th>Question quality</th></tr>
+        <tr><td>Copy/paste (today)</td><td>$0</td><td>Whatever model they already pay for &mdash; the best on this list</td></tr>
+        <tr><td>They paste in their own key</td><td>$0</td><td>Same, and the button just works</td></tr>
+        <tr><td>Our key, cheapest tier</td><td>~$0.10/month; ~$9.50 at 100&times; the volume</td><td>Good, not frontier</td></tr>
+        <tr><td>Own the hardware</td><td>$97&ndash;163/month, every month</td><td>Worse than all of the above</td></tr>
+      </table>
+      </div>
+      <p>Self-hosting only breaks even somewhere past half a billion words a month. And the prior art is one-sided: <strong>Quizlet, Brainscape and Kahoot all put AI generation behind a paid tier</strong>, while <strong>every Anki add-on asks for the user's own key</strong> &mdash; one of them notes that "a single dollar can generate thousands of flashcards." Nobody runs local models.</p>
+      <p>Local support is still worth having as an <em>opt-in for someone who will not send student text to a company</em>, and it is cheaper to offer than it sounds, because the local engines can be forced to emit correctly-shaped output by construction. But it belongs after the two above, not instead of them.</p>
+    </div>
+    <div class="opts" data-q="R11">
+      <label class="opt">
+        <input type="radio" name="R11" value="R11-a — bring-your-own-key next, then our own key on a cheap tier with a hard spend cap; local stays an opt-in later">
+        <span><span class="id">R11-a</span><span class="rec">Recommended</span>
+          <p class="title">Their key next, ours later</p>
+          <p class="why">Ship the paste-your-own-key path, which is what every Anki tool does and costs you nothing. Add our own key on the cheap tier, behind a hard monthly spend cap, when you want it to work for people who do not have a key. <em>Under a dollar a month at today's volume.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R11" value="R11-b — our own key on a cheap tier now, with a spend cap; skip bring-your-own-key">
+        <span><span class="id">R11-b</span>
+          <p class="title">Our key now, skip theirs</p>
+          <p class="why">One path instead of two, and every button works for everyone immediately. <em>You are paying, so it needs a cap and a watch on abuse</em> &mdash; which is the argument for the registration gate in R8.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R11" value="R11-c — copy/paste only; revisit when there are paying users">
+        <span><span class="id">R11-c</span>
+          <p class="title">Copy/paste only for now</p>
+          <p class="why">Exactly what R1 said, held firm until money is coming in. <em>Zero cost and zero new surface</em>; the friction stays, and it is real friction for a teacher in a hurry.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R11" value="R11-d — build the local/Ollama opt-in first anyway, for privacy reasons">
+        <span><span class="id">R11-d</span>
+          <p class="title">Local first anyway</p>
+          <p class="why">If "student text never leaves the room" is the point, this is the only option that delivers it. <em>It runs on your machine, not the server</em>, and the server would have to reach it &mdash; which is its own problem, since the popular local engine ships with no authentication and had a memory-disclosure hole this May.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R12</span>
+      <h3>How long do the logs live, now that there are real logs?</h3>
+      <p>The app now writes warnings and errors, which it never did before &mdash; that was your R6. But the ten-megabyte ring buffer described above applies to those too, so the new logging is only as useful as its retention. This is a config decision and it is cheap either way; what it really decides is whether a stall reported on Friday can still be investigated on Monday.</p>
+      <p>Note the box: 40&nbsp;GB of disk, shared. Log retention is not free, and the children's-privacy rule wants a written retention period rather than "forever."</p>
+    </div>
+    <div class="opts" data-q="R12">
+      <label class="opt">
+        <input type="radio" name="R12" value="R12-a — configure rotation: keep a few hundred MB across several files, and write down the retention period">
+        <span><span class="id">R12-a</span><span class="rec">Recommended</span>
+          <p class="title">Turn on real rotation, write the policy down</p>
+          <p class="why">A few files of a few dozen megabytes each, so a week of history survives, plus a stated retention period we can point at. <em>Ten minutes of config and the logs become worth reading.</em> Still dies with the container on redeploy.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R12" value="R12-b — rotation plus a host volume so logs survive redeploys">
+        <span><span class="id">R12-b</span>
+          <p class="title">Rotation, and survive redeploys</p>
+          <p class="why">Write the log to a directory on the host, so replacing the container does not erase the evidence. <em>The only option where a bug found after a deploy can still be traced to before it</em> &mdash; at the cost of disk you now have to watch on a 40&nbsp;GB box.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R12" value="R12-c — leave the default; logs are for right now, not for history">
+        <span><span class="id">R12-c</span>
+          <p class="title">Leave the default</p>
+          <p class="why">Ten megabytes, gone on redeploy, and that is fine because you look at logs when something is broken <em>now</em>. <em>Costs nothing</em>; the next intermittent stall gets investigated only if we catch it live.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R13</span>
+      <h3>There is a week of finished work that has never been deployed</h3>
+      <p>Deck deletion &mdash; with a type-the-name confirmation &mdash; and the whole bring-your-own-AI paste round-trip that implements your R1 ruling are <strong>committed, tested, and not on the live site.</strong> Today's logging work will sit on top of them. The branch is 41 commits ahead of the release branch and behind on nothing, so it merges cleanly with no history games.</p>
+      <p>I can deploy without asking &mdash; you have authorised that &mdash; but the deploy replaces the container both apps' users are on, and it is the middle of the day for whoever is using it. So: your call on timing, not on permission.</p>
+    </div>
+    <div class="opts" data-q="R13">
+      <label class="opt">
+        <input type="radio" name="R13" value="R13-a — deploy once, at the end of this sitting, with everything in it">
+        <span><span class="id">R13-a</span><span class="rec">Recommended</span>
+          <p class="title">One deploy, everything in it</p>
+          <p class="why">Finish integrating today's work, run the full test tier on the merged tree, then deploy once. <em>One container swap instead of two, and R1 finally reaches the people complaining about the questions.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R13" value="R13-b — deploy the already-tested work now, today's work separately once verified">
+        <span><span class="id">R13-b</span>
+          <p class="title">Ship the finished part now</p>
+          <p class="why">The deletion and paste work has been sitting green for a while; today's has not been through the full tier yet. <em>Smaller blast radius per deploy and a clearer culprit if something breaks</em> &mdash; at the cost of two interruptions.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R13" value="R13-c — hold all deploys until you say go">
+        <span><span class="id">R13-c</span>
+          <p class="title">Hold until you say</p>
+          <p class="why">Nothing changes under anyone mid-lesson. <em>The live site keeps generating fake questions</em> in the meantime, which is the thing everyone is complaining about.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R14</span>
+      <h3>Forty-seven abandoned branches, and a release branch nobody releases from</h3>
+      <p>Every sub-agent that has ever worked on this app left a branch behind. There are <strong>47</strong> of them, plus a note in the developer docs warning that one branch cannot be rebased because four attempts each silently lost code &mdash; so the warning is doing real work and the branches are not.</p>
+      <p>Meanwhile the branch we actually build from is 41 commits ahead of <span class="mono">main</span>, which means <span class="mono">main</span> &mdash; the thing a stranger would check out &mdash; is a week stale.</p>
+    </div>
+    <div class="opts" data-q="R14">
+      <label class="opt">
+        <input type="radio" name="R14" value="R14-a — fast-forward main to the working branch, delete merged agent branches, keep the two backups">
+        <span><span class="id">R14-a</span><span class="rec">Recommended</span>
+          <p class="title">Catch main up, sweep the rest</p>
+          <p class="why">Move <span class="mono">main</span> forward &mdash; it is a clean fast-forward, no rewriting &mdash; then delete the agent branches whose work is already in, keeping the two deliberate backup branches and the rebase warning. <em>The repo stops lying about where the code is.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R14" value="R14-b — catch main up, but keep every branch">
+        <span><span class="id">R14-b</span>
+          <p class="title">Catch main up only</p>
+          <p class="why">The important half, with no chance of deleting something that turns out to matter. <em>The branch list stays unreadable</em> and grows by a handful every session.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R14" value="R14-c — leave the branches alone entirely">
+        <span><span class="id">R14-c</span>
+          <p class="title">Leave it</p>
+          <p class="why">It is cosmetic and nothing is broken. <em>Costs nothing today</em>; costs a few minutes of confusion every time anyone new looks at the repo.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <h2>More than multiple choice</h2>
+  <p>You asked why the AI only writes multiple-choice questions, and whether it could write every kind a card supports so you can pick which to publish. The app has been able to <em>ask</em> four kinds &mdash; multiple choice, true/false, typed answer, and fill-in-the-blank &mdash; for over a week. Only the <em>writing</em> was narrow.</p>
+  <p>The useful discovery is what it costs. <strong>Three of the four kinds need no AI at all.</strong> A typed question <em>is</em> the card &mdash; question on the front, answer on the back, nothing to invent. A fill-in-the-blank falls out of blanks the card already contains, or by blanking the answer where it appears. True/false pairs the question with an answer that belongs to a sibling card, and runs it through the same plausibility gates the multiple-choice pipeline already uses. Only multiple choice genuinely needs a model.</p>
+  <p>So "generate every form this card supports" costs the same per card as generating one multiple-choice question costs today &mdash; and on a site whose model is the offline stand-in, those three are not a degraded imitation. They are exactly what a real model would produce, because there is nothing to decide.</p>
+  <p>One thing worth funding, though, and it is not what you would guess: <strong>every card imported so far has an empty list of acceptable alternative answers.</strong> So a typed question only settles when a student types the answer exactly. One AI call per card, at authoring time, to write the acceptable variants would convert a grading cost you pay on every student, every time, into a one-off. That is the highest-value model call in this whole feature.</p>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R15</span>
+      <h3>Is a card's set of question forms one question or several?</h3>
+      <p>This is the fork that decides how much the feature costs to build, and it is hard to reverse.</p>
+    </div>
+    <div class="opts" data-q="R15">
+      <label class="opt">
+        <input type="radio" name="R15" value="R15-a — one concept with several candidate forms, one of them elected and published">
+        <span><span class="id">R15-a</span><span class="rec">Recommended</span>
+          <p class="title">One question, several forms, you pick one</p>
+          <p class="why">The card keeps one question with a set of candidate forms attached; you elect one and publish it as you do today. <em>Touches one module and adds one button</em> &mdash; the first non-multiple-choice question could be in front of you in a day. The limit: a quiz that borrows a concept borrows the form you elected.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R15" value="R15-b — each form is an independent question that can be published separately">
+        <span><span class="id">R15-b</span>
+          <p class="title">Each form is its own question</p>
+          <p class="why">You could publish the multiple-choice <em>and</em> the fill-in-the-blank of the same card at once. <em>The cost is real: nine files change how they identify a question, two stored formats need compatibility rules, and existing rooms would serve the same concept twice</em> until a "which one is primary" flag is added &mdash; which is the first option, arrived at expensively.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="decision">
+    <div class="decision-head">
+      <span class="kicker">Decision R16</span>
+      <h3>How far past the free forms should this go?</h3>
+      <p>The three free kinds have a plain-but-honest voice. A true/false comes out as the question paired with a candidate answer rather than a flowing sentence; a fill-in-the-blank only works on cards that already have a blank or whose answer appears in the question. A model would smooth both &mdash; at the cost of turning a free feature into a metered one, and of the offline stand-in having to fake prose, which is how the bad-questions complaint started.</p>
+    </div>
+    <div class="opts" data-q="R16">
+      <label class="opt">
+        <input type="radio" name="R16" value="R16-a — free forms only; spend the one AI call on acceptable-answer variants instead">
+        <span><span class="id">R16-a</span><span class="rec">Recommended</span>
+          <p class="title">Free forms only, and buy the aliases</p>
+          <p class="why">Ship the three free kinds as they are, and spend AI budget on the alternative-answers problem instead. <em>Every card in every deck becomes usable &mdash; including the ones the topic report calls unusable &mdash; with no AI spend at all.</em></p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R16" value="R16-b — pay a model to phrase true/false and to write context for cloze">
+        <span><span class="id">R16-b</span>
+          <p class="title">Pay for the polish too</p>
+          <p class="why">Better-reading true/false claims, and fill-in-the-blank on every card rather than only the ones that already suit it. <em>One metered call per card per form</em>, and the free path stays as the fallback when there is no model.</p>
+        </span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="R16" value="R16-c — multiple choice only; do not derive other forms">
+        <span><span class="id">R16-c</span>
+          <p class="title">Leave it at multiple choice</p>
+          <p class="why">Nothing new to review or maintain. <em>The topic report keeps calling cards "unusable" when they are simply not multiple-choice questions</em> &mdash; which is the complaint that started this.</p>
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <h2>Not on this page</h2>
+  <div class="note settled">
+    <span class="tag">Built today, no ruling needed</span>
+    <p><strong>The buttons stop pretending.</strong> You asked for this directly today: with no AI model connected, every automatic-generation button is now disabled and says so, and the server refuses those requests outright instead of returning a page full of manufactured questions. The copy/paste path is deliberately untouched and is now the obvious one &mdash; it never needed a model, because your assistant is the model.</p>
+    <p><strong>Two ways a question could end up as its own answer.</strong> Neither was what you saw, but both were real. Four generated options that all reword the question could be stored, because the check that catches an option echoing the question only fires when exactly <em>one</em> option does &mdash; two or more and it goes quiet. And a card whose back repeats its front imported cleanly, then produced a question whose <em>correct</em> answer was the question. Both refused now, at a layer both the automatic and the paste routes pass through.</p>
+    <p><strong>Your import bookmark never goes stale again.</strong> The 15-minute link was baked into the bookmarklet itself, which is why a new link meant dragging the button to your bookmarks bar again. It now carries no link at all; clicking it asks RecallCoach for a fresh one. The link stays one-time and 15 minutes, exactly as you ruled.</p>
+    <p><strong>The app can say what went wrong.</strong> Every question-generation attempt now leaves a record of which topic, which card, how long it took and how it failed &mdash; which is what the stalled worker never left behind. There is a command to read it, and one to group student activity by quiz code.</p>
+    <p><strong>The TV can render emphasis.</strong> The tvOS package shipped and the app is locked to it. Worth knowing: while investigating, we found that markup pasted from your own assistant was being sent to the classroom screen literally, so a <span class="mono">**bold**</span> would have appeared with its asterisks in front of a room. It is now stripped on the way out and kept in storage, so switching emphasis on later is a one-line change.</p>
+  </div>
+  <div class="note settled">
+    <span class="tag">Already answered by checking</span>
+    <p><strong>Two thirds of R9 was already built.</strong> You asked for randomised answer positions and distractors rooted in the question. Both already ship and both are pinned by tests &mdash; the bad questions you saw came from the offline stand-in that production falls back to with no key, not from the prompt. Only the punctuation-and-emphasis part was a real gap.</p>
+    <p><strong>The local-model config knob already existed.</strong> The app has read a configurable endpoint address, model name and timeout from the start, so pointing it at a local engine was never the hard part &mdash; the hard part was that there is nowhere to run it. See the correction above.</p>
+  </div>
+
+  <div id="ruling">
+    <div class="rhead">Your ruling</div>
+    <div class="body">
+      <textarea id="out" readonly></textarea>
+      <button id="copy">Copy ruling</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>RecallCoach &mdash; decision docket, 6 August 2026, second sitting. A JayTeeSF LLC product. Measurements taken from the deploy config, the source tree and the running production server the same day; external practice, pricing and regulation cited from sources read the same day and dated in the working notes. Decisions R10&ndash;R16 continue the numbering from Ask&nbsp;#7 and do not collide with the Hey language dockets.</p>
+  </footer>
+</main>
+<script>
+  (function () {
+    var out = document.getElementById('out');
+    var qs = [
+      { name: 'R10', label: 'R10  what happens to a revised answer' },
+      { name: 'R11', label: 'R11  the AI path after copy/paste' },
+      { name: 'R12', label: 'R12  log retention' },
+      { name: 'R13', label: 'R13  deploy timing for the undeployed week' },
+      { name: 'R14', label: 'R14  branch hygiene' },
+      { name: 'R15', label: 'R15  one question with many forms, or many questions' },
+      { name: 'R16', label: 'R16  how far past the free question forms to go' }
+    ];
+    function render() {
+      var lines = ['RECALLCOACH — RULING, 6 AUGUST 2026 (ASK #8)', ''], any = false;
+      qs.forEach(function (q) {
+        var sel = document.querySelector('input[name="' + q.name + '"]:checked');
+        lines.push(q.label + ':');
+        lines.push('  ' + (sel ? sel.value : '(not yet decided)'));
+        lines.push('');
+        if (sel) any = true;
+      });
+      out.value = any ? lines.join('\n').trim() : 'Nothing selected yet.';
+    }
+    document.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      r.addEventListener('change', render);
+    });
+    document.getElementById('copy').addEventListener('click', function () {
+      out.select();
+      var b = this;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out.value);
+        else document.execCommand('copy');
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = 'Copy ruling'; }, 1600);
+      } catch (e) { b.textContent = 'Select the text above and copy'; }
+    });
+    render();
+  })();
+</script>
+</body>
+</html>
