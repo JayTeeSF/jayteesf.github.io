@@ -1,504 +1,379 @@
-# Editorial plan of record — three Hey articles
+# Editorial process of record
 
-*Synthesis of the managing-editor strategy (research-backed) and the
-staff-writer brainstorm (independent), arbitrated by the benchmark
-lead (custodian of all numbers). 2026-07-25.*
+Last revised: 2026-08-07
 
-The two brainstorms were produced blind to each other and converged
-on every load-bearing decision: per-worker tables before totals, the
-parity gate as article B's story, the case-file structure for C, the
-dated progression table as B's spine, C published first, disclosed
-weakness as the house signature. Convergence noted; adopted.
+This is the normative editorial process for JayTeeSF articles, dailies, and public status updates. It replaces the old chronological accumulation of rulings. Historical rationale remains in git history; this file keeps the rules that are still binding.
 
-## Rulings
+When sources conflict, use this order:
 
-1. **Publication order: C → B → A.** C establishes the honesty
-   posture that makes A's eventual claims believable. "Publishing a
-   100K article before the silent-miscompile article makes the second
-   look like a forced confession; after, the first looks like a track
-   record." (Editor. Correct.)
-2. **Titles.**
-   - C: "A Ruby Port Ate 50 GB of RAM. The Bug Wasn't in My Code."
-     with the writer's "Exit 0, No Output" as the section heading for
-     the corpse exhibit.
-   - B: keep "Great Command-Line Scripting with Hey" (URL identity),
-     new sub-lede carrying the fresh multiplier.
-   - A (future): "From 500 to 100,000 Requests per Second" — series
-     continuity; the per-core twist is the hook, not the title.
-3. **C's structure: the case file.** Exhibits A–E with a fixed
-   template (symptom → what we believed → what was true → what makes
-   it loud now), retractions printed at full prominence (in a case
-   file, discarded theories belong in the record), closing "Silence
-   Table" (what we saw / exit code / what it reported / how long it
-   hid / what made it loud). The guard is the hero; speed is the
-   reward, not the subject. The adoption question ("would you ship
-   this?") answered inside the article, not left to comments.
-4. **B's structure: the article is the harness.** Dated progression
-   table as the spine (new measurements add rows, never falsify the
-   headline); parity gate promoted from "Rule 2" to the hook and its
-   own section; Rule 1 rewritten (not addended) for the post-sidecar
-   era with history in an aside; lanes named in plain English — "the
-   script you run" vs "the binary you build" — and never "heyc lane".
-5. **A's gate (restated, binding):** written only when (a) >100K
-   aggregate, quiet-box confirmed, same-minute four-lane ladder
-   including puma-x8; (b) the sustained-load stability class is fixed
-   or explicitly bounded in print; (c) per-worker curves (1/2/4/8)
-   exist for Hey, puma, AND Go (GOMAXPROCS-matched), so the
-   "X% of Go at matched conditions" verdict is reportable win or
-   lose. Per-worker table appears BEFORE the totals table. The
-   current per-worker loss to puma (10.4K vs 14.5K at our w8 vs
-   their w4) is stated in our own words before anyone else says it.
-6. **House style adopted** (editor's spec, writer's voice):
-   - TL;DR: 4–6 bullets; #1 = most dramatic number WITH unit and
-     condition; one bullet is ALWAYS a disclosed weakness; last
-     bullet is falsifiability (how to reproduce). Every TL;DR number
-     reappears identically in a table below.
-   - Terms: 12-word test → inline `<dfn>`; needs a "why" → `.aside`
-     call-out (left-rule, visually subordinate); mechanism the
-     argument doesn't need → collapsed `<details class="deep">`.
-     Max two inline definitions per paragraph. Never define twice.
-     Foot-of-article glossary on every piece (shared house copy).
-   - Shared "How to read these numbers" block early in every piece:
-     payload, concurrency, machine, keep-alive, quiet-box vs loaded,
-     lower-bound convention, output+success-rate assertion.
-   - Voice: plainspoken, evidence-first, self-incriminating, quietly
-     funny. Corrections ship at the same volume as claims. The
-     writer's corpse-paragraph sample is the register target.
-   - Real ratios only: 481x (spread) and 425x (push), never "500x".
-     (Already corrected in the live article and the saga doc.)
-7. **Measurement asks accepted by the benchmark lead** (feeds the
-   standing quiet-window queue; several overlap the toolchain team's
-   Go-matrix request):
-   - puma 1/2/4/8-worker cells, same minute, same payload  [queued]
-   - Go GOMAXPROCS 1/2/4/8 matrix (standing instrument, built)
-   - Hey w1/2/4/8 post-407a, all three apps                [queued]
-   - p99 + p99.9 + oha full summary (avg/slowest) per cell — now
-     mandatory (Little's-law reconciliation, bench lesson 16c; the
-     elders p50/p99-vs-mean anomaly must be explained before any
-     "median below Go" claim returns)
-   - fresh gpi + source-zip benchmarks                      [queued]
-   - A second, realistic payload (JSON parse + SQLite read +
-     render) — REQUIRED for A; /health alone is dismissible
-   - One Linux ≤4-core run — flagged to the maintainer (needs a
-     Linux box; the 4-core production example exists)
-8. **Cross-linking:** C answers "why believe the RPS articles?"
-   (because these gates caught these bugs) and links to A/B; A/B
-   link back to C as the methodology's origin story.
+1. Security and embargo rules.
+2. Measured current truth from the repository and dated evidence logs.
+3. The latest maintainer ruling.
+4. The article-specific brief.
+5. This general process.
 
-## Beyond speed: the full comparison rubric (maintainer mandate, 2026-07-25)
+A stale plan never outranks a fresh measurement. Corrections publish at the same volume as claims.
 
-Article A (and, in lighter form, B/C) compares Hey vs Go vs Ruby on
-MORE than throughput. Two classes of axis:
+## 1. The editorial workflow
 
-**Measured axes (cells in the standing ladder, per lesson 16d):**
-| Axis | Why a reader cares | How measured |
-|---|---|---|
-| Memory under load | Decides the VPS you rent; a 512 MB box runs Go/Hey, not a Rails cluster | RSS idle / post-load / post-soak, whole server AND per worker |
-| Latency tail | p99 is your unluckiest user | p50 + p99 + p99.9 + full oha summary (16c) |
-| Throughput per core | The only unit that isolates the language | per-worker curves 1/2/4/8 (16b) |
-| Startup to first request | Serverless/cold-start + dev loop | time from exec to first 200 |
-| Edit-to-serving time | The inner dev loop | build-from-source wall time (Hey ~2.5-5 min compiled app vs Go seconds vs Ruby zero — Hey's honest weak axis today) |
-| Artifact/deploy size | Ship a binary or a runtime+gems? | bytes on disk; runtime dependencies count |
-| Sustained-load stability | Does it survive Tuesday? | soak duration + RSS slope (gate 3) |
+Every narrative piece follows the same path.
 
-**Judged axes (argued honestly in prose, with receipts where they
-exist):**
-- Ergonomics: LOC for identical functionality (source-zip: Ruby vs
-  Hey line counts — measurable!), readability for a Ruby developer
-  (B's "reads like Ruby" section), error-handling model, REPL/
-  tooling maturity.
-- Correctness confidence: type/guard story, sanitizer support
-  (ASAN/TSAN), the parity-gate discipline, silent-failure history
-  DISCLOSED (article C is the receipt), fix latency (24 h) vs
-  ecosystem maturity (Ruby/Go's decades).
-- Concurrency model: workers vs goroutines vs threads/GIL; what the
-  programmer must know to be safe.
-- Ecosystem & hiring: libraries, docs, community — where Hey loses
-  today and says so.
-- Operational story: single binary (Go, compiled Hey) vs interpreter
-  + dependency tree (Ruby); crash/jetsam behavior; observability.
-Rule: every judged axis names at least one lane where Hey LOSES
-(edit-to-serving time and ecosystem are the standing candidates) —
-same discipline as the numbers.
+### Step 1: Write the one-sentence story
 
-## Draft workflow (next phase)
+Before drafting, state:
 
-Writer agent drafts C, then B, following this plan + fresh numbers
-from the quiet window. Editor agent reviews each draft against the
-house rules (TL;DR shape, term tiers, density guard, caveat bullet).
-Benchmark lead fact-checks EVERY number against the dated evidence
-log before commit; no number ships without a log citation. A's
-skeleton is banked in this file until its gate fires.
+- the verdict;
+- what changed or was learned;
+- what the reader will understand or be able to do afterward.
 
-## House rule added 2026-07-26 (maintainer): STORY ARC + HUMOR
-Every editorial pass must also judge: (a) does the article have a
-compelling STORY ARC — a setup, a turn/reveal, and a payoff — rather
-than an annotated catalog of facts? An article whose sections could be
-reordered without loss has no arc; fix the structure, not the prose.
-(b) Is there appropriate HUMOR — light, dry, in service of the point
-(a well-placed aside, a self-deprecating note on our own retractions)
-— and NONE where the material is a correction, a retraction, or a
-user-facing failure? Humor never at the reader's expense, never in
-TL;DRs, never in numbers.
+If the article needs two unrelated story sentences, split it.
 
-## Humor rules tightened (maintainer, 2026-07-26)
-- NO humor is better than TOO MUCH humor — when in doubt, cut.
-- All humor must be FAMILY-FRIENDLY.
+### Step 2: Assemble the evidence packet
 
-## Attribution rule (maintainer, 2026-07-26)
-The editor pass must verify PROPER ATTRIBUTION: load-bearing claims
-link to their primary source (the paper, the official docs, the repo,
-the original post) at or near first use — not just a sources list at
-the bottom. Named results carry their authors/venue when appropriate
-(e.g. "Perceus (Reinking, Xie, de Moura, Leijen — PLDI 2021)"). Never
-invent a URL; if the source brief lacks one, say so rather than link
-to a guess.
+The packet contains:
 
-## Index rule (maintainer, 2026-07-26)
-articles/index.html must list EVERY published article — updating it is
-a mandatory step of every article commit (new article, retitle, or
-removal). Verify with: every articles/*.html basename (except index)
-appears in index.html. The editor pass checks this.
+- dated benchmark or gate logs;
+- primary-source links for named claims;
+- current repository state;
+- known weaknesses, failed theories, and unresolved questions;
+- the exact commands needed to reproduce the important result.
 
-## CSS compatibility rule (maintainer bug report, 2026-07-26)
-Callout boxes vanished entirely on mobile because box styling depended
-on color-mix()/canvas via custom properties: when var() substitutes an
-unsupported color, the WHOLE declaration is voided (border-style →
-none, background → transparent) — an invisible box, not a degraded
-one. RULES: (1) every custom property used in borders/backgrounds
-gets a universally-parseable rgba() base value, with the color-mix
-version applied ONLY inside @supports (color: color-mix(...)) —
-last-wins means fallback-ordering does NOT work for --custom-props;
-(2) direct color-mix declarations get a plain fallback on the line
-before (normal cascade works there); (3) mobile is most readers'
-platform — verify boxes render with color-mix mentally disabled
-before shipping any new article CSS.
+Source documents are raw material, not the outline.
 
-### Correction to the CSS rule (2026-07-26, found by two-engine verification)
-The before-line fallback works ONLY when the color-mix() call contains
-NO nested var() — a var() inside makes the declaration parse-time
-valid everywhere, so the broken version still wins the cascade and
-fails later at computed-value time. Any color-mix that references a
-custom property MUST be @supports-gated. Verify on an engine without
-color-mix support, not just by reading.
+### Step 3: Draft for one audience
 
-### FINAL CSS rule (2026-07-26 late — supersedes BOTH rules above; verified on the maintainer's phone)
-color-mix() is BANNED from articles and the doc-site generator
-entirely. Mechanism: mobile WebKit builds PARSE color-mix (so every
-@supports gate passes) yet fail canvas/currentColor resolution at
-COMPUTED-VALUE time; a var()-carried declaration that dies then
-becomes UNSET (invisible boxes) and no gate can catch it, because
-@supports tests parseability only. Recipe: static rgba()/hex only;
-translucent rgba backgrounds serve both schemes; accent colors get
-explicit @media (prefers-color-scheme: dark) + :root[data-theme]
-overrides (when replacing a color-mix(X, currentColor) you MUST add
-the dark override it silently provided). No canvas keyword, no
-oklch/lab/light-dark, no var() needing post-parse color resolution.
+A public article, a maintainer decision memo, and a raw campaign log have different jobs. Never flatten them into one document.
 
-## Article buckets (maintainer, 2026-07-27)
+Narrative articles normally contain 800-1200 words of prose, excluding chart labels, glossary text, sources, and receipts. Over budget means cut or split, not compress every sentence until it becomes unreadable.
 
-Every article MUST carry `<meta name="article-bucket" content="...">`
-— the index generators HARD-FAIL on a missing or unknown bucket
-(both lanes, parity-gated). `article-series` is retired. Buckets and
-their index headings, in display order:
+### Step 4: Editor pass
 
-- `featured` — "Featured". The best, most readable, most helpful
-  pieces; the front-of-site shelf. Curated by the maintainer —
-  additions/removals are their call (seed set per their direction:
-  designing-heys-actors, what-makes-an-actor-cheap; faster-than-go
-  added by editor judgment, flagged for their veto).
-- `benchmarks` — "Benchmark stories". Measurement campaigns and
-  their narratives: something was benchmarked, numbers moved, the
-  story has receipts (e.g. great-command-line-scripting-with-hey,
-  hey-web-services-500-to-60000-rps, ruby-port-ate-50gb-of-ram,
-  benchmarks-worth-chasing).
-- `almost` — "Explored, not (yet) shipped". Research/designs for
-  features that are NOT in the shipping toolchain: measured
-  feasibility studies, plans of record, refutation arcs (e.g.
-  the-jit-was-never-the-problem, sugar-over-fast-immutables). The
-  article itself must ALSO carry its unshipped status in-body (the
-  red status banner pattern); the bucket is navigation, not the
-  disclosure.
+The editor checks:
 
-Filenames starting with DRAFT- are excluded from the index by both
-generators (drafts live in articles/ untagged-for-index until their
-fact-check clears). New buckets require: maintainer approval, both
-generator lanes updated identically, parity re-verified.
+- verdict-first clarity;
+- story arc;
+- reader capability;
+- plain English;
+- disclosed weakness;
+- skim test;
+- chart placement and accessibility;
+- citations and glossary behavior;
+- security composition risk;
+- mobile/CSS compatibility;
+- metadata, bucket, index, and version formatting.
 
-## Verdict clarity + accessible writing (maintainer, 2026-07-27)
+### Step 5: Fact-check pass
 
-Trigger incident: the maintainer — the best-informed possible reader —
-read "The JIT Was Never the Problem" and came away with the INVERTED
-conclusion (JIT too costly to bother) when the article's finding was
-the opposite (JIT nearly free; the plan is on). Rules:
+The benchmark lead or designated fact-checker verifies every number against a dated log. No number ships because it was remembered, copied from an older draft, or inherited from another host.
 
-1. VERDICT FIRST, STATED, NEVER IMPLIED. The TL;DR's FIRST bullet
-   states the bottom-line conclusion in decision language ("X is
-   worth building because...", "we are NOT doing Y because...").
-   If the article informs a go/no-go, say which one it is. A clever
-   title may gesture; the verdict bullet may not.
-2. THE SKIM TEST (mandatory editor-pass item). Read ONLY the title,
-   headings, and bolded phrases. If that skim can produce a wrong or
-   inverted conclusion, restructure — headings and bold must carry
-   the true story on their own, because that is all most readers
-   read. (Today's failure: title + "unshipped plan" banner skimmed
-   as "JIT rejected".)
-3. AMBIGUITY IS A DEFECT, not a style choice. Negation-based titles
-   ("X was never the problem") REQUIRE an explicit early
-   counter-statement of what IS true.
+### Step 6: Publish pass
 
-### Kathy Sierra style (maintainer-directed model for accessibility)
+Before commit:
 
-Model the writing on Kathy Sierra's approach (Head First series,
-Creating Passionate Users, "Badass: Making Users Awesome"):
-- READER-FIRST: the article exists to make the READER capable, not
-  to showcase the work. Every section answers "what can the reader
-  now understand or do?" — "what can you help your users kick ass
-  at" is the framing question.
-- Get readers past the "Suck Threshold" FAST: an early, concrete win
-  (the one-sentence takeaway, a runnable example, the verdict) before
-  any deep machinery. Nobody is passionate about feeling stupid.
-- BRAIN-FRIENDLY CHUNKS: one idea per section; concrete example
-  before abstraction; narrative and visual anchors (our inline
-  charts/term-boxes serve this) over walls of prose.
-- Conversational and direct ("you"), zero academic hedging-fog —
-  hedge PRECISELY (state exactly what is uncertain) rather than
-  diffusely.
-- Curiosity gaps are good; unresolved ambiguity is not. Open a
-  question early, ANSWER it on the page.
-Editor pass adds two line items: (a) skim test (above), (b) "reader
-capability" check — name what a reader can do after each major
-section; if nothing, the section is for the author, cut or recast.
+- run the article/index generators;
+- ensure every published article appears in `articles/index.html`;
+- update `articles/glossary.html` for new terms;
+- verify mobile rendering without `color-mix()`;
+- verify all links and citations;
+- re-check every DID/DOING claim against current state;
+- confirm the final file, not a description of it.
 
-## Daily reports + the common glossary (maintainer, 2026-07-27)
+## 2. Required article shape
 
-- New bucket `daily` — "Daily reports", rendered last in the index.
-  Source material: the orchestrator's end-of-day plain-English
-  update, delivered raw; bench applies the FULL article process to
-  it (verdict-first TL;DR, story arc not changelog, skim test,
-  Sierra accessibility).
-- THE GLOSSARY IS A REFERENCE, NEVER AN ENTRY POINT. Trigger
-  incident: the first raw daily led with a cast-of-characters +
-  full glossary — accurate and unreadable. Rule: the shared
-  glossary lives at articles/glossary.html (anchored entries,
-  grouped, generator-excluded like index.html). Daily articles
-  link INTO it: the 4-5 load-bearing terms get one-line .aside.term
-  callouts with a "Full entry →" anchor link; everything else is an
-  inline link on first use. Never reproduce glossary content
-  in-body; never open an article with definitions.
-- Glossary maintenance: when an article introduces a term the
-  glossary lacks, the same commit adds the glossary entry (crisp,
-  2-4 sentences, reader-first).
-- Daily accuracy rule: the raw update is written mid-stream and WILL
-  contain claims that moved by publication time (first instance: 
-  "retention bug fixed" landed while bench's gates were proving the
-  web half persisted). The editor pass re-checks every DID/DOING
-  claim against the latest bus/gate state before publishing; the
-  daily states current truth, not end-of-day truth.
+### Verdict first
 
-## Visual + accessibility rules (maintainer, 2026-07-27)
+The first TL;DR bullet states the decision in plain language. Never imply the verdict or hide it behind a clever title.
 
-1. **Every article must carry at least one chart/graphic capturing
-   its gist.** This is the skim-reader's entry point — someone who
-   never reads past the TL;DR should still walk away with the shape
-   of the finding from a single figure. Reference pages (glossary.html,
-   index.html) are exempt; every narrative article is not. The figure
-   must be self-contained (inline SVG, static rgba/hex colors per the
-   CSS compatibility rule above, light-pinned base + dark overrides),
-   carry a title, a subtitle, and a figcaption/foot line stating data
-   provenance (dated log entry or article it was measured for), and
-   stay readable at mobile width (wide content scrolls in its own
-   overflow-x:auto container; it never forces the page to scroll
-   sideways).
-2. **First use of µs is written "µs (microseconds)."** Extend the
-   same courtesy to any unit a general reader may not immediately
-   parse on first use in a given article — the expansion goes exactly
-   once, at the first textual occurrence in the body (not in meta
-   tags, not in an SVG's accessible name/title), and never again
-   after that.
-3. **Glossary references use the popover pattern.** An inline link to
-   a `glossary.html#anchor` term in body prose is marked up as
-   `<a class="gloss" href="glossary.html#anchor" data-def="...">term</a>`,
-   where `data-def` is a compressed 1-2 sentence version of the
-   glossary's own entry. A small shared script (added once per
-   article) intercepts the click/Enter, shows a dismissible popover
-   near the term with the definition and a "Full entry →" link to the
-   real anchor, and closes on Escape or an outside click; the popover
-   is styled from the article's own `--panel`/`--border` variables (or
-   an equivalently theme-aware static palette) so it reads in both
-   light and dark. The href is never removed or hijacked to a
-   javascript: no-op — with JavaScript disabled the link degrades to
-   an ordinary navigation to `glossary.html#anchor`. The existing
-   `.aside.term` callout boxes (and their own internal "Full entry →"
-   links) are NOT converted — they are already inline definitions, not
-   references, and stay as-is.
+Use 4-6 TL;DR bullets:
 
-### Version-number display (maintainer, 2026-07-27)
-Show versions SHORT in prose: 443a, marked up as
-<abbr class="ver" title="v0.99.443a">443a</abbr> (mouse-over gives
-the full form), with one footer note per article ("Version numbers
-are shown short..."). Bare short form inside SVG text/aria-labels;
-verbatim command output in <pre>/<code> stays untouched (it is a
-receipt). Rationale + future-proofing: the project will renumber
-from 0.0.1b at the open beta — keeping display short and the full
-form in one attribute makes that a mechanical retitle, not a prose
-rewrite.
+1. the verdict;
+2. the strongest result, with unit and condition;
+3. the key mechanism or lesson;
+4. a disclosed weakness;
+5. the reproducibility or falsifiability test as the final bullet.
 
-### Campaign articles are RESULTS SHELLS (maintainer, 2026-07-27)
-Trigger: the first billion-row-bet draft was dense, cryptic, and
-multi-goal. Rules for campaign/bet articles:
-- ONE goal per article, stated plainly (this one: getting FAST).
-  Everything not serving it gets cut or linked.
-- Plain English first; numbers earn their place (a handful that
-  carry the story, not an evidence dump — the log holds the rest).
-- STRUCTURE AS A SHELL FOR FUTURE DATA: the top chart shows the
-  bet (targets), the starting line, and clearly-labeled PENDING
-  slots that fill in as measured results land (never invented
-  data; the faster-than-go [CERT]-table pattern). Story beats:
-  (1) what we're betting — sun-shot framing, landing-spot
-  tolerance stated ("aim 1s, landing near 10s still wins the
-  argument"); (2) a brief aside on the challenge itself; (3) why
-  we think we can make it; (4) what we actually did — dated
-  entries appended as achieved.
-- Write knowing results KEEP IMPROVING after publication (web RPS
-  kept climbing long after 500->100K was written): the results
-  section is an open ledger with dated rows, not a one-time
-  verdict.
+Every TL;DR number must reappear identically in a table or receipt below.
 
-### Editor's gleaned insights (bench, 2026-07-27 — from the dense-draft failure)
-1. ARTICLES INHERIT THE SHAPE OF THEIR INPUTS unless forced not to.
-   The dense drafts were assembled from taskings + evidence files +
-   briefs, and read like four documents flattened into one. The
-   articles that worked (500->100K, actor-cheap) were written from
-   ONE story sentence. Rule: every writer brief leads with a single
-   story sentence; source documents are raw material, never outline.
-2. RECENCY IS NOT IMPORTANCE. The just-discovered correction cycle
-   got headline space because it was fresh — readers want the
-   destination, not our epistemology journey at full resolution.
-   The dated log holds the journey. Rule: the newer a fact, the
-   harder it must argue for article space.
-3. WRITE FOR THE READER TWO YEARS OUT. A "today we are X" snapshot
-   decays the week results improve; the bet, the reasons, and dated
-   ledger rows age gracefully. Campaign articles freeze NOTHING in
-   the present tense except the bet itself.
-4. DENSITY IS A COMPRESSION FAILURE, not a length property. The
-   brief was dense because every sentence carried maximum load with
-   zero redundancy — brains need one idea per chunk with air.
-   Editor test: each paragraph makes ONE point the reader could
-   repeat after a single read (the one-breath test).
-5. ONE AUDIENCE PER DOCUMENT. A maintainer decision brief and a
-   public article have different jobs; serving both in one page
-   serves neither. When work informs a ruling, the site gets the
-   STORY of the decision; the full option matrix lives in the log
-   or a collapsed appendix.
+### Story arc
 
-### The standing secondary goal: earned trust (maintainer, 2026-07-27)
-Every campaign article quietly carries one more job: a developer
-reading it should come away trusting the team — because the
-receipts show BOTH halves of the promise ("we know ergonomic": the
-Ruby-port and CLI stories; "we know fast": the web campaign), and
-because the team visibly publishes bets before results and
-corrections in public. Trust is IMPLIED by receipts and links,
-never requested; the phrase "trust us" is banned. Weave the track
-record into an existing beat; it never becomes its own section.
+A narrative article needs:
 
-### Plain-English, chart placement, and the word budget (maintainer, 2026-07-27)
-- INTERNAL CODENAMES ARE BANNED from articles: no slice names, no
-  "I5 stage (b)/(c)", no "K1/K2/K3", no R-ladder numbers. Translate:
-  "the first fix (swap the sorting shortcut)", "the planned
-  reference-counting upgrade". Codenames live in the log; readers
-  get plain words.
-- CHARTS: the FIRST chart sits in or immediately after the TL;DR —
-  a reader with two minutes must be hooked by a picture near the
-  top. MORE charts are better (a picture is worth 1K words) with
-  one guard: every chart must restate the ARTICLE'S message. A
-  chart aligned with the text is a free, clearer reiteration; a
-  chart off-message ADDS a thousand words of load. When in doubt,
-  ask: could this figure replace a paragraph? If yes, add it and
-  cut the paragraph.
-- WORD BUDGET: articles are 800-1200 words MAX (prose, excluding
-  chart labels/glossary/sources). Over budget = cut or split;
-  charts are the preferred compression.
-- CITATIONS: named papers get their hyperlink at first mention
-  (e.g., Perceus — Reinking, Xie, de Moura, Leijen, PLDI 2021 —
-  links its DOI), per the existing attribution rule.
+1. setup;
+2. turn or reveal;
+3. payoff.
 
-### The rules apply to STATUS UPDATES too (maintainer, 2026-07-27)
-Trigger: bench reported a measurement to the maintainer in dense
-jargon ("47% <=7B", "SSO", "either population") hours after writing
-the plain-English rules for articles. Rule: every rule in this
-document — plain English, no unexplained acronyms, one idea per
-chunk, define at first use — applies to bus messages, summaries,
-and direct replies, not just published pages. An acronym that means
-something else in the wider world (SSO = single sign-on) must never
-appear unexpanded. If a number needs a unit and a population named
-to make sense ("47% of what, measured how"), say them in the same
-sentence.
+If the sections can be reordered without loss, the piece is probably a catalog rather than a story.
 
-## EMBARGO RULES FOR SECURITY MATERIAL (2026-07-29, ruled after a draft was stopped in review)
+### Reader-first writing
 
-Trigger: a daily draft was refused by the editor pass although it named no
-file, no variable and no directory. The refusal was correct, and the reason
-generalises. These are binding on every writer and every editor pass.
+Use concrete examples before abstractions. Give the reader an early win: the verdict, a runnable example, or the one-sentence takeaway.
 
-**1. THE TEST IS COMPOSITION, NOT NOUNS.** Not "did I name the thing" but
-**"does this piece, PLUS what is already published, equal the finding?"** A
-draft was refused in review although it contained no filename, no variable and
-no directory — because an already-live article supplied one half of the picture
-and the draft supplied the other. The withheld nouns turned out to be the last
-10%, not the protection. Before shipping anything about an unfixed issue,
-re-read the already-live pieces and ask what the new one *completes*. Note that
-this applies to verbs and shapes as much as to names: a mechanism described in
-synonyms is still the mechanism.
+Each paragraph should make one point that a reader can repeat after one read. Prefer conversational, direct prose. Hedge precisely by naming what is uncertain.
 
-**2. NEVER PAIR OBSERVABILITY WITH REACHABILITY.** A symptom size can be a
-**detection oracle**: state how large an effect is and how it is triggered, and
-you have told a reader both that a bad path is reachable and how to confirm they
-reached it — which turns an ordinary benchmark into a scanner against software
-whose source they cannot read. Symptom sizes feel like colour and are not. Cut
-them from anything about an unfixed issue.
+Internal codenames and campaign labels do not belong in public prose. Translate them into plain English.
 
-**3. STATE-FREE PHRASING ABOUT UNFIXED ISSUES.** "Will be published once anyone
-affected has a version to move to" **confirms in print that the shipped release
-is unpatched right now**. Write "is being fixed first and will be described in
-full with its fix" — no state, no timing, no implied window.
+### Skim test
 
-**4. SCRUB THE METADATA FIRST — IT OUTLIVES RETRACTIONS.** `<meta
-name="description">`, `article-desc`, glossary entries and index blurbs are
-indexed by search engines and are NOT reached by a later edit to the article
-body. A glossary entry is a permanent reference page. When cutting embargoed
-material, cut it from the metadata and the glossary BEFORE the prose, not after.
+Read only the title, headings, bold text, TL;DR, and first chart. If that skim can produce the wrong conclusion, restructure the article.
 
-**5. PUBLISH THE MISSES WITH THE HITS.** A review that caught something is a
-story; the same review's misses are an absence, so the story writes itself and
-the absence must be **deliberately put back**. A draft that reported a
-red-team's catch while omitting the two errors the same review missed was
-inverting the house's disclosed-weakness rule inside an article about honest
-reporting. If a section praises a process, it names what that process missed.
+### Humor
 
-**6. BANKED, NOT SPENT.** Material held for a fix-day piece is not lost — it is
-better later, because the fix-day version can name the thing. Cutting it is a
-trade, not a sacrifice.
+Humor is optional, light, dry, family-friendly, and never at the reader's expense. Use none in:
 
-**7. A DEFINITION IS NOT A SAFE HARBOUR.** Abstracting a mechanism makes it more
-*transferable*, not less *disclosing*. Removing the nouns is what makes a
-mechanism readable, not what makes it safe. Glossary entries, "what we learned"
-sections and pattern names get the composition test at FULL strength, not a
-relaxed one — and they are the hardest place to see it, because a definition
-feels like abstraction by construction. Caught the hard way: a glossary entry
-survived its author's own scrub while the article body and both meta tags were
-clean.
+- TL;DRs;
+- corrections or retractions;
+- user-facing failures;
+- benchmark numbers;
+- security material.
 
-**8. REVIEW THE ARTEFACT, NOT THE ACCOUNT OF IT.** An approval based on a
-description is not an approval of the file. Two people can both be honest — one
-describing intent, the other reading it as a report on the bytes — and the
-defect sails through between them. Whoever approves, reads the file.
+No humor is better than too much.
 
+## 3. Visuals and terminology
 
-**9. THIS DOCUMENT IS PUBLISHED TOO.** `articles/` is served: every file in it,
-including this one and every `.md` beside the articles, is reachable at a public
-URL. A rules file explaining an embargo is exactly where a mechanism hides,
-because rules want worked examples and the sharpest worked example is always the
-live defect. Rules 1-8 were each written here with the real mechanism as their
-illustration, and each had to be rewritten. **Illustrate with the SHAPE of the
-mistake, never with the instance**, until the instance is fixed and public.
+Every narrative article needs at least one self-contained chart or graphic near the TL;DR. Reference pages such as `index.html` and `glossary.html` are exempt.
+
+Each figure needs:
+
+- title;
+- subtitle;
+- accessible label;
+- figcaption with provenance;
+- mobile-safe width or its own horizontal scroller;
+- static hex/RGBA colors with explicit dark-mode overrides.
+
+A chart should restate the article's message and replace prose, not add a second story.
+
+Expand an unfamiliar unit once at first textual use, for example `microseconds (us)`. Do not repeatedly define it.
+
+Use at most two inline definitions per paragraph. Terms needing a fuller explanation link to `articles/glossary.html`.
+
+Glossary links use the progressive-enhancement popover pattern:
+
+```html
+<a class="gloss" href="glossary.html#term" data-def="Short definition.">term</a>
+```
+
+With JavaScript disabled, the link must still navigate normally. Existing `.aside.term` boxes remain direct definitions and are not converted.
+
+## 4. Evidence and benchmark rules
+
+### Explain how to read the numbers
+
+Near the top of every benchmark article, state:
+
+- payload;
+- concurrency/workers;
+- machine and operating system;
+- keep-alive behavior;
+- quiet-box versus loaded-box state;
+- whether the number is a lower bound;
+- output and success-rate assertions.
+
+### Use matched conditions
+
+Per-worker tables appear before aggregate totals. Compare Hey, Go, and Ruby under matched worker/core conditions whenever possible.
+
+Required measured axes for full comparisons:
+
+| Axis | Required evidence |
+|---|---|
+| Throughput per core | 1/2/4/8 worker or core curves |
+| Latency tail | p50, p99, p99.9, and full load-tool summary |
+| Memory | idle, post-load, post-soak RSS; whole process and per worker |
+| Startup | time from exec to first successful request |
+| Edit-to-serving | source change to serving result |
+| Artifact/deploy size | bytes on disk and runtime dependencies |
+| Stability | soak duration and RSS slope |
+
+Also discuss judged axes honestly: ergonomics, correctness confidence, concurrency model, ecosystem/hiring, tooling maturity, and operations. Name at least one important axis where Hey loses.
+
+Use real ratios, not rounded marketing numbers. If the measured values are 481x and 425x, do not call either one 500x.
+
+### Campaign articles are result shells
+
+A campaign article has one goal. Its top chart shows:
+
+- target;
+- starting line;
+- pending cells;
+- dated results as they arrive.
+
+Do not freeze a moving campaign into a one-time verdict. Append dated rows. Write for the reader two years later, not only for the current week.
+
+### Earned trust
+
+Trust is implied by public bets, reproducible receipts, corrections, and links. Never ask the reader to "trust us."
+
+## 5. Article types and buckets
+
+Every published article includes:
+
+```html
+<meta name="article-bucket" content="featured|benchmarks|almost|daily">
+```
+
+`article-series` is retired. Unknown or missing buckets are errors.
+
+Buckets, in display order:
+
+- `featured`: maintainer-curated best work;
+- `benchmarks`: measurement campaigns and benchmark stories;
+- `almost`: explored or designed, but not yet shipped; the article also needs an in-body status warning;
+- `daily`: edited daily reports, rendered last.
+
+Files beginning with `DRAFT-` are excluded from the index until fact-check clears them.
+
+### Daily reports
+
+A daily is not a raw changelog. Apply the full article process:
+
+- verdict-first TL;DR;
+- story arc;
+- one audience;
+- current truth at publication time;
+- no opening glossary or cast of characters.
+
+The glossary is a reference, never the entry point.
+
+## 6. Publishing and CSS rules
+
+### Index
+
+Every published article basename, except `index.html`, must appear in `articles/index.html`. New article, retitle, and removal commits all update the index.
+
+### Version numbers
+
+Show Hey versions short in prose:
+
+```html
+<abbr class="ver" title="v0.99.443a">443a</abbr>
+```
+
+Verbatim command output stays untouched. Add one footer note explaining the short form.
+
+### CSS
+
+`color-mix()` is banned from articles and the doc-site generator. Also avoid `canvas`, `oklch`, `lab`, `light-dark`, and any color expression that depends on post-parse resolution.
+
+Use static hex/RGBA values and explicit overrides for:
+
+- `prefers-color-scheme: dark`;
+- `:root[data-theme="dark"]`;
+- `:root[data-theme="light"]` when needed.
+
+Mobile is the primary compatibility target. Verify callouts remain visible when advanced color features are mentally or actually disabled.
+
+## 7. Attribution
+
+Load-bearing claims link to primary sources at first use, not only in a source list.
+
+Named research carries authors and venue when appropriate. Never invent a URL. If the evidence packet lacks one, say so.
+
+Corrections and retractions receive the same prominence as the original claim.
+
+## 8. Security embargo rules
+
+Security rules override normal editorial goals.
+
+1. **Use the composition test.** Ask whether the new piece plus existing public material reveals the finding.
+2. **Do not pair observability with reachability.** A trigger plus a measurable symptom can become a scanner.
+3. **Use state-free phrasing for unfixed issues.** Do not confirm that a shipped release is currently exposed.
+4. **Scrub metadata first.** Remove sensitive content from descriptions, index blurbs, and glossary entries before body prose.
+5. **Publish misses with hits.** A process article must disclose what the same review failed to catch.
+6. **Bank material rather than weakening it.** Full details can ship with the fix.
+7. **Definitions are not safer.** Abstract mechanisms can be more transferable than named instances.
+8. **Review the artifact, not the account.** Approval requires reading the actual bytes.
+9. **Remember that editorial files are public.** Rules and examples in `articles/` are published too.
+
+## 9. Current three-article series
+
+This section is project-specific; remove it when the series is complete.
+
+### Publication order
+
+Publish C, then B, then A.
+
+- C establishes the honesty and gate discipline.
+- B shows the command-line experience and measurement harness.
+- A makes the broad web-performance case only after its evidence gate fires.
+
+### Article C
+
+Title: **A Ruby Port Ate 50 GB of RAM. The Bug Wasn't in My Code.**
+
+Structure: case file, Exhibits A-E. Each exhibit follows:
+
+1. symptom;
+2. what we believed;
+3. what was true;
+4. what makes it loud now.
+
+Print discarded theories and retractions in full. Close with a Silence Table: observation, exit code, report, time hidden, and loudness mechanism. The guard is the hero; speed is the reward.
+
+### Article B
+
+Title and URL identity: **Great Command-Line Scripting with Hey.**
+
+Use a dated progression table as the spine. The parity gate is the hook. Name lanes in plain English: "the script you run" and "the binary you build."
+
+### Article A
+
+Title: **From 500 to 100,000 Requests per Second.**
+
+Do not draft the final article until all are true:
+
+- more than 100,000 requests/second aggregate on a quiet box;
+- same-minute Hey/Go/Ruby ladder including Puma with eight workers;
+- sustained-load weakness fixed or explicitly bounded;
+- Hey, Puma, and Go 1/2/4/8 curves;
+- p50/p99/p99.9 plus complete load-tool summaries;
+- a realistic JSON + SQLite + render payload, not only `/health`;
+- at least one Linux run on four or fewer cores;
+- matched-condition verdict, win or lose.
+
+State the current per-worker weakness before critics do. Per-worker data appears before totals.
+
+### Cross-linking
+
+C answers why readers should believe A and B. A and B link back to C as the origin of the measurement discipline.
+
+## 10. Final checklists
+
+### Writer
+
+- One story sentence.
+- One audience.
+- Verdict first.
+- 4-6 TL;DR bullets, including weakness and falsifiability.
+- Concrete example before abstraction.
+- No internal codenames.
+- 800-1200 words unless the format is explicitly exempt.
+- At least one near-top graphic.
+
+### Editor
+
+- Setup, reveal, payoff.
+- Skim test cannot invert the verdict.
+- One idea per paragraph.
+- Humor restrained and correctly placed.
+- Reader can name what each section taught them.
+- Security composition test completed.
+- Mobile and static-color rules satisfied.
+
+### Fact-checker
+
+- Every number traced to a dated log.
+- Conditions and units stated.
+- Host-specific results labeled.
+- Failed theories and weaknesses retained.
+- Current repository state re-checked.
+
+### Publisher
+
+- Bucket metadata present.
+- Index updated.
+- Glossary updated.
+- Primary-source links verified.
+- Version formatting correct.
+- DRAFT status removed only after approval.
+- Final artifact reviewed directly.
