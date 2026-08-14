@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An example program shipped with Hey did not work when built the ordinary way, and the test that compares Hey's two build routes could not see it because it never ran any of the programs it compared. Repairing the test found the defect in one run. Five corrections to my own work are recorded with the mechanism of each.">
+  <meta name="article-date" content="2026-08-13">
+  <meta name="article-bucket" content="daily">
+  <title>An Example Program That Shipped With Hey Was Dead, And No Test Could See It</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #171717;
+      --muted: #666666;
+      --line: #d9d9d9;
+      --panel: #f6f7f8;
+      --code-bg: #111827;
+      --code-fg: #f9fafb;
+      --green: #0f7b4b;
+      --green-bg: #e8f5ee;
+      --amber: #9a6700;
+      --amber-bg: #fff4cf;
+      --red: #b42318;
+      --red-bg: #fdecea;
+      --gray: #5f6368;
+      --gray-bg: #eceff1;
+      --blue: #2457a7;
+      --blue-bg: #eaf1fb;
+      --link: #1b5dbf;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111315;
+        --fg: #f2f3f4;
+        --muted: #b8bdc3;
+        --line: #3a4047;
+        --panel: #1b1f23;
+        --code-bg: #090b0d;
+        --code-fg: #f5f7fa;
+        --green: #83d9ad;
+        --green-bg: #153729;
+        --amber: #ffd36a;
+        --amber-bg: #3d3114;
+        --red: #ff9b92;
+        --red-bg: #48211e;
+        --gray: #c4c9ce;
+        --gray-bg: #292e33;
+        --blue: #9ec1ff;
+        --blue-bg: #1e304d;
+        --link: #9ec1ff;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111315; --fg: #f2f3f4; --muted: #b8bdc3; --line: #3a4047;
+      --panel: #1b1f23; --code-bg: #090b0d; --code-fg: #f5f7fa;
+      --green: #83d9ad; --green-bg: #153729; --amber: #ffd36a; --amber-bg: #3d3114;
+      --red: #ff9b92; --red-bg: #48211e; --gray: #c4c9ce; --gray-bg: #292e33;
+      --blue: #9ec1ff; --blue-bg: #1e304d; --link: #9ec1ff;
+    }
+    :root[data-theme="light"] {
+      --bg: #ffffff; --fg: #171717; --muted: #666666; --line: #d9d9d9;
+      --panel: #f6f7f8; --code-bg: #111827; --code-fg: #f9fafb;
+      --green: #0f7b4b; --green-bg: #e8f5ee; --amber: #9a6700; --amber-bg: #fff4cf;
+      --red: #b42318; --red-bg: #fdecea; --gray: #5f6368; --gray-bg: #eceff1;
+      --blue: #2457a7; --blue-bg: #eaf1fb; --link: #1b5dbf;
+    }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 18px/1.62 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 880px; margin: 0 auto; padding: 48px 22px 90px; }
+    h1 { font-size: clamp(2.1rem, 6.4vw, 4.1rem); line-height: 1.0; letter-spacing: -0.045em; margin: 0 0 16px; }
+    h2 { margin-top: 3.2rem; font-size: 1.75rem; line-height: 1.16; letter-spacing: -0.02em; }
+    h3 { margin-top: 2rem; font-size: 1.12rem; line-height: 1.25; }
+    p { margin: 1rem 0; }
+    a { color: var(--link); }
+    .kicker { font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; }
+    .dek { font-size: 1.25rem; color: var(--muted); max-width: 760px; }
+    .tldr { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px 24px; margin: 28px 0 24px; }
+    .tldr h2 { margin: 0 0 .7rem; font-size: 1.2rem; }
+    .tldr li { margin: .65rem 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 18px 20px; overflow-x: auto; border-radius: 12px; line-height: 1.45; }
+    pre code { font-size: .9rem; }
+    .figure-scroll { overflow-x: auto; margin: 24px 0 8px; padding-bottom: 6px; }
+    figure { margin: 0; min-width: 760px; }
+    figcaption { margin-top: 10px; color: var(--muted); font-size: .9rem; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0 8px; font-size: .85rem; color: var(--muted); }
+    .dot { width: .75rem; height: .75rem; border-radius: 50%; display: inline-block; margin-right: .35rem; vertical-align: -.05rem; }
+    .green { background: #0f7b4b; } .amber { background: #d18b00; } .red { background: #b42318; } .gray { background: #7a7f85; }
+    .tbl-scroll { overflow-x: auto; margin: 20px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 0; font-size: .93rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { font-size: .82rem; text-transform: uppercase; letter-spacing: .045em; color: var(--muted); }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .callout { border-left: 4px solid var(--amber); background: var(--amber-bg); padding: 12px 18px; margin: 24px 0; }
+    .good { border-left-color: var(--green); background: var(--green-bg); }
+    .bad { border-left-color: var(--red); background: var(--red-bg); }
+    .status { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; white-space: nowrap; }
+    .s-moved { color: var(--green); } .s-hold { color: var(--gray); } .s-blocked { color: var(--red); }
+    .retraction { border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 0 12px 12px 0; padding: 4px 20px 14px; margin: 22px 0; background: var(--red-bg); }
+    .retraction h3 { margin-top: 1.1rem; }
+    .glossary dt { font-weight: 700; margin-top: .9rem; }
+    .glossary dd { margin: .2rem 0 0; color: var(--muted); }
+    .tag-new { font-size: .68rem; letter-spacing: .08em; font-weight: 700; color: var(--blue); background: var(--blue-bg); border-radius: 4px; padding: .1rem .35rem; vertical-align: .1rem; margin-left: .4rem; }
+    .evidence { font-size: .88rem; color: var(--muted); border-top: 1px solid var(--line); margin-top: 3rem; padding-top: 1rem; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); }
+    @media (max-width: 700px) {
+      main { padding: 30px 16px 70px; }
+      body { font-size: 17px; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="kicker">Hey · daily · August 13, 2026</div>
+  <h1>An Example Program That Shipped With Hey Was Dead, And No Test Could See It</h1>
+  <p class="dek">One of the example programs distributed with Hey did not work. Built the ordinary way, it stopped partway through with an error and gave up. It had been broken for some time, and the test whose entire job is comparing the two ways Hey builds programs could not tell — because that test never actually <em>ran</em> any of the fifty-one programs it compared. Repairing the test found the broken program within one run.</p>
+
+  <section class="tldr" aria-labelledby="tldr-title">
+    <h2 id="tldr-title">TL;DR</h2>
+    <ul>
+      <li><strong>Seven commits landed on the 13th; one version bump, to <abbr class="ver" title="v0.99.496a">496a</abbr>.</strong> All three check suites are clean at that version, with every count identical to before the change. They are <strong>landed</strong> — committed and through the battery. <strong>Nothing is deployed</strong>: this checkout has no configured remote and no toolchain image has been built, so no user feels any of it yet.</li>
+      <li><strong>A shipped example program was broken in the path Hey actually uses.</strong> <code>jobs_reliability</code> stopped with an error and exit code 70 partway through printing its results. The two older routes — the previous compiler and the interpreter — both ran it correctly. So the newest and most-preferred route was the only one that got it wrong.</li>
+      <li><strong>The test that should have caught it was comparing the wrong thing.</strong> It compared the two routes' generated code as text and stopped at the first difference. It never ran the resulting programs, so two routes could produce different <em>answers</em> and the test still reported success.</li>
+      <li><strong>Now all fifty-one programs give identical answers on both routes</strong>, up from fifty of fifty-one. The text comparison is unchanged at forty-two of fifty-one, so nothing regressed.</li>
+      <li><strong>Five corrections to my own work are below, at the same volume as the claims.</strong> The worst is not a wrong number: I threw away a fix that was already correct, because a crashing program discards what it has printed and I read the missing output as failure.</li>
+      <li><strong>Earlier the same day, unpublished until now:</strong> an idle actor went from 258 to 113 bytes, and the check tier roughly halved in wall time. Those figures are as recorded when they landed; I did not re-measure them.</li>
+    </ul>
+  </section>
+
+  <div class="figure-scroll">
+    <figure aria-labelledby="sweep-title sweep-caption">
+      <svg viewBox="0 0 920 430" width="920" height="430" role="img" aria-labelledby="sweep-title sweep-desc">
+        <title id="sweep-title">Why a broken example program passed the test meant to catch it</title>
+        <desc id="sweep-desc">One example program is built two ways. Built the newer way, which is the way users get, it stops partway through with an error about expecting a JSON object and exits with code 70, so its last line never prints. Built the older way, and when run by the interpreter, it prints dead_letters=1 and exits normally. The test that compares the two builds only compared the generated code as text, and stopped at the first program whose text differed. It never ran either program, so it never saw that the two builds give different answers, and it reported success.</desc>
+        <style>
+          .box { rx: 14; ry: 14; stroke-width: 2; }
+          .txt { font: 700 17px system-ui, sans-serif; fill: #17202a; }
+          .sub { font: 14px system-ui, sans-serif; fill: #3f4852; }
+          .mono { font: 600 15px ui-monospace, Menlo, monospace; fill: #17202a; }
+          .verdict { font: 700 19px system-ui, sans-serif; }
+        </style>
+
+        <rect x="330" y="14" width="260" height="58" class="box" fill="#eaf1fb" stroke="#2457a7"/>
+        <text x="460" y="40" text-anchor="middle" class="txt">one example program</text>
+        <text x="460" y="61" text-anchor="middle" class="mono">jobs_reliability</text>
+
+        <path d="M420 72 L250 116" stroke="#b42318" stroke-width="2.5" fill="none"/>
+        <path d="M500 72 L670 116" stroke="#0f7b4b" stroke-width="2.5" fill="none"/>
+
+        <rect x="45" y="116" width="410" height="156" class="box" fill="#fdecea" stroke="#b42318"/>
+        <text x="250" y="144" text-anchor="middle" class="txt">built the newer way — what users get</text>
+        <text x="250" y="172" text-anchor="middle" class="sub">stops partway through:</text>
+        <text x="250" y="196" text-anchor="middle" class="mono">got array for key length</text>
+        <text x="250" y="220" text-anchor="middle" class="sub">the last line never prints</text>
+        <text x="250" y="250" text-anchor="middle" class="verdict" fill="#b42318">exit code 70</text>
+
+        <rect x="465" y="116" width="410" height="156" class="box" fill="#e8f5ee" stroke="#0f7b4b"/>
+        <text x="670" y="144" text-anchor="middle" class="txt">built the older way, and interpreted</text>
+        <text x="670" y="172" text-anchor="middle" class="sub">runs to completion:</text>
+        <text x="670" y="196" text-anchor="middle" class="mono">dead_letters=1</text>
+        <text x="670" y="220" text-anchor="middle" class="sub">every line printed</text>
+        <text x="670" y="250" text-anchor="middle" class="verdict" fill="#0f7b4b">exit code 0</text>
+
+        <rect x="45" y="292" width="830" height="52" class="box" fill="#f6f7f8" stroke="#7a7f85"/>
+        <text x="460" y="316" text-anchor="middle" class="txt">What the test compared: the generated code, as text.</text>
+        <text x="460" y="336" text-anchor="middle" class="sub">And it stopped at the first program whose text differed, leaving the rest unmeasured.</text>
+
+        <rect x="45" y="356" width="830" height="58" class="box" fill="#fdecea" stroke="#b42318"/>
+        <text x="460" y="380" text-anchor="middle" class="txt">What it never did: run either program.</text>
+        <text x="460" y="402" text-anchor="middle" class="sub">So the two halves above could disagree completely, and the test still reported success.</text>
+      </svg>
+      <div class="legend"><span><span class="dot red"></span>the path users get</span><span><span class="dot green"></span>the two paths that were right</span></div>
+      <figcaption id="sweep-caption">Measured on 13 August at version 496a, on all three routes. The repair was to the test, not to the comparison it makes: it now gathers every result instead of stopping, and runs each of the fifty-one programs on both routes, comparing what they print and the code they exit with. The defect above appeared on its first run.</figcaption>
+    </figure>
+  </div>
+
+  <h2>What shipped</h2>
+  <p>Seven commits reached the mainline on 13 August, carrying one version bump. Four of them landed earlier in the day and had not been written up; three are from the night's work. In this project's vocabulary all seven are <strong>landed</strong> and none are <strong>deployed</strong>.</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Commit</th><th>What it did</th><th>Measured by</th></tr></thead>
+    <tbody>
+      <tr><td><code>c4ae6673</code></td><td>An idle actor shrank from 258 to 113 bytes in the shipping path — cheaper than the runtime Hey had been aiming to beat</td><td class="s-hold">as recorded on landing</td></tr>
+      <tr><td><code>fed5fd59</code></td><td>A caching key that ignored five of the files it was supposed to account for, so a stale piece of compiler could be linked into a fresh build</td><td class="s-hold">as recorded on landing</td></tr>
+      <tr><td><code>35f9e83f</code></td><td>The check tier can now run several checks at once — roughly half the wall time — switched off by default until its safety conditions are proven</td><td class="s-hold">as recorded on landing</td></tr>
+      <tr><td><code>325152d0</code></td><td>A small standard-library addition, three research write-ups, and four corrections</td><td class="s-moved">certified here</td></tr>
+      <tr><td><code>0da4d481</code></td><td><strong>The comparison test now runs the programs</strong> and compares their answers and exit codes, instead of only comparing generated text and stopping at the first difference. Three ledger entries corrected.</td><td class="s-moved">measured here</td></tr>
+      <tr><td><code>002820a9</code></td><td><strong>The length of a list is a count, not a lookup.</strong> Fixes the broken example program. Version 495a → 496a.</td><td class="s-moved">measured here</td></tr>
+      <tr><td><code>04e8fe37</code></td><td>The handoff document rewritten for whoever picks this up next, led by the five corrections</td><td class="s-moved">n/a</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>The program that was dead in the box</h2>
+  <p>Hey ships example programs. One of them, <code>jobs_reliability</code>, demonstrates what happens to work items that fail repeatedly. Its last line asks a simple question: how many gave up entirely?</p>
+
+  <pre><code>says 'dead_letters=' + Jobs.dead_letters(Imports).length</code></pre>
+
+  <p><code>.length</code> means "how many things are in this". The list of failed items is a list; its length is a number. The compiler translated that request into something else entirely: <em>look inside this list for a labelled compartment named "length" and give me what is in it</em>. Lists do not have labelled compartments. Asked to find one, the machinery underneath does not politely answer "nothing" — it stops the program.</p>
+
+  <div class="callout bad"><strong>What the user saw.</strong> The program printed its first few results, then stopped with <code>get string-key fast path expects a JSON object; got array for key length</code> and exit code 70. The final line never printed. Built with the previous compiler, or run by the interpreter, the identical program printed <code>dead_letters=1</code> and finished normally.</div>
+
+  <p>Two independent routes agreed with each other and disagreed with the newest one, which is as clear as this kind of evidence gets. There was one case where the wrong translation could have been defended — a value that <em>really does</em> have a compartment labelled "length". So I checked it. Given <code>{length: 'not-a-count', other: 1}</code>, both older routes answer <strong>2</strong>: the number of compartments. They read <code>.length</code> as a count even when a compartment of that name is sitting right there. The lookup reading was not a defensible alternative; it was simply wrong.</p>
+
+  <p>The repair covers all four spellings of the same idea — <code>.length</code>, <code>.len</code>, <code>.size</code>, <code>.count</code>. That was not the original plan. I fixed <code>.length</code>, watched the example program come back to life, and nearly stopped. The other three were still broken; <code>xs.len</code> was still killing programs while the interpreter answered 3. A family is not closed because its most common member is.</p>
+
+  <h2>Why nothing caught it</h2>
+  <p>Hey has a test whose whole purpose is to compare the two ways of building a program across fifty-one example programs. It had two independent flaws, and each one alone would have been enough to hide this.</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Flaw</th><th>Consequence</th></tr></thead>
+    <tbody>
+      <tr><td>It stopped at the first difference</td><td>Everything after the first mismatching program went unmeasured. This is why the project's records carried a count of thirteen differing programs that was taken before two families of them were fixed, with nothing able to re-derive it. The real number is nine.</td></tr>
+      <tr><td>It never ran any of the fifty-one programs</td><td>It compared the generated code as text. Two routes could produce programs that <em>behave</em> differently and the test would still report success. That is exactly what happened.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Both are fixed. The test now gathers every result instead of stopping, and it runs each program on both routes and compares what they print <em>and</em> the code they exit with. The moment it ran, it found the broken example.</p>
+
+  <div class="callout good"><strong>The result of repairing the instrument.</strong> Programs whose two routes now give identical answers: <strong>51 of 51</strong>, up from 50. Programs whose generated text is identical: <strong>42 of 51</strong>, unchanged — so the repair fixed a real defect without disturbing anything else. The nine that still differ as text are individually named in the test now, so that set cannot grow or shrink without someone noticing.</div>
+
+  <h2>Corrections to my own work</h2>
+  <p>Five, with the mechanism of each. The first is the one worth reading: it is not a wrong number, it is a correct fix that I threw away.</p>
+
+  <div class="retraction">
+    <h3>1. I deleted a fix that was already working, because a crash ate its output</h3>
+    <p>My test program printed two lines. The first exercised the case I had just fixed; the second exercised one I had not. I ran it, saw only an error message and no output at all, and concluded the fix had done nothing. I removed it.</p>
+    <p><strong>The mechanism:</strong> a program's printed output is held in a buffer and written out in batches. When a program stops abnormally, that buffer is discarded. The first line — the correct answer, produced by the fix I was about to delete — had been computed and buffered, and then thrown away when the second line killed the program. <em>Absent output was not evidence of a failed fix.</em> I had already watched this exact truncation happen to the example program earlier the same night, and still misread it. It cost three rebuild cycles to arrive back where I had been.</p>
+  </div>
+
+  <div class="retraction">
+    <h3>2. I patched five places that never ran</h3>
+    <p>The part of the compiler that translates a program is about seventeen thousand lines, and it does not have one place that handles "the length of something". It has roughly ninety-two separate handlers, one per position a phrase can occupy — the handler for a phrase in the middle of a sentence is a different piece of code from the handler for the same phrase at the end. I picked the responsible handler by reading, five times in a row, and rebuilt after each. Every one of the five was <strong>never executed</strong> for this program.</p>
+    <p><strong>The mechanism:</strong> reading tells you what a piece of code <em>would</em> do if reached. It does not tell you what is reached. I eventually tagged all thirty-three candidate sites with their own line number so the tag appeared in the compiler's output, rebuilt once, and read the answer directly. There were <strong>three</strong> responsible sites, in three different handlers, for what had looked like a single defect. The rule I should have followed: after the second wrong guess, stop reading and measure.</p>
+  </div>
+
+  <div class="retraction">
+    <h3>3. I nearly recorded nine program names I had guessed</h3>
+    <p>The repaired test pins the list of programs whose generated text differs, so the set cannot drift unnoticed. I wrote that list by inferring names from written descriptions of the differences.</p>
+    <p><strong>The mechanism:</strong> the descriptions group programs by <em>cause</em>, and a cause cannot be reversed into a list of names. When I measured, only <strong>three of my nine guesses</strong> were in the real set. Two programs whose names make them sound exactly like one of the described groups turned out to be perfectly identical on both routes. The list is now produced by a mode of the test that derives it from an actual run, and the code says never to fill it in from a description again.</p>
+  </div>
+
+  <div class="retraction">
+    <h3>4. My first version of the fixed test excluded the very programs that would show the problem</h3>
+    <p>Some example programs are <em>supposed</em> to fail — they exist to demonstrate error handling. My first draft treated any program that exited with a failure code as "could not be run here" and skipped it.</p>
+    <p><strong>The mechanism:</strong> that excluded five programs, including the two whose entire purpose is demonstrating runtime errors — precisely where a difference in error behaviour between the two routes would appear — and including the broken example itself, which fails by exiting with a code. I was excluding the error cases from the error comparison. Only a program that <em>hangs</em> is now treated as unrunnable, and the exit code is compared alongside the printed output. <strong>That single change is what surfaced the defect:</strong> skipped programs went from five to zero, and differing programs from zero to one.</p>
+  </div>
+
+  <div class="retraction">
+    <h3>5. I reported the cause to the maintainer before I had verified it</h3>
+    <p>I described the defect as "one hardcoded name in a list", having found a piece of code that handled this exact shape for one specific function and nothing else. It was a real oddity and it was not the cause.</p>
+    <p><strong>The mechanism:</strong> I had read a plausible explanation and reported it as a finding. The actual defect was broader — the same failure happened for an ordinary list held in a variable, with no function call involved at all — and the fix built on my explanation changed nothing when it shipped. A green build is not evidence that a change did anything; only running the program is.</p>
+  </div>
+
+  <div class="callout"><strong>What these have in common.</strong> Four of the five are the same error in different clothing: I trusted reading over measuring. The compiler is large enough that plausible explanations are cheap and almost always available, which makes them dangerous. The one instrumented build that finally settled it took the same five minutes as each of the five guesses that preceded it.</div>
+
+  <h2>The documented to-do list, item by item</h2>
+  <p>This is the list carried in the project's handoff document, with every item's state named — including the ones nothing happened to. Three items are new, discovered during this work.</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Item</th><th>State</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Certify the previous day's standard-library change</td><td class="status s-moved">Done</td><td>Both check tiers and the decision suite run clean; every count identical to the recorded baseline, so that change moved nothing it should not have.</td></tr>
+      <tr><td>Repair the comparison test</td><td class="status s-moved">Done</td><td>Gathers all results instead of stopping at the first; runs all fifty-one programs on both routes and compares answers and exit codes.</td></tr>
+      <tr><td>Correct the ledger entries that had rotted</td><td class="status s-moved">Done</td><td>Three. A differing-programs count that said thirteen and is nine; a debt total that said "unaffected" while it had risen and grown two unnamed regressions; and an entry whose failure is real but whose stated cause was wrong — the hard part is finished and two test files were simply never written.</td></tr>
+      <tr><td>Close the nine text differences between the two routes</td><td class="status s-hold">One of nine addressed</td><td>Not by making it match, but by proving one of them was a genuine defect and fixing the behaviour. The other eight remain, and are <em>not</em> known to be harmless — this week proved that assumption can be wrong. The test now measures it.</td></tr>
+      <tr><td>Make ordinary builds never quietly fall back to the old compiler</td><td class="status s-hold">Not started</td><td>Unchanged and still the maintainer's near-term bar. Exactly one program in the standard build still falls back, and the reason is understood: a phrase the compiler handles fine elsewhere is not handled in the position "the answer this function returns".</td></tr>
+      <tr><td>Speed up the verification loop further</td><td class="status s-hold">Not moved</td><td>The parallel mode stays switched off. Its preconditions — several checks quietly rewrite shared files while nine others assert those same files do not change — are unproven, and enabling it before proving them manufactures failures that are not real.</td></tr>
+      <tr><td>Canonical formatting and code modernizers</td><td class="status s-hold">Not started</td><td>Scoped, not begun.</td></tr>
+      <tr><td>Decide on two memory-behaviour switches</td><td class="status s-blocked">Awaiting maintainer</td><td>Explicitly held by ruling; the evidence packet exists and the decision is not mine.</td></tr>
+      <tr><td><strong>New:</strong> a second difference behind the first</td><td class="status s-blocked">Newly visible</td><td>With the comparison test no longer stopping early, a network-facing test fixture is now visibly producing different generated text on the two routes. It was always failing; it was simply unreachable behind the earlier stop. This is the next item.</td></tr>
+      <tr><td><strong>New:</strong> a check that cannot fail</td><td class="status s-blocked">Found, unfixed</td><td>A build-level check looks for a phrase in a table that no longer contains it, so the check dies before reaching the assertion it exists to make — and <em>no ledger entry runs it at all</em>, so its silence has never been noticed. It must not be cited as evidence of anything.</td></tr>
+      <tr><td><strong>New:</strong> the version-bump script is broken</td><td class="status s-blocked">Worked around, openly</td><td>It ends by renaming a per-version document whose convention was abandoned about fifteen versions ago, so it fails every time it is run. Its own comments record this same list drifting once before and going unnoticed for fifty-eight versions. I applied the parts with real targets by hand and said so rather than quietly papering over it.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>The full ladder</h2>
+  <p>The complete retirement ladder, R2 through R8 plus the language programme beyond it, with every rung's position stated whether or not it moved. <strong>One rung moved. Six did not</strong>, and saying so is the point of listing them.</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Rung</th><th>Position</th><th>Where it stands on August 13</th></tr></thead>
+    <tbody>
+      <tr><td>R2 — narrow the ordinary build path</td><td class="status s-moved">Active · moved</td><td>The comparison across fifty-one programs now checks <em>answers</em>, not only generated text, and that immediately found a shipped example program failing on the preferred path. Fifty-one of fifty-one now agree on answers; forty-two of fifty-one agree byte for byte, unchanged. Ordinary programs still fall back to the older generator when they contain a shape the new one refuses.</td></tr>
+      <tr><td>R3 — delete the native code generation</td><td class="status s-blocked">Blocked · unmoved, re-verified</td><td>No work. I did re-run its checker read-only to confirm the diagnosis still holds: it fails on its first program for a genuine disagreement between the two generators, <em>not</em> because its ninety reference files are pinned sixteen releases stale. Regenerating those references would bake the disagreement in and destroy the instrument, so the stale pin remains deliberate and remains a second problem queued behind the first.</td></tr>
+      <tr><td>R4 — label the comparison-only generator, guard new callers</td><td class="status s-hold">Not closed · unmoved</td><td>No work. Requires making the comparison-only role explicit in naming and preventing ordinary tools from adding new callers outside the seed, recovery and reference set.</td></tr>
+      <tr><td>R5 — verify by compiling rather than interpreting</td><td class="status s-hold">Foundation only · unmoved</td><td>No work. This week's defect is an argument for it: the failure was only visible by <em>running</em> compiled programs, which is precisely what this rung institutionalises.</td></tr>
+      <tr><td>R6 — retire the native script evaluator</td><td class="status s-hold">Future · unmoved</td><td>No work. The serious defect characterised last week — it destroys a loop's own header text while parsing, so the second pass evaluates a truncated condition — still has no ledger entry, and writing one is still queued.</td></tr>
+      <tr><td>R7 — bootstrap fixed point, delete the seed</td><td class="status s-hold">Future · unmoved</td><td>No work. Requires publishing seed artifacts and proving the compiler rebuilds itself to byte-identical output.</td></tr>
+      <tr><td>R8 — thin launcher, zero semantic debt</td><td class="status s-hold">Future · unmoved</td><td>No work. C remains only as command-line and linker mechanics; requires reconciling every document and ledger.</td></tr>
+      <tr><td>Past R8 — the language programme itself</td><td class="status s-hold">Unmoved</td><td>The automated suite reports 112 checks: 38 hold, 70 not yet, 4 blocked, 0 regressed — identical to the previous reading, before and after this week's change. "Not yet" remains the normal state and is not a bug list.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Two things about that table are worth saying plainly. R2 moved for an unglamorous reason: not a new capability, but an instrument that started measuring the thing it was named for. And R3 remains the most consequential item on the board — it is the rung that would let the older generator actually be deleted, and it still cannot move while its own measuring instrument is red.</p>
+
+  <h2>Still owed</h2>
+  <p>None of this blocks what landed. It is listed so it does not evaporate.</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Item</th><th>State</th></tr></thead>
+    <tbody>
+      <tr><td>The remaining blocks of the repaired comparison test still stop at the first difference</td><td>The fifty-one-program sweep was repaired; roughly a dozen single-fixture checks after it were not. Anything appended to the end of that file today would never run. I placed the new check <em>before</em> them for exactly this reason, which is a workaround, not a fix.</td></tr>
+      <tr><td>Eight text differences between the two routes remain unexplained by behaviour</td><td>They are now known not to differ in <em>answers</em>. That is a much weaker statement than "harmless" and should not be upgraded without cause.</td></tr>
+      <tr><td>The four-step discipline was not fully followed for this fix</td><td>The new check was observed failing on the unfixed compiler and passing after, on the same tree — which is a genuine before/after. What I did not do is deliberately re-break the repaired compiler to confirm the check still fails. The project's own standard asks for that fourth step.</td></tr>
+      <tr><td>Whether the same "position" defect exists for other properties</td><td>The length property had three separate handlers get it wrong. Nothing has checked whether neighbouring properties are handled in all the positions they can appear in.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Where this leaves things</h2>
+  <p>The visible output is one repaired example program and a version bump. The useful output is that a test which had been reporting success for months started measuring the thing its name claims, and immediately found a defect that had shipped. Every count that could have moved and should not have — the ledger totals, the debt census, the language decisions — is identical before and after, which is the only reason the repair can be trusted at all.</p>
+
+  <p>The five corrections above cost more time than the fix. That is not a complaint about the process; it is the argument for it. Four of the five were caught by running something rather than reasoning about it, and the fifth was caught by a check that had existed for a day.</p>
+
+  <section class="callout">
+    <h2 id="decisions">Decisions needed from you</h2>
+    <ol>
+      <li><strong>What comes next</strong> — the newly visible network-fixture difference, which is the last thing standing between that test and a clean run; or the fall-back closure, which is your stated near-term bar and untouched. I would take the fall-back closure, because the other is a text difference with no known behavioural consequence and the bar is yours.</li>
+      <li><strong>The broken version-bump script</strong> — restore the per-version document convention it expects, or delete the three steps that reference it. It has been failing for roughly fifteen versions and everyone has been working around it by hand.</li>
+      <li><strong>The two memory-behaviour switches</strong> — still held by your earlier ruling, evidence packet complete, unchanged since.</li>
+    </ol>
+  </section>
+
+  <section class="evidence">
+    <h2>Evidence used for this report</h2>
+    <ul>
+      <li>Decision suite, fast tier and heavy tier, all run at version 496a after the change: 112 checks (38 hold, 70 not yet, 4 blocked, 0 regressed); 93 expected-green, 22 known-red, 1 flaky; 5 expected-green, 3 known-red. Every figure identical to the pre-change baseline.</li>
+      <li>The repaired comparison sweep, run three times with identical results: 42 of 51 byte-identical, 9 differing, 0 build failures; 51 of 51 identical answers, 0 differing, 0 non-deterministic, 0 unrunnable.</li>
+      <li>The broken example program before and after, on all three routes, plus a four-line reproduction built from the same shape.</li>
+      <li>The debt census before and after the change: total unchanged, and the file this work touched unchanged.</li>
+      <li>Figures for the actor and check-tier work earlier the same day are quoted <em>as recorded when they landed</em>. I did not re-measure them, and they should be read with that attribution.</li>
+    </ul>
+  </section>
+
+  <section class="evidence">
+    <h2>Glossary</h2>
+    <p>Reference for the shorthand used above. Terms marked new were coined since the previous daily.</p>
+    <dl class="glossary">
+      <dt>Lane, or route</dt>
+      <dd>One of the ways a Hey program can become a running program. Three matter here: the newer Hey-written code generator (the one users get), the older C one, and the interpreter, which runs a program directly without building it.</dd>
+
+      <dt>Fallback</dt>
+      <dd>What happens when the newer generator meets a shape it does not handle: the whole program is quietly handed to the older generator instead.</dd>
+
+      <dt>Gate</dt>
+      <dd>An automated check with a recorded expected result. A check can be registered as expected-green or expected-red; a known-failing check is not a surprise, it is a tracked defect.</dd>
+
+      <dt>Tier</dt>
+      <dd>A group of checks run together. The fast tier is 116 checks; the heavy tier is 8 slower ones.</dd>
+
+      <dt>Ledger</dt>
+      <dd>The file listing every check and its expected result, with the reasoning for each. Because the reasoning lives there, it can go stale — three entries were corrected today for exactly that.</dd>
+
+      <dt>Ratchet</dt>
+      <dd>A check that records a running count of known debt and fails if the count rises. It permits the number to fall, never to rise. Ours is currently failing, and was already failing before this work.</dd>
+
+      <dt>Rotted check <span class="tag-new">new</span></dt>
+      <dd>A check that no longer tests what it claims, usually because it looks for text that has since changed. It does not report a failure — it quietly stops being a check. Two were found this week, one of which no suite even runs.</dd>
+
+      <dt>The length property <span class="tag-new">new</span></dt>
+      <dd>Asking how many things are in a list or record, written <code>.length</code>, <code>.len</code>, <code>.size</code> or <code>.count</code>. All four mean the same thing, which is why fixing one and not the others left programs broken.</dd>
+
+      <dt>Position <span class="tag-new">new</span></dt>
+      <dd>Where a phrase sits in a sentence of code — the answer a function returns, the thing a loop walks over, an argument inside another call. Hey's newer generator handles each position with separate code, so the same phrase can work in one place and fail three lines later. Most of what remains before the older generator can be deleted is this, not missing features.</dd>
+
+      <dt>Instrumenting <span class="tag-new">new</span></dt>
+      <dd>Making a program label its own output so you can see which part of it produced what. Used here to find which of thirty-three candidate pieces of the compiler actually ran, after five attempts to work it out by reading failed.</dd>
+
+      <dt>Buffered output <span class="tag-new">new</span></dt>
+      <dd>Printed text is held in memory and written out in batches rather than one character at a time. If the program stops abnormally, that held text is discarded — so a crash can erase results the program had already produced correctly. This is what caused me to delete a working fix.</dd>
+
+      <dt>Byte-identical</dt>
+      <dd>Two paths producing exactly the same output, byte for byte. This project uses it as a standard of proof in place of "it seemed to work" — though as of this week it is no longer the standard for <em>correctness</em>, which is now whether the two paths give the same answer.</dd>
+
+      <dt>Landed / Verified / Deployed</dt>
+      <dd><strong>Verified</strong>: on a branch, with reproduced evidence. <strong>Landed</strong>: committed and through the check battery. <strong>Deployed</strong>: available to users through the released route — the only one users feel. Everything on this page is landed. Nothing on it is deployed, and this checkout has no configured remote, so nothing has been pushed anywhere either.</dd>
+    </dl>
+  </section>
+</main>
+</body>
+</html>
