@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="article-date" content="2026-08-14">
 <meta name="article-bucket" content="benchmarks">
-<meta name="article-desc" content="Hey refuses a program that defines more than 4,096 functions. Measurement says that is not the ceiling anyone meets: heyc build dies at about 1,145 top-level functions for an unrelated reason, the standard library alone already spends 3,336 of the 4,096 slots, and the real defect in the cap is that the limit and the memory it reserves are the same object.">
+<meta name="article-desc" content="Hey refused a program defining more than 4,096 functions, but measurement said that was never the ceiling anyone met: heyc build died at about 1,145 top-level functions for an unrelated reason. UPDATED 16 August 2026 -- that wall is fixed and gone, the cap is now 16,384, and one control in this article was wrong: the limit tracked top-level LINES, not declarations, so it moved with formatting.">
 <meta name="article-index-title" content="The Wall Isn&rsquo;t at 4,096 Functions. It&rsquo;s at 1,145 &mdash; and It Isn&rsquo;t the Cap.">
 <meta name="article-index-desc" content="The obvious story is a 4,096-function cap. The measurements invert it: no real program is near the cap, the standard library eats 81.4% of it with no tree-shaking, and a second ceiling 3.6x tighter — a stack overflow in a parser helper — is the one users hit first.">
 <title>The Wall Isn&rsquo;t at 4,096 Functions. It&rsquo;s at 1,145 &mdash; and It Isn&rsquo;t the Cap.</title>
@@ -168,6 +168,21 @@
   <p class="eyebrow">Hey language &middot; measured limits &middot; 14 August 2026</p>
   <h1>The Wall Isn&rsquo;t at 4,096 Functions. It&rsquo;s at 1,145 &mdash; and It Isn&rsquo;t the Cap.</h1>
   <p class="lede">Hey refuses to load a program that defines more than 4,096 functions. The number is real. It is also not what stands between anyone and a large program.</p>
+
+  <section class="aside ok" aria-labelledby="update-title">
+    <h2 id="update-title" style="margin-top:0">Update, 16 August 2026: the wall is gone, and one control below was wrong</h2>
+    <p><strong>The 1,145-function wall this article measured has been removed</strong>, and re-measuring it turned up a mistake in the article&rsquo;s own reasoning. Both are recorded here at the same prominence as the original claims. The article&rsquo;s central finding stands: the thing stopping people was never the 4,096 cap, it was a stack overflow in Hey&rsquo;s parser.</p>
+    <ul>
+      <li><strong>The wall was a stack-depth budget over top-level LINES, not a declaration count &mdash; and the control that said otherwise was mis-measured.</strong> This article states &ldquo;one function plus six thousand comment lines builds fine&rdquo; and concludes from it that declaration count drives the threshold with size only a secondary push. <strong>That control fails.</strong> Re-measured 3 of 3 trials, plus four environment variations: a single function with several thousand top-level comment lines crashed exactly like the function fixtures. The true predictor was the number of top-level lines, whatever they contain. A two-parameter cost model fits every reading to within one function, and it <em>predicted</em> the two-blank-line ceiling at 851.4 before that shape was measured &mdash; measured 851.</li>
+      <li><strong>So the boundary moved with formatting.</strong> Same compiler, same day: 1,729 functions with no blank lines between them, <strong>1,141</strong> with one blank line each, <strong>851</strong> with two. One blank line per function cost 588 functions of headroom.</li>
+      <li><strong>1,145 was never a real number, as this page&rsquo;s own figure caption says.</strong> It is the midpoint of the 1,140/1,150 bracket measured here. Bisection puts the true boundary for that fixture at <strong>1,141 builds, 1,142 fails</strong>.</li>
+      <li><strong>Fixed in 0.99.508a.</strong> Hey&rsquo;s parser walked top-level forms by tail-calling itself once per line, and Hey has no tail-call elimination, so every line cost a stack frame. Three walkers are now loops &mdash; one over lines, two over declarations, the second pair only visible once the first was fixed. Measured after: one function plus 4,000 comment lines builds in 4s; 2,000 functions across 8,003 top-level lines builds and runs; 5,000 functions across 20,003 lines builds and runs correctly.</li>
+      <li><strong>The cap itself is no longer 4,096.</strong> It was raised to <strong>16,384</strong> on 14 August, the same day this article published. Verified: 16,000 functions register and run; 16,400 is refused by name with exit 70. Nothing in the tree is near it, so the article&rsquo;s verdict &mdash; that raising the cap was not the urgent thing &mdash; held.</li>
+      <li><strong>The disclosed weakness is fixed.</strong> <code>build/hey-repl</code> printed the fatal &ldquo;table is full&rdquo; diagnostic and then exited 0. It now exits non-zero, like the other three lanes.</li>
+      <li><strong>What replaced it.</strong> The remaining ceiling is compile <em>time</em>, not depth, and it is a configurable deadline rather than a crash. Parse cost is superlinear and worsening &mdash; doubling ratios 1.87, 2.55, 2.46, then 3.20 &mdash; so raising the deadline only moves the wall. That is now the open item.</li>
+    </ul>
+    <p>The section below headed &ldquo;The wall users actually hit is at 1,145&rdquo; and its two controls are left standing as written, because a correction that quietly edits the original claim is not a correction.</p>
+  </section>
 
   <section class="tldr" aria-labelledby="tldr-title">
     <h2 id="tldr-title">TL;DR</h2>
