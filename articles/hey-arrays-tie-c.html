@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="article-date" content="2026-08-17">
+<meta name="article-date" content="2026-08-18">
 <meta name="article-bucket" content="benchmarks">
-<meta name="article-desc" content="Hey is immutable, so changing an array meant copying it — and two of eight benchmark workloads timed out at full size. A flat, typed-storage rewrite plus an in-place-write gate moved the numeric shapes to native class: transform went from TIMEOUT to 0.233s (~1.9x C), histogram 17.5x faster than before, and the five numeric shapes beat Ruby/YJIT by 10.6-18.2x. String-array construction is still O(n squared) and does not finish at 10 million; that loss is reported straight.">
-<title>Hey&rsquo;s Arrays Now Tie C on Numbers. String Arrays Still Time Out.</title>
+<meta name="article-desc" content="Hey is immutable, so changing an array meant copying it — and two of eight benchmark workloads timed out at full size. A flat, typed-storage rewrite plus an in-place-write gate moved the numeric shapes to native class, and the shipped compiler has since closed the string wall too: on the same M3 Pro at v0.99.528a all eight workloads finish, byte-identical to C. The five numeric shapes tie or trail C by 1.08–2.5x and beat Ruby/YJIT by ~10–19x; the string builds finish at ~2.0s but still pay the immutability tax at ~4.5x C and a hair behind Ruby. Every loss is reported straight.">
+<title>Hey&rsquo;s Arrays Now Tie C on Numbers. The String Wall Just Fell.</title>
 <style>
   :root {
     --ground:#f4f6f8; --panel:#ffffff; --panel2:#e9eef3;
@@ -156,27 +156,27 @@
 </head>
 <body>
 <main>
-  <p class="eyebrow">Hey language &middot; benchmark story &middot; 17 August 2026</p>
-  <h1>Hey&rsquo;s Arrays Now Tie C on Numbers. String Arrays Still Time Out.</h1>
-  <p class="lede">An immutable language changes an array by copying it. For fifty million writes that used to mean fifty million copies &mdash; and two of eight benchmarks timed out at full size. Here is what a flat, typed-storage rewrite bought, and the one shape it still cannot rescue.</p>
+  <p class="eyebrow">Hey language &middot; benchmark story &middot; 18 August 2026</p>
+  <h1>Hey&rsquo;s Arrays Now Tie C on Numbers. The String Wall Just Fell.</h1>
+  <p class="lede">An immutable language changes an array by copying it. For fifty million writes that used to mean fifty million copies &mdash; and two of eight benchmarks timed out at full size. Here is what a flat, typed-storage rewrite bought on the numbers &mdash; and how the shipped compiler went on to close the string wall this article was first titled after, proven on the very same machine.</p>
 
   <section class="tldr" aria-labelledby="tldr-title">
     <h2 id="tldr-title">TL;DR</h2>
     <ul>
-      <li><strong>Verdict: rewriting Hey&rsquo;s arrays from boxed per-element cells to flat, typed storage moved the numeric workloads from not-finishing to native class</strong> &mdash; two that timed out at full size now run, and the five numeric shapes beat Ruby with YJIT by <strong>10.6&ndash;18.2&times;</strong>. String-array construction is still O(n&sup2;) and does not finish at ten million; that loss is stated straight.</li>
+      <li><strong>Verdict: rewriting Hey&rsquo;s arrays from boxed per-element cells to flat, typed storage moved the numeric workloads from not-finishing to native class</strong> &mdash; two that timed out at full size now run, and the five numeric shapes beat Ruby with YJIT by roughly <strong>10&ndash;19&times;</strong>. The string wall the original title named has since fallen on the shipped compiler: at <abbr class="ver" title="v0.99.528a">528a</abbr>, re-measured on the same M3&nbsp;Pro, both string workloads <em>finish</em> (~2.0&nbsp;s) &mdash; but at ~4.5&times; C and a hair behind Ruby, so the constant-factor loss is stated straight.</li>
       <li><strong>Strongest result: in-place transform of a 50-million-element array went from <span class="pill p-bad">timeout</span> (&gt;120&nbsp;s) to 0.233&nbsp;s</strong> &mdash; within <strong>1.9&times; of C</strong> (0.123&nbsp;s) and <strong>14.7&times; faster than Ruby</strong> (3.417&nbsp;s). Histogram over 100&nbsp;million went 2.533&nbsp;s &rarr; 0.145&nbsp;s, a <strong>17.5&times;</strong> self-speedup.</li>
       <li><strong>Mechanism: four changes, no new API.</strong> Flat <code>i64</code>/<code>f64</code>/<code>bool</code> storage instead of boxed cells; the element read and write inlined; strings borrowed on comparison; and an <a class="gloss" href="glossary.html#alias-gate" data-def="A compile-time check that lets an immutable update run in place when the compiler can prove no other reader can observe the array — turning an O(n) copy into an O(1) write without changing the language's meaning.">alias gate</a> that lets an in-place write mutate the backing store when nothing else can see it, instead of cloning the whole array. Ordinary <code>a[i]</code> and <code>put</code> source, unchanged.</li>
       <li><strong>Ties, reported straight.</strong> Sum and search tie C before and after (1.02&ndash;1.03&times; after) &mdash; pure streaming, no array to fix. Hey stays <strong>1.65&ndash;2.5&times; slower than C</strong> on the array and fannkuch shapes, and slower than Go on fannkuch.</li>
-      <li><strong>Disclosed weakness:</strong> the string-scan and mixed workloads <span class="pill p-bad">did not finish</span> at ten million. Boxed string-array <code>push</code> copies the whole backing on every append (~38&nbsp;s already at 100k), and the string-borrow change speeds the element <em>read</em>, not the array <em>build</em> &mdash; so it cannot help here.</li>
-      <li><strong>Falsifiability:</strong> every language prints byte-identical stdout, checked against the C oracle before any time is recorded; best-of-3 wall-clock on one Apple&nbsp;M3&nbsp;Pro; sources under <code>bench/src/&lt;lang&gt;/</code>. Reproduce with <code>bench/run_matrix.sh</code>; every number traces to <code>bench/MATRIX_LOG_2026-08-17.md</code>.</li>
+      <li><strong>Disclosed weakness, now bounded:</strong> on the campaign build (<code>584147e6</code>) the string-scan and mixed workloads <span class="pill p-bad">did not finish</span> at ten million &mdash; boxed string-array <code>push</code> copied the whole backing on every append (~38&nbsp;s already at 100k). Later work made that append amortized, so on the shipped compiler both <em>complete</em>; the residual loss is a constant factor, not a curve. The build was never rescued by the string-borrow change &mdash; that speeds the element <em>read</em>, not the array <em>build</em>.</li>
+      <li><strong>Falsifiability:</strong> every language prints byte-identical stdout, checked against the C oracle before any time is recorded; best-of-3 wall-clock on one Apple&nbsp;M3&nbsp;Pro; sources under <code>bench/src/&lt;lang&gt;/</code>. Reproduce with <code>bench/run_matrix.sh</code>; the campaign numbers trace to <code>bench/MATRIX_LOG_2026-08-17.md</code>, and the shipped-compiler re-measure (<abbr class="ver" title="v0.99.528a">528a</abbr>, same M3&nbsp;Pro, all eight verified against C) is the &ldquo;the wall fell&rdquo; table below.</li>
     </ul>
   </section>
 
   <h2>How to read these numbers</h2>
   <p>Eight workloads, the same deterministic algorithm in each language, each printing one line of output that is checked byte-for-byte against the C result <em>before</em> any time counts. Sizes: 100&nbsp;million elements for streaming shapes (sum, search, histogram), 50&nbsp;million for the array shapes (transform, append), 10&nbsp;million strings for the string shapes, and fannkuch-redux (a pancake-flipping permutation benchmark) at n&nbsp;=&nbsp;11. Every time below is a lower bound in the usual sense &mdash; the fastest of three runs. Hey uses ordinary subscripts and <code>put</code>; there is no special fast-path API to call.</p>
 
-  <h2>Near C on numbers, absent on strings</h2>
-  <p>One picture carries the whole story: the blue bar is Hey after the rewrite; the green mark on each row is C, the orange mark is Ruby with YJIT.</p>
+  <h2>The campaign build: near C on numbers, no bar yet on strings</h2>
+  <p>One picture carries the array-rewrite campaign: the blue bar is Hey on build <code>584147e6</code>; the green mark on each row is C, the orange mark is Ruby with YJIT. The two string rows have no bar &mdash; on that build they timed out. Hold that image; the &ldquo;wall fell&rdquo; table further down re-runs the same rows on the same machine with the shipped compiler, and the bars are there.</p>
 
   <div class="figure-wrap">
     <figure aria-labelledby="fig-title fig-desc">
@@ -188,13 +188,13 @@
         <text class="f-title" x="36" y="34">On numbers, Hey&rsquo;s bar lands beside C. On strings, there is no bar.</text>
         <text class="f-sub" x="36" y="58">Best-of-3 seconds, log scale, lower is better. Bar = Hey after the rewrite.</text>
 
-        <!-- legend -->
-        <rect class="f-hey" x="640" y="24" width="14" height="12"/>
-        <text class="f-tick" x="660" y="34">Hey</text>
-        <line class="f-ctick" x1="712" y1="24" x2="712" y2="38"/>
-        <text class="f-tick" x="720" y="34">C</text>
-        <line class="f-rtick" x1="792" y1="24" x2="792" y2="38"/>
-        <text class="f-tick" x="800" y="34">Ruby+YJIT</text>
+        <!-- legend on its own line, left-aligned, clear of the title -->
+        <rect class="f-hey" x="36" y="67" width="14" height="12"/>
+        <text class="f-tick" x="56" y="77">Hey</text>
+        <line class="f-ctick" x1="132" y1="67" x2="132" y2="81"/>
+        <text class="f-tick" x="140" y="77">C</text>
+        <line class="f-rtick" x1="192" y1="67" x2="192" y2="81"/>
+        <text class="f-tick" x="200" y="77">Ruby+YJIT</text>
 
         <!-- gridlines at 0.1,0.5,1,5,10 -->
         <line class="f-grid" x1="315" y1="80" x2="315" y2="344"/>
@@ -216,7 +216,6 @@
         <rect class="f-hey" x="250" y="127" width="145" height="18"/>
         <text class="f-val" x="399" y="140">0.233</text>
         <line class="f-ctick" x1="335" y1="127" x2="335" y2="145"/>
-        <text class="f-clab" x="341" y="140">0.123</text>
         <line class="f-rtick" x1="647" y1="127" x2="647" y2="145"/>
         <text class="f-rlab" x="653" y="140">3.417</text>
         <text class="f-rowlab" x="242" y="134" text-anchor="end">transform in place</text>
@@ -235,7 +234,6 @@
         <rect class="f-hey" x="250" y="191" width="120" height="18"/>
         <text class="f-val" x="374" y="204">0.179</text>
         <line class="f-ctick" x1="308" y1="191" x2="308" y2="209"/>
-        <text class="f-clab" x="314" y="204">0.093</text>
         <line class="f-rtick" x1="592" y1="191" x2="592" y2="209"/>
         <text class="f-rlab" x="598" y="204">1.894</text>
         <text class="f-rowlab" x="242" y="198" text-anchor="end">append / growth</text>
@@ -254,7 +252,6 @@
         <rect class="f-hey" x="250" y="255" width="417" height="18"/>
         <text class="f-val" x="671" y="268">4.204</text>
         <line class="f-ctick" x1="580" y1="255" x2="580" y2="273"/>
-        <text class="f-clab" x="540" y="268" text-anchor="end">1.675</text>
         <line class="f-rtick" x1="842" y1="255" x2="842" y2="273"/>
         <text class="f-rlab" x="848" y="268">27.12</text>
         <text class="f-rowlab" x="242" y="262" text-anchor="end">fannkuch(11)</text>
@@ -290,7 +287,7 @@
 
         <text class="f-note" x="250" y="402">Blue bars cluster at the C marks on the five numeric rows; the Ruby marks sit 10.6&ndash;18.2&times; to the right.</text>
         <text class="f-note" x="250" y="420">Fannkuch is the honest middle: 2.5&times; slower than C, but 6.45&times; faster than Ruby.</text>
-        <text class="f-note" x="250" y="438">The last two rows have C and Ruby marks and no Hey bar &mdash; Hey does not finish the string build at 10M.</text>
+        <text class="f-note" x="250" y="438">On this campaign build the last two rows have no Hey bar &mdash; the string build timed out at 10M. The shipped compiler fixes it (below).</text>
       </svg>
       <figcaption>Best-of-3 wall-clock, one Apple&nbsp;M3&nbsp;Pro, macOS (darwin&nbsp;25.5.0, arm64), each run&rsquo;s output verified against the C oracle before timing. &ldquo;Hey&rdquo; is the array-performance build at <code>584147e6</code>, whose changes have since landed on <code>trunk</code> as <abbr class="ver" title="v0.99.526a">526a</abbr>. Full table, before-and-after column, and the small-N controls are below. Source: <code>bench/MATRIX_LOG_2026-08-17.md</code>.</figcaption>
     </figure>
@@ -347,14 +344,38 @@
   <h2>The ties, reported straight</h2>
   <p>Sum and search did not move, and they were not supposed to. Both stream: they read the generator and accumulate, with no array to store, grow, or copy. There was nothing for the array rewrite to touch, so Hey after ties Hey before, and both tie C to within a couple of percent (1.02&times; and 1.03&times;). Search after is a hair slower than before &mdash; 0.118&nbsp;s against 0.116&nbsp;s &mdash; which is a tie inside the noise, and it is reported as one rather than rounded away.</p>
 
-  <h2>Where Hey still loses</h2>
-  <p>Two workloads did not finish, and they matter more than the wins for anyone deciding whether to trust the rest. Both build an array of ten million strings by appending:</p>
+  <h2>Where Hey lost &mdash; and where it no longer does</h2>
+  <p>On the campaign build, two workloads did not finish, and they mattered more than the wins for anyone deciding whether to trust the rest. Both build an array of ten million strings by appending:</p>
   <pre><code>set strs = push(strs, '' + (s % 1000))</code></pre>
-  <p>A string array cannot be flat machine numbers, so it stays boxed, and boxed <code>push</code> copies the whole backing on every append. That is the same O(n&sup2;) curve the numeric transform had &mdash; already about 38&nbsp;s at a hundred thousand strings &mdash; so ten million is out of reach in either build. The string-borrow lever cannot rescue it: borrowing speeds the element <em>read</em> in the scan, but the cost here is in the array <em>build</em>, before the scan begins. Right optimization, wrong phase. Both dynamic languages that Hey outruns everywhere else &mdash; Ruby at 1.41&nbsp;s, Python at 1.70&nbsp;s &mdash; simply finish it. That verdict is specific to this build and box: on <code>trunk</code> at <abbr class="ver" title="v0.99.526a">526a</abbr>, re-measured on a Linux machine, both workloads <em>finish</em> &mdash; see the second box below.</p>
+  <p>A string array cannot be flat machine numbers, so it stays boxed. On build <code>584147e6</code> boxed <code>push</code> copied the whole backing on every append &mdash; the same O(n&sup2;) curve the numeric transform had, already about 38&nbsp;s at a hundred thousand strings, so ten million was out of reach. The string-borrow lever could not rescue it: borrowing speeds the element <em>read</em> in the scan, but the cost was in the array <em>build</em>, before the scan begins. Right optimization, wrong phase. What <em>did</em> rescue it was later work on the append itself: the same alias gate that made numeric <code>push</code> amortized O(1) reached the boxed case too. On the shipped compiler the build is one linear pass, not a quadratic curve &mdash; and the next section proves it on the same machine that timed out here.</p>
+  <p>The loss that remains is a constant factor, not a wall. The string scan finishes, but Hey pays the full immutability tax on it: at <abbr class="ver" title="v0.99.528a">528a</abbr> on this M3&nbsp;Pro the scan takes 2.09&nbsp;s against C&rsquo;s 0.45&nbsp;s (~4.6&times;) and a hair <em>behind</em> Ruby&rsquo;s 1.46&nbsp;s &mdash; a genuine loss, reported straight, now on time rather than as a did-not-finish.</p>
   <p>Fannkuch is the smaller, honest loss. Hey completes it in 4.204&nbsp;s: 6.45&times; faster than Ruby, but 2.51&times; slower than C and slower than Go&rsquo;s 1.827&nbsp;s. The rewrite made array permutation fast enough to be measurable, not fast enough to beat an optimizing native compiler.</p>
 
-  <h2>A second box: Linux at 526a, and the string wall has moved</h2>
-  <p>Everything above is one build (<code>584147e6</code>) on one Apple&nbsp;M3&nbsp;Pro. Those changes have since shipped on <code>trunk</code> as <abbr class="ver" title="v0.99.526a">526a</abbr>, so the same eight workloads were re-run on a second, unrelated machine &mdash; an 11th-gen Intel Core&nbsp;i7-1165G7 laptop under Linux &mdash; against the released <abbr class="ver" title="v0.99.526a">526a</abbr> compiler. <strong>Absolute times do not travel across machines or operating systems</strong>: a Linux/x86 second is not a macOS/arm second, and no cell here is a like-for-like comparison with the table above. What travels is the <em>shape</em> &mdash; where Hey sits next to C, Go and Ruby on one box, measured the same way.</p>
+  <h2>The wall fell &mdash; and it was the version, not the machine</h2>
+  <p>The chart at the top is one build (<code>584147e6</code>) on one Apple&nbsp;M3&nbsp;Pro, and on it the two string rows have no bar. The cleanest way to ask whether that wall was really the code &mdash; and not the machine or the OS &mdash; is to rebuild the <em>shipped</em> compiler on the <em>same</em> M3&nbsp;Pro and run the same eight workloads again. That is the table below: <abbr class="ver" title="v0.99.528a">528a</abbr> from <code>trunk</code>, same box, same harness, each output re-verified byte-for-byte against C before timing.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Workload</th><th>C</th><th>Hey 528a</th><th>Ruby+YJIT</th><th>Python</th><th>Hey vs C</th><th>Hey vs Ruby</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">sum / reduce (100M)</td><td class="n">0.11</td><td class="n"><strong>0.12</strong></td><td class="n">1.99</td><td class="n">10.46</td><td class="n">1.09&times;</td><td class="n">16.6&times;</td></tr>
+      <tr><td class="k">transform in place (50M)</td><td class="n">0.13</td><td class="n"><strong>0.27</strong></td><td class="n">3.38</td><td class="n">11.63</td><td class="n">2.08&times;</td><td class="n">12.5&times;</td></tr>
+      <tr><td class="k">search / scan (100M)</td><td class="n">0.12</td><td class="n"><strong>0.13</strong></td><td class="n">2.00</td><td class="n">10.72</td><td class="n">1.08&times;</td><td class="n">15.4&times;</td></tr>
+      <tr><td class="k">append / growth (50M)</td><td class="n">0.12</td><td class="n"><strong>0.20</strong></td><td class="n">1.93</td><td class="n">6.08</td><td class="n">1.67&times;</td><td class="n">9.7&times;</td></tr>
+      <tr><td class="k">histogram (100M)</td><td class="n">0.09</td><td class="n"><strong>0.14</strong></td><td class="n">2.69</td><td class="n">12.00</td><td class="n">1.56&times;</td><td class="n">19.2&times;</td></tr>
+      <tr><td class="k">fannkuch(11)</td><td class="n">1.68</td><td class="n"><strong>4.28</strong></td><td class="n">27.50</td><td class="n">45.09</td><td class="n">2.55&times;</td><td class="n">6.4&times;</td></tr>
+      <tr class="spotlight"><td class="k">string-array scan (10M)</td><td class="n">0.45</td><td class="n"><strong>2.09</strong></td><td class="n">1.46</td><td class="n">1.71</td><td class="n">4.6&times;</td><td class="n">loses</td></tr>
+      <tr class="spotlight"><td class="k">mixed int + string (10M)</td><td class="n">0.45</td><td class="n"><strong>2.03</strong></td><td class="n">1.26</td><td class="n">2.22</td><td class="n">4.5&times;</td><td class="n">loses</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The two spotlighted rows are the point: <strong>on the same M3&nbsp;Pro that timed them out at <code>584147e6</code>, the shipped compiler finishes both</strong> &mdash; 2.09&nbsp;s and 2.03&nbsp;s, correct output, a single linear build rather than the quadratic curve. Only the compiler version changed; the machine and OS are held fixed. So the wall this article was first titled after was the <em>code</em>, and it is gone on what ships. The numeric rows tell the same shape as the campaign chart in a slightly noisier accent (this box was under light load): sum and search tie C (1.08&ndash;1.09&times;), the array shapes land 1.56&ndash;2.08&times; C, fannkuch is the honest middle at 2.55&times; C, and every numeric shape runs 9.7&ndash;19.2&times; past Ruby. The strings finish but lose the constant factor &mdash; ~4.5&times; C and a hair behind Ruby.</p>
+
+  <h2>A third box: Linux at 526a corroborates</h2>
+  <p>The same eight workloads were also run on a second, unrelated machine &mdash; an 11th-gen Intel Core&nbsp;i7-1165G7 laptop under Linux &mdash; against the released <abbr class="ver" title="v0.99.526a">526a</abbr> compiler, an earlier point on the same <code>trunk</code>. <strong>Absolute times do not travel across machines or operating systems</strong>: a Linux/x86 second is not a macOS/arm second, and no cell here is a like-for-like comparison with the tables above. What travels is the <em>shape</em> &mdash; and, like the M3 at 528a, the strings finish here too.</p>
 
   <div class="aside">
     <strong>Read the ratios, not the raw seconds.</strong> Different CPU, OS and toolchain from the table above. The claim is Hey against its neighbours on this single box: best-of-3, output verified byte-for-byte against C before timing, <code>GOMAXPROCS=1</code> and <code>HEY_WORKERS=1</code> pinned in every cell.
@@ -378,8 +399,7 @@
   </table>
   </div>
 
-  <p>The two spotlighted rows are the news, and they are the headline of this article <em>reversed</em>: <strong>on Linux at 526a the string-array timeout simply does not happen.</strong> On the M3 build both rows read <span class="pill p-bad">DNF</span> &mdash; boxed string-array <code>push</code> copied its whole backing on every append, an O(n&sup2;) build that never reached ten million. Here they <strong>finish</strong>: 2.243&nbsp;s and 2.235&nbsp;s, correct output, resident memory topping out near 1.1&ndash;1.4&nbsp;GB &mdash; a single linear build of the array, not the quadratic curve. Nothing timed out; there is no unfinished cell in the Linux table.</p>
-  <p>The most likely cause is the <em>version</em>, not the operating system: the table above is build <code>584147e6</code>, and <abbr class="ver" title="v0.99.526a">526a</abbr> is later, so work landed between them that made boxed <code>push</code> grow amortized the way the numeric path already did &mdash; the same alias-gate mechanism, now reaching the string case. (We did not build <code>584147e6</code> on Linux or <abbr class="ver" title="v0.99.526a">526a</abbr> on the M3, so this is attribution by the more plausible variable, stated as such.) Either way the practical result is unambiguous: <strong>the wall this article is titled after is gone on the shipped compiler.</strong></p>
+  <p>The two spotlighted rows carry the same news as the M3 box: <strong>on Linux at 526a the string-array timeout also simply does not happen.</strong> They <strong>finish</strong> &mdash; 2.243&nbsp;s and 2.235&nbsp;s, correct output, resident memory topping out near 1.1&ndash;1.4&nbsp;GB &mdash; a single linear build of the array, not the quadratic curve. Nothing timed out; there is no unfinished cell in the Linux table. The M3 result already isolated the cause to the compiler <em>version</em> by holding the machine fixed; this second, unrelated box &mdash; different CPU, different OS &mdash; showing the same finish confirms it is not an artifact of one machine. The mechanism is the alias gate that made numeric <code>push</code> amortized, now reaching the boxed string case.</p>
 
   <p>What has <em>not</em> changed is the constant factor. Hey completes the string workloads, but at roughly <strong>4.3&times; C</strong> and a hair <em>slower</em> than Ruby &mdash; 2.243&nbsp;s against 2.003&nbsp;s on the scan &mdash; a genuine loss, reported straight, now on time rather than as a did-not-finish. The numeric shapes tell the M3 story in a Linux accent: sum and search tie C (0.99&times;, 1.00&times;), the array shapes land 1.45&ndash;1.80&times; C, fannkuch is the honest middle at 3.6&times; C and slower than Go, and every numeric shape runs 11&ndash;29&times; past Ruby. Two machines, two operating systems, one shape.</p>
 
@@ -502,7 +522,7 @@
   </div>
 
   <h2>What a reader can take from this</h2>
-  <p>The useful lesson is not a leaderboard, it is a boundary. An immutable-value language can reach C&rsquo;s class on array code &mdash; ties on streaming, within about two times on mutation &mdash; provided two things hold: the element type is proven concrete enough to store flat, and the write can be proven unobservable so the copy can be elided. Where both hold, Hey now runs 10.6&ndash;18.2&times; past Ruby and beside C. Where the element cannot be a flat machine number, as with strings, the copy is charged on every append, and the language pays the immutability tax in full. The next wall is named and in view: make boxed-array append amortized O(1) the way the numeric path already is.</p>
+  <p>The useful lesson is not a leaderboard, it is a boundary that moved. An immutable-value language can reach C&rsquo;s class on array code &mdash; ties on streaming, within about two times on mutation &mdash; provided two things hold: the element type is proven concrete enough to store flat, and the write can be proven unobservable so the copy can be elided. Where both hold, Hey runs ~10&ndash;19&times; past Ruby and beside C. The string case shows the boundary is not fixed: the &ldquo;next wall&rdquo; this article first named &mdash; make boxed-array append amortized O(1) the way the numeric path already is &mdash; is the wall that has since fallen, so ten million boxed strings now build in one linear pass instead of timing out. What is left on strings is a constant factor, not a curve: the element is still a heap object, so Hey lands ~4.5&times; C and just behind Ruby. That is the honest shape of an immutable language on this hardware &mdash; native class where the type goes flat and the copy elides, a bounded constant-factor tax where it cannot.</p>
 
   <section class="terms">
     <h2>Terms used here</h2>
@@ -530,7 +550,7 @@
   </section>
 
   <footer>
-    Measured 2026-08-17 on macOS (darwin 25.5.0, arm64), Apple M3 Pro, best-of-3 wall-clock, 120-second per-run timeout, output verified against the C oracle before timing. &ldquo;Hey after&rdquo; is the array-performance build at <code>584147e6</code>, whose changes have landed on <code>trunk</code> as <abbr class="ver" title="v0.99.526a">526a</abbr>; &ldquo;Hey before&rdquo; is the pre-campaign trunk at <code>83cb86a9</code>. Toolchains: clang 21.0.0 <code>-O3</code>, rustc 1.97.1 <code>-O</code>, go 1.26.4, Ruby 4.0.6 <code>--yjit</code>, Python 3.12.2, Erlang OTP 28. Cross-language timings describe those toolchains on this one machine; they are measurements, not predictions. The &ldquo;second box&rdquo; section is a separate run of the released <abbr class="ver" title="v0.99.526a">526a</abbr> compiler on Linux (kernel 7.1.4, x86-64), Intel Core&nbsp;i7-1165G7 (4 cores / 8 threads), best-of-3, <code>GOMAXPROCS=1</code> and <code>HEY_WORKERS=1</code> pinned; toolchains clang 22.1.8, rustc 1.97.1, go 1.26.5, Ruby 4.0.6 <code>--yjit</code>, Python 3.14.6, Erlang OTP&nbsp;29. Linux and macOS numbers are not comparable to each other &mdash; each box&rsquo;s ratios are its own claim.
+    Campaign matrix measured 2026-08-17 on macOS (darwin 25.5.0, arm64), Apple M3 Pro, best-of-3 wall-clock, 120-second per-run timeout, output verified against the C oracle before timing. &ldquo;Hey after&rdquo; is the array-performance build at <code>584147e6</code>, whose changes have landed on <code>trunk</code> as <abbr class="ver" title="v0.99.526a">526a</abbr>; &ldquo;Hey before&rdquo; is the pre-campaign trunk at <code>83cb86a9</code>. The &ldquo;wall fell&rdquo; table was re-measured 2026-08-18 on the same M3&nbsp;Pro against the shipped <abbr class="ver" title="v0.99.528a">528a</abbr> compiler (<code>trunk</code>&nbsp;<code>26244e82</code>), same harness, all eight outputs re-verified against C; that box was under light load, so its absolute Hey seconds run a few percent above the quiet campaign run &mdash; the ratios and the finish/no-finish verdict are what it establishes. Toolchains: clang 21.0.0 <code>-O3</code>, rustc 1.97.1 <code>-O</code>, go 1.26.4, Ruby 4.0.6 <code>--yjit</code>, Python 3.12.2, Erlang OTP 28. Cross-language timings describe those toolchains on this one machine; they are measurements, not predictions. The Linux corroboration (&ldquo;third box&rdquo;) is a separate run of the released <abbr class="ver" title="v0.99.526a">526a</abbr> compiler on Linux (kernel 7.1.4, x86-64), Intel Core&nbsp;i7-1165G7 (4 cores / 8 threads), best-of-3, <code>GOMAXPROCS=1</code> and <code>HEY_WORKERS=1</code> pinned; toolchains clang 22.1.8, rustc 1.97.1, go 1.26.5, Ruby 4.0.6 <code>--yjit</code>, Python 3.14.6, Erlang OTP&nbsp;29. Linux and macOS numbers are not comparable to each other &mdash; each box&rsquo;s ratios are its own claim.
     <p class="vernote">Version numbers are shown short: <abbr class="ver" title="v0.99.526a">526a</abbr> means v0.99.526a &mdash; the pre-beta series.</p>
   </footer>
 </main>
