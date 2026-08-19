@@ -3,365 +3,599 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>The architecture of Hey, restructured — current shape, target, and deep diagrams</title>
-  <meta name="description" content="The current and target architecture of the Hey compiler, with stage cards, ownership rules, module closure, operator projections, interpreter fork, backend lanes, and detailed architecture diagrams.">
+  <meta name="description" content="Hey's compiler architecture on August 19, 2026: the central ownership model has landed, the web leak is nearly flat, and structural front-end authority remains the next correctness program.">
+  <meta name="article-date" content="2026-08-19">
+  <meta name="article-bucket" content="daily">
+  <title>Memory Has One Home. Program Meaning Still Needs One. · Hey architecture · August 19, 2026</title>
   <style>
     :root {
-      --bg:#0b1017; --bg2:#0e1722; --panel:#141d28; --panel2:#1a2634;
-      --line:#314357; --text:#edf3f8; --muted:#a8b7c6;
-      --green:#3ecf87; --amber:#f2b84b; --red:#ff7373; --blue:#75baff; --violet:#b996ff;
-      --max:1280px;
+      color-scheme: light dark;
+      --bg: #f7f4ee;
+      --surface: #ffffff;
+      --surface-2: #eee9df;
+      --ink: #1f2529;
+      --muted: #5e6870;
+      --line: #c9c2b6;
+      --link: #195fa7;
+      --good: #17643a;
+      --good-bg: #e3f3e9;
+      --warn: #8a5600;
+      --warn-bg: #fff1cf;
+      --bad: #9c2f2f;
+      --bad-bg: #fae5e5;
+      --next: #5f3aa6;
+      --next-bg: #eee7fb;
+      --old: #6a5232;
+      --old-bg: #eee5d8;
+      --code-bg: #172129;
+      --code-ink: #ecf3f7;
+      --shadow: 0 12px 30px rgba(40, 34, 27, .10);
+      --radius: 16px;
+      --max: 1120px;
     }
-    *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
-    body{margin:0;background:linear-gradient(180deg,#0c1520,var(--bg) 28rem);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
-    a{color:#9ed1ff}
-    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-    header,main,footer{width:min(var(--max),calc(100% - 32px));margin:auto}
-    header{padding:54px 0 28px}
-    .eyebrow{color:var(--blue);text-transform:uppercase;letter-spacing:.11em;font-weight:850;font-size:.78rem}
-    h1{font-size:clamp(2.2rem,6vw,4.7rem);line-height:1;letter-spacing:-.045em;margin:.35rem 0 .8rem}
-    h2{font-size:clamp(1.45rem,3vw,2.2rem);margin:2.4rem 0 1rem}
-    h3{margin:.9rem 0 .45rem}
-    h4{margin:.3rem 0 .45rem}
-    .lede{max-width:90ch;color:#d7e4ef;font-size:1.12rem}
-    .meta,.legend{display:flex;gap:8px;flex-wrap:wrap}
-    .status{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:.8rem;font-weight:800;white-space:nowrap}
-    .status:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
-    .green{color:var(--green);background:#123b2a}.amber{color:var(--amber);background:#493717}.red{color:var(--red);background:#4a2024}.blue{color:var(--blue);background:#173657}.violet{color:var(--violet);background:#2d2544}
-    .notice{border:1px solid var(--line);border-left:5px solid var(--blue);border-radius:12px;background:var(--panel);padding:17px 19px;margin:24px 0}
-    .warning{border-left-color:var(--amber)}
-    .stage-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-    .stage{position:relative;border:1px solid var(--line);border-top:5px solid currentColor;border-radius:13px;background:linear-gradient(180deg,var(--panel2),var(--panel));padding:15px;min-height:178px;color:var(--amber)}
-    .stage h3{color:var(--text)}.stage p{color:var(--muted);font-size:.9rem}.stage.g{color:var(--green)}.stage.r{color:var(--red)}.stage.b{color:var(--blue)}.stage.v{color:var(--violet)}
-    .stage .artifact{display:block;margin-top:.7rem;color:#cbd9e6;font-size:.8rem}
-    .fork{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
-    .card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:15px}
-    .card p{color:var(--muted)}
-    details{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:10px 0;overflow:hidden}
-    summary{cursor:pointer;list-style:none;padding:15px 17px;font-weight:820;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
-    summary::-webkit-details-marker{display:none}
-    summary:before{content:"+";display:grid;place-items:center;width:1.35rem;height:1.35rem;border-radius:50%;background:#26384b}
-    details[open] summary:before{content:"−"}
-    details[open] summary{border-bottom:1px solid var(--line)}
-    .body{padding:16px 18px;color:#d6e0e9}
-    table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.9rem}
-    th,td{padding:10px 11px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
-    th{color:#bcd0e3;background:rgba(255,255,255,.025)}
-    pre{overflow:auto;border:1px solid var(--line);border-radius:10px;background:#081018;padding:14px;color:#d8ebff}
-    .forbidden{color:#ffd5d5}
-    .source{color:var(--muted);font-size:.88rem}
 
-    .deep-intro{display:grid;grid-template-columns:1.4fr .6fr;gap:16px;align-items:start}
-    .diagram-shell{padding:16px;background:#0b131c;border-top:1px solid var(--line)}
-    .diagram-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-    .diagram-note{color:var(--muted);font-size:.9rem;margin:.4rem 0 1rem}
-    .flow{display:flex;align-items:stretch;gap:8px;flex-wrap:nowrap}
-    .flow.vertical{flex-direction:column}
-    .node{flex:1;min-width:0;border:1px solid var(--line);border-radius:11px;background:linear-gradient(180deg,#1b2938,#121c27);padding:12px;position:relative}
-    .node strong{display:block;color:var(--text);font-size:.92rem;line-height:1.2;margin-bottom:5px}
-    .node small{display:block;color:var(--muted);line-height:1.35}
-    .node.green-node{border-color:#2f8c62}.node.amber-node{border-color:#9a7529}.node.red-node{border-color:#a9484f}.node.blue-node{border-color:#3e78ad}.node.violet-node{border-color:#66519d}
-    .edge{display:flex;align-items:center;justify-content:center;color:#8197ad;font-size:1.2rem;font-weight:900;min-width:20px}
-    .edge.down{transform:rotate(90deg);height:24px}
-    .artifact-edge{font-size:.72rem;color:#aabccd;background:#101923;border:1px solid var(--line);border-radius:999px;padding:4px 8px;text-align:center;white-space:nowrap;align-self:center}
-    .subgraph{border:1px dashed #466078;border-radius:14px;padding:12px;background:rgba(19,31,44,.55)}
-    .subgraph-title{font-size:.76rem;letter-spacing:.1em;text-transform:uppercase;color:#a9bdd0;font-weight:850;margin-bottom:10px}
-    .projection-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
-    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-    .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-    .center-stack{max-width:850px;margin:0 auto}
-    .junction{text-align:center;color:#9fb2c5;font-weight:900;padding:6px}
-    .split-arrow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 8%;color:#8197ad;font-weight:900;text-align:center}
-    .split-arrow span:first-child:after{content:"↙"}.split-arrow span:last-child:after{content:"↘"}
-    .runtime-bar{margin-top:12px;border:1px solid #2f8c62;border-radius:11px;background:#112b20;padding:11px;text-align:center;color:#c9f5df;font-weight:800}
-    .registry{border:2px solid #477fb0;background:#13283b}
-    .generator{border:2px solid #8b6f2c;background:#302713}
-    .drift{border:2px dashed #8b6f2c;background:#241f13}
-    .deleted{opacity:.8;border-style:dashed}
-    .lane-row{display:grid;grid-template-columns:160px 1fr 130px;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:9px 0}
-    .lane-row:last-child{border-bottom:0}
-    .mini-track{height:10px;border-radius:999px;background:#26384a;overflow:hidden}.mini-fill{height:100%;background:var(--blue)}
-    .caption{color:var(--muted);font-size:.88rem;margin-top:10px}
-    .corrections li{margin:.45rem 0}
-    footer{padding:40px 0 64px;color:var(--muted)}
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #11171b;
+        --surface: #182126;
+        --surface-2: #222d33;
+        --ink: #eef3f5;
+        --muted: #b8c2c8;
+        --line: #3b4950;
+        --link: #85bfff;
+        --good: #9be0b3;
+        --good-bg: #173b27;
+        --warn: #ffd487;
+        --warn-bg: #493617;
+        --bad: #ffb0b0;
+        --bad-bg: #4a2225;
+        --next: #c8adff;
+        --next-bg: #332657;
+        --old: #e5c69e;
+        --old-bg: #403324;
+        --code-bg: #0b1014;
+        --code-ink: #f1f6f8;
+        --shadow: 0 14px 34px rgba(0, 0, 0, .26);
+      }
+    }
 
-    @media(max-width:1040px){.stage-grid{grid-template-columns:repeat(2,1fr)}.flow{flex-wrap:wrap}.flow>.node{flex:1 1 calc(33% - 16px)}.flow>.edge{display:none}.projection-grid{grid-template-columns:repeat(2,1fr)}}
-    @media(max-width:760px){.fork,.two-col,.three-col,.deep-intro{grid-template-columns:1fr}.stage-grid{grid-template-columns:1fr}.projection-grid{grid-template-columns:1fr}.flow>.node{flex-basis:100%}.lane-row{grid-template-columns:1fr}.lane-row .status{justify-self:start}summary{grid-template-columns:auto 1fr}summary .status{grid-column:2;justify-self:start}}
-    @media(max-width:540px){header,main,footer{width:calc(100% - 20px)}table{font-size:.82rem}th,td{padding:8px}}
+    :root[data-theme="dark"] {
+      --bg: #11171b;
+      --surface: #182126;
+      --surface-2: #222d33;
+      --ink: #eef3f5;
+      --muted: #b8c2c8;
+      --line: #3b4950;
+      --link: #85bfff;
+      --good: #9be0b3;
+      --good-bg: #173b27;
+      --warn: #ffd487;
+      --warn-bg: #493617;
+      --bad: #ffb0b0;
+      --bad-bg: #4a2225;
+      --next: #c8adff;
+      --next-bg: #332657;
+      --old: #e5c69e;
+      --old-bg: #403324;
+      --code-bg: #0b1014;
+      --code-ink: #f1f6f8;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f7f4ee;
+      --surface: #ffffff;
+      --surface-2: #eee9df;
+      --ink: #1f2529;
+      --muted: #5e6870;
+      --line: #c9c2b6;
+      --link: #195fa7;
+      --good: #17643a;
+      --good-bg: #e3f3e9;
+      --warn: #8a5600;
+      --warn-bg: #fff1cf;
+      --bad: #9c2f2f;
+      --bad-bg: #fae5e5;
+      --next: #5f3aa6;
+      --next-bg: #eee7fb;
+      --old: #6a5232;
+      --old-bg: #eee5d8;
+      --code-bg: #172129;
+      --code-ink: #ecf3f7;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.58;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: var(--link); text-underline-offset: .16em; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .page { width: min(calc(100% - 30px), var(--max)); margin: 0 auto; }
+
+    header {
+      padding: 52px 0 30px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      font-size: clamp(2.3rem, 7vw, 5rem);
+      line-height: .98;
+      letter-spacing: -.045em;
+    }
+    .dek {
+      max-width: 840px;
+      margin: 20px 0 0;
+      color: var(--muted);
+      font-size: clamp(1.06rem, 2vw, 1.3rem);
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    main { padding: 34px 0 72px; }
+    section { margin: 54px 0; }
+    h2 {
+      margin: 0 0 14px;
+      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      font-size: clamp(1.7rem, 3.5vw, 2.55rem);
+      line-height: 1.08;
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 30px 0 8px; font-size: 1.15rem; }
+    p { margin: 12px 0; }
+    .lead { font-size: 1.12rem; }
+
+    .tldr {
+      display: grid;
+      gap: 12px;
+      margin-top: 0;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .tldr h2 { font-size: 1.25rem; margin: 0 0 2px; }
+    .tldr ul { margin: 0; padding-left: 1.25rem; }
+    .tldr li + li { margin-top: 8px; }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 14px 0;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid currentColor;
+      font-size: .74rem;
+      font-weight: 900;
+      letter-spacing: .045em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .good { color: var(--good); background: var(--good-bg); }
+    .warn { color: var(--warn); background: var(--warn-bg); }
+    .bad { color: var(--bad); background: var(--bad-bg); }
+    .next { color: var(--next); background: var(--next-bg); }
+    .old { color: var(--old); background: var(--old-bg); }
+
+    figure {
+      margin: 34px 0;
+      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    figure h2, figure h3 { margin-top: 0; }
+    figcaption { margin-top: 18px; color: var(--muted); font-size: .9rem; }
+
+    .arch-scroll { overflow-x: auto; padding-bottom: 4px; }
+    .arch {
+      min-width: 880px;
+      display: grid;
+      grid-template-columns: 130px 1fr 1fr 1fr 1fr 1fr;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .arch .row-label {
+      display: flex;
+      align-items: center;
+      font-weight: 900;
+      line-height: 1.15;
+      padding: 13px 8px 13px 0;
+    }
+    .node {
+      min-height: 112px;
+      padding: 13px;
+      border: 2px solid var(--line);
+      border-radius: 13px;
+      background: var(--surface-2);
+    }
+    .node strong { display: block; line-height: 1.15; margin-bottom: 7px; }
+    .node small { display: block; color: var(--muted); line-height: 1.35; }
+    .node.good-node { border-color: var(--good); background: var(--good-bg); }
+    .node.warn-node { border-color: var(--warn); background: var(--warn-bg); }
+    .node.bad-node { border-color: var(--bad); background: var(--bad-bg); }
+    .node.next-node { border-color: var(--next); background: var(--next-bg); }
+    .node.old-node { border-color: var(--old); background: var(--old-bg); }
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-weight: 900;
+      font-size: 1.35rem;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 18px 0;
+      padding: 17px 18px;
+      color: var(--code-ink);
+      background: var(--code-bg);
+      border-radius: 13px;
+      font-size: .91rem;
+      line-height: 1.52;
+      tab-size: 2;
+    }
+    :not(pre) > code {
+      padding: .12em .35em;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface-2);
+      font-size: .92em;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      padding: 19px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .card h3 { margin-top: 0; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .callout {
+      margin: 24px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--warn);
+      border-radius: 0 12px 12px 0;
+      background: var(--warn-bg);
+    }
+    .callout.bad-callout { border-color: var(--bad); background: var(--bad-bg); }
+    .callout.good-callout { border-color: var(--good); background: var(--good-bg); }
+    .callout p:first-child { margin-top: 0; }
+    .callout p:last-child { margin-bottom: 0; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 13px; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; background: var(--surface); }
+    th, td { padding: 13px 14px; vertical-align: top; border-bottom: 1px solid var(--line); text-align: left; }
+    th { background: var(--surface-2); font-size: .78rem; text-transform: uppercase; letter-spacing: .055em; }
+    tr:last-child td { border-bottom: 0; }
+
+    .steps { counter-reset: step; display: grid; gap: 13px; padding: 0; list-style: none; }
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding: 17px 18px 17px 64px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 13px;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 16px;
+      top: 15px;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--next);
+      font-weight: 900;
+    }
+
+    .receipt {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .receipt > div {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+    .receipt strong { display: block; font-size: 1.15rem; }
+    .receipt span { color: var(--muted); font-size: .8rem; }
+
+    footer {
+      padding: 30px 0 48px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    @media (max-width: 820px) {
+      header { padding-top: 36px; }
+      .cards { grid-template-columns: 1fr; }
+      .receipt { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      section { margin: 44px 0; }
+    }
+    @media (max-width: 520px) {
+      .page { width: min(calc(100% - 20px), var(--max)); }
+      h1 { font-size: 2.55rem; }
+      .tldr, figure { padding: 17px; }
+      .receipt { grid-template-columns: 1fr; }
+      pre { font-size: .82rem; }
+      .badge { white-space: normal; }
+      li { overflow-wrap: anywhere; }
+    }
+    @media print {
+      body { background: #fff; color: #111; }
+      .page { width: 100%; max-width: none; }
+      figure, .tldr, .card, .receipt > div { box-shadow: none; break-inside: avoid; }
+      a { color: inherit; }
+    }
   </style>
 </head>
 <body>
-<header>
-  <div class="eyebrow">Hey architecture / reference page / revised 5 August 2026</div>
-  <h1>One front end. One resolved program. Two consumers.</h1>
-  <p class="lede">Start with the stage cards. Then use the detailed diagrams at the bottom when you need the full compiler shape, the HIR fork, the operator projections, the transition from today's lanes, or the evidence path. The target architecture and the dated implementation status are deliberately shown together without pretending they are the same thing.</p>
-  <div class="meta"><span class="status blue">target contract</span><span class="status amber">candidate or partial</span><span class="status green">verified foundation</span><span class="status red">active blocker</span></div>
-</header>
-<main>
-  <div class="notice"><strong>How to read this page:</strong> the cards describe each pipeline element quickly. The deep diagrams preserve the shape and relationships from the original reference page, corrected for the current implementation: tokenizer and final-syntax candidates exist, exact-node/scoped-reader foundations have landed, self-host can lower a minimal scoped read, and the active authority blockers are module-body closure, clean HIR/MIR identity, boxed truthiness, complete lifetime parity, and the remaining compatibility reads.</div>
-
-  <section id="pipeline-cards">
-    <h2>The pipeline, element by element</h2>
-    <div class="stage-grid">
-      <article class="stage g"><span class="status green">foundation</span><h3>1. Source manager</h3><p>Files, stable file IDs, hashes, package/application roots, and the import graph.</p><span class="artifact">Hands forward: source units + module graph</span></article>
-      <article class="stage"><span class="status amber">candidate</span><h3>2. Tokenizer</h3><p>Produces tokens with spans. Owns spelling and longest match, not precedence, arity, bindings, or types.</p><span class="artifact">Hands forward: token stream</span></article>
-      <article class="stage"><span class="status amber">candidate</span><h3>3. Final syntax</h3><p>Owns grouping, forms, precedence, associativity, statements, blocks, interpolation, and syntax diagnostics.</p><span class="artifact">Hands forward: final syntax tree</span></article>
-      <article class="stage r"><span class="status red">partial</span><h3>4. Resolver + modules</h3><p>Bindings, scopes, imports, exports, aliases, exposures, conceals, re-exports, and operator meaning.</p><span class="artifact">Current blocker: reachable imported bodies</span></article>
-      <article class="stage"><span class="status amber">transition</span><h3>5. Structural HIR</h3><p>The intended semantic join point. The legacy path remains authoritative; candidate HIR receipts require clean regeneration.</p><span class="artifact">Hands forward: resolved Hey semantics</span></article>
-      <article class="stage r"><span class="status red">incomplete</span><h3>6. Application MIR</h3><p>Reachable program closure, representation types, instructions, ownership, boxing, and explicit control flow.</p><span class="artifact">Must contain all imported bodies needed by the app</span></article>
-      <article class="stage r"><span class="status red">correctness gap</span><h3>7. LLVM emission</h3><p>A mechanical printer over MIR. Boxed conditions currently expose a truthiness defect.</p><span class="artifact">Must never parse or repair missing program meaning</span></article>
-      <article class="stage g"><span class="status green">existing</span><h3>8. Link + runtime</h3><p>Native executable plus one value model, actors, builtins, I/O, generated-node ABI, and borrow lifetime ABI.</p><span class="artifact">Shared by interpreted and compiled consumers</span></article>
+  <header>
+    <div class="page">
+      <p class="eyebrow">Hey architecture · reference page · revised 19 August 2026</p>
+      <h1>Memory has one home. Program meaning still needs one.</h1>
+      <p class="dek">The August 5 target architecture survived. The implementation map did not: module closure, boxed truthiness, self-host fallback, and the main web-request leak have moved from blockers to working foundations. The next hard problem is making the structural front end authoritative before another type guess silently changes a program.</p>
+      <div class="meta">
+        <span>Hey <abbr class="ver" title="v0.99.530a">530a</abbr></span>
+        <span>source checkpoint <code>94e04138</code></span>
+        <span>current truth through August 19</span>
+      </div>
     </div>
-    <div class="fork">
-      <div class="card"><span class="status blue">consumer A</span><h3>Interpreter and REPL</h3><p>The target is a shared HIR walker. Today the REPL can execute the candidate receipt, but the old interpreter path has not yet been replaced by that shared consumer.</p></div>
-      <div class="card"><span class="status blue">consumer B</span><h3>Compiled application</h3><p>Structural HIR lowers to application MIR, then LLVM text, link, and the same runtime. LLVM-direct and self-host application receipts are currently blocked on module closure.</p></div>
+  </header>
+
+  <main class="page">
+    <section class="tldr" aria-labelledby="tldr-title">
+      <h2 id="tldr-title">TL;DR</h2>
+      <ul>
+        <li><strong>The target is unchanged:</strong> one front end should understand every Hey program once, then hand that meaning to an interactive runner or a native compiler.</li>
+        <li><strong>The strongest landed result is the memory model:</strong> central box ownership reduced the compiled web-request leak from <strong>308 to 6 bytes per request</strong> on the measured workload.</li>
+        <li><strong>The old blocker list is obsolete:</strong> imported-module closure, boxed truthiness, native/Hey emitter agreement, and automatic self-host fallback are no longer the reasons authority is off.</li>
+        <li><strong>Authority is still off for a better reason:</strong> the shipping front end can still infer a String parameter as an Int and emit a silent wrong answer. The generated structural HIR exists, but it is not yet the program every lane consumes.</li>
+        <li><strong>The current checkpoint is reproducible:</strong> <abbr class="ver" title="v0.99.530a">530a</abbr> reports <strong>118 green, 22 known red, and 1 flaky</strong>; both native emitters are byte-identical across 91 LLVM goldens.</li>
+      </ul>
+    </section>
+
+    <figure aria-labelledby="architecture-title">
+      <h2 id="architecture-title">The architecture today, and the architecture we are finishing</h2>
+      <p>The colors are secondary; every box states its status. The upper row is what carries normal compilation today. The lower row is the durable target.</p>
+      <div class="legend" aria-label="Status legend">
+        <span class="badge good">Working / landed</span>
+        <span class="badge old">Still authoritative old path</span>
+        <span class="badge next">Built but not authoritative</span>
+        <span class="badge bad">Known correctness gap</span>
+        <span class="badge warn">Open follow-on</span>
+      </div>
+      <div class="arch-scroll">
+        <div class="arch" role="img" aria-label="Current Hey pipeline and target architecture. Today, the old text-driven semantic front end remains authoritative, feeding HIR and MIR to two matching native emitters and a shared runtime with central box ownership. The target replaces the old semantic front end with tokenizer, syntax, resolver and structural HIR, then forks to the interpreter or MIR and native code.">
+          <div class="row-label">Today</div>
+          <div class="node old-node"><strong>Old semantic front end</strong><span class="badge old">Authoritative</span><small>Still rereads expression text and infers some types heuristically.</small></div>
+          <div class="node bad-node"><strong>Current HIR / MIR</strong><span class="badge bad">Known wrong answer</span><small>Can carry a String-valued parameter as <code>Int</code>.</small></div>
+          <div class="node good-node"><strong>Two LLVM emitters</strong><span class="badge good">Byte-identical</span><small>Native C and Hey-written emitters agree across 91 checked outputs.</small></div>
+          <div class="node good-node"><strong>Runtime + box ownership</strong><span class="badge good">Landed</span><small>Statement-boundary release; web retention 308 → 6 B/request.</small></div>
+          <div class="node good-node"><strong>Apps</strong><span class="badge good">Real users</span><small>Web, CLI, mobile and TV code are the reason the compiler exists.</small></div>
+
+          <div class="row-label">Target</div>
+          <div class="node next-node"><strong>Tokenizer + final syntax</strong><span class="badge next">Built</span><small>Spans, grouping, precedence and syntax errors have a generated home.</small></div>
+          <div class="node next-node"><strong>Resolver + structural HIR</strong><span class="badge next">Next authority program</span><small>Names and operand types become fields, not guesses from strings.</small></div>
+          <div class="node good-node"><strong>Two consumers</strong><span class="badge good">Target unchanged</span><small>HIR walker for interactive use; application MIR for native compilation.</small></div>
+          <div class="node good-node"><strong>One runtime</strong><span class="badge good">Already shared</span><small>Values, actors, builtins, I/O and ownership rules.</small></div>
+          <div class="node warn-node"><strong>Product proof</strong><span class="badge warn">Still owed</span><small>Recapture web/mobile/TV/CLI checks after authority changes.</small></div>
+        </div>
+      </div>
+      <figcaption>Source: the August 19 <abbr class="ver" title="v0.99.530a">530a</abbr> handoff, ownership worklist, gate ledger, and the focused R4 follow-up measurement. This diagram replaces the August 5 “3 of 5 lanes” implementation map; it does not change the target stage boundaries.</figcaption>
+    </figure>
+
+    <section>
+      <h2>What the August 5 page still got right</h2>
+      <p class="lead">Its central sentence remains the right design: <strong>one front end, one resolved program, two consumers.</strong></p>
+      <p>A source file should be tokenized once, grouped into a real syntax tree once, resolved once, and lowered into one structural description of what the program means. Interactive execution and native compilation may represent that meaning differently after the fork, but neither should reopen source text and guess.</p>
+      <pre><code>Hey source
+    ↓
+tokens + spans
+    ↓
+syntax tree
+    ↓
+resolved structural HIR
+    ├──→ HIR walker → interactive result
+    └──→ application MIR → LLVM → native executable
+                               ↓
+                         one shared runtime</code></pre>
+      <p>The stage responsibilities also survive. Tokenization owns spelling, syntax owns grouping and precedence, resolution owns names, HIR owns language meaning, MIR owns representation and lifetime operations, and LLVM emission should print decisions already made.</p>
+    </section>
+
+    <section>
+      <h2>What has changed since August 5</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>August 5 status</th><th>August 19 truth</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Imported module bodies blocked the compiled lanes.</td><td><span class="badge good">Closed</span> Application module closure landed.</td><td>Imported functions can be present in the completed program instead of being rediscovered later.</td></tr>
+            <tr><td>Boxed truthiness was an LLVM defect.</td><td><span class="badge good">Closed</span> Truthiness uses the language/runtime primitive.</td><td>A non-empty value no longer becomes false because a numeric conversion guessed at it.</td></tr>
+            <tr><td>Only three candidate lanes executed.</td><td><span class="badge warn">Obsolete count</span> All five paths have been exercised on the small comparison corpus.</td><td>That is useful agreement, not frontend authority or full-language coverage.</td></tr>
+            <tr><td>Self-host application output depended on fallback.</td><td><span class="badge good">Closed at current build</span> <code>selfhost_legacy_fallback_count=0</code>.</td><td>The Hey-written LLVM emitter can build the current self-host pipeline without silently handing it back.</td></tr>
+            <tr><td>Lifetime work was a collection of local repairs.</td><td><span class="badge good">Central model landed</span> Fresh boxes are tracked and released at statement boundaries.</td><td>The measured web leak fell from 308 to 6 B/request, and both emitters apply the same rule.</td></tr>
+            <tr><td>Structural HIR was the intended join point.</td><td><span class="badge next">Still true, still not authority</span></td><td>The prototype and generated schema exist; the shipping semantic path has not been replaced.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Memory now has an architectural home</h2>
+      <p>Earlier fixes tried to prove, one expression at a time, that a temporary value could not escape. That produced several separate “licences,” and two of those licences shipped with safety defects. The current model puts a small reference count in space the value box already had, so the box remains 32 bytes and the runtime can keep or release it explicitly.</p>
+      <pre><code># Ordinary source can create several temporary boxed values in one statement.
+let response = Web.response(
+  200,
+  {'content-type': 'application/json'},
+  Json.encode(payload)
+)</code></pre>
+      <p>The compiler now looks at the values created by the statement, preserves anything returned or otherwise carried forward, and releases the rest. The result is not merely prettier LLVM: on the measured compiled web workload, retained memory dropped from <strong>308 to 6 bytes per request</strong>. Turning off that release makes the leak return, which is the falsification test that keeps the claim honest.</p>
+      <div class="receipt" aria-label="Current verified checkpoint">
+        <div><strong>118</strong><span>locked green gates</span></div>
+        <div><strong>22</strong><span>known red gates</span></div>
+        <div><strong>1</strong><span>registered flaky gate</span></div>
+        <div><strong>91 + 24</strong><span>LLVM plus HIR/MIR goldens</span></div>
+      </div>
+      <p>This does <em>not</em> mean memory work is finished. Actor handles still retain a small tombstone after join because they lack their own cross-thread-safe lifetime count. The current registered cost is roughly 240 bytes per spawn. That belongs below the box layer and needs an atomic lifetime rule of its own.</p>
+    </section>
+
+    <section>
+      <h2>Program meaning still has no single authority</h2>
+      <p>The most important remaining example is short enough to read:</p>
+      <pre><code>fn tag(b)
+  return 'T'
+end
+
+fn build(xs, acc)
+  return acc + tag(xs)
+end
+
+program
+  let xs = [1, 2]
+  let seed = 'A'
+  says build(xs, seed)
+end</code></pre>
+      <p>The interpreter and Stage-0 print <code>AT</code>. The native path can print a pointer-like number followed by <code>T</code>. The damage is visible before machine code: HIR describes <code>acc</code> as <code>Int</code> even though every caller passes a String.</p>
+      <div class="callout bad-callout">
+        <p><strong>This is why frontend authority is still off.</strong> The native emitter is not inventing the wrong type; it is faithfully compiling a wrong semantic fact produced earlier.</p>
+      </div>
+      <p>The replacement already exists as a prototype: tokens become generated syntax nodes, then a generated structural HIR with distinct fields for a call, an index operation, a binary operation, short-circuit behavior, and errors. What remains is to connect it, measure its failure rate over real programs, and make every consumer use it instead of carrying expression text forward.</p>
+      <pre><code># Today, conceptually
+expression_text = "acc + tag(xs)"
+# Several later helpers inspect that text and infer types.
+
+# Target
+binary_op(
+  left: local_ref(acc, type: String),
+  operator: add,
+  right: call(tag, [xs], result_type: String),
+  result_type: String
+)</code></pre>
+      <p>That change is the next correctness program. It is separate from ownership and should not be smuggled into a memory optimization.</p>
+    </section>
+
+    <section>
+      <h2>A correction to the next rung</h2>
+      <p>The August 19 handoff initially said the next ownership step would turn a returned-parameter leak from 434.8 bytes per call to flat and also green the frontend scaling gate. A focused measurement disproved both links.</p>
+      <pre><code>fn identity(x)
+  return x
+end</code></pre>
+      <p>On <abbr class="ver" title="v0.99.530a">530a</abbr>, this workload is already flat at approximately 0.0 B/call. The compiled function still deep-clones the returned box, so replacing that clone with a retain is a legitimate allocation and performance cleanup—but no longer a leak fix.</p>
+      <p>The scaling gate is also a separate path: it counts clone calls while running the tokenizer through the interpreter. Changing compiled return emission cannot move that number.</p>
+      <div class="callout">
+        <p><strong>Roadmap correction:</strong> the clone-to-retain return cleanup remains useful, but the silent wrong answer now outranks it. Frontend scaling remains its own measured campaign.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>What happens next</h2>
+      <ol class="steps">
+        <li><strong>Fix the structural type error first.</strong> Trace where String evidence disappears, connect the minimum structural-HIR path needed to prevent it, and require interpreter, Stage-0 and native output to agree.</li>
+        <li><strong>Decompose frontend and build scaling.</strong> The old recursion wall was fixed; the remaining large-program wall is superlinear parse work and a sidecar deadline. Measure whether that and the tokenizer clone ratio are the same disease before choosing an optimization.</li>
+        <li><strong>Return to clone-to-retain only with a real performance result.</strong> Keep RSS flat, remove the deep clone, prove aliases and forwarded returns remain safe, and apply the same rule in both emitters.</li>
+        <li><strong>Give actor handles their own lifetime.</strong> Box references are non-atomic because boxes stay thread-local; actor handles cross threads and need a different, atomic construction.</li>
+        <li><strong>Recapture product evidence after authority changes.</strong> Web, CLI, iOS, Android and AppleTV checks are the final proof that the compiler work serves the applications rather than becoming the product.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>What not to claim</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>“The new front end is done.”</h3>
+          <p>No. Its generated components exist, and small cross-path comparisons are encouraging, but the structural HIR is not the authoritative program.</p>
+        </article>
+        <article class="card">
+          <h3>“The memory problem is solved.”</h3>
+          <p>No. The main web box leak is nearly flat, but actor tombstones and other registered lifetime work remain.</p>
+        </article>
+        <article class="card">
+          <h3>“More green gates means product-ready.”</h3>
+          <p>No. The 118/22/1 ledger is a compiler checkpoint. Product checks must be recaptured against the exact authority commit.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>The durable architecture</h2>
+      <p class="lead">The old reference page’s final destination remains right. The updated status is simply more honest about where the project now is.</p>
+      <pre><code>one source of syntax
++ one source of resolved meaning
++ explicit ownership in IR/runtime
++ two consumers that do not reinterpret the program
++ one runtime shared by interactive and native execution
++ product gates after every authority change
+=
+a stable, fast, actor-based immutable language for real applications</code></pre>
+      <p>The compiler is not the product. But it must be correct enough, fast enough, and internally singular enough that web, mobile, AppleTV and command-line developers can stop thinking about compiler lanes and return to writing Hey.</p>
+    </section>
+
+    <section>
+      <h2>Evidence and related pages</h2>
+      <ul>
+        <li>Source checkpoint: Hey <abbr class="ver" title="v0.99.530a">530a</abbr>, commit <code>94e04138</code>.</li>
+        <li>Primary handoff: <code>docs/agents/RESTART-HANDOFF-2026-08-19-r3-central-landed.md</code>.</li>
+        <li>Current orientation: <code>docs/agents/restructure/PROMPT.md</code>.</li>
+        <li>Ownership mechanism: <code>docs/agents/restructure/R3-CENTRAL-DESIGN.md</code> and <code>docs/agents/OWNERSHIP-DECISION-2026-08-15.md</code>.</li>
+        <li>Gate truth: <code>docs/agents/restructure/gate_status.tsv</code>.</li>
+        <li>Previous public checkpoint: <a href="2026-08-18-the-full-ladder.html">The full ladder — August 18</a>.</li>
+        <li>Standing language decisions: <a href="DECISIONS-what-you-have-decided.html">What you have decided</a>.</li>
+        <li>Historical architecture replaced by this file: same URL, revised in place on August 19.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <div class="page">
+      <p>Hey architecture reference · revised August 19, 2026. Short version labels such as <abbr class="ver" title="v0.99.530a">530a</abbr> expand to the full alpha version on hover.</p>
+      <p>This page separates <strong>landed</strong>, <strong>measured</strong>, and <strong>authoritative</strong>. A component can exist and pass focused tests without being allowed to decide what all Hey programs mean.</p>
     </div>
-  </section>
-
-  <section>
-    <h2>Current implementation snapshot</h2>
-    <div class="three-col">
-      <div class="card"><span class="status green">closed</span><h3>Owned escape census</h3><p><strong>260 / 260</strong> explicit owned reads. The context-aware scanner now distinguishes ordinary code, string bodies, heredoc text, interpolation payloads, and comments.</p></div>
-      <div class="card"><span class="status amber">in progress</span><h3>Local reader migration</h3><p><strong>153 scoped / 190 local</strong>; <strong>37</strong> compatibility reads remain. Field-snapshot clones can reach zero, but callable/environment/string overhead remains a performance red.</p></div>
-      <div class="card"><span class="status red">authority off</span><h3>Candidate lanes</h3><p>Interpreter, Stage-0, and REPL execute the candidate receipt. LLVM-direct and self-host application receipts are blocked on module closure; clean identity regeneration is still required after the cached-placeholder finding.</p></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Stage ownership and forbidden work</h2>
-    <table>
-      <tr><th>Stage</th><th>Owns</th><th class="forbidden">Must not</th></tr>
-      <tr><td>Source manager</td><td>File table, import graph, hashes, roots.</td><td class="forbidden">Parse expressions or decide bindings.</td></tr>
-      <tr><td>Tokenizer</td><td>Token boundaries, spelling, longest match, spans.</td><td class="forbidden">Decide unary vs binary forms, precedence, scopes, modules, or types.</td></tr>
-      <tr><td>Final syntax</td><td>Grouping, declared forms, precedence, associativity, statements, blocks, syntax errors.</td><td class="forbidden">Resolve names, infer runtime types, or reread source text.</td></tr>
-      <tr><td>Resolver</td><td>Bindings, scopes, exports/imports, aliases, exposure, concealment, re-exports, operator overrides.</td><td class="forbidden">Change tree shape, infer machine representation, or emit code.</td></tr>
-      <tr><td>HIR</td><td>Hey semantics, resolved operations, types, spans, complete application meaning.</td><td class="forbidden">Know LLVM instructions, C names, target layout, or raw operand source.</td></tr>
-      <tr><td>MIR</td><td>Reachable-body closure, machine representation, blocks, ownership, boxing, operation lowering.</td><td class="forbidden">Open source files, resolve imports, or parse operators.</td></tr>
-      <tr><td>LLVM emitter</td><td>Print MIR instructions and runtime calls as LLVM text.</td><td class="forbidden">Use numeric conversion as truthiness, infer source semantics, or find missing module bodies.</td></tr>
-      <tr><td>Runtime</td><td>Values, memory, actors, builtins, I/O, intrinsic and borrow ABI.</td><td class="forbidden">Know source syntax, imports, or parser forms.</td></tr>
-    </table>
-  </section>
-
-  <section>
-    <h2>Current contracts and blockers</h2>
-    <details open><summary><span>Module closure</span><span class="status red">primary identity blocker</span></summary><div class="body"><p>Resolution is not enough. The compiler must turn the resolved module graph into one complete application program containing each reachable imported body exactly once. LLVM-direct and self-host must consume that same complete MIR; neither may reread source to repair it.</p><pre>SOURCE UNITS + IMPORT GRAPH
-    → RESOLVED BINDINGS
-    → REACHABLE MODULE-BODY CLOSURE
-    → ONE APPLICATION HIR
-    → ONE APPLICATION MIR</pre></div></details>
-    <details open><summary><span>Truthiness</span><span class="status red">LLVM boxed condition defect</span></summary><div class="body"><p>Truthiness is a language operation, not numeric conversion. A boxed non-empty string must not become false because a numeric conversion routine applies <code>strtol</code>. Ordinary and borrowed values must share one truthiness primitive across every executable lane.</p></div></details>
-    <details><summary><span>Generated-node reads</span><span class="status amber">cutover active</span></summary><div class="body"><p>Exact compiler nodes store physical <code>n_</code> slots only. Reviewed logical introspection resolves through generated stable field IDs. Generic JSON lookup does not alias logical and physical names. Minimal self-host one-operand scoped borrowing now compiles through a cold self-rebuild; full lifetime parity is still pending.</p></div></details>
-    <details><summary><span>Evidence integrity</span><span class="status red">clean revalidation required</span></summary><div class="body"><p>Three lanes execute the candidate receipt, but cached reruns previously allowed a no-HIR placeholder to contaminate the digest. The repaired identity gate must exclude declared non-applicable rows from comparison while a separate correctness gate keeps the underlying unknown-field failure red.</p></div></details>
-  </section>
-
-  <section id="deep-diagrams">
-    <div class="deep-intro">
-      <div><h2>Deep architecture diagrams</h2><p class="lede">These preserve the useful shape of the original reference page. They are deliberately detailed: each arrow identifies the artifact crossing the boundary, and each diagram answers a different question.</p></div>
-      <div class="legend"><span class="status green">verified/existing</span><span class="status amber">candidate/partial</span><span class="status red">blocked/rebuild</span><span class="status blue">target/shared</span></div>
-    </div>
-
-    <details open>
-      <summary><span>Diagram A — the whole pipeline and operator projections</span><span class="status blue">source → executable</span></summary>
-      <div class="diagram-shell">
-        <div class="flow">
-          <div class="node green-node"><strong>Source units</strong><small>.hey files, roots, stable file IDs, import graph</small></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Tokenizer</strong><small>candidate tokens + spans</small></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Final syntax</strong><small>candidate grouped tree</small></div><div class="edge">→</div>
-          <div class="node red-node"><strong>Resolver + modules</strong><small>partial; body closure blocked</small></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Structural HIR</strong><small>target join point; legacy authority remains</small></div><div class="edge">→</div>
-          <div class="node red-node"><strong>Application MIR</strong><small>must contain reachable imported bodies</small></div><div class="edge">→</div>
-          <div class="node red-node"><strong>LLVM text</strong><small>boxed truthiness gap</small></div><div class="edge">→</div>
-          <div class="node green-node"><strong>Link + executable</strong><small>one runtime ABI</small></div>
-        </div>
-        <div class="runtime-bar">Runtime values · actors · builtins · I/O · generated-node ABI · scoped-borrow ABI</div>
-        <div class="subgraph" style="margin-top:14px">
-          <div class="subgraph-title">One operator source of truth, projected by stage</div>
-          <div class="flow">
-            <div class="node blue-node registry"><strong>Closed operator registry</strong><small>spelling, forms, precedence, meaning, lowering, failure behavior</small></div><div class="edge">→</div>
-            <div class="node amber-node generator"><strong>Host-side generator</strong><small>checked-in deterministic projections; no Hey bootstrap cycle</small></div><div class="edge">→</div>
-            <div class="node amber-node drift"><strong>Drift gate</strong><small>regenerate and diff</small></div>
-          </div>
-          <div class="projection-grid">
-            <div class="node"><strong>Tokenizer projection</strong><small>spelling · longest match</small></div>
-            <div class="node"><strong>Parser projection</strong><small>forms · precedence · associativity</small></div>
-            <div class="node"><strong>Resolver projection</strong><small>overridability · imported binding</small></div>
-            <div class="node"><strong>HIR projection</strong><small>semantic operation · short circuit</small></div>
-            <div class="node"><strong>MIR projection</strong><small>lowering · representation · fallback</small></div>
-            <div class="node"><strong>LLVM projection</strong><small>instruction · predicate · helper</small></div>
-          </div>
-        </div>
-        <p class="caption">Correction to the August 2 diagram: tokenizer, final-syntax, and registry foundations are no longer “missing.” They are candidate or partial and remain non-authoritative. The red work has moved to complete module closure, authoritative structural HIR/MIR, boxed truthiness, and clean five-lane evidence.</p>
-      </div>
-    </details>
-
-    <details open>
-      <summary><span>Diagram B — the front end, expanded</span><span class="status amber">ownership boundaries</span></summary>
-      <div class="diagram-shell">
-        <div class="flow">
-          <div class="node green-node"><strong>Source manager</strong><small><b>Owns:</b> files, roots, hashes, import graph.<br><b>Emits:</b> bytes + stable file IDs.</small></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Tokenizer</strong><small><b>Owns:</b> characters, literals, heredocs, interpolation boundaries, token spans, longest match.<br><b>Never:</b> precedence or minus arity.</small></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Final-syntax parser</strong><small><b>Owns:</b> grammar context, prefix/infix choice, precedence, associativity, blocks, syntax errors.<br><b>Never:</b> name meaning.</small></div><div class="edge">→</div>
-          <div class="node red-node"><strong>Resolver + module graph</strong><small><b>Owns:</b> bindings, lexical scopes, imports/exports, aliases, exposures, conceals, re-exports, operator overrides.<br><b>Current gap:</b> application body closure.</small></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Structural HIR</strong><small><b>Owns:</b> resolved Hey meaning and types.<br><b>Never:</b> target instructions or source rescanning.</small></div>
-        </div>
-        <div class="flow" style="margin-top:12px">
-          <span class="artifact-edge">bytes + file IDs</span><span class="artifact-edge">tokens + spans</span><span class="artifact-edge">final syntax tree</span><span class="artifact-edge">binding IDs + complete module program</span><span class="artifact-edge">semantic HIR unit</span>
-        </div>
-        <p class="caption">The tokenizer always emits one minus token. The parser decides prefix versus infix from grammar position. Imports supply bindings and bodies; they never alter parser shape or precedence.</p>
-      </div>
-    </details>
-
-    <details open>
-      <summary><span>Diagram C — one front end, HIR join, two consumers</span><span class="status blue">interpreter + compiler</span></summary>
-      <div class="diagram-shell center-stack">
-        <div class="two-col">
-          <div class="node blue-node"><strong>REPL / typed entry</strong><small>resolved as a delta against persistent session scope</small></div>
-          <div class="node green-node"><strong>Source file / application</strong><small>resolved against package and application module graph</small></div>
-        </div>
-        <div class="junction">↓ shared front end ↓</div>
-        <div class="flow">
-          <div class="node amber-node"><strong>Tokenizer</strong></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Final syntax</strong></div><div class="edge">→</div>
-          <div class="node red-node"><strong>Resolver + closure</strong></div><div class="edge">→</div>
-          <div class="node amber-node"><strong>Structural HIR</strong><small>the join and fork</small></div>
-        </div>
-        <div class="split-arrow"><span></span><span></span></div>
-        <div class="two-col">
-          <div class="subgraph">
-            <div class="subgraph-title">Consumer A — interactive</div>
-            <div class="flow vertical">
-              <div class="node red-node"><strong>Shared HIR walker</strong><small>target replacement for the interpreter's private parser/evaluator path</small></div>
-              <div class="edge down">→</div>
-              <div class="node green-node"><strong>Runtime</strong><small>same values and builtins</small></div>
-            </div>
-          </div>
-          <div class="subgraph">
-            <div class="subgraph-title">Consumer B — compiled</div>
-            <div class="flow vertical">
-              <div class="node red-node"><strong>Application MIR</strong><small>complete reachable program</small></div>
-              <div class="edge down">→</div>
-              <div class="node red-node"><strong>LLVM text</strong><small>mechanical emission</small></div>
-              <div class="edge down">→</div>
-              <div class="node green-node"><strong>Link + runtime</strong><small>native executable</small></div>
-            </div>
-          </div>
-        </div>
-        <p class="caption">The target still matches the original architecture: both consumers share tokenizer, syntax, resolver, and HIR. They part company only after HIR. Today the REPL can execute the candidate receipt, but it is not yet the shared HIR walker shown here.</p>
-      </div>
-    </details>
-
-    <details open>
-      <summary><span>Diagram D — operator registry, generated projections, and semantic ownership</span><span class="status blue">one decision point</span></summary>
-      <div class="diagram-shell">
-        <div class="three-col">
-          <div class="node blue-node registry"><strong>Normative operator registry</strong><small>Closed public surface. Every semantic decision originates here.</small></div>
-          <div class="node amber-node generator"><strong>Host generator</strong><small>Runs outside the Hey bootstrap. Produces checked-in stage projections.</small></div>
-          <div class="node amber-node drift"><strong>Drift + mutation gates</strong><small>Regenerate, compare, and prove divergence is caught.</small></div>
-        </div>
-        <div class="projection-grid">
-          <div class="node"><strong>Tokenizer</strong><small>Consumes spelling and longest match.<br><b>Decides only:</b> token boundaries.</small></div>
-          <div class="node"><strong>Parser</strong><small>Consumes forms, precedence, associativity.<br><b>Decides:</b> which form applies here.</small></div>
-          <div class="node"><strong>Resolver</strong><small>Consumes overridability/import facts.<br><b>Decides:</b> which binding the symbol denotes.</small></div>
-          <div class="node"><strong>HIR</strong><small>Consumes semantic operation and result rules.<br><b>Decides:</b> semantic control shape.</small></div>
-          <div class="node"><strong>MIR</strong><small>Consumes lowering and representation policy.<br><b>Decides:</b> blocks, temporaries, boxing.</small></div>
-          <div class="node red-node"><strong>LLVM</strong><small>Consumes instruction/predicate/helper.<br><b>Decides no source semantics.</b> Truthiness must be a runtime/language primitive, not numeric conversion.</small></div>
-        </div>
-        <p class="caption">Correction to the old “21 rows, 16 columns” label: the operator surface was subsequently closed and expanded. The architecture is the durable fact; an exact row/column count belongs in generated registry receipts, not in a long-lived architecture diagram.</p>
-      </div>
-    </details>
-
-    <details open>
-      <summary><span>Diagram E — transition: multiple legacy paths collapse into one pathway</span><span class="status red">deletions happen last</span></summary>
-      <div class="diagram-shell">
-        <div class="two-col">
-          <div class="subgraph">
-            <div class="subgraph-title">Transitional reality</div>
-            <div class="flow vertical">
-              <div class="node amber-node"><strong>Legacy parser / HIR authority</strong><small>still ships and remains the fallback reference in important paths</small></div>
-              <div class="edge down">→</div>
-              <div class="node red-node"><strong>Partially structural MIR + multiple emitters</strong><small>application body closure incomplete; old and new semantics still coexist</small></div>
-              <div class="edge down">→</div>
-              <div class="node red-node"><strong>Independent interpreter path</strong><small>candidate receipt exists, shared HIR consumer not cut over</small></div>
-              <div class="edge down">→</div>
-              <div class="node green-node"><strong>Stable runtime and linker</strong></div>
-            </div>
-          </div>
-          <div class="subgraph">
-            <div class="subgraph-title">Target</div>
-            <div class="flow vertical">
-              <div class="node blue-node"><strong>One tokenizer → syntax → resolver</strong></div>
-              <div class="edge down">→</div>
-              <div class="node blue-node"><strong>One structural HIR</strong><small>shared semantic program</small></div>
-              <div class="edge down">→</div>
-              <div class="two-col">
-                <div class="node blue-node"><strong>HIR walker</strong><small>REPL/interpreter</small></div>
-                <div class="node blue-node"><strong>MIR → LLVM</strong><small>compiled application</small></div>
-              </div>
-              <div class="edge down">→</div>
-              <div class="node green-node"><strong>One runtime</strong></div>
-            </div>
-          </div>
-        </div>
-        <div class="notice warning"><strong>Delete only after authority:</strong> native fallback emitters, emit-C semantic duplication, compatibility readers, redundant build modes, and private parser/evaluator logic remain until clean five-lane identity and product gates prove the replacement.</div>
-      </div>
-    </details>
-
-    <details>
-      <summary><span>Diagram F — evidence shape: what runs today versus what authority requires</span><span class="status red">receipts must be clean</span></summary>
-      <div class="diagram-shell">
-        <div class="two-col">
-          <div class="subgraph">
-            <div class="subgraph-title">Current candidate execution</div>
-            <div class="lane-row"><strong>Interpreter</strong><div class="mini-track"><div class="mini-fill" style="width:100%"></div></div><span class="status green">executes</span></div>
-            <div class="lane-row"><strong>Stage-0</strong><div class="mini-track"><div class="mini-fill" style="width:100%"></div></div><span class="status green">executes</span></div>
-            <div class="lane-row"><strong>REPL</strong><div class="mini-track"><div class="mini-fill" style="width:100%"></div></div><span class="status green">executes</span></div>
-            <div class="lane-row"><strong>LLVM-direct</strong><div class="mini-track"><div class="mini-fill" style="width:35%"></div></div><span class="status red">module closure</span></div>
-            <div class="lane-row"><strong>Self-host</strong><div class="mini-track"><div class="mini-fill" style="width:50%"></div></div><span class="status amber">minimal borrow green</span></div>
-          </div>
-          <div class="subgraph">
-            <div class="subgraph-title">Authority receipt</div>
-            <div class="flow vertical">
-              <div class="node blue-node"><strong>Fresh source + fresh artifacts</strong><small>no stale self-host binary; no cached placeholder HIR</small></div>
-              <div class="edge down">→</div>
-              <div class="node blue-node"><strong>Complete module application</strong><small>same HIR/MIR content available to every lane</small></div>
-              <div class="edge down">→</div>
-              <div class="node blue-node"><strong>Five executable lanes</strong><small>candidate, tokens, structural HIR, diagnostics, environment isolation</small></div>
-              <div class="edge down">→</div>
-              <div class="node green-node"><strong>Authority eligible</strong><small>only after reader cutover and product gates also pass</small></div>
-            </div>
-          </div>
-        </div>
-        <p class="caption">The safe current wording is “three lanes execute the candidate receipt.” Clean cross-lane identity must be regenerated after fixing cached-placeholder accounting; agreement on the same placeholder is not semantic identity.</p>
-      </div>
-    </details>
-  </section>
-
-  <section>
-    <h2>Corrections carried forward from the original diagrams</h2>
-    <ul class="corrections">
-      <li>Unary versus binary <code>-</code> is a parser decision from grammar context. The tokenizer emits one minus token.</li>
-      <li>Tokenizer, final syntax, and operator-registry foundations are no longer “missing”; they are candidate or partial and are not authoritative.</li>
-      <li>The self-host compiler can lower a minimal one-operand scoped read through a cold self-rebuild. Its application receipt is blocked elsewhere: imported module bodies are absent from the completed application program.</li>
-      <li>The local-reader denominator is 190, not 194; 153 are scoped and 37 remain compatible. Owned escapes are 260 of 260 explicit.</li>
-      <li>Three lanes execute the candidate receipt, but clean identity evidence must be regenerated after the cached-placeholder HIR defect.</li>
-      <li>The exact operator row/column count is not frozen into this architecture page. The normative generated registry and its drift receipts own that number.</li>
-    </ul>
-  </section>
-
-  <section>
-    <h2>Reference links</h2>
-    <table>
-      <tr><th>Concern</th><th>Reference</th></tr>
-      <tr><td>Dated compiler + ladder status</td><td><a href="2026-08-05-compiler-shape-and-full-ladder.html">Compiler shape and full ladder — August 5</a></td></tr>
-      <tr><td>Settled language decisions</td><td><a href="DECISIONS-what-you-have-decided.html">What you have decided</a></td></tr>
-      <tr><td>Migration order</td><td><a href="PLAN-hey-restructure.html">Restructure plan</a></td></tr>
-      <tr><td>Evidence and rejected alternatives</td><td><a href="REVIEW-restructure-plan.html">Review</a></td></tr>
-    </table>
-  </section>
-
-  <p class="source">Target responsibilities are normative. Colored implementation states and counts are a dated 5 August 2026 snapshot and should be updated without changing the stage boundaries.</p>
-</main>
-<footer><p>Reference page for the Hey restructure. The quick blocks answer “where is the problem?” The deep diagrams answer “what crosses the boundary, who owns the decision, and what must eventually disappear?”</p></footer>
+  </footer>
 </body>
 </html>
