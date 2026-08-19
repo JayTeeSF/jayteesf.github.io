@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A cross-function array-read optimization shipped, passed every fast test, and broke the full self-host build. The prevailing theory — a miscompilation that only appears at module scale — was wrong: a sanitizer ran clean and the bug survived with every optimization off. The real cause was fifteen lines. A value that prints the word 'true' was stored as that text, then read back as a yes/no flag, where 'true' parsed to zero — false. A two-guard fix restored the optimization with the self-host build green. Plus: arrays now tie C, the string wall fell, and one wall the last daily left open is down.">
+  <meta name="article-date" content="2026-08-18">
+  <meta name="article-bucket" content="daily">
+  <meta name="article-desc" content="A cross-function array-read optimization shipped, passed every fast test, and broke the full self-host build. The prevailing theory — a miscompilation that only appears at module scale — was wrong: a sanitizer ran clean and the bug survived with every optimization off. The real cause was fifteen lines. A value that prints the word 'true' was stored as that text, then read back as a yes/no flag, where 'true' parsed to zero — false. A two-guard fix restored the optimization with the self-host build green. Plus: arrays now tie C, the string wall fell, and one wall the last daily left open is down.">
+  <meta name="article-index-title" content="It printed true. It arrived zero.">
+  <meta name="article-index-desc" content="An array-read optimization shipped, passed every fast test, and broke the full self-host build. The prevailing diagnosis — a miscompilation that only shows up at whole-module scale — was falsified: a sanitizer ran the failing build completely clean, and the bug still reproduced with every optimization switched off. It was not scale and not memory. It was a value that prints as the word 'true' being stored as that literal text, then read back across a function call as a yes/no flag, where the text 'true' coerced to zero — false — and quietly waved a wrong optimization through. A two-guard fix restored the win with the self-host build green. Underneath: arrays now tie C on streaming shapes, the string workload that used to never finish now runs linear, and the mutual-recursion wall the last daily left open is down.">
+  <title>Printed True, Arrived Zero</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #171717;
+      --muted: #666666;
+      --line: #d9d9d9;
+      --panel: #f6f7f8;
+      --code-bg: #111827;
+      --code-fg: #f9fafb;
+      --green: #0f7b4b;
+      --green-bg: #e8f5ee;
+      --amber: #9a6700;
+      --amber-bg: #fff4cf;
+      --red: #b42318;
+      --red-bg: #fdecea;
+      --gray: #5f6368;
+      --gray-bg: #eceff1;
+      --blue: #2457a7;
+      --blue-bg: #eaf1fb;
+      --link: #1b5dbf;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111315;
+        --fg: #f2f3f4;
+        --muted: #b8bdc3;
+        --line: #3a4047;
+        --panel: #1b1f23;
+        --code-bg: #090b0d;
+        --code-fg: #f5f7fa;
+        --green: #83d9ad;
+        --green-bg: #153729;
+        --amber: #ffd36a;
+        --amber-bg: #3d3114;
+        --red: #ff9b92;
+        --red-bg: #48211e;
+        --gray: #c4c9ce;
+        --gray-bg: #292e33;
+        --blue: #9ec1ff;
+        --blue-bg: #1e304d;
+        --link: #9ec1ff;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111315; --fg: #f2f3f4; --muted: #b8bdc3; --line: #3a4047;
+      --panel: #1b1f23; --code-bg: #090b0d; --code-fg: #f5f7fa;
+      --green: #83d9ad; --green-bg: #153729; --amber: #ffd36a; --amber-bg: #3d3114;
+      --red: #ff9b92; --red-bg: #48211e; --gray: #c4c9ce; --gray-bg: #292e33;
+      --blue: #9ec1ff; --blue-bg: #1e304d; --link: #9ec1ff;
+    }
+    :root[data-theme="light"] {
+      --bg: #ffffff; --fg: #171717; --muted: #666666; --line: #d9d9d9;
+      --panel: #f6f7f8; --code-bg: #111827; --code-fg: #f9fafb;
+      --green: #0f7b4b; --green-bg: #e8f5ee; --amber: #9a6700; --amber-bg: #fff4cf;
+      --red: #b42318; --red-bg: #fdecea; --gray: #5f6368; --gray-bg: #eceff1;
+      --blue: #2457a7; --blue-bg: #eaf1fb; --link: #1b5dbf;
+    }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 18px/1.62 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 880px; margin: 0 auto; padding: 48px 22px 90px; }
+    h1 { font-size: clamp(2.1rem, 6.4vw, 4.1rem); line-height: 1.0; letter-spacing: -0.045em; margin: 0 0 16px; }
+    h2 { margin-top: 3.2rem; font-size: 1.75rem; line-height: 1.16; letter-spacing: -0.02em; }
+    h3 { margin-top: 2rem; font-size: 1.12rem; line-height: 1.25; }
+    p { margin: 1rem 0; }
+    a { color: var(--link); }
+    .kicker { font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; }
+    .dek { font-size: 1.25rem; color: var(--muted); max-width: 760px; }
+    .tldr { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px 24px; margin: 28px 0 24px; }
+    .tldr h2 { margin: 0 0 .7rem; font-size: 1.2rem; }
+    .tldr li { margin: .65rem 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 18px 20px; overflow-x: auto; border-radius: 12px; line-height: 1.45; }
+    pre code { font-size: .9rem; }
+    .figure-scroll { overflow-x: auto; margin: 24px 0 8px; padding-bottom: 6px; }
+    figure { margin: 0; min-width: 760px; }
+    figcaption { margin-top: 10px; color: var(--muted); font-size: .9rem; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0 8px; font-size: .85rem; color: var(--muted); }
+    .dot { width: .75rem; height: .75rem; border-radius: 50%; display: inline-block; margin-right: .35rem; vertical-align: -.05rem; }
+    .green { background: #0f7b4b; } .amber { background: #d18b00; } .red { background: #b42318; } .gray { background: #7a7f85; }
+    .tbl-scroll { overflow-x: auto; margin: 20px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 0; font-size: .93rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { font-size: .82rem; text-transform: uppercase; letter-spacing: .045em; color: var(--muted); }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .callout { border-left: 4px solid var(--amber); background: var(--amber-bg); padding: 12px 18px; margin: 24px 0; }
+    .good { border-left-color: var(--green); background: var(--green-bg); }
+    .bad { border-left-color: var(--red); background: var(--red-bg); }
+    .status { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; white-space: nowrap; }
+    .s-moved { color: var(--green); } .s-hold { color: var(--gray); } .s-blocked { color: var(--red); }
+    .retraction { border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 0 12px 12px 0; padding: 4px 20px 14px; margin: 22px 0; background: var(--red-bg); }
+    .retraction h3 { margin-top: 1.1rem; }
+    .glossary dt { font-weight: 700; margin-top: .9rem; }
+    .glossary dd { margin: .2rem 0 0; color: var(--muted); }
+    .tag-new { font-size: .68rem; letter-spacing: .08em; font-weight: 700; color: var(--blue); background: var(--blue-bg); border-radius: 4px; padding: .1rem .35rem; vertical-align: .1rem; margin-left: .4rem; }
+    .evidence { font-size: .88rem; color: var(--muted); border-top: 1px solid var(--line); margin-top: 3rem; padding-top: 1rem; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); }
+    .gloss { color: var(--link); text-decoration: none; border-bottom: 1px dotted var(--link); cursor: help; }
+    .pop { position: absolute; z-index: 20; max-width: 320px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; font-size: .86rem; line-height: 1.45; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+    @media (max-width: 700px) {
+      main { padding: 30px 16px 70px; }
+      body { font-size: 17px; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="kicker">Hey · daily · August 18, 2026</div>
+  <h1>Printed True, Arrived Zero</h1>
+  <p class="dek">An optimization shipped, passed every fast test, and broke the compiler's own build. The theory that explained it was wrong. The real bug was fifteen lines: a value that prints the word <em>true</em> arrived at a function as zero.</p>
+
+  <section class="tldr" aria-labelledby="tldr-title">
+    <h2 id="tldr-title">TL;DR</h2>
+    <ul>
+      <li><strong>An array-read optimization that broke the compiler's own build is back, and the build is green.</strong> It shipped on at version <abbr class="ver" title="v0.99.526a">526a</abbr>, passed the fast test tier, and broke the full self-host build. It was honestly withdrawn at <abbr class="ver" title="v0.99.527a">527a</abbr>, root-caused, and restored at <abbr class="ver" title="v0.99.528a">528a</abbr> with the whole build passing. All of this is <strong>landed</strong> — committed and through the battery. <strong>Nothing is deployed</strong>; this checkout has no remote.</li>
+      <li><strong>The real cause was a yes/no flag stored as text.</strong> A value that <em>prints</em> as the word <code>true</code> was read back across a function call as <strong>0: false</strong>, and that single wrong "false" waved a wrong optimization through. The fix is two guards; a flag stays a flag.</li>
+      <li><strong>The payoff the win was blocking now stands: arrays tie C.</strong> Re-measured on this machine, streaming shapes finish at <strong>1.09x C on sum</strong> and <strong>1.08x on search</strong> over 100 million elements, and every one of eight workloads finishes. Full table below.</li>
+      <li><strong>Correction, at claim volume: the "scale-only miscompilation" theory was wrong.</strong> It was stated across two handoffs. A memory sanitizer ran the failing build clean and the bug survived with every optimization off — so it was neither scale nor memory, but a plain logic bug.</li>
+      <li><strong>Disclosed weakness: strings are still slow, and not every wall fell.</strong> The string workload lands about <strong>4.5x C and a hair behind Ruby</strong> — a constant factor, no longer a program that never finishes. The parse-deadline wall from the last daily still stands, and a separate check was already red before this work and stays red.</li>
+      <li><strong>Falsifiability:</strong> a string-array call site now emits <code>row:Value</code>, a real integer-array site still emits <code>row:Int</code>, and a new regression gate asserts the flag round-trips to <code>true</code>. Revert either guard and the gate goes red.</li>
+    </ul>
+  </section>
+
+  <div class="figure-scroll">
+    <figure aria-labelledby="arc-title arc-caption">
+      <svg viewBox="0 0 920 470" width="920" height="470" role="img" aria-labelledby="arc-title arc-desc">
+        <title id="arc-title">Passing the fast tests is not being deploy-ready.</title>
+        <desc id="arc-desc">Three releases, each rated on three things: whether the array-read optimization is on, whether the fast test tier passes, and whether the full self-host build passes. At version 526a the optimization is on and the fast tests pass, but the full self-host build is broken. At 527a the optimization is switched off; the fast tests pass and the full build is green, but the speed win is gone. At 528a the optimization is back on, the fast tests pass, and the full build is green. The fast-tests column is green on all three releases, which is exactly why passing it did not catch the broken build at 526a.</desc>
+        <style>
+          .card2 { fill: #ffffff; stroke: #d9d9d9; stroke-width: 1.5; }
+          .hd2 { font: 700 21px system-ui, sans-serif; fill: #17202a; }
+          .ps2 { font: 13px system-ui, sans-serif; fill: #3f4852; }
+          .colh { font: 700 12px system-ui, sans-serif; fill: #3f4852; letter-spacing: .02em; }
+          .ver2 { font: 700 20px ui-monospace, Menlo, monospace; fill: #17202a; }
+          .vsub { font: 12.5px system-ui, sans-serif; fill: #3f4852; }
+          .cellt { font: 700 15px system-ui, sans-serif; }
+          .note2 { font: 13px system-ui, sans-serif; fill: #3f4852; }
+        </style>
+
+        <rect x="1" y="1" width="918" height="468" rx="14" ry="14" class="card2"/>
+        <text x="460" y="38" text-anchor="middle" class="hd2">One optimization, three releases</text>
+        <text x="460" y="60" text-anchor="middle" class="ps2">Green on the fast tests did not mean the compiler could still build itself.</text>
+
+        <!-- column headers -->
+        <text x="105" y="94" text-anchor="middle" class="colh">RELEASE</text>
+        <text x="300" y="94" text-anchor="middle" class="colh">ARRAY READ WIN</text>
+        <text x="505" y="94" text-anchor="middle" class="colh">FAST TESTS</text>
+        <text x="748" y="94" text-anchor="middle" class="colh">FULL SELF-HOST BUILD</text>
+
+        <!-- Row 526a -->
+        <text x="30" y="150" class="ver2">526a</text>
+        <text x="30" y="170" class="vsub">shipped it on</text>
+        <rect x="195" y="126" width="210" height="46" rx="10" ry="10" fill="#eceff1" stroke="#7a7f85" stroke-width="1.5"/>
+        <text x="300" y="155" text-anchor="middle" class="cellt" fill="#37414a">ON</text>
+        <rect x="420" y="126" width="170" height="46" rx="10" ry="10" fill="#e8f5ee" stroke="#0f7b4b" stroke-width="2"/>
+        <text x="505" y="155" text-anchor="middle" class="cellt" fill="#0f7b4b">PASS</text>
+        <rect x="605" y="126" width="285" height="46" rx="10" ry="10" fill="#fdecea" stroke="#b42318" stroke-width="2"/>
+        <text x="747" y="155" text-anchor="middle" class="cellt" fill="#b42318">BROKE (exit 70)</text>
+
+        <!-- Row 527a -->
+        <text x="30" y="236" class="ver2">527a</text>
+        <text x="30" y="256" class="vsub">honest retreat</text>
+        <rect x="195" y="212" width="210" height="46" rx="10" ry="10" fill="#eceff1" stroke="#7a7f85" stroke-width="1.5"/>
+        <text x="300" y="241" text-anchor="middle" class="cellt" fill="#37414a">OFF · win lost</text>
+        <rect x="420" y="212" width="170" height="46" rx="10" ry="10" fill="#e8f5ee" stroke="#0f7b4b" stroke-width="2"/>
+        <text x="505" y="241" text-anchor="middle" class="cellt" fill="#0f7b4b">PASS</text>
+        <rect x="605" y="212" width="285" height="46" rx="10" ry="10" fill="#e8f5ee" stroke="#0f7b4b" stroke-width="2"/>
+        <text x="747" y="241" text-anchor="middle" class="cellt" fill="#0f7b4b">GREEN</text>
+
+        <!-- Row 528a -->
+        <text x="30" y="322" class="ver2">528a</text>
+        <text x="30" y="342" class="vsub">root-caused, restored</text>
+        <rect x="195" y="298" width="210" height="46" rx="10" ry="10" fill="#e8f5ee" stroke="#0f7b4b" stroke-width="2"/>
+        <text x="300" y="327" text-anchor="middle" class="cellt" fill="#0f7b4b">ON</text>
+        <rect x="420" y="298" width="170" height="46" rx="10" ry="10" fill="#e8f5ee" stroke="#0f7b4b" stroke-width="2"/>
+        <text x="505" y="327" text-anchor="middle" class="cellt" fill="#0f7b4b">PASS</text>
+        <rect x="605" y="298" width="285" height="46" rx="10" ry="10" fill="#e8f5ee" stroke="#0f7b4b" stroke-width="2"/>
+        <text x="747" y="327" text-anchor="middle" class="cellt" fill="#0f7b4b">GREEN</text>
+
+        <line x1="30" y1="374" x2="890" y2="374" stroke="#d9d9d9" stroke-width="1"/>
+        <text x="30" y="404" class="note2">The fast tests were green on every row. The self-host build — the compiler compiling its own ~4,000-line pipeline — is the</text>
+        <text x="30" y="424" class="note2">column that told the truth. Deploy-ready is the whole build passing, not the fast tier passing.</text>
+      </svg>
+      <div class="legend"><span><span class="dot green"></span>passing / on and correct</span><span><span class="dot gray"></span>optimization off</span><span><span class="dot red"></span>broken build</span></div>
+      <figcaption id="arc-caption">Measured 18 August on this machine (Apple M3 Pro, macOS) across versions <abbr class="ver" title="v0.99.526a">526a</abbr>–<abbr class="ver" title="v0.99.528a">528a</abbr>. "Exit 70" is the real failure code the broken self-host build returned. The fast test tier and the full <code>make all</code> self-host build are two different gates; only the second one caught this.</figcaption>
+    </figure>
+  </div>
+
+  <h2>The win that passed the tests and broke the build</h2>
+  <p>Start with the good idea. When a Hey program writes <code>arr[i]</code> inside a function, the compiler normally reads that element cautiously, as a value of unknown type. But if it can prove — by inspecting every call site — that every caller hands in an array of plain machine integers, it can read the element as a raw integer and skip the caution. That is the <a class="gloss" href="#gl-cross-function" data-def="An optimization decided by looking across function call sites, not just inside one function — here, proving every caller passes an integer array.">cross-function read optimization</a> at the center of this story, and real speed on the array workloads below.</p>
+
+  <p>It shipped on at <abbr class="ver" title="v0.99.526a">526a</abbr>. It passed the fast test tier — the quick battery that runs on every change — and it passed the compiler-level checks. Then it broke the full self-host build.</p>
+
+  <p>Those are two different gates, and the difference is the whole lesson. The <a class="gloss" href="#gl-self-host" data-def="A build in which the compiler compiles its own ~4,000-line pipeline, including a copy of its own standard library, and the result must run.">self-host build</a> is the compiler compiling its own roughly four-thousand-line pipeline — a copy of its own internals — after which that fresh compiler must work. On this run it did not: it mis-typed one boxed string-array element as an integer, a length call on it could not be lowered, and the build fell onto a legacy path and died with exit code 70. Deploy-ready is that whole build passing, and 526a is the proof it differs from the fast tier — green on the quick battery, unable to build itself.</p>
+
+  <h2>The honest retreat</h2>
+  <p>The fix at <abbr class="ver" title="v0.99.527a">527a</abbr> was not to paper over the broken build. It withdrew the optimization while keeping every piece of the machinery that decides when to apply it: a single named switch flipped to <em>off</em>, so the call-site proof still runs but never fires the fast read. The self-host build went green again, and the version bump documents the lost speed win rather than hiding it.</p>
+
+  <h2>The theory that was wrong</h2>
+  <p>The prevailing diagnosis, in two separate handoff notes, was a <em>scale-only miscompilation</em>: every helper was correct tested on its own, and wrong only when assembled into the full module — a resource counter, a string-constant table, a temporary, or a label that collided once the program got big enough.</p>
+
+  <p>That guess has a shape: the bug lives at scale, or in memory. So the test attacked that shape. A <a class="gloss" href="#gl-sanitizer" data-def="An instrumented build that watches a running program for memory errors — reads past the end of a buffer, use of freed memory, overflow — and reports the exact site.">memory sanitizer</a> was compiled into the seed compiler and into the pipeline it emits, so the failing configuration ran under a watcher for out-of-bounds reads, use-after-free, and overflow. It ran completely clean — and the bug still reproduced with every optimization off.</p>
+
+  <p>That pair falsifies both theories at once: clean under the sanitizer means it is not memory corruption, and still wrong with the optimizer disabled means it is not an optimizer bug. What is left is the boring kind — <em>valid</em> machine code that computes the <em>wrong answer</em>.</p>
+
+  <div class="retraction">
+    <h3>Retraction — the "scale-only miscompilation" theory</h3>
+    <p>Two handoffs stated that the failure was a miscompilation that only manifests at whole-module scale, likely a counter or table collision. That was wrong. The bug has a fifteen-line reproduction with no scale involved, survives with every optimization off, and leaves a memory sanitizer completely silent. It was never about scale and never about memory. It wore a "scale-only" disguise for two releases only because of the narrow path that triggered it, described next.</p>
+  </div>
+
+  <h2>The reveal: a value that prints true, and arrives zero</h2>
+  <p>The root cause is small enough to hold in your head. In the call-site proof, a yes/no flag arrives as a parameter and is copied into a local — the ordinary <code>let cur = seen</code>. The part of the compiler that decides how to <em>display</em> a value classified <code>cur</code> as a string, on purpose: a yes/no flag prints as the text <code>true</code> or <code>false</code>, so for display, treating it as a string is convenient.</p>
+
+  <p>Convenient for display, wrong for everything else. That classification bled into storage: when the function packed its answer into a small record — <code>{seen: cur, ok: ok}</code> — the flag was stored down the <em>string</em> path, as the literal text <code>"true"</code>. A caller then read that field back and passed it where a yes/no flag was expected. To turn text into a flag, the runtime parses it as a number; <code>"true"</code> is not a number, so the parse returned <strong>0</strong> — which, read as a flag, is <strong>false</strong>.</p>
+
+  <p>So a value that every human eye would read as <em>true</em> travelled across a function boundary and came out as <em>false</em>. That is the whole bug, and the rule worth carrying is this: <strong>a value that prints as "true" can arrive as 0 whenever it is stored as the text of its name and later read back as a number.</strong> The print is a rendering; the storage is the truth; here the rendering had quietly become the storage.</p>
+
+  <p>It only ever surfaced through the array optimization because that was the one place threading a record of two yes/no flags back out and reusing those fields as flag arguments. The proof deciding whether a call site is "all integer arrays" returns a <code>{seen, ok}</code> record; one field came back a wrong <em>false</em>, so the proof waved through a call site it should have refused — one passing an array of strings — and the fast integer read was emitted over string data. Every isolated copy of the helper looked correct because nothing else ran a two-flag record through that round trip: the trigger was rare, not large, which is exactly why it looked like scale.</p>
+
+  <div class="callout good"><strong>The fix is two guards.</strong> Where the compiler decides to treat a local as a string, it now also asks whether that local is really a yes/no flag — and if it is, leaves it a flag. Two lines, in the two places that made the classification, matching an idiom already used elsewhere in the same file. Then the optimization's switch was flipped back on. The full self-host build is green with the win firing.</div>
+
+  <h2>The payoff: arrays tie C, and the string wall fell</h2>
+  <p>With the optimization restored, the array campaign stands on its own numbers. Re-measured here at <abbr class="ver" title="v0.99.528a">528a</abbr>, best of three, every output checked byte-for-byte against a C reference before timing.</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Workload</th><th class="num">C</th><th class="num">Hey <abbr class="ver" title="v0.99.528a">528a</abbr></th><th class="num">Ruby+YJIT</th><th class="num">Python</th><th class="num">Hey / C</th></tr></thead>
+    <tbody>
+      <tr><td>sum / reduce (100M)</td><td class="num">0.11</td><td class="num">0.12</td><td class="num">1.99</td><td class="num">10.46</td><td class="num">1.09x</td></tr>
+      <tr><td>search (100M)</td><td class="num">0.12</td><td class="num">0.13</td><td class="num">2.00</td><td class="num">10.72</td><td class="num">1.08x</td></tr>
+      <tr><td>histogram (100M)</td><td class="num">0.09</td><td class="num">0.14</td><td class="num">2.69</td><td class="num">12.00</td><td class="num">1.56x</td></tr>
+      <tr><td>append (50M)</td><td class="num">0.12</td><td class="num">0.20</td><td class="num">1.93</td><td class="num">6.08</td><td class="num">1.67x</td></tr>
+      <tr><td>transform (50M)</td><td class="num">0.13</td><td class="num">0.27</td><td class="num">3.38</td><td class="num">11.63</td><td class="num">2.08x</td></tr>
+      <tr><td>fannkuch(11)</td><td class="num">1.68</td><td class="num">4.28</td><td class="num">27.50</td><td class="num">45.09</td><td class="num">2.55x</td></tr>
+      <tr><td>string scan (10M)</td><td class="num">0.45</td><td class="num">2.09</td><td class="num">1.46</td><td class="num">1.71</td><td class="num">4.6x</td></tr>
+      <tr><td>mixed int+str (10M)</td><td class="num">0.45</td><td class="num">2.03</td><td class="num">1.26</td><td class="num">2.22</td><td class="num">4.5x</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>All eight finish. The numeric shapes tie C on streaming — <strong>1.09x on sum, 1.08x on search</strong> over 100 million elements — and beat Ruby by roughly ten to nineteen times on the array shapes (append about 10x, histogram 19.2x). The deeper write-up is the companion article, <a href="../articles/hey-arrays-tie-c.html">Hey's arrays now tie C on numbers, and the string wall just fell</a>.</p>
+
+  <p>The two string rows are the honest part. Before the append mechanism landed, those workloads <em>did not finish</em> at ten million elements — appending to a boxed string copied the whole backing store each time, a quadratic build already ~38 seconds at a hundred thousand. That wall fell at <abbr class="ver" title="v0.99.526a">526a</abbr>, where an <a class="gloss" href="#gl-amortized" data-def="A cost that averages out cheap across many operations even if one occasional operation is expensive — here, append that only rarely has to grow the backing store.">amortized</a> append replaced it; a size sweep here confirms it linear:</p>
+
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th class="num">String elements</th><th class="num">Time</th><th>Shape</th></tr></thead>
+    <tbody>
+      <tr><td class="num">100k</td><td class="num">0.02 s</td><td>baseline</td></tr>
+      <tr><td class="num">1M</td><td class="num">0.21 s</td><td>10x data, ~10x time</td></tr>
+      <tr><td class="num">10M</td><td class="num">2.07 s</td><td>10x data, ~10x time</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Ten times the data for ten times the time is linear. What remains is a <strong>constant factor</strong>, not a wall: each element is still a heap-allocated string, so Hey lands about 4.5x C and a hair behind Ruby, 2.09 seconds against 1.46. A "slower," never again a "does not finish" — the disclosed weakness, stated plainly.</p>
+
+  <h2>Back to the walls</h2>
+  <p>The last daily left one wall open: two functions that call <em>each other</em> still overflowed at depth 500, because the interpreter's tail-call fix handled a function calling itself, not a pair. <strong>That wall is down at <abbr class="ver" title="v0.99.516a">516a</abbr></strong>, where the interpreter learned to eliminate mutual tail calls too. The fourth wall still stands, though — parsing past about 2,850 functions still trips a thirty-second deadline, and nothing here made parsing faster.</p>
+
+  <div class="callout bad"><strong>A separate check was already red, and stays red.</strong> One native-C smoke build fails at the exact starting commit for this work, confirmed by stashing every change and re-running — so it predates the fix and was not caused by it. It looks like the same native-C miscompile family as a known number-parsing bug on that path. It is disclosed here rather than quietly carried.</div>
+
+  <h2>What this page owes you</h2>
+  <p>Two things to walk away with. First, a value that prints as <em>true</em> can arrive as 0 wherever it is stored as the text of its name and read back as a number — the rendering replaces the truth. Second, "passes the fast tests" is not "deploy-ready": only the gate that makes the compiler build itself caught this. The optimization is back on with that build green — landed, not deployed, because this checkout still has no remote.</p>
+
+  <section class="evidence">
+    <h2>Receipts</h2>
+    <p>Internal names are shown here as receipts, not as the story. Each maps to the plain-English version above.</p>
+    <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Claim in the prose</th><th>Receipt</th></tr></thead>
+      <tbody>
+        <tr><td>The optimization's on/off switch</td><td><code>hey_hir_i64_param_win_enabled?()</code> — <code>false</code> at 527a, <code>true</code> at 528a</td></tr>
+        <tr><td>Classifier that "claims" a flag as a string for display</td><td><code>heyc_llvm_is_string_expr</code> in <code>runtime/heyc.c</code></td></tr>
+        <tr><td>The two guards that keep a flag a flag</td><td>add <code>&amp;&amp; !heyc_llvm_is_bool_expr(ctx, expr)</code> at the <code>let</code>-value emit and the repeated-assignment predeclare</td></tr>
+        <tr><td>Flag stored as the literal text "true"</td><td>the string store path <code>json_put_key_cstr_owned</code></td></tr>
+        <tr><td>Text "true" read back as a number, becomes 0</td><td><code>value_to_i64("true")</code> → <code>0</code></td></tr>
+        <tr><td>The proof that wrongly accepted a string call site</td><td><code>hey_hir_validate_calls</code> → <code>hey_hir_scan_body_calls</code>, returning <code>{seen, ok}</code></td></tr>
+        <tr><td>A string-array call site now reads correctly</td><td>fixture <code>f(["x"], 0)</code> emits <code>row:Value</code>, not <code>row:Int</code></td></tr>
+        <tr><td>A real integer-array call site still gets the win</td><td>fixture <code>f([10,20,30], 0)</code> still emits <code>row:Int</code></td></tr>
+        <tr><td>New regression gate</td><td><code>test/regression_bool_param_let_map_field_arg.sh</code> — asserts no <code>json_put_key_cstr_owned</code> for the field, and the round-tripped flag runs to <code>true</code>; revert either guard and it reds</td></tr>
+        <tr><td>Landed</td><td>commit <code>26244e82</code> on <code>trunk</code>, 527a → 528a; binary-interface id regenerated; version surfaces bumped</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="evidence">
+    <h2>Evidence used for this report</h2>
+    <ul>
+      <li>All numbers measured on this machine — Apple M3 Pro, macOS darwin arm64 — at version 0.99.528a on the local <code>trunk</code>, which has no remote. Work is landed, not deployed.</li>
+      <li>The benchmark table is best-of-three wall-clock, output verified byte-identical to a C reference before timing. Sizes: sum, search and histogram at 100 million elements; transform and append at 50 million; the string rows at 10 million; fannkuch at 11. The box was under light load, so absolute Hey seconds run a few percent high; the ratios and the finish/no-finish verdict are the claim.</li>
+      <li>The string linearity sweep — 100k at 0.02s, 1M at 0.21s, 10M at 2.07s — is a size sweep on this machine at 528a. The pre-fix non-finish and the ~38s-at-100k quadratic are from the earlier campaign build.</li>
+      <li>The sanitizer result — a clean run of the failing self-host configuration with the bug still reproducing at the lowest optimization setting — was produced by building the seed compiler and the emitted pipeline's link with a memory/undefined-behaviour sanitizer, in one session.</li>
+      <li>The regression sweep found every one of 150 self-host-path failures failing identically at the 527a starting commit (pre-existing, mostly unsupported features on that path); specs 000–308 pass; the code-generation goldens are green.</li>
+      <li>The mutual-recursion close is at 0.99.516a from the commit history; the parse-deadline wall and the pre-existing red native-C smoke build are re-checked as still standing at this commit.</li>
+      <li>Version numbers appear short in prose: <abbr class="ver" title="v0.99.528a">528a</abbr> means v0.99.528a. Hovering a short version shows the full string.</li>
+    </ul>
+  </section>
+
+  <section class="evidence">
+    <h2>Glossary</h2>
+    <p>Reference for the shorthand used above. Terms marked new were coined or first used here since the previous daily.</p>
+    <dl class="glossary">
+      <dt id="gl-cross-function">Cross-function read optimization <span class="tag-new">new</span></dt>
+      <dd>Reading an array element as a raw machine integer instead of a cautious unknown value, allowed only when the compiler has proven — by inspecting every call site — that every caller passes an integer array. The proof is what a wrong "false" corrupted.</dd>
+
+      <dt id="gl-self-host">Self-host build <span class="tag-new">new</span></dt>
+      <dd>The compiler compiling its own roughly four-thousand-line pipeline, including a copy of its own internals, after which the freshly built compiler must work. The largest, hardest program the compiler ever meets. Passing it is the bar for deploy-ready; passing the quick fast tier is not.</dd>
+
+      <dt>Fast test tier</dt>
+      <dd>The quick battery that runs on every change — small programs that compile and run. It was green on all three releases in this story, which is exactly why it did not catch the broken self-host build.</dd>
+
+      <dt>Yes/no flag, boolean</dt>
+      <dd>A value that is only ever true or false. It prints as the words <em>true</em> or <em>false</em>, which is what let it be mistaken for a string. Stored correctly it is a single bit; stored as its printed text it stops behaving like a flag.</dd>
+
+      <dt>Coercion <span class="tag-new">new</span></dt>
+      <dd>Turning a value of one kind into another — here, text into a flag, done by parsing the text as a number. The text <code>true</code> is not a number, so the parse returned 0, and 0 read as a flag is false.</dd>
+
+      <dt id="gl-sanitizer">Memory sanitizer <span class="tag-new">new</span></dt>
+      <dd>An instrumented build that watches a running program for memory errors — reading past a buffer, using freed memory, overflow — and names the exact site. It ran the failing build completely clean, which is how "memory corruption" was ruled out.</dd>
+
+      <dt>Optimization level, "-O0"</dt>
+      <dd>How hard the compiler works to make code fast. The lowest setting does almost nothing clever. The bug still appeared there, which ruled out an optimizer defect and left a plain logic bug.</dd>
+
+      <dt id="gl-amortized">Amortized <span class="tag-new">new</span></dt>
+      <dd>A cost that averages out cheap over many operations, even when one occasional operation is expensive. The new string append only rarely grows its backing store, so a run of appends is linear overall — the change that made the string wall fall.</dd>
+
+      <dt>Constant factor <span class="tag-new">new</span></dt>
+      <dd>A fixed multiple of overhead that does not grow with the size of the input. The remaining string slowness is a constant factor — about 4.5x C — not a wall: it makes the program slower, never unable to finish.</dd>
+
+      <dt>Linear, quadratic</dt>
+      <dd>How work grows with size. Linear means ten times the data costs about ten times the time. Quadratic means ten times the data costs about a hundred times the time — the shape the old string append had, and the reason it never finished.</dd>
+
+      <dt>Landed / Verified / Deployed</dt>
+      <dd><strong>Verified</strong>: on a branch, with reproduced evidence. <strong>Landed</strong>: committed and through the check battery. <strong>Deployed</strong>: on the mainline and felt by users. Everything on this page is landed; nothing is deployed, because this checkout has no configured remote.</dd>
+    </dl>
+  </section>
+
+  <script>
+  // Progressive-enhancement glossary popover. With JS off, .gloss links navigate normally.
+  (function () {
+    var open = null;
+    function close() { if (open) { open.remove(); open = null; } }
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest ? e.target.closest('a.gloss') : null;
+      if (!a) { close(); return; }
+      var def = a.getAttribute('data-def');
+      if (!def) return;
+      e.preventDefault();
+      close();
+      var pop = document.createElement('span');
+      pop.className = 'pop';
+      pop.textContent = def;
+      document.body.appendChild(pop);
+      var r = a.getBoundingClientRect();
+      var top = r.bottom + window.scrollY + 6;
+      var left = r.left + window.scrollX;
+      var maxLeft = window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+      if (left > maxLeft) left = maxLeft;
+      if (left < window.scrollX + 8) left = window.scrollX + 8;
+      pop.style.top = top + 'px';
+      pop.style.left = left + 'px';
+      open = pop;
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+  })();
+  </script>
+</main>
+</body>
+</html>
