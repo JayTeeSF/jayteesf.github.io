@@ -140,6 +140,24 @@ in function &lsquo;hey_fn_hey_llvm_compiler_node_literal_field_id&rsquo;</code><
 
   <p>The native-C route now compiles the emitter cleanly &mdash; no <code>hey_fn_to_i</code> error, <code>legacy_fallback_count=0</code> &mdash; and the resulting binary is byte-identical to C. So <strong>both compile bugs from the earlier report are closed</strong>. The runtime moved by about five percent (22.70&nbsp;s&nbsp;&rarr;&nbsp;21.49&nbsp;s at 100k), which is noise on this passively-cooled part, not a fix: it is still ~215&nbsp;&micro;s per row, still roughly 7,500&times; C, still projecting to ~19&nbsp;minutes for five million rows. The failure mode is now singular and clear &mdash; <strong>the per-row runtime cost, on both backends</strong> &mdash; and that is the one item the orchestrator was asked to profile next.</p>
 
+  <h2>Root cause: the runtime wall, profiled</h2>
+  <p>With both compile bugs closed, the ~215&nbsp;&micro;s/row is the only thing left &mdash; so it was profiled directly (<code>perf</code>, 11,006 samples on a 50k-row run, plus a DWARF call graph and a controlled experiment). The answer is a single copy on the hot path.</p>
+  <p>Every hot function is the clone or release of a boxed object: <code>hey_json_object_clone</code> (10% self, 35% including its recursive children), <code>hey_value_clone</code>, <code>hey_value_release</code>, <code>hey_strdup</code>, and the matching <code>malloc</code>/<code>free</code>. The Hey <code>one_brc_*</code> functions themselves are 0.02% &mdash; they do no work; the runtime copy does. The call graph is unambiguous:</p>
+  <pre><code>stats.put(station, {min,max,sum,count})
+  -> hey_llvm_json_put_value
+     -> hey_json_object_clone -> hey_value_clone -> hey_json_object_clone (deep, recursive)</code></pre>
+  <p>The 1BRC accumulator is a boxed map of per-station records, and <code>put</code> returns a <em>new</em> map &mdash; so <strong>every row deep-clones the entire map, all 415 stations&rsquo; records at once.</strong> The clincher is a controlled run at a fixed row count:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>20,000 rows of&hellip;</th><th>time</th><th>per row</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1 distinct station</td><td class="n">0.05 s</td><td class="n">~2.5 &micro;s</td></tr>
+      <tr><td class="k">415 distinct stations</td><td class="n">~4.7 s</td><td class="n">~235 &micro;s</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Same rows, ~95&times; the time &mdash; the per-row cost scales with the <em>size of the map</em>, not the row count. That is why it is linear in rows (the station set is fixed at 415) yet 7,500&times; C: the constant is &ldquo;clone the whole map, once per row.&rdquo; This is the immutability tax again &mdash; the same one the array rewrite paid down &mdash; but the alias-gate that made array <code>put</code>/<code>push</code> mutate in place when the old value has no other reader does <strong>not</strong> reach the JSON-object <code>put</code>. Extending it there should turn the hot loop from O(stations) per row into O(1) and drop 1BRC by two to three orders of magnitude. That root cause, with the perf evidence and repro, went to the orchestrator.</p>
+
   <footer>
     Measured 2026-08-18 (America/Los_Angeles) on Linux (kernel 7.1.4, x86-64), Intel Core&nbsp;i7-1165G7, 4 cores / 8 threads. Hey at <abbr class="ver" title="v0.99.528a">528a</abbr> (commit <code>41801989</code>) and <abbr class="ver" title="v0.99.529a">529a</abbr> (commit <code>15f74610</code>); default LLVM build and native-C self-host build; C reference <code>clang -O3</code>. Data: prefixes of the canonical 1&nbsp;billion-row <code>measurements.txt</code>. Every Hey result verified byte-for-byte against C before timing. Linux/x86 numbers; not comparable to the project&rsquo;s macOS figures.
   </footer>
