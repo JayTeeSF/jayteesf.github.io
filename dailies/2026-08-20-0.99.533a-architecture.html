@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hey 0.99.533a emitter campaign, 20 August 2026: nine more structural rungs verified byte-identical against native, and a design note that the Hey LLVM emitter's per-facade arms are a byte-identity mirror of native heyc.c, not a migration of stdlib logic into the emitter — the uniform lowering-table refactor is deferred until after the native oracle is retired.">
+  <meta name="article-date" content="2026-08-20">
+  <meta name="article-bucket" content="daily">
+  <meta name="article-version" content="0.99.533a">
+  <meta name="article-desc" content="Hey 0.99.533a emitter campaign, 20 August 2026: nine more structural rungs verified byte-identical against native, and a design note separating the emitter's byte-identity mirror from a real stdlib migration. The per-facade arms are code generation, not module logic; the uniform lowering-table refactor is deferred until heyc.c is retired.">
+  <meta name="article-index-title" content="The emitter mirrors native on purpose. The clean-up is a named, deferred refactor.">
+  <meta name="article-index-desc" content="Nine more rungs of the Hey LLVM emitter are byte-identical to native and goldens-green. A design note: the per-facade arms accreting in HeyLlvm.hey are a byte-identity mirror of native's per-operation lowering, not stdlib logic moving into the emitter — the runtime still owns Collections. Refactoring the mirror to a uniform lowering table is deferred until the native oracle is retired.">
+  <title>The Emitter Mirrors Native on Purpose. The Clean-up Is a Named, Deferred Refactor. · August 20, 2026</title>
+  <style>
+    :root {
+      --bg: #f6f3ec;
+      --surface: #ffffff;
+      --surface-2: #eee9df;
+      --ink: #20262a;
+      --muted: #5d686f;
+      --line: #c8c1b5;
+      --link: #175f9e;
+      --good: #16623b;
+      --good-bg: #e1f2e7;
+      --work: #805300;
+      --work-bg: #fff0c8;
+      --bad: #9a3030;
+      --bad-bg: #f9e3e3;
+      --next: #573597;
+      --next-bg: #ece5f8;
+      --info: #1e5b82;
+      --info-bg: #e3f0f8;
+      --neutral: #555f66;
+      --neutral-bg: #e8ebed;
+      --code-bg: #172129;
+      --code-fg: #eef5f8;
+      --shadow: 0 12px 34px rgba(35, 31, 24, .08);
+      --radius: 16px;
+      --max: 1080px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111416;
+        --surface: #191e21;
+        --surface-2: #242a2e;
+        --ink: #edf1f3;
+        --muted: #aeb8bd;
+        --line: #3b4449;
+        --link: #9bc9f2;
+        --good: #8bd6aa;
+        --good-bg: #153426;
+        --work: #ffd477;
+        --work-bg: #3b2f13;
+        --bad: #ffaaa2;
+        --bad-bg: #45211f;
+        --next: #c7a9ff;
+        --next-bg: #2d2341;
+        --info: #9fd4f6;
+        --info-bg: #193346;
+        --neutral: #c0c8cc;
+        --neutral-bg: #293034;
+        --code-bg: #090c0e;
+        --code-fg: #f4f7f8;
+        --shadow: 0 12px 34px rgba(0, 0, 0, .28);
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111416; --surface: #191e21; --surface-2: #242a2e; --ink: #edf1f3;
+      --muted: #aeb8bd; --line: #3b4449; --link: #9bc9f2;
+      --good: #8bd6aa; --good-bg: #153426; --work: #ffd477; --work-bg: #3b2f13;
+      --bad: #ffaaa2; --bad-bg: #45211f; --next: #c7a9ff; --next-bg: #2d2341;
+      --info: #9fd4f6; --info-bg: #193346; --neutral: #c0c8cc; --neutral-bg: #293034;
+      --code-bg: #090c0e; --code-fg: #f4f7f8; --shadow: 0 12px 34px rgba(0,0,0,.28);
+    }
+    :root[data-theme="light"] {
+      --bg: #f6f3ec; --surface: #ffffff; --surface-2: #eee9df; --ink: #20262a;
+      --muted: #5d686f; --line: #c8c1b5; --link: #175f9e;
+      --good: #16623b; --good-bg: #e1f2e7; --work: #805300; --work-bg: #fff0c8;
+      --bad: #9a3030; --bad-bg: #f9e3e3; --next: #573597; --next-bg: #ece5f8;
+      --info: #1e5b82; --info-bg: #e3f0f8; --neutral: #555f66; --neutral-bg: #e8ebed;
+      --code-bg: #172129; --code-fg: #eef5f8; --shadow: 0 12px 34px rgba(35,31,24,.08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; max-width: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 18px;
+      line-height: 1.62;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: var(--link); text-underline-offset: .16em; overflow-wrap: anywhere; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    .page { width: min(calc(100% - 32px), var(--max)); min-width: 0; margin: 0 auto; }
+    header.hero { padding: 54px 0 34px; border-bottom: 1px solid var(--line); }
+    .eyebrow { margin: 0 0 10px; color: var(--muted); font-size: .78rem; font-weight: 850; letter-spacing: .095em; text-transform: uppercase; }
+    h1, h2 { font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif; }
+    h1 { max-width: 1000px; margin: 0; font-size: clamp(2.35rem, 7vw, 5.25rem); line-height: .98; letter-spacing: -.048em; }
+    h2 { margin: 0 0 14px; font-size: clamp(1.75rem, 3.8vw, 2.75rem); line-height: 1.08; letter-spacing: -.028em; }
+    h3 { margin: 30px 0 8px; font-size: 1.18rem; line-height: 1.25; }
+    h4 { margin: 22px 0 6px; font-size: 1rem; }
+    p { margin: 12px 0; }
+    .dek { max-width: 900px; margin: 20px 0 0; color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.34rem); }
+    .meta { display: flex; flex-wrap: wrap; gap: 7px 18px; margin-top: 22px; color: var(--muted); font-size: .9rem; }
+    main { min-width: 0; padding: 36px 0 82px; }
+    section { min-width: 0; margin: 58px 0; }
+    p, li { min-width: 0; overflow-wrap: break-word; }
+    .lead { font-size: 1.13rem; }
+    .tldr, figure, .panel, .decision-card, .toc, .correction {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .tldr { padding: 24px 26px; margin: 0 0 28px; }
+    .tldr h2 { margin: 0 0 8px; font: 800 1.25rem/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+    .tldr ul { margin: 0; padding-left: 1.25rem; }
+    .tldr li + li { margin-top: 9px; }
+    .status-line { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 9px; border: 1px solid currentColor; border-radius: 999px; font-size: .72rem; font-weight: 900; letter-spacing: .045em; text-transform: uppercase; white-space: nowrap; }
+    .good { color: var(--good); background: var(--good-bg); }
+    .work { color: var(--work); background: var(--work-bg); }
+    .bad { color: var(--bad); background: var(--bad-bg); }
+    .next { color: var(--next); background: var(--next-bg); }
+    .info { color: var(--info); background: var(--info-bg); }
+    .neutral { color: var(--neutral); background: var(--neutral-bg); }
+    figure { margin: 32px 0; padding: 24px; }
+    figure h2, figure h3 { margin-top: 0; }
+    .figure-subtitle { margin: -4px 0 16px; color: var(--muted); }
+    figcaption { margin-top: 17px; color: var(--muted); font-size: .9rem; }
+    .scroll { max-width: 100%; overflow-x: auto; padding-bottom: 5px; }
+    .pipeline { min-width: 940px; display: grid; grid-template-columns: 115px repeat(7, 1fr); gap: 9px; align-items: stretch; }
+    .pipeline .row-label { display: flex; align-items: center; padding-right: 6px; font-weight: 900; line-height: 1.15; }
+    .node { min-height: 118px; padding: 12px; border: 2px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+    .node strong { display: block; line-height: 1.15; margin-bottom: 7px; }
+    .node small { display: block; color: var(--muted); line-height: 1.35; }
+    .node.node-good { border-color: var(--good); background: var(--good-bg); }
+    .node.node-work { border-color: var(--work); background: var(--work-bg); }
+    .node.node-bad { border-color: var(--bad); background: var(--bad-bg); }
+    .node.node-next { border-color: var(--next); background: var(--next-bg); }
+    .node.node-info { border-color: var(--info); background: var(--info-bg); }
+    .status-board { display: grid; gap: 14px; margin-top: 20px; }
+    .status-row { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+    .status-label { display: flex; flex-direction: column; justify-content: center; min-height: 116px; padding: 15px; border: 2px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+    .status-label strong { font-size: 1rem; line-height: 1.18; }
+    .status-label small { margin-top: 7px; color: var(--muted); line-height: 1.35; }
+    .status-label.good-label { border-color: var(--good); background: var(--good-bg); }
+    .status-label.work-label { border-color: var(--work); background: var(--work-bg); }
+    .status-label.bad-label { border-color: var(--bad); background: var(--bad-bg); }
+    .status-label.info-label { border-color: var(--info); background: var(--info-bg); }
+    .status-label.next-label { border-color: var(--next); background: var(--next-bg); }
+    .status-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+    .status-card { min-height: 116px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+    .status-card strong { display: block; line-height: 1.18; margin-bottom: 6px; }
+    .status-card small { display: block; color: var(--muted); line-height: 1.35; }
+    .status-card.good-card { border-color: var(--good); }
+    .status-card.work-card { border-color: var(--work); }
+    .status-card.bad-card { border-color: var(--bad); }
+    .status-card.info-card { border-color: var(--info); }
+    .status-card.next-card { border-color: var(--next); }
+    .authority-strip { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 20px; }
+    .authority-stage { min-height: 112px; padding: 13px; border: 2px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+    .authority-stage strong { display: block; line-height: 1.2; margin-bottom: 6px; }
+    .authority-stage small { display: block; color: var(--muted); line-height: 1.35; }
+    .authority-stage.good-stage { border-color: var(--good); background: var(--good-bg); }
+    .authority-stage.bad-stage { border-color: var(--bad); background: var(--bad-bg); }
+    .authority-stage.next-stage { border-color: var(--next); background: var(--next-bg); }
+    .authority-arrow { font-size: 1.5rem; font-weight: 900; color: var(--muted); text-align: center; }
+    .ladder-grid { min-width: 920px; display: grid; grid-template-columns: 150px repeat(6, 1fr); gap: 10px; }
+    .ladder-label { display: flex; align-items: center; font-weight: 900; }
+    .rung { min-height: 116px; padding: 12px; border-radius: 13px; border: 2px solid var(--line); background: var(--surface-2); }
+    .rung strong { display: block; line-height: 1.18; margin-bottom: 5px; }
+    .rung small { display: block; color: var(--muted); line-height: 1.35; }
+    .rung.r-good { border-color: var(--good); background: var(--good-bg); }
+    .rung.r-work { border-color: var(--work); background: var(--work-bg); }
+    .rung.r-bad { border-color: var(--bad); background: var(--bad-bg); }
+    .rung.r-next { border-color: var(--next); background: var(--next-bg); }
+    .bars { min-width: 740px; display: grid; gap: 13px; }
+    .bar-row { display: grid; grid-template-columns: 210px 1fr 76px; gap: 12px; align-items: center; }
+    .bar-track { height: 18px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+    .bar-fill { height: 100%; background: #7f8a91; }
+    .bar-fill.good-fill { background: #2e8b57; }
+    .bar-fill.work-fill { background: #c78316; }
+    .bar-fill.bad-fill { background: #bd4b47; }
+    .bar-value { text-align: right; font-variant-numeric: tabular-nums; font-weight: 800; }
+    .panel { padding: 19px 21px; margin: 20px 0; }
+    .callout { padding: 15px 19px; margin: 22px 0; border-left: 4px solid var(--work); background: var(--work-bg); }
+    .callout.good-callout { border-left-color: var(--good); background: var(--good-bg); }
+    .callout.bad-callout { border-left-color: var(--bad); background: var(--bad-bg); }
+    .callout.info-callout { border-left-color: var(--info); background: var(--info-bg); }
+    .correction { padding: 18px 21px; margin: 24px 0; border-left: 5px solid var(--bad); border-radius: 0 var(--radius) var(--radius) 0; background: var(--bad-bg); }
+    .correction h3 { margin-top: 0; }
+    pre { max-width: 100%; overflow-x: auto; margin: 18px 0; padding: 17px 19px; color: var(--code-fg); background: var(--code-bg); border-radius: 13px; font-size: .88rem; line-height: 1.52; tab-size: 2; }
+    :not(pre) > code { padding: .1em .34em; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); font-size: .9em; overflow-wrap: anywhere; word-break: break-word; }
+    .table-scroll { max-width: 100%; overflow-x: auto; margin: 20px 0; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); font-size: .91rem; }
+    th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: .77rem; letter-spacing: .045em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    td.nowrap { white-space: nowrap; }
+    tbody.group tr.group-head th { padding-top: 22px; color: var(--ink); background: var(--surface-2); font-size: .83rem; }
+    .status-text { font-size: .72rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+    .s-yes { color: var(--good); }
+    .s-no { color: var(--bad); }
+    .s-blocked { color: var(--work); }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin: 22px 0; }
+    .metric { padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+    .metric .big { display: block; font-size: 1.85rem; line-height: 1.05; font-weight: 900; font-variant-numeric: tabular-nums; }
+    .metric small { color: var(--muted); }
+    .decision-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 22px 0; }
+    .decision-card { padding: 17px 18px; }
+    .decision-card h3 { margin: 0 0 8px; font-size: 1.02rem; }
+    .decision-card p { margin: 7px 0; }
+    .toc { padding: 18px 22px; margin: 24px 0; }
+    .toc strong { display: block; margin-bottom: 6px; }
+    .toc ul { columns: 2; margin: 0; padding-left: 1.2rem; }
+    .toc li { break-inside: avoid; margin: 4px 0; }
+    .receipts, .source-list { max-width: 100%; padding-left: 1.25rem; }
+    .receipts { font-size: .9rem; }
+    .receipts li + li { margin-top: 7px; }
+    .source-list li + li { margin-top: 8px; }
+    .fine { color: var(--muted); font-size: .88rem; }
+    .anchor { scroll-margin-top: 20px; }
+    footer { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: .86rem; }
+    @media (max-width: 760px) {
+      body { max-width: 100%; font-size: 17px; }
+      .page { width: min(calc(100% - 24px), var(--max)); }
+      header.hero { padding-top: 36px; }
+      h1 { font-size: clamp(2.15rem, 12vw, 3.6rem); }
+      main { padding-top: 28px; }
+      section { margin: 46px 0; }
+      .tldr, figure { padding: 19px; }
+      .toc ul { columns: 1; }
+      .bar-row { grid-template-columns: 150px 1fr 64px; }
+      .status-row { grid-template-columns: 1fr; }
+      .status-label { min-height: auto; }
+      .status-cards { grid-template-columns: 1fr; }
+      .status-card { min-height: auto; }
+      .authority-strip { grid-template-columns: 1fr; }
+      .authority-stage { min-height: auto; }
+      .authority-arrow { transform: rotate(90deg); }
+      th, td { padding: 9px 7px; }
+    }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="page">
+    <p class="eyebrow">Hey architecture · daily · 20 August 2026</p>
+    <h1>The emitter mirrors native on purpose. The clean-up is a named, deferred refactor.</h1>
+    <p class="dek">Thirty structural rungs of the Hey-written LLVM emitter are now byte-identical to the native reference with the golden suites green, and the day closed on a concrete instance of the very clean-up this note names: a fragile source-text <em>segment-scanner</em> for string concatenation was replaced by the same recursive fold the reference C emitter uses. The per-facade arms accreting in <code>HeyLlvm.hey</code> remain a byte-identity <em>mirror</em> of native's per-operation lowering, not a migration of standard-library logic into the emitter — the Collections runtime still lives in the C runtime, and the uniform lowering-table refactor stays deferred until the native oracle is retired.</p>
+    <div class="meta">
+      <span>Source checkpoint: <strong>0.99.533a</strong> (held; no bump yet)</span>
+      <span>Live campaign: rungs 26–55 verified, not yet landed; rung 56 concat-fold done, one wrapper remaining</span>
+      <span>Deployment: not asserted</span>
+    </div>
+  </div>
+</header>
+<main class="page">
+  <section class="tldr" aria-labelledby="tldr-heading">
+    <h2 id="tldr-heading">TL;DR</h2>
+    <ul>
+      <li><strong>Verdict:</strong> continue the serial, byte-identical emitter campaign to gate-green, then land one <abbr class="ver" title="v0.99.534a">534a</abbr> bump, then refactor. Do not refactor the mirror mid-campaign.</li>
+      <li><strong>Progress today:</strong> rungs 26 through 55 are verified byte-identical against native <code>build-mir --backend llvm</code>, with all 91 LLVM and 24 HIR/MIR goldens green after each shared-path change. Rung 56 (heterogeneous string concatenation) had its core solved — see the clean-up section — and leaves one separable arg-convention wrapper.</li>
+      <li><strong>The clean-up began, concretely:</strong> the string-concat lowering was a source-text segment-scanner (the anti-pattern the emitter's own research corpus names). It was replaced by an <em>AST-recursive left-fold</em> — the exact structure native uses and the structure the deferred uniform refactor points at — proven byte-identical and goldens-green. The refactor is no longer only a plan; its first step landed.</li>
+      <li><strong>The design worry, answered:</strong> <code>HeyLlvm.hey</code> is the LLVM back end. A <code>Collections.enumerate</code> arm is one line of code generation — “emit a call to <code>@hey_llvm_collections_enumerate_value</code>” — not a reimplementation of enumerate. The behaviour lives in the C runtime, which the emitter only <code>declare</code>s. Changing the emitter is code generation only; it does not rewrite language semantics.</li>
+      <li><strong>Why it looks like special cases:</strong> the Hey emitter is held byte-for-byte against native <code>heyc.c</code>, and native itself dispatches per operation. The mirror must match that shape to prove equivalence and retire the C oracle. The per-facade style is expedient by design, not the end state.</li>
+      <li><strong>The clean-up, named:</strong> the correct end state is a single signature/metadata-driven facade-to-runtime lowering table, not <em>N</em> bespoke arms. It is deferred until byte-identity is proven and <code>heyc.c</code> is retired, because refactoring the mirror and proving it still matches native cannot happen at the same time.</li>
+      <li><strong>Falsification unchanged:</strong> the landing is acceptable only when the full shadow emits with zero fallback, <code>environment_isolated</code> is the Boolean text <code>true</code>, all required goldens pass, and a deliberate mutation makes the gate red and restoration makes it green.</li>
+    </ul>
+  </section>
+
+  <section class="anchor" aria-labelledby="mirror-heading">
+    <h2 id="mirror-heading">What the emitter is, and what it is not</h2>
+    <p>The compiler pipeline is <code>Hey → HIR → MIR → {native-C emitter, Hey emitter}</code>. Two back ends consume the same MIR. <code>HeyLlvm.hey</code> is one of them: it lowers MIR to textual LLVM IR. The native-C emitter (<code>heyc.c</code>) is the reference oracle, and every arm added to the Hey emitter is compared byte-for-byte against what native emits for the same MIR.</p>
+    <p>So when a rung “teaches the emitter <code>Collections.reverse</code>,” the whole of that knowledge is a lowering rule:</p>
+    <pre><code>MIR:   Collections.reverse(prefixes.prefixes)
+emit:  %t = call ptr @hey_llvm_collections_reverse_value(ptr %field)</code></pre>
+    <p>The function <code>hey_llvm_collections_reverse_value</code> is implemented in the C runtime; the emitter only carries its <code>declare</code>. No list-reversal logic moves into <code>HeyLlvm.hey</code>. The same is true for <code>reduce</code>, <code>enumerate</code>, <code>filter</code>, <code>take</code>, <code>drop</code>, and every map-value, call-argument, and comparison shape closed this week.</p>
+    <div class="callout info-callout">
+      <p><strong>Direct answer to “will the core need to be rewritten if <code>HeyLlvm.hey</code> changes?”</strong> No. Semantics live in the parser, HIR, MIR, and the runtime — not in the emitter. Changing the emitter changes code generation for one back end. The parser, the type/inference passes, and the runtime are untouched, and the native oracle keeps the Hey emitter honest by construction.</p>
+    </div>
+  </section>
+
+  <section class="anchor" aria-labelledby="cleanup-heading">
+    <h2 id="cleanup-heading">The special-case worry is correct — and it has a named fix</h2>
+    <p>The instinct that <code>if starts_with 'Collections.enumerate('</code>, one arm per facade, is special-case accumulation is right. It couples the emitter to each facade by name. Two facts hold at once:</p>
+    <div class="status-board">
+      <div class="status-row">
+        <div class="status-label good-label"><strong>Why it is this shape now</strong><small>Deliberate and temporary.</small></div>
+        <div class="status-cards">
+          <div class="status-card good-card"><strong>Mirror discipline</strong><small>The Hey emitter is proven equal to native <code>heyc.c</code> per operation. Native dispatches per operation, so the mirror must too, or the byte-identity check cannot see the two agree.</small></div>
+          <div class="status-card good-card"><strong>The oracle is the only guard</strong><small>Until a semantic/property gate replaces it, the native differential is the one thing keeping the emitter from silently diverging. It cannot be removed mid-campaign.</small></div>
+        </div>
+      </div>
+      <div class="status-row">
+        <div class="status-label next-label"><strong>The clean-up, deferred on purpose</strong><small>A later milestone, tracked so it is not lost.</small></div>
+        <div class="status-cards">
+          <div class="status-card next-card"><strong>Uniform lowering table</strong><small>Replace the <em>N</em> bespoke facade arms with one signature/metadata-driven facade-to-runtime dispatch. One place to add a facade, not a hand-written arm.</small></div>
+          <div class="status-card next-card"><strong>Sequenced after retirement</strong><small>Land the gate on the mirror, retire <code>heyc.c</code>, then refactor. Refactoring the mirror and proving it still matches native cannot be done simultaneously.</small></div>
+        </div>
+      </div>
+    </div>
+    <p>This is why the campaign does not refactor now. Doing both at once forfeits the differential oracle at exactly the moment it is doing its job.</p>
+  </section>
+
+  <section class="anchor" aria-labelledby="rungs-heading">
+    <h2 id="rungs-heading">The rungs verified since the 533a report</h2>
+    <p>Each rung below is <strong>verified</strong> — its new shape emits byte-identically to native, and the full golden suites (91 LLVM, 24 HIR/MIR) pass after every change that touched a shared path. None are landed; the version is held at <abbr class="ver" title="v0.99.533a">533a</abbr> until the whole shadow is clean.</p>
+    <div class="status-board">
+      <div class="status-row">
+        <div class="status-label work-label"><strong>Return and boxing shapes</strong><small>How scalars enter boxed positions.</small></div>
+        <div class="status-cards">
+          <div class="status-card work-card"><strong>Rung 26</strong><small>A sentinel <code>ret i64 -1</code> inside a <code>-&gt; boxed</code> function boxes via <code>int_value</code> and escape-guards, matching native. A boolean flag — not an <code>else</code>-wrap — gates the string-return path so both branches cannot run.</small></div>
+          <div class="status-card work-card"><strong>Rung 29</strong><small>An object value <code>len(tokens) - 1</code> puts a real integer via <code>put_key_i64</code>, broadening the static-integer gate while the <code>value_to_i64</code> discriminator guards correctness.</small></div>
+          <div class="status-card work-card"><strong>Rung 32</strong><small>A boolean-returning call as an object value, including the dotted module spelling, puts via <code>put_key_bool</code>.</small></div>
+        </div>
+      </div>
+      <div class="status-row">
+        <div class="status-label work-label"><strong>Collection facades and calls</strong><small>Lowering rules to runtime symbols.</small></div>
+        <div class="status-cards">
+          <div class="status-card work-card"><strong>Rung 27 &amp; 31</strong><small><code>Collections.enumerate(...)</code> and <code>Collections.reverse(...)</code> as the reduce collection operand lower to their runtime calls.</small></div>
+          <div class="status-card work-card"><strong>Rung 28 &amp; 30</strong><small>A boxed-field arithmetic argument such as <code>state.index + 1</code> folds through the integer walker when the bare-field reader declines — in both call arguments and ordering comparisons.</small></div>
+          <div class="status-card work-card"><strong>Rung 33</strong><small>An array element that is a boxed call with a string-concat argument reaches the boxed-call arm; the concat guard is now depth-aware so a <code>+</code> inside call arguments is not mistaken for a top-level concat.</small></div>
+        </div>
+      </div>
+      <div class="status-row">
+        <div class="status-label work-label"><strong>Slices and comparisons</strong><small>Boxed fields as operands.</small></div>
+        <div class="status-cards">
+          <div class="status-card work-card"><strong>Rung 34</strong><small><code>slice(state.source_text, i, 1) == "\n"</code>: the byte evaluator now reads a single-key boxed field as a slice value argument.</small></div>
+          <div class="status-card work-card"><strong>Rungs 35–55</strong><small>Rung&nbsp;35 landed, and nineteen more after it: the full boxed-vs-i64 arithmetic-value matrix (operator × operand × plain-vs-spread × put shim), nested field chains, parenthesized field-arith call arguments, statement-level deferred releases, string and boxed comparisons, bool/boxed-call conditions, <code>Env.int_default</code> in boxed and typed-i64 contexts, a <code>warn</code> concat, and inlined <code>Time</code> facades. Thirty rungs, each byte-identical, each goldens-green.</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="anchor" aria-labelledby="fold-heading">
+    <h2 id="fold-heading">The clean-up started: a segment-scanner became a recursive fold</h2>
+    <p>Rung 56 — a heterogeneous string concatenation like <code>"form " + kind(node) + " " + span_text(span(node))</code>, mixing string literals, a module call, and a nested user call — did not yield to another special-case arm, and that was the signal. The existing <code>boxed_concat_value</code> lowered concatenation by <strong>scanning the source text</strong> for top-level <code>+</code> while tracking only quotes, not <code>()</code>/<code>[]</code>/<code>{}</code> depth. Any operand carrying its own delimiters — a call, a nested call — was misclassified. The project's own research corpus had already named this class of defect: <em>eight named plus five anonymous scanners, only one of which implements precedence</em>.</p>
+    <p>The fix is the structure every mature compiler uses and the structure the reference C emitter already used: an <strong>AST-recursive left-fold</strong>. Split at the last top-level <code>+</code> with a depth-aware scan, recurse both sides, fold with <code>add_value</code>, and release each fresh operand immediately after the fold that consumes it — one uniform freshness predicate, not eight hand-set flags. Nesting depth comes for free from the recursion; the <code>+</code> inside <code>f(a + b)</code> is a child of a different node and can never be mistaken for a sibling. The result is byte-identical to native across every operand kind and leaves all 91 LLVM and 24 HIR/MIR goldens green.</p>
+    <div class="callout info-callout">
+      <p><strong>This is the deferred refactor, arriving early and in the small.</strong> The uniform lowering-table clean-up this note describes is exactly &ldquo;replace scattered hand-written scanners and arms with one structural rule.&rdquo; The concat fold is that move applied to one operator, under the discipline that keeps it honest: it was landed only because it stayed byte-identical to the native oracle and passed the golden suites and a negative control (an object literal <code>{a: x + y}</code> and a call <code>f(a + b)</code> must <em>not</em> fold at the top level). The refactor is no longer only a plan; its first step is proven.</p>
+    </div>
+    <p>Method note: this one was solved with help. A read-only research agent mapped the corpus and how CPython, Ruby, V8, Rust, and Go lower a heterogeneous <code>a + b + c</code> — establishing that a recursive fold beats a segment-scan for nested operands and that intermediates are freed after each fold, not at statement end. A second agent, carrying the campaign&rsquo;s full context, instrumented the failing loop, confirmed the exact arm that bailed, implemented the fold, and gated it. The recommendation and the implementation met in the middle, and the byte-identity oracle refereed the result.</p>
+  </section>
+
+  <section class="anchor" aria-labelledby="method-heading">
+    <h2 id="method-heading">Method notes carried forward</h2>
+    <ul class="source-list">
+      <li><strong>One flag, not a dangling <code>else</code>.</strong> To gate a large existing conditional chain, a boolean flag with <code>if !handled</code> is safe; wrapping the chain in an <code>else</code> can re-bind a trailing <code>else</code> deep in the chain to the outer <code>if</code> and run both branches. Rung 26 cost hours to this before the flag form fixed it.</li>
+      <li><strong>Cache discipline.</strong> The pipeline sidecar is hash-keyed and self-invalidates on a valid source edit. When an edit appears not to take effect, the first check is whether the source parses; a syntactically broken intermediate makes the runner fall back to the last good cached emitter. Use <code>hey cache clear</code> or <code>hey cache gc</code> rather than deleting build directories by hand.</li>
+      <li><strong>Shared-path changes are golden-gated.</strong> Any change to a value classifier, comparison path, or array-element path is followed by the full 91 LLVM and 24 HIR/MIR golden runs before the next rung.</li>
+    </ul>
+  </section>
+
+  <section id="sources" class="anchor">
+    <h2>Evidence and primary sources</h2>
+    <ul class="source-list">
+      <li>Repository working tree: <code>stdlib/HeyLlvm.hey</code> (the LLVM emitter), the per-rung byte-identity fixtures, and the stored golden suites <code>tools/check_llvm_goldens.hey</code> and <code>tools/check_hir_mir_goldens.hey</code>.</li>
+      <li>Reference oracle: native <code>heyc build-mir --backend llvm</code>, compared byte-for-byte against the Hey-emitted textual IR.</li>
+      <li>Previous architecture checkpoint: <a href="2026-08-19-0.99.533a-architecture.html">Hey 533a Has the New Front End. Two Gates Still Block One Authority.</a></li>
+      <li>Standing language decisions: <a href="DECISIONS-what-you-have-decided.html">What you’ve decided</a>.</li>
+      <li>Keep, <a href="https://www.andykeep.com/papers/dissertation.pdf"><em>A Nanopass Framework for Commercial Compiler Development</em></a>.</li>
+      <li>Pnueli, Siegel, and Singerman, <a href="https://cs.nyu.edu/home/people/in_memoriam/pnueli/ZPL01.pdf"><em>Translation Validation of Optimizing Compilers</em></a>.</li>
+      <li>Leroy, <a href="https://inria.hal.science/file/index/docid/415861/filename/compcert-CACM.pdf"><em>Formal Verification of a Realistic Compiler</em></a>.</li>
+    </ul>
+  </section>
+
+<footer>
+  <p><strong>Status note.</strong> This is a dated architecture report at source version <abbr class="ver" title="v0.99.533a">533a</abbr>. Short labels such as <abbr class="ver" title="v0.99.534a">534a</abbr> expand to the full alpha version on hover.</p>
+  <p><strong>Publication vocabulary.</strong> “Decided” is a language ruling. “Implemented” means code exists. “Verified” means a named check passed. “Landed” means committed in the cited source checkpoint. “Released” and “deployed” require their own evidence and are never inferred here.</p>
+</footer>
+</main>
+</body>
+</html>
