@@ -51,16 +51,35 @@ class ArticlesIndex
     match && match[1]
   end
 
+  # An index entry may legitimately differ from the page's own <title>: a
+  # <title> is a browser tab and wants to be short, an index entry is a shelf
+  # label and wants to be descriptive. Without these overrides that difference
+  # had to be maintained BY HAND inside index.html, so running this generator
+  # silently REWROTE entries someone had written deliberately -- which is why
+  # people stopped running it and started hand-editing, which is how the index
+  # and the pages drifted apart in the first place.
+  #
+  # article-index-title / article-index-desc WIN when present, so each page
+  # carries its own index copy and this generator is IDEMPOTENT. Neither is
+  # required: omit them and <title> / article-desc are used exactly as before.
+  #
+  # This mirrors generate-articles-index.hey and generate-dailies-index.rb,
+  # which grew the same two overrides for the same reason. The two generators
+  # disagreeing was itself the bug -- a fact restated in two programs, corrected
+  # in one.
   def parse_article(path)
     content = path.read
     filename = path.basename.to_s
 
-    title = extract_title(content)
+    title = extract_meta(content, "article-index-title")
+    title = extract_title(content) if title.nil? || title.strip.empty?
     title = path.basename(".html").to_s if title.nil? || title.strip.empty?
 
     date = extract_meta(content, "article-date")
     bucket = extract_meta(content, "article-bucket")
-    desc = extract_meta(content, "article-desc")
+
+    desc = extract_meta(content, "article-index-desc")
+    desc = extract_meta(content, "article-desc") if desc.nil? || desc.empty?
 
     missing = []
     missing << "article-date" if date.nil? || date.empty?
@@ -202,8 +221,7 @@ USAGE = <<~TEXT
 
   Regenerates ARTICLES_DIR/index.html from the article-date,
   article-bucket and article-desc meta tags of the articles in
-  that directory (buckets: featured, benchmarks, almost).
-  Default ARTICLES_DIR: ./articles
+  that directory. Default ARTICLES_DIR: ./articles
 
     -h, --help   show this help and exit
 TEXT
