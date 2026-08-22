@@ -461,6 +461,19 @@
     <p>The source snapshot also shows where the current cost lives: <code>HeyTokens.hey</code> is 1,318 lines, <code>HeySyntaxTree.hey</code> 1,377, <code>HeyStructuralHir.hey</code> 1,477, <code>HeyNames.hey</code> 898, <code>HeyHir.hey</code> 3,771, and <code>HeyLlvm.hey</code> 15,211. Line count is not quality, but it makes the leverage visible: removing semantic duplication and emitter fallback is more valuable than adding another parallel path.</p>
   </section>
 
+  <section id="two-modes" class="anchor">
+    <h2>Two execution modes, and why only one is production</h2>
+    <p>A recurring confusion is worth settling directly: the pipeline above is the <strong>compiled</strong> path, and it is how Hey actually ships. Hey programs compile to native machine code through LLVM — that is how shipped programs and the self-hosting compiler itself run. Hey is not "sometimes interpreted, sometimes compiled" in the sense of an unpredictable runtime; every product build is compiled.</p>
+    <p>There is <em>also</em> a tree-walking interpreter, and it has three specific jobs. It is deliberately simple and deep-copies values, so it is roughly <strong>19&times; slower</strong> than compiled code — it exists for interactivity and bootstrapping, not for production.</p>
+    <div class="decision-grid">
+      <article class="decision-card"><h3>Compiled path (production)</h3><p>Source &rarr; tokens &rarr; syntax tree &rarr; Structural HIR &rarr; MIR &rarr; LLVM &rarr; native machine code. Every shipped program and the self-hosting compiler run here. This is the entire pipeline documented on this page.</p></article>
+      <article class="decision-card"><h3>Interpreter (REPL &amp; scripts)</h3><p>Powers the interactive REPL and quick one-off scripts (<code>heyc &lt;file&gt; --run</code>). Optimized for start-up and interactivity, not throughput.</p></article>
+      <article class="decision-card"><h3>Interpreter (bootstrap seed)</h3><p>Builds the very first compiler before Hey can compile itself. Once the compiler exists, ordinary builds no longer depend on it.</p></article>
+      <article class="decision-card"><h3>Why it looks slow</h3><p>The interpreter deep-copies values by design, which makes it the right tool for counting allocations and the wrong tool for judging speed. Alarming tens-of-seconds figures come from running measurement harnesses inside it on purpose.</p></article>
+    </div>
+    <div class="callout info-callout"><strong>The concrete gap:</strong> the same string-heavy tokenize takes <strong>14.04 s interpreted versus 0.72 s compiled</strong> (~19&times;), measured 2026-08-22 on an Apple M3 Pro. When reading any Hey benchmark, first ask which mode produced it; a product runs the 0.72 s side.</div>
+  </section>
+
   <section id="research" class="anchor">
     <h2>What compiler research supports—and what it does not prove</h2>
     <p><a href="https://mlir.llvm.org/docs/Rationale/Rationale/">MLIR’s rationale</a> describes progressive lowering through representations suited to different abstraction levels, while the project emphasizes IR specifications, verifiers, textual round-tripping, and modular passes. That supports Hey’s choice to keep syntax, structural HIR, MIR, and LLVM distinct rather than forcing one representation to answer every question. It does not prove Hey’s particular lowering is correct.</p>
