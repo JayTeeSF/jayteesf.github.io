@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Hey's compiler lowers through three intermediate representations. They used to be print-only strings that later stages re-read character by character; the work is turning them into real, parseable, verifiable IRs — the substrate Mojo borrows from MLIR. An interactive map of the pipeline.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-bucket" content="almost">
+<meta name="article-desc" content="Hey's three intermediate representations — syntax tree, structural HIR, MIR — are becoming real, parseable, verifiable IRs instead of print-only strings. An interactive map of the compiler pipeline: what each stage owns, what it may not do, and where the five Mojo borrows land.">
+<meta name="article-index-title" content="From Strings to Real IR">
+<title>From Strings to Real IR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#eef2f7; --panel:#ffffff; --panel-2:#e7edf4; --raise:#f7fafc;
+    --ink:#0f1a26; --ink-soft:#4a5a70; --ink-faint:#7a8aa0;
+    --line:#d3dde8; --line-soft:#e2e9f1;
+    --accent:#0c8f9c; --accent-ink:#076e79; --accent-soft:rgba(12,143,156,.10);
+    --done:#1f9d55; --now:#bd7d16; --next:#7a4fd0; --string:#8593a6;
+    --shadow:0 1px 2px rgba(16,32,52,.06),0 8px 24px rgba(16,32,52,.06);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0b0f15; --panel:#121a24; --panel-2:#1a2431; --raise:#18212d;
+    --ink:#e8eef6; --ink-soft:#a4b4c8; --ink-faint:#6d7d92;
+    --line:#25313f; --line-soft:#1e2833;
+    --accent:#2fd0be; --accent-ink:#5fe0d2; --accent-soft:rgba(47,208,190,.12);
+    --done:#3fb950; --now:#d8a53a; --next:#a985f0; --string:#5f6c7e;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 30px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0b0f15; --panel:#121a24; --panel-2:#1a2431; --raise:#18212d;
+    --ink:#e8eef6; --ink-soft:#a4b4c8; --ink-faint:#6d7d92;
+    --line:#25313f; --line-soft:#1e2833;
+    --accent:#2fd0be; --accent-ink:#5fe0d2; --accent-soft:rgba(47,208,190,.12);
+    --done:#3fb950; --now:#d8a53a; --next:#a985f0; --string:#5f6c7e;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+    line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 64px}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+  a{color:var(--accent-ink)}
+
+  /* hero */
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.74rem;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent-ink);margin:0 0 14px}
+  h1{font-size:clamp(2rem,5.4vw,3.35rem);line-height:1.04;font-weight:700;letter-spacing:-.02em;
+    text-wrap:balance;margin:0 0 18px}
+  h1 .thru{color:var(--string);text-decoration:line-through;text-decoration-thickness:.06em;
+    text-decoration-color:color-mix(in srgb,var(--string) 60%,transparent)}
+  h1 .to{color:var(--accent-ink)}
+  .lede{max-width:60ch;font-size:1.075rem;color:var(--ink-soft);margin:0}
+  .lede strong{color:var(--ink);font-weight:600}
+
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin:26px 0 6px;
+    font-size:.8rem;color:var(--ink-soft)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.done{background:var(--done)}.dot.now{background:var(--now)}.dot.next{background:var(--next)}
+  .swatch{width:16px;height:11px;border-radius:3px;flex:none}
+  .swatch.real{background:var(--accent-soft);border:1.5px solid var(--accent)}
+  .swatch.str{background:transparent;border:1.5px dashed var(--string)}
+
+  section.stage-board{margin-top:22px}
+  .board-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .board-head h2{font-size:.95rem;font-weight:600;margin:0;letter-spacing:-.01em}
+  .board-head .hint{font-size:.78rem;color:var(--ink-faint)}
+
+  /* pipeline */
+  .pipe-scroll{overflow-x:auto;padding:16px 2px 22px;margin:0 -2px}
+  .pipe{display:flex;align-items:stretch;gap:0;min-width:min-content}
+  .node{position:relative;flex:none}
+  .node button{
+    appearance:none;cursor:pointer;font:inherit;text-align:left;
+    width:150px;min-height:104px;padding:13px 13px 12px;border-radius:13px;
+    background:var(--panel);border:1.5px solid var(--line);color:var(--ink);
+    display:flex;flex-direction:column;gap:7px;transition:border-color .16s,transform .16s,box-shadow .16s;
+  }
+  .node.ir button{border-style:solid;box-shadow:var(--shadow)}
+  .node button:hover{transform:translateY(-2px);border-color:var(--accent)}
+  .node button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
+  .node button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .node .n-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .node .n-name{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:.94rem;letter-spacing:-.01em}
+  .node .n-tag{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.03em;
+    color:var(--ink-faint);text-transform:uppercase}
+  .node .n-state{margin-top:auto;display:inline-flex;align-items:center;gap:6px;
+    font-size:.7rem;font-family:"IBM Plex Mono",monospace}
+  .n-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;
+    padding:2px 8px;font-size:.66rem;font-family:"IBM Plex Mono",monospace;border:1px solid var(--line)}
+  .n-chip.real{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 40%,transparent);background:var(--accent-soft)}
+  .n-chip.str{color:var(--string);border-style:dashed}
+  .st-badge{width:8px;height:8px;border-radius:50%}
+  .st-done{background:var(--done)}.st-now{background:var(--now)}.st-next{background:var(--next)}
+
+  .arrow{flex:none;align-self:center;width:26px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint)}
+  .arrow svg{width:22px;height:22px}
+
+  /* the three-IR bracket */
+  .node.ir::after{content:"";position:absolute;left:6px;right:6px;bottom:-11px;height:2px;background:var(--accent);opacity:.5}
+  .node.ir.first::before, .three-label{}
+  .three-label{margin:2px 2px 0;font-family:"IBM Plex Mono",monospace;font-size:.72rem;
+    letter-spacing:.04em;color:var(--accent-ink);text-transform:uppercase}
+
+  /* detail panel */
+  .detail{margin-top:26px;background:var(--panel);border:1.5px solid var(--line);
+    border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+  .detail-head{padding:18px 22px;border-bottom:1px solid var(--line-soft);
+    display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    background:linear-gradient(180deg,var(--raise),transparent)}
+  .detail-head .d-name{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:1.3rem;letter-spacing:-.01em;margin:0}
+  .detail-head .d-sub{font-size:.82rem;color:var(--ink-faint);margin:4px 0 0;font-family:"IBM Plex Mono",monospace}
+  .status-pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;
+    font-size:.74rem;font-weight:600;font-family:"IBM Plex Mono",monospace;letter-spacing:.02em;
+    border:1px solid var(--line)}
+  .status-pill.done{color:var(--done);border-color:color-mix(in srgb,var(--done) 45%,transparent)}
+  .status-pill.now{color:var(--now);border-color:color-mix(in srgb,var(--now) 50%,transparent)}
+  .status-pill.next{color:var(--next);border-color:color-mix(in srgb,var(--next) 45%,transparent)}
+  .detail-body{padding:8px 22px 24px}
+  .field{padding:15px 0;border-bottom:1px solid var(--line-soft)}
+  .field:last-child{border-bottom:0}
+  .field .k{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 6px}
+  .field .v{margin:0;color:var(--ink);max-width:74ch}
+  .field .v.owns{font-size:1.02rem}
+  .forbidden{color:var(--ink);background:var(--accent-soft);border-left:3px solid var(--accent);
+    padding:10px 14px;border-radius:0 8px 8px 0;font-size:.96rem}
+  .was{color:var(--ink-soft);font-size:.94rem}
+  .was b{color:var(--string);font-weight:600}
+  .borrow-tags{display:flex;flex-wrap:wrap;gap:8px}
+  .btag{font-family:"IBM Plex Mono",monospace;font-size:.76rem;padding:4px 10px;border-radius:8px;
+    border:1px solid var(--line);color:var(--ink-soft);display:inline-flex;gap:7px;align-items:center}
+  .btag .st-badge{width:7px;height:7px}
+  .mod{font-family:"IBM Plex Mono",monospace;font-size:.9rem;color:var(--accent-ink)}
+  .mod .lines{color:var(--ink-faint)}
+
+  /* borrows strip */
+  .borrows{margin-top:40px}
+  .borrows h2{font-size:1.15rem;font-weight:700;letter-spacing:-.01em;margin:0 0 4px}
+  .borrows p.sub{color:var(--ink-soft);margin:0 0 18px;max-width:64ch;font-size:.95rem}
+  .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+  .bcard{background:var(--panel);border:1.5px solid var(--line);border-radius:13px;padding:15px 15px 16px;box-shadow:var(--shadow)}
+  .bcard .bnum{font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--accent-ink);letter-spacing:.04em}
+  .bcard h3{font-size:1rem;margin:3px 0 7px;font-weight:600;letter-spacing:-.01em}
+  .bcard p{margin:0 0 12px;font-size:.86rem;color:var(--ink-soft);line-height:1.5}
+  .bcard .foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .bcard .on{font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-faint)}
+  .bstatus{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-family:"IBM Plex Mono",monospace;font-weight:600}
+  .bstatus.done{color:var(--done)}.bstatus.now{color:var(--now)}.bstatus.next{color:var(--next)}.bstatus.doc{color:var(--ink-faint)}
+
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);
+    font-size:.78rem;color:var(--ink-faint);line-height:1.7}
+  footer .mono{color:var(--ink-soft)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hey language · design note · 22 August 2026</p>
+  <h1>From <span class="thru">print-only strings</span> <span class="to">to real IR</span></h1>
+  <p class="lede">Hey steals Mojo's <strong>foundation, not its surface</strong>. Its three
+  intermediate representations were print-only strings that later stages re-read character by
+  character; the work is turning them into real, <strong>parseable, verifiable</strong> IRs that
+  lower by structural rewriting — so an immutable, reference-counted language can update in place
+  and reach C speed. Click a stage to see what it owns, what it may not do, and where it stands.</p>
+
+  <div class="legend" aria-hidden="true">
+    <span><i class="dot done"></i> done · landed</span>
+    <span><i class="dot now"></i> now · in progress</span>
+    <span><i class="dot next"></i> next · not started</span>
+    <span><i class="swatch real"></i> real IR</span>
+    <span><i class="swatch str"></i> was an opaque string</span>
+  </div>
+
+  <section class="stage-board" aria-label="Compiler pipeline">
+    <div class="board-head">
+      <h2>The pipeline</h2>
+      <span class="hint">the three bracketed stages are the IRs the goal makes real →</span>
+    </div>
+    <div class="pipe-scroll">
+      <div class="pipe" id="pipe" role="tablist" aria-label="Pipeline stages"></div>
+    </div>
+    <p class="three-label" id="threeLabel">▔▔ the three intermediate representations ▔▔</p>
+  </section>
+
+  <div class="detail" id="detail" role="region" aria-live="polite"></div>
+
+  <section class="borrows">
+    <h2>Five borrows from Mojo / MLIR</h2>
+    <p class="sub">None is a Mojo keyword. Four are properties of the substrate under Mojo; the fifth
+    is a mistake Mojo made and corrected. Together they are the whole restructure.</p>
+    <div class="bgrid" id="bgrid"></div>
+  </section>
+
+  <footer>
+    <div>Part of the Hey project's public log. This maps the compiler pipeline behind
+    <a href="five-things-hey-should-take-from-mojo.html">The Five Things Hey Should Take From Mojo</a>.</div>
+    <div><span class="mono">Verified against</span> trunk 0.99.545a. Ownership quotes and stage line counts
+    come from the restructure architecture; status uses the plan board's green / gold / purple = done / now / next.</div>
+    <div><span class="mono">Not shown:</span> the tree-walking interpreter (REPL, one-off scripts, and the bootstrap
+    seed only), which is ~19× slower by design and is not how shipped programs run.</div>
+  </footer>
+</div>
+
+
+<script>
+const STAGES=[
+ {id:"source",name:"Source",tag:".hey text",cls:"text",real:true,status:null,
+  owns:"The program as written — raw Hey source text.",
+  forbidden:null,module:null,borrows:[],
+  note:"The one thing that is honestly text. Everything after it should be structure, not re-read strings."},
+ {id:"tokens",name:"Tokens",tag:"front end",cls:"front",real:true,status:"done",
+  owns:"Owns spelling, token boundaries, and source spans.",
+  forbidden:"It does not decide names or types.",
+  module:"HeyTokens.hey",lines:"1,318",borrows:[],
+  was:"Before the restructure there was <b>no token type anywhere</b> — a repo-wide search returned only comments. Every downstream stage re-derived the same facts from raw text, and they did not all agree.",
+  note:"The structural front end now exists and runs alongside compilation."},
+ {id:"tree",name:"Syntax Tree",tag:"IR · 1 of 3",cls:"ir",ir:true,real:true,status:"done",
+  owns:"Owns grouping, precedence, argument shape, and generated node structure. The schema generates constructors, accessors, child lists, walkers, rewriters, and coverage checks.",
+  forbidden:null,module:"HeySyntaxTree.hey",lines:"1,377",borrows:["1","3"],
+  was:"Precedence was decided at <b>45+ sites across 5 inconsistent notions</b>; 16 name scanners disagreed about what a letter is. A tree makes each decision exactly once.",
+  note:"Name resolution (HeyNames.hey, 898 lines) lives here — scopes, imports, receiver calls, operator bindings. The module system (exposes / exposing) is DECIDED but NOT built: HeyNames.hey:255 has no node kind for an exposes declaration."},
+ {id:"hir",name:"Structural HIR",tag:"IR · 2 of 3",cls:"ir",ir:true,real:true,status:"done",
+  owns:"Owns program meaning and compiler-internal types. Users do not write type annotations; calls, casts, operators, and values carry structural facts downstream.",
+  forbidden:null,module:"HeyStructuralHir.hey / HeyHir.hey",lines:"1,477 / 3,771",borrows:["1","3"],
+  note:"Home of “casts convey type”: !!x is Bool, .to_i is Int. The type is fully real and enforced — it is just indicated by the cast, never written as a -> type annotation. The IR still carries the type."},
+ {id:"mir",name:"MIR",tag:"IR · 3 of 3",cls:"ir",ir:true,real:true,status:"now",
+  owns:"Owns explicit evaluation order, named temporary identities, representation choices, and ownership / lifetime operations.",
+  forbidden:null,module:"HeyMir.hey",lines:null,borrows:["2","4"],
+  note:"The ownership proof already lives here. Borrow #2 (Perceus reuse) is the NOW work: wire that proof into codegen so the ordinary immutable [...x, e] / {...x, k: v} reuses its buffer instead of deep-copying it — O(n²) becomes O(1) amortized, with a copy fallback when the proof does not hold. Borrow #4 (rewrite-not-scan lowering) is NEXT."},
+ {id:"llvm",name:"LLVM",tag:"two emitters",cls:"backend",real:true,status:"next",
+  owns:"Lower MIR decisions to typed SSA text.",
+  forbidden:"They must not infer source semantics from strings.",
+  module:"HeyLlvm.hey + native heyc.c",lines:"15,211",borrows:["4"],
+  note:"Two emitters run in lockstep, byte-identical. The native C emitter is a trusted ORACLE today, not the destination — retired once independent verifiers replace byte-for-byte comparison (still an open question). Endpoint: one Hey generator, the checkable IR is the authority, no C fallback."},
+ {id:"native",name:"native code",tag:"machine code",cls:"out",real:true,status:null,
+  owns:"The program as the machine runs it — native code produced through LLVM in every shipped build.",
+  forbidden:null,module:null,borrows:[],
+  note:"On the workloads it is tuned for, Hey already ties C. The workloads it still loses are one compiler change — borrow #2 — away, not a rewrite away."},
+];
+const BORROWS={
+ "1":{name:"A parseable IR",status:"done",on:"the IR levels",
+   desc:"Give the IR a parser so print(parse(x)) == x. A producer that can't be wrong the same way the emitter is, because it never consults it."},
+ "2":{name:"Ownership / reuse",status:"now",on:"MIR",
+   desc:"Make ownership explicit and lower it: a uniquely-owned immutable value is updated in place. Perceus (PLDI 2021). How an immutable language stops copying and reaches C speed."},
+ "3":{name:"Verify the IR",status:"done",on:"HIR · MIR",
+   desc:"Op verifiers that run after every pass and fail the instant it produces malformed IR. Turns “the bytes differ” into “this op breaks that invariant, here.”"},
+ "4":{name:"Rewrite, don't scan",status:"next",on:"MIR → LLVM",
+   desc:"Lower by matching a shape and producing a lower one. Dissolves the left-to-right scanner wall that cannot express a right-associative ** — associativity becomes data the IR carries."},
+ "5":{name:"One surface language",status:"doc",on:"the whole language",
+   desc:"Mojo split into a fast fn and a friendly def, then collapsed them. Keep one surface; put strictness in the IR and the verifier, never a second syntax."},
+};
+const STLABEL={done:"done",now:"now",next:"next",doc:"doctrine"};
+
+function arrowSVG(){return '<span class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h15M13 6l6 6-6 6"/></svg></span>';}
+
+const pipe=document.getElementById("pipe");
+STAGES.forEach((s,i)=>{
+  const node=document.createElement("div");
+  node.className="node "+(s.ir?"ir":"")+(s.ir&&STAGES[i-1]&&!STAGES[i-1].ir?" first":"");
+  const st=s.status?`<span class="st-badge st-${s.status}"></span>${STLABEL[s.status]}`:`<span style="color:var(--ink-faint)">—</span>`;
+  node.innerHTML=`<button role="tab" aria-pressed="false" id="tab-${s.id}" data-id="${s.id}">
+     <span class="n-top"><span class="n-name">${s.name}</span></span>
+     <span class="n-tag">${s.tag}</span>
+     <span class="n-state">${s.was?'<span class="n-chip str">str → real</span>':'<span class="n-chip real">real</span>'}</span>
+     <span class="n-state">${st}</span>
+   </button>`;
+  pipe.appendChild(node);
+  if(i<STAGES.length-1) pipe.insertAdjacentHTML("beforeend",arrowSVG());
+});
+
+const detail=document.getElementById("detail");
+function render(id){
+  const s=STAGES.find(x=>x.id===id);
+  document.querySelectorAll(".node button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.id===id?"true":"false"));
+  const pill=s.status?`<span class="status-pill ${s.status}"><span class="st-badge st-${s.status}"></span>${STLABEL[s.status]}</span>`:"";
+  let html=`<div class="detail-head"><div><h3 class="d-name">${s.name}</h3>`+
+    (s.module?`<p class="d-sub">${s.module}${s.lines?` · ${s.lines} lines`:""}</p>`:"")+`</div>${pill}</div><div class="detail-body">`;
+  html+=`<div class="field"><p class="k">Owns</p><p class="v owns">${s.owns}</p></div>`;
+  if(s.forbidden) html+=`<div class="field"><p class="k">Forbidden to do</p><p class="v forbidden">${s.forbidden}</p></div>`;
+  if(s.was) html+=`<div class="field"><p class="k">Before — the opaque string</p><p class="v was">${s.was}</p></div>`;
+  if(s.borrows&&s.borrows.length){
+    const tags=s.borrows.map(n=>`<span class="btag"><span class="st-badge st-${BORROWS[n].status==='doc'?'':BORROWS[n].status}" style="${BORROWS[n].status==='doc'?'background:var(--ink-faint)':''}"></span>#${n} ${BORROWS[n].name}</span>`).join("");
+    html+=`<div class="field"><p class="k">Borrows landing here</p><div class="v borrow-tags">${tags}</div></div>`;
+  }
+  html+=`<div class="field"><p class="k">Note</p><p class="v">${s.note}</p></div>`;
+  html+=`</div>`;
+  detail.innerHTML=html;
+}
+
+const bgrid=document.getElementById("bgrid");
+Object.entries(BORROWS).forEach(([n,b])=>{
+  bgrid.insertAdjacentHTML("beforeend",
+   `<div class="bcard"><div class="bnum">BORROW #${n}</div><h3>${b.name}</h3><p>${b.desc}</p>
+    <div class="foot"><span class="on">on ${b.on}</span>
+    <span class="bstatus ${b.status}">${b.status==='doc'?'◈':'●'} ${STLABEL[b.status]}</span></div></div>`);
+});
+
+pipe.addEventListener("click",e=>{const b=e.target.closest("button[data-id]");if(b)render(b.dataset.id);});
+pipe.addEventListener("keydown",e=>{
+  const tabs=[...pipe.querySelectorAll("button[data-id]")];
+  const i=tabs.indexOf(document.activeElement);if(i<0)return;
+  if(e.key==="ArrowRight"||e.key==="ArrowLeft"){e.preventDefault();
+    const j=(i+(e.key==="ArrowRight"?1:tabs.length-1))%tabs.length;tabs[j].focus();render(tabs[j].dataset.id);}
+});
+render("mir");
+</script>
+
+</body>
+</html>
