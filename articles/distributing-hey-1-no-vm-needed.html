@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>No VM needed</title>
+<meta name="description" content="Part 1 of a series: splitting a Hey program across machines is runtime and library work, not a virtual-machine feature — and Erlang's own C-node proves a no-VM native language can join a cluster.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-bucket" content="almost">
+<meta name="article-series" content="Distributing Hey">
+<meta name="article-part" content="1 of 3">
+<meta name="article-desc" content="Distribution is five runtime services layered on an actor runtime, not a bytecode VM. Erlang's own C-node library and Cloud Haskell prove a no-VM native language can join a cluster. Part 1 of a three-part series.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --surface: #ffffff;
+    --surface-2: #f3f1ea;
+    --ink: #1d1b16;
+    --ink-soft: #4a463c;
+    --ink-faint: #6f6a5d;
+    --rule: #e2ddd1;
+    --rule-strong: #cfc9ba;
+    --accent: #9a3b1f;
+    --accent-soft: #c46a45;
+    --node-a: #2f6d5b;
+    --node-b: #365b8c;
+    --wire: #9a3b1f;
+    --chip: #efe7dc;
+    --code-bg: #f4f1ea;
+    --ok: #2f6d5b;
+    --no: #a23a2a;
+    --warn-bg: #f6e4dc;
+    --warn-border: #c0492e;
+    --warn-ink: #7c2d18;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14130f;
+      --surface: #1c1a15;
+      --surface-2: #24211a;
+      --ink: #ece7db;
+      --ink-soft: #c3bdae;
+      --ink-faint: #938d7d;
+      --rule: #322e25;
+      --rule-strong: #45402f;
+      --accent: #e08a5f;
+      --accent-soft: #c46a45;
+      --node-a: #5fb39a;
+      --node-b: #7aa5d8;
+      --wire: #e08a5f;
+      --chip: #2a261d;
+      --code-bg: #211e18;
+      --ok: #5fb39a;
+      --no: #e0715c;
+      --warn-bg: #2f1c14;
+      --warn-border: #c85a3c;
+      --warn-ink: #f0b39a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14130f;
+    --surface: #1c1a15;
+    --surface-2: #24211a;
+    --ink: #ece7db;
+    --ink-soft: #c3bdae;
+    --ink-faint: #938d7d;
+    --rule: #322e25;
+    --rule-strong: #45402f;
+    --accent: #e08a5f;
+    --accent-soft: #c46a45;
+    --node-a: #5fb39a;
+    --node-b: #7aa5d8;
+    --wire: #e08a5f;
+    --chip: #2a261d;
+    --code-bg: #211e18;
+    --ok: #5fb39a;
+    --no: #e0715c;
+    --warn-bg: #2f1c14;
+    --warn-border: #c85a3c;
+    --warn-ink: #f0b39a;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Newsreader", Georgia, "Times New Roman", serif;
+    font-size: 1.19rem;
+    line-height: 1.62;
+    font-optical-sizing: auto;
+  }
+  main { display: block; }
+  article {
+    max-width: 47rem;
+    margin: 0 auto;
+    padding: clamp(1.4rem, 4vw, 3.5rem) clamp(1.1rem, 5vw, 2rem) 4rem;
+  }
+
+  .eyebrow {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-size: 0.74rem;
+    color: var(--ink-faint);
+    margin: 0 0 1.4rem;
+  }
+
+  h1 {
+    font-weight: 600;
+    font-size: clamp(2.1rem, 6vw, 3.15rem);
+    line-height: 1.08;
+    letter-spacing: -0.012em;
+    margin: 0 0 1.1rem;
+  }
+  .lede {
+    font-size: clamp(1.28rem, 3vw, 1.5rem);
+    line-height: 1.42;
+    color: var(--ink-soft);
+    font-weight: 400;
+    margin: 0 0 1.6rem;
+  }
+
+  .status-banner {
+    display: flex;
+    gap: 0.7rem;
+    align-items: baseline;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-left: 4px solid var(--warn-border);
+    border-radius: 8px;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.8rem;
+    font-size: 0.96rem;
+    line-height: 1.45;
+    color: var(--warn-ink);
+  }
+  .status-banner .tag {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid var(--warn-border);
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    flex: none;
+  }
+  .status-banner b { color: var(--warn-ink); }
+
+  .standfirst {
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--ink-faint);
+    border-left: 3px solid var(--rule-strong);
+    padding-left: 1rem;
+    margin: 0 0 2rem;
+  }
+  .standfirst b { color: var(--ink-soft); }
+
+  h2 {
+    font-weight: 600;
+    font-size: clamp(1.4rem, 3.5vw, 1.75rem);
+    line-height: 1.2;
+    letter-spacing: -0.008em;
+    margin: 3rem 0 0.5rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+  }
+  h3 {
+    font-weight: 600;
+    font-size: 1.16rem;
+    margin: 1.8rem 0 0.4rem;
+    color: var(--ink);
+  }
+  p { margin: 0 0 1.15rem; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code, .mono {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    font-size: 0.86em;
+    background: var(--code-bg);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+
+  .tldr {
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem 1.2rem 1.5rem;
+    margin: 0 0 2.4rem;
+  }
+  .tldr p {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    margin: 0 0 0.7rem;
+  }
+  .tldr ul { margin: 0; padding-left: 1.2rem; }
+  .tldr li { margin: 0 0 0.55rem; font-size: 1.02rem; line-height: 1.5; }
+  .tldr li:last-child { margin-bottom: 0; }
+  .tldr .weak, .tldr .check {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-right: 0.35rem;
+  }
+
+  figure { margin: 2.4rem 0; }
+  figure.diagram {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 1.4rem 1.2rem 0.6rem;
+  }
+  .svg-scroll { overflow-x: auto; }
+  figure svg { display: block; width: 100%; height: auto; min-width: 540px; }
+  figcaption {
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: var(--ink-faint);
+    margin-top: 1rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule);
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+  figcaption .prov { display: block; margin-top: 0.5rem; color: var(--ink-faint); font-size: 0.82rem; }
+
+  .table-wrap { overflow-x: auto; margin: 2.4rem 0 0.8rem; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    margin-bottom: 0.7rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    border-bottom: 2px solid var(--rule-strong);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  tbody th {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+  .yes { color: var(--ok); font-weight: 600; }
+  .no { color: var(--no); font-weight: 600; }
+  .cell-note { color: var(--ink-faint); font-size: 0.85em; display: block; margin-top: 0.15rem; }
+  .table-foot { font-size: 0.82rem; color: var(--ink-faint); margin: 0 0 2.4rem; }
+  .table-foot p { margin: 0 0 0.3rem; }
+
+  blockquote {
+    margin: 1.8rem 0;
+    padding: 0.2rem 0 0.2rem 1.2rem;
+    border-left: 3px solid var(--rule-strong);
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+  blockquote cite { display: block; font-style: normal; font-size: 0.85rem; color: var(--ink-faint); margin-top: 0.5rem; font-family: ui-monospace, monospace; }
+
+  .aside.term {
+    background: var(--chip);
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    padding: 0.7rem 0.95rem;
+    margin: 1.4rem 0;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: var(--ink-soft);
+  }
+  .aside.term .t {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin-right: 0.4rem;
+  }
+  .aside.term a { font-size: 0.85rem; white-space: nowrap; }
+
+  .glossary { margin-top: 2.4rem; }
+  .glossary dl { margin: 0; }
+  .glossary dt {
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--ink);
+    margin-top: 0.9rem;
+  }
+  .glossary dd { margin: 0.2rem 0 0; font-size: 0.94rem; color: var(--ink-soft); line-height: 1.5; }
+
+  .refs { font-size: 0.9rem; color: var(--ink-faint); }
+  .refs h2 { font-size: 1.15rem; }
+  .refs ol { padding-left: 1.3rem; }
+  .refs li { margin-bottom: 0.4rem; line-height: 1.4; }
+  .refs a { word-break: break-word; }
+
+  .next-up {
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 2.4rem 0 0;
+    font-size: 0.96rem;
+    color: var(--ink-soft);
+  }
+  .next-up b { color: var(--ink); }
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.3rem;
+    border-top: 1px solid var(--rule);
+    font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+  }
+
+  /* SVG token classes */
+  .n-label { font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace; font-weight: 600; }
+  .svg-mono { font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace; }
+  .svg-ink { fill: var(--ink); }
+  .svg-soft { fill: var(--ink-soft); }
+  .svg-faint { fill: var(--ink-faint); }
+</style>
+</head>
+<body>
+<main>
+<article>
+
+  <p class="eyebrow">Hey language · design note · Distributing Hey, Part 1 of 3 · 22 August 2026</p>
+
+  <h1>No VM needed</h1>
+
+  <p class="lede">Splitting a Hey program across machines is runtime-and-library work on the actor runtime Hey already has — not a bytecode VM — and Erlang's own C-node ships the proof.</p>
+
+  <div class="status-banner">
+    <span class="tag">Explored · not shipped</span>
+    <span>This is a design note, not a feature announcement. Distributed Hey has <b>not been built or shipped</b>. Everything below is analysis of what the runtime would need, grounded in a research brief — no distribution code exists in the tree today.</span>
+  </div>
+
+  <p class="standfirst"><b>Part 1 of a three-part series, "Distributing Hey."</b> This part answers the maintainer's yes/no question — can Hey distribute with no VM? <b>Part 2, "The wire format is the easy part,"</b> covers Hey's acyclic data model and what maps over. <b>Part 3, "Seven choices for distributed Hey,"</b> argues the open design decisions. Each part carries its own TL;DR and visual.</p>
+
+  <div class="tldr">
+    <p>The short version</p>
+    <ul>
+      <li><strong>Yes — a Hey program can be split across machines with no VM.</strong> Distribution is five runtime services on the actor runtime Hey already has, not a bytecode feature.</li>
+      <li><strong>Erlang's own C-node library proves it.</strong> A plain C program running <em>no BEAM, no bytecode, no interpreter</em> already joins a distributed Erlang cluster and exchanges messages, links, and monitors with real Erlang processes.</li>
+      <li><strong>Native, no-VM precedents exist.</strong> Cloud Haskell does full Erlang-style distribution as a library on natively-compiled code; Lumen compiles Erlang to native via LLVM — Hey's exact compilation model.</li>
+      <li><strong>LLVM contributes nothing to distribution.</strong> It only lowers Hey to fast native code per node — no networking, serialization, scheduling, or membership. All of that is runtime and stdlib work.</li>
+      <li><span class="weak">Disclosed weakness</span>No VM has a real cost: Hey loses <em>hot-code distribution</em> (BEAM's ship-the-code trick), and the native-distribution leg leans on Cloud Haskell (Ray proves the services-shaped variant) — Lumen proves native OTP but never shipped node-to-node distribution.</li>
+      <li><span class="check">Check it yourself</span>Read Erlang's <span class="mono">erl_interface</span>/<span class="mono">ei</span> C-node docs: a program with no BEAM registers with epmd and exchanges messages, links, and monitors — confirm the VM is absent.</li>
+    </ul>
+  </div>
+
+  <p>Hey compiles to native code through LLVM and has no virtual machine. So the honest question a maintainer has to ask is: can a Hey program be split across several machines purely as a <em>runtime</em> capability, the way Erlang does it — or does distribution secretly smuggle in a bytecode VM like BEAM? It does not, and the proof lives inside Erlang's own distribution.</p>
+
+  <h2>Distribution is five services, not a VM</h2>
+
+  <p>Strip Erlang's distribution down to what it does and you get a short list. A distributed Erlang system is a set of <strong>nodes</strong> — runtime instances named <span class="mono">name@host</span> — and the pieces that let them cooperate are all runtime services:</p>
+
+  <ul>
+    <li><strong>Naming and discovery.</strong> The Erlang Port Mapper Daemon (<span class="mono">epmd</span>) runs per host and <a href="https://www.erlang.org/doc/system/distributed.html">maps symbolic node names to machine addresses</a>. Service discovery, nothing more.</li>
+    <li><strong>Location-transparent addressing.</strong> A pid carries its node of origin, so <span class="mono">Pid ! Msg</span> routes locally or across the network with identical source — message passing, links, and monitors are, per the docs, <a href="https://www.erlang.org/doc/system/distributed.html">"transparent when pids are used."</a></li>
+    <li><strong>Value serialization.</strong> Erlang terms are serialized to the <a href="https://www.erlang.org/doc/apps/erts/erl_dist_protocol.html">External Term Format (ETF)</a> and reconstructed on the far side — a format defined independently of how any node executes code.</li>
+    <li><strong>Transport + handshake.</strong> The carrier is TCP/IP sockets with a handshake and a shared-secret (magic cookie) check. Erlang's own docs concede the cookie comparison is done <a href="https://www.erlang.org/doc/system/distributed.html">"not in a cryptographically secure manner"</a> — a cluster fence, not real auth.</li>
+    <li><strong>Cross-node supervision / failure detection.</strong> <span class="mono">net_kernel</span> owns the local node's name, monitors every live connection, and on a lost link propagates a <span class="mono">nodedown</span> message to interested processes.</li>
+  </ul>
+
+  <p>Two facts settle the "do we need a VM" question. First, the carrier is a <a href="https://www.erlang.org/doc/system/distributed.html">defined, replaceable protocol</a> — a protocol over a transport, not something welded into the bytecode interpreter. Second — the crux — a non-VM program already participates in the cluster today.</p>
+
+  <div class="aside term">
+    <span class="t">epmd</span> The Erlang Port Mapper Daemon: a per-host service-discovery registry mapping node names to TCP ports. <a href="#glossary">Full entry →</a>
+  </div>
+
+  <h2>The C-node: a cluster member running no BEAM</h2>
+
+  <p>Erlang ships a library, <span class="mono">erl_interface</span>/<span class="mono">ei</span>, whose entire purpose is to let a C program act as a node in a distributed Erlang system. In the docs' words, <a href="https://www.erlang.org/doc/apps/erl_interface/ei_connect.html">"a C node is a C program written to act as a hidden node in a distributed Erlang system."</a> Erlang processes that know its name send to it in the normal manner. This is the whole argument in one existence proof — quoting the research brief verbatim:</p>
+
+  <blockquote>
+    A C node runs <em>no BEAM, no bytecode, no interpreter</em>. It joins the cluster purely by implementing four runtime services: the epmd registration + handshake (naming/discovery), ETF encode/decode (serialization), the TCP distribution protocol (transport), and the message/link/monitor semantics (supervision).
+    <cite>Distributing a Program Across Systems (research brief), §1.2</cite>
+  </blockquote>
+
+  <p><strong>Four services here, five above — that seam is worth naming, not hiding.</strong> It is two regroupings, not one clean cut. The five-service decomposition splits <em>location-transparent addressing</em> out on its own, where the C-node folds addressing into the pid and the message/link/monitor semantics; and the handshake moves — the C-node's four-list files it under naming/discovery ("epmd registration + handshake"), while the five-list folds it into "transport + handshake." Same machinery, sliced differently — a description choice, not a contradiction in what has to be built.</p>
+
+  <p>BEAM the VM provides preemptive scheduling, hot code loading, and per-process isolated GC — <em>none of which is distribution</em>. The one place it genuinely leaks in is hot code loading, the Unison-style "send the code with the message" trick — the single VM-flavored piece, and optional, not load-bearing, for splitting a program across machines.</p>
+
+  <div class="aside term">
+    <span class="t">BEAM</span> Erlang's bytecode virtual machine. It supplies scheduling, hot code loading, and isolated GC — none of which is distribution. Hey has no equivalent and needs none. <a href="#glossary">Full entry →</a>
+  </div>
+
+  <div class="aside term">
+    <span class="t">C-node</span> A program written in C (no BEAM, no bytecode) that joins a distributed Erlang cluster as a hidden node via the <span class="mono">ei</span> library — the existence proof that distribution needs no VM. <a href="#glossary">Full entry →</a>
+  </div>
+
+  <figure class="diagram">
+    <div class="svg-scroll">
+      <svg viewBox="0 0 760 340" role="img" aria-labelledby="diag1-title diag1-desc">
+        <title id="diag1-title">Node-to-node path: five runtime services carry an immutable value across a link</title>
+        <desc id="diag1-desc">Node A holds an immutable acyclic tree value. A location-transparent send hands it to the serialization service, which walks the tree into bytes, across a TCP link with a handshake, into decode on Node B, delivered to a remote actor. Naming/discovery and supervision/failure-detection bracket the link.</desc>
+
+        <rect x="8" y="70" width="250" height="212" rx="12" fill="var(--surface-2)" stroke="var(--node-a)" stroke-width="1.5"/>
+        <text x="24" y="96" class="n-label" font-size="14" fill="var(--node-a)">node-a@host1</text>
+
+        <text x="24" y="122" class="svg-mono svg-faint" font-size="11">immutable acyclic value</text>
+        <circle cx="70" cy="160" r="13" fill="var(--node-a)"/>
+        <circle cx="40" cy="205" r="11" fill="none" stroke="var(--node-a)" stroke-width="1.6"/>
+        <circle cx="100" cy="205" r="11" fill="none" stroke="var(--node-a)" stroke-width="1.6"/>
+        <circle cx="24" cy="248" r="9" fill="none" stroke="var(--node-a)" stroke-width="1.4"/>
+        <circle cx="58" cy="248" r="9" fill="none" stroke="var(--node-a)" stroke-width="1.4"/>
+        <circle cx="116" cy="248" r="9" fill="none" stroke="var(--node-a)" stroke-width="1.4"/>
+        <line x1="62" y1="171" x2="46" y2="195" stroke="var(--node-a)" stroke-width="1.4"/>
+        <line x1="78" y1="171" x2="94" y2="195" stroke="var(--node-a)" stroke-width="1.4"/>
+        <line x1="34" y1="215" x2="27" y2="240" stroke="var(--node-a)" stroke-width="1.2"/>
+        <line x1="46" y1="215" x2="55" y2="240" stroke="var(--node-a)" stroke-width="1.2"/>
+        <line x1="103" y1="215" x2="113" y2="240" stroke="var(--node-a)" stroke-width="1.2"/>
+
+        <text x="150" y="165" class="svg-mono svg-soft" font-size="11">tree-walk</text>
+        <text x="150" y="180" class="svg-mono svg-soft" font-size="11">→ bytes</text>
+        <text x="150" y="205" class="svg-mono svg-faint" font-size="10">no cycles</text>
+        <text x="150" y="219" class="svg-mono svg-faint" font-size="10">no aliasing</text>
+        <text x="150" y="233" class="svg-mono svg-faint" font-size="10">no locks</text>
+
+        <line x1="258" y1="176" x2="502" y2="176" stroke="var(--wire)" stroke-width="2.5"/>
+        <polygon points="502,176 490,170 490,182" fill="var(--wire)"/>
+        <rect x="322" y="160" width="116" height="32" rx="6" fill="var(--bg)" stroke="var(--wire)" stroke-width="1.4"/>
+        <text x="380" y="176" text-anchor="middle" class="svg-mono" font-size="10" fill="var(--wire)">TCP + handshake</text>
+        <text x="380" y="186" text-anchor="middle" class="svg-mono" font-size="8.5" fill="var(--wire)">wire format (ETF-analogue)</text>
+        <g fill="var(--wire)">
+          <rect x="270" y="150" width="4" height="7"/><rect x="278" y="150" width="4" height="7"/>
+          <rect x="288" y="150" width="4" height="7"/><rect x="300" y="150" width="4" height="7"/>
+          <rect x="452" y="150" width="4" height="7"/><rect x="462" y="150" width="4" height="7"/>
+          <rect x="472" y="150" width="4" height="7"/><rect x="482" y="150" width="4" height="7"/>
+        </g>
+
+        <rect x="502" y="70" width="250" height="212" rx="12" fill="var(--surface-2)" stroke="var(--node-b)" stroke-width="1.5"/>
+        <text x="518" y="96" class="n-label" font-size="14" fill="var(--node-b)">node-b@host2</text>
+        <text x="518" y="122" class="svg-mono svg-faint" font-size="11">decode → same tree</text>
+
+        <circle cx="612" cy="160" r="13" fill="var(--node-b)"/>
+        <circle cx="582" cy="205" r="11" fill="none" stroke="var(--node-b)" stroke-width="1.6"/>
+        <circle cx="642" cy="205" r="11" fill="none" stroke="var(--node-b)" stroke-width="1.6"/>
+        <circle cx="566" cy="248" r="9" fill="none" stroke="var(--node-b)" stroke-width="1.4"/>
+        <circle cx="600" cy="248" r="9" fill="none" stroke="var(--node-b)" stroke-width="1.4"/>
+        <circle cx="658" cy="248" r="9" fill="none" stroke="var(--node-b)" stroke-width="1.4"/>
+        <line x1="604" y1="171" x2="588" y2="195" stroke="var(--node-b)" stroke-width="1.4"/>
+        <line x1="620" y1="171" x2="636" y2="195" stroke="var(--node-b)" stroke-width="1.4"/>
+        <line x1="576" y1="215" x2="569" y2="240" stroke="var(--node-b)" stroke-width="1.2"/>
+        <line x1="588" y1="215" x2="597" y2="240" stroke="var(--node-b)" stroke-width="1.2"/>
+        <line x1="645" y1="215" x2="655" y2="240" stroke="var(--node-b)" stroke-width="1.2"/>
+        <text x="700" y="205" class="svg-mono svg-faint" font-size="10">delivered</text>
+        <text x="700" y="219" class="svg-mono svg-faint" font-size="10">to remote</text>
+        <text x="700" y="233" class="svg-mono svg-faint" font-size="10">actor</text>
+
+        <rect x="8" y="16" width="744" height="34" rx="8" fill="none" stroke="var(--rule-strong)" stroke-width="1.2" stroke-dasharray="5 4"/>
+        <text x="380" y="38" text-anchor="middle" class="svg-mono svg-soft" font-size="11.5">① naming / discovery — epmd-equivalent  ·  ② location-transparent address routes the send</text>
+
+        <rect x="8" y="300" width="744" height="34" rx="8" fill="none" stroke="var(--rule-strong)" stroke-width="1.2" stroke-dasharray="5 4"/>
+        <text x="380" y="322" text-anchor="middle" class="svg-mono svg-soft" font-size="11.5">⑤ cross-node supervision / failure-detection — a monitor fires a down-signal when the peer is unreachable</text>
+      </svg>
+    </div>
+    <figcaption><b>The node-to-node path.</b> Five runtime services carry one value across a link. ①②⑤ bracket the wire; the send itself is: <b>③ serialize</b> the immutable acyclic value by walking it into bytes, <b>④ transport</b> it over TCP behind a handshake, then decode into the identical tree on the far node. The wire label reads "ETF-analogue" because Erlang ships ETF while Hey would project its own equivalent format — same role, Hey's own bytes. Because the value is a tree by construction, ③ has no cycle-detection pass and no aliasing bookkeeping (the subject of Part 2).
+      <span class="prov">Source: research brief, <em>"Distributing a Program Across Systems"</em> (research agent, 2026-08-22), §1.2 (the C-node's four services) and §4.1 (Hey's five-service decomposition).</span>
+    </figcaption>
+  </figure>
+
+  <h2>The no-VM precedents</h2>
+
+  <p>The pattern across every mature actor system is the same: membership, addressing, serialization, failure-detection, and supervision live in a runtime or library; the execution substrate — VM or native — is orthogonal. Two precedents matter most for Hey.</p>
+
+  <p><strong>Cloud Haskell is the closest architectural twin.</strong> It is natively compiled (GHC, the Glasgow Haskell Compiler), a "process" is literally a <span class="mono">forkIO</span> thread with a mailbox, and distribution is a library — <span class="mono">distributed-process</span> — not a feature of the compiler. It <a href="https://wiki.haskell.org/Cloud_Haskell">"abstracts over a network transport layer,"</a> exactly like Erlang's alternative-carrier design, and reproduces Erlang's whole model — message passing, links, monitors, remote spawn — with no VM. That is the existence proof that a native language gets Erlang-style distribution as a library — and it works. Ray is the shipped no-VM distribution, its native C++ core moving values as <span class="mono">ObjectRef</span>s with no language VM at all.</p>
+
+  <p><strong>Lumen is Erlang compiled to native via LLVM — the exact compilation model Hey uses.</strong> Per its README, <a href="https://github.com/lawik/lumen/blob/develop/README.md">"rather than being constructed as a compiler that produces bytecode which is then executed by a virtual machine, Lumen is instead an ahead-of-time compiler that produces native code,"</a> on a Rust runtime over LLVM. It shows Erlang/OTP semantics — processes, mailboxes, scheduling, supervision — survive the move to native ahead-of-time (AOT) compilation with no VM. The honest caveat: its README does not document node-to-node distribution (its target was WebAssembly/embedded, and it drops hot code loading). So Lumen proves <em>native OTP</em>; Cloud Haskell supplies the <em>native distribution</em> half. Together they close the argument.</p>
+
+  <p>The wider field fills in the design menu Part 3 argues — Orleans' <em>virtual-actor identity</em>, Akka Cluster's <em>gossip membership</em> and <em>phi-accrual</em> failure detector, Ray's <em>distribution-as-services</em> moving values as <span class="mono">ObjectRef</span>s — and one warning: Pony designed native actor distribution but never shipped it, proof that transparency is easy to design and hard to finish. One guardrail on that list: Orleans runs on the .NET CLR and Akka on the JVM — both virtual machines. The brief calls each VM "incidental," and they belong here only for their VM-independent <em>distribution designs</em> (virtual actors, gossip, phi-accrual), not as no-VM proof. The load-bearing no-VM-distribution evidence is Cloud Haskell and Ray; Erlang's C-node is the no-VM-<em>membership</em> proof.</p>
+
+  <div class="aside term">
+    <span class="t">phi-accrual</span> Akka Cluster's failure detector: instead of a boolean "is it down?", it returns a tunable suspicion value (phi) for how likely a node has died — the design Hey would copy for cross-node failure detection. <a href="#glossary">Full entry →</a>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <caption>VM-required vs. Hey's runtime-only path — selected precedents</caption>
+      <thead>
+        <tr>
+          <th scope="col">System</th>
+          <th scope="col">VM required for distribution?</th>
+          <th scope="col">Distribution lives in…</th>
+          <th scope="col">Serialization</th>
+          <th scope="col">Failure detection</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Distributed Erlang</th>
+          <td><span class="no">No</span><span class="cell-note">BEAM present, but C nodes prove it isn't needed</span></td>
+          <td>ERTS + OTP libraries</td>
+          <td>ETF</td>
+          <td>net_kernel, monitors/links, <span class="mono">nodedown</span></td>
+        </tr>
+        <tr>
+          <th scope="row">erl_interface C node</th>
+          <td><span class="no">No</span><span class="cell-note">plain C, no bytecode or interpreter</span></td>
+          <td>the <span class="mono">ei</span> library</td>
+          <td>ETF encode/decode</td>
+          <td>message/link/monitor semantics</td>
+        </tr>
+        <tr>
+          <th scope="row">Cloud Haskell</th>
+          <td><span class="no">No</span><span class="cell-note">GHC native, forkIO threads</span></td>
+          <td><span class="mono">distributed-process</span> library</td>
+          <td>library (Binary / typed channels)</td>
+          <td>Erlang-style links/monitors in-library</td>
+        </tr>
+        <tr>
+          <th scope="row">Lumen</th>
+          <td><span class="no">No</span><span class="cell-note">AOT (ahead-of-time)-native via Rust + LLVM</span></td>
+          <td>Rust runtime</td>
+          <td>—<span class="cell-note">distribution not implemented</span></td>
+          <td>—<span class="cell-note">distribution not implemented</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Akka Cluster</th>
+          <td><span class="no">No<sup>†</sup></span><span class="cell-note">JVM present, incidental to distribution</span></td>
+          <td>akka-cluster library</td>
+          <td>Akka serialization</td>
+          <td>gossip + phi-accrual detector</td>
+        </tr>
+        <tr>
+          <th scope="row">Ray</th>
+          <td><span class="no">No</span><span class="cell-note">native C++ core</span></td>
+          <td>C++ core + Global Control Store</td>
+          <td>Apache Arrow</td>
+          <td>GCS heartbeats, distributed refcount</td>
+        </tr>
+        <tr>
+          <th scope="row"><strong>Hey (proposed)</strong></th>
+          <td><span class="yes">No</span><span class="cell-note">LLVM-native, no VM to add</span></td>
+          <td>C runtime + <span class="mono">.hey</span> stdlib</td>
+          <td><span class="yes">tree-walk of an acyclic value</span></td>
+          <td>extend existing links/monitors; phi-accrual</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="table-foot">
+    <p><sup>†</sup> The JVM is incidental to Akka's distribution, not required for it — membership and failure detection are library code that a native runtime could implement identically.</p>
+    <p>Selected rows, not the full set: the brief's precedent table adds Orleans, Unison, Lunatic, and Pony (Orleans/Pony are discussed in the prose above). Source: adapted from the research brief's precedent table, <em>"Distributing a Program Across Systems"</em> (research agent, 2026-08-22), §2. The Hey row is this note's own projection, not a shipped result.</p>
+  </div>
+
+  <h2>Where LLVM sits: entirely to one side</h2>
+
+  <p>It is worth being blunt about LLVM, because the name misleads. It is a target-independent optimizer with code generation for many CPUs — no networking, no RPC, no serialization, no scheduling, no membership, no distributed runtime. Its own site says it plainly: <a href="https://llvm.org/">"despite its name, LLVM has little to do with traditional virtual machines."</a></p>
+
+  <p>So the split is total. <strong>LLVM lowers Hey to fast native code on each node and contributes literally nothing to distribution.</strong> Every distribution service is runtime and standard-library work — the same kind of code that already lives alongside Hey's scheduler in <span class="mono">runtime/hey_runtime.c</span> (home of <span class="mono">HeyActor</span>, <span class="mono">HeyWorkerPool</span>, and the <span class="mono">HeyMessage</span> mailbox), plus <span class="mono">.hey</span> stdlib surface. There is no VM to add and none is needed.</p>
+
+  <h2>Bottom line for Part 1</h2>
+
+  <p><strong>Hey needs no VM.</strong> Distribution is five runtime services layered on an actor runtime — proven by Erlang's own C-node running with no BEAM and by Cloud Haskell's native library. LLVM contributes nothing but fast per-node native code; the one honest cost, hot-code distribution, is optional. Part 2 takes up why the piece everyone fears most — the wire format — is, for Hey, the easy part.</p>
+
+  <div class="next-up">
+    <b>Next in the series.</b> <b>Part 2 — "The wire format is the easy part":</b> why Hey's immutable, acyclic, refcounted values turn serialization into a plain tree-walk, and what maps over from Hey's existing actors, workers, and Jobs. <b>Part 3 — "Seven choices for distributed Hey":</b> transparent vs. explicit remote sends; at-most-once vs. at-least-once delivery; consistency-vs-availability (CAP: consistency, availability, partition-tolerance) behavior on a partition; node-tagged pids vs. Orleans virtual actors; meshed <span class="mono">net_kernel</span> vs. gossip membership; homogeneous-binary vs. content-addressed code; and cookie-equivalent vs. TLS-authenticated node identity.
+  </div>
+
+  <section class="glossary" id="glossary">
+    <h2>Glossary</h2>
+    <dl>
+      <dt>BEAM</dt>
+      <dd>Erlang's bytecode virtual machine (the runtime that executes compiled Erlang/Elixir). It supplies preemptive scheduling, hot code loading, and per-process isolated GC — none of which is distribution. Hey has no equivalent and needs none.</dd>
+      <dt>C-node</dt>
+      <dd>A program written in C — no BEAM, no bytecode, no interpreter — that joins a distributed Erlang cluster as a hidden node via the <span class="mono">erl_interface</span>/<span class="mono">ei</span> library. The load-bearing existence proof that cluster membership is runtime services, not a VM.</dd>
+      <dt>epmd</dt>
+      <dd>Erlang Port Mapper Daemon: a per-host service-discovery registry that maps symbolic node names to TCP ports so connecting nodes can find each other.</dd>
+      <dt>ETF</dt>
+      <dd>External Term Format: Erlang's wire serialization for values sent between nodes, reconstructed on the far side. Defined independently of how any node executes code — Hey would need an ETF analogue for its own values (Part 2).</dd>
+      <dt>phi-accrual</dt>
+      <dd>Akka Cluster's failure detector: instead of a boolean "is it down?", it returns a tunable suspicion value (phi) representing the likelihood a node has died, trading false positives against detection latency.</dd>
+      <dt>virtual actor</dt>
+      <dd>Microsoft Orleans' addressing model: an actor is addressed by logical identity, and the runtime freely places, migrates, activates, and recovers it. Contrasts with node-tagged pids, which pin an actor to where it was spawned (a Part 3 choice).</dd>
+      <dt>ObjectRef</dt>
+      <dd>Ray's distributed pointer/future to a value in its shared object store, pinned by distributed reference counting. Relevant because Hey is already refcounted, so a "copy small, ship large by reference" split maps onto machinery Hey has (Part 2).</dd>
+    </dl>
+  </section>
+
+  <section class="refs">
+    <h2>Sources</h2>
+    <p>Primary links are cited inline at first use above. All claims are grounded in the research brief <em>"Distributing a Program Across Systems — Erlang's Mechanism, the No-VM Precedents, and What Hey's Runtime Would Need"</em> (research agent, 2026-08-22), which carries the citations collected here.</p>
+    <ol>
+      <li>Distributed Erlang, Erlang System Documentation — <a href="https://www.erlang.org/doc/system/distributed.html">erlang.org/doc/system/distributed.html</a> (nodes, epmd, net_kernel, transparent pids, TCP carrier / alternative carrier, non-cryptographic cookie).</li>
+      <li>Distribution Protocol, OTP/erts — <a href="https://www.erlang.org/doc/apps/erts/erl_dist_protocol.html">erlang.org/doc/apps/erts/erl_dist_protocol.html</a> (External Term Format).</li>
+      <li>ei_connect and Erl_Interface User's Guide — <a href="https://www.erlang.org/doc/apps/erl_interface/ei_connect.html">erlang.org/doc/apps/erl_interface/ei_connect.html</a> (the C node: no BEAM in the cluster).</li>
+      <li>Cloud Haskell / distributed-process — <a href="https://wiki.haskell.org/Cloud_Haskell">wiki.haskell.org/Cloud_Haskell</a> (native, no-VM Erlang-style distribution as a library; "abstracts over a network transport layer").</li>
+      <li>Lumen README — <a href="https://github.com/lawik/lumen/blob/develop/README.md">github.com/lawik/lumen</a> (Erlang → native via LLVM, AOT not bytecode).</li>
+      <li>Orleans overview; Akka Cluster Specification; Ray objects & key concepts; Pony papers — the design menu argued in Part 3 (virtual actors, gossip + phi-accrual, ObjectRef + distributed refcount, unshipped native distribution).</li>
+      <li>LLVM project — <a href="https://llvm.org/">llvm.org</a> ("LLVM has little to do with traditional virtual machines").</li>
+    </ol>
+  </section>
+
+  <footer>Part of the Hey project's public log · Distributing Hey · Part 1 of 3</footer>
+
+</article>
+</main>
+</body>
+</html>
