@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="What should `private` mean in Hey — advisory like Ruby, or enforced by non-exposure like Go/Elixir? Six labelled decisions (D42–D47) with primary-source research, grounded in Hey's exposes surface and the P-3 resolver bug.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-desc" content="Hey already chose an explicit `exposes` surface, which collapses `private` into `not on the surface`. Six labelled decisions on enforcement, scope, the test hatch, and the keyword — recommendation: enforced non-exposure plus an optional ergonomic marker.">
+<title>What `private` should mean for Hey · decision docket</title>
+<style>
+  :root{color-scheme:light dark;
+    --bg:#f7f4ed;--ink:#20211f;--muted:#5d615b;--panel:#ffffff;--line:#c8c4b9;
+    --accent:#7447c8;--accent-soft:rgba(116,71,200,.10);--good:#176b45;--good-soft:rgba(23,107,69,.10);--code:#f0eee8;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#171816;--ink:#f3f1ea;--muted:#b7b9b2;--panel:#232521;--line:#50544c;
+    --accent:#c4a7ff;--accent-soft:rgba(196,167,255,.12);--good:#79d7a8;--good-soft:rgba(121,215,168,.12);--code:#1d1f1c;}}
+  :root[data-theme="dark"]{--bg:#171816;--ink:#f3f1ea;--muted:#b7b9b2;--panel:#232521;--line:#50544c;
+    --accent:#c4a7ff;--accent-soft:rgba(196,167,255,.12);--good:#79d7a8;--good-soft:rgba(121,215,168,.12);--code:#1d1f1c;}
+  :root[data-theme="light"]{--bg:#f7f4ed;--ink:#20211f;--muted:#5d615b;--panel:#ffffff;--line:#c8c4b9;
+    --accent:#7447c8;--accent-soft:rgba(116,71,200,.10);--good:#176b45;--good-soft:rgba(23,107,69,.10);--code:#f0eee8;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:17px/1.58 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+  main{width:min(1000px,calc(100% - 32px));margin:0 auto;padding:42px 0 120px}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
+    background:var(--code);padding:.08em .34em;border-radius:4px}
+  .eyebrow{font-family:ui-monospace,monospace;font-size:.78rem;letter-spacing:.08em;color:var(--accent);margin:0 0 12px}
+  h1{font-size:clamp(1.9rem,5vw,2.9rem);line-height:1.08;letter-spacing:-.02em;text-wrap:balance;margin:0 0 16px}
+  .lede{font-size:1.1rem;color:var(--muted);max-width:64ch;margin:0 0 8px}
+  .frame{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 10px 10px 0;padding:16px 20px;margin:26px 0 8px}
+  .frame p{margin:.4em 0}.frame b{color:var(--ink)}
+  h2.dh{font-size:1.32rem;letter-spacing:-.01em;margin:38px 0 2px}
+  .q{color:var(--muted);margin:.1em 0 14px;font-size:1.02rem}
+  .decision{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 20px;margin:0 0 10px}
+  .opt{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--line)}
+  .opt:last-child{border-bottom:0}
+  .opt input{margin-top:5px;accent-color:var(--accent);width:16px;height:16px;flex:none}
+  .opt .body{flex:1}
+  .opt .id{font-family:ui-monospace,monospace;font-weight:600;color:var(--accent);font-size:.9rem}
+  .opt .name{font-weight:600}
+  .opt .why{color:var(--muted);font-size:.94rem;margin-top:3px}
+  .rec{display:inline-block;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.06em;
+    color:var(--good);background:var(--good-soft);border:1px solid color-mix(in srgb,var(--good) 40%,transparent);
+    border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:middle}
+  .bundle{font-size:.9rem;color:var(--muted);margin:8px 2px 0}
+  .ruling{position:sticky;bottom:0;margin-top:40px;background:var(--panel);border:1px solid var(--accent);
+    border-radius:12px;padding:14px 18px;box-shadow:0 -6px 24px rgba(0,0,0,.10)}
+  .ruling .lab{font-family:ui-monospace,monospace;font-size:.72rem;letter-spacing:.08em;color:var(--accent);text-transform:uppercase}
+  .ruling .val{font-family:ui-monospace,monospace;font-size:1.02rem;margin-top:5px;word-break:break-word}
+  button.copy{font:inherit;font-size:.85rem;cursor:pointer;margin-top:10px;background:var(--accent);color:#fff;
+    border:0;border-radius:8px;padding:7px 14px}
+  button.copy:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  footer{margin-top:36px;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:16px}
+  a{color:var(--accent)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Hey language · decision docket · 22 August 2026</p>
+  <h1>What <code>private</code> should mean for Hey</h1>
+  <p class="lede">You lean toward Ruby's weak, advisory privacy. Here is the spectrum, primary-source
+  costs, and six labelled decisions. Answer in ids — <span class="mono">D42-c, D43-b, …</span>.</p>
+
+  <div class="frame">
+    <p><b>The one fact that reorganizes this.</b> Hey already chose an explicit <code>exposes</code>
+    surface. In every language with an explicit export surface, <b>“private” collapses into “not on
+    the surface”</b> — Go has no privacy keyword at all (lowercase = unexported, compiler-enforced);
+    Rust's <code>pub</code> just defaults it the other way; OCaml hides anything omitted from the
+    signature. So this is not “advisory vs. enforced” in the abstract.</p>
+    <p><b>The load-bearing constraint.</b> Hey's <b>P-3 bug</b> proves Ruby-weak privacy is
+    insufficient for the resolver: a private stdlib name currently changes a <em>qualified</em> call's
+    answer because everything shares one flat table with no boundary. And Hey's usual motive for
+    <em>strong</em> access control is absent — immutable values + actor isolation already carry
+    encapsulation — so <code>private</code> here is about <b>namespace hygiene and API clarity</b>,
+    not protecting mutable state. Premise for all options: whatever is chosen, non-exposure is
+    enforced by the <b>resolver</b> (the <code>exposes</code> surface + scope graph), not left to the
+    interpreter's load-time check.</p>
+  </div>
+
+  <form id="docket">
+  <h2 class="dh">D42 — The model</h2>
+  <p class="q">How much does <code>private</code> / non-exposure actually enforce?</p>
+  <div class="decision">
+    <label class="opt"><input type="radio" name="D42" value="D42-a — Ruby-weak advisory: private is a hint, reachable via a send-style bypass, resolver does not refuse it">
+      <span class="body"><span class="id">D42-a</span> <span class="name">Ruby-weak advisory.</span>
+      <div class="why">A hint; non-exposed names reachable via a sanctioned bypass. Cost: does NOT close P-3; makes <code>exposes</code> decorative.</div></span></label>
+    <label class="opt"><input type="radio" name="D42" value="D42-b — Enforced by non-exposure, NO keyword (Go): private iff not in exposes; resolver refuses external binding">
+      <span class="body"><span class="id">D42-b</span> <span class="name">Enforced by non-exposure, no keyword (Go).</span>
+      <div class="why">Delete <code>private</code>; a name is private iff not in <code>exposes</code>; resolver refuses it externally. Closes P-3; loses definition-site readability.</div></span></label>
+    <label class="opt"><input type="radio" name="D42" value="D42-c — Enforced non-exposure + optional ergonomic private marker (Elixir/Go hybrid); private-in-exposes is an error">
+      <span class="body"><span class="id">D42-c</span> <span class="name">Enforced non-exposure + optional <code>private</code> marker.</span><span class="rec">RECOMMENDED</span>
+      <div class="why">Same enforcement as D42-b, plus an optional definition-site <code>private</code> for readability (like <code>defp</code>) and a compile error if a <code>private</code> name is also in <code>exposes</code>. Keeps your Ruby <em>feel</em>, buys the enforcement Ruby can't. Near-zero migration.</div></span></label>
+    <label class="opt"><input type="radio" name="D42" value="D42-d — TypeScript two-tier: a soft bypassable private plus a hard unreachable one, chosen per name">
+      <span class="body"><span class="id">D42-d</span> <span class="name">TypeScript two-tier (soft + hard).</span>
+      <div class="why">Two mechanisms — the opposite of Hey's few-constructs goal; <code>exposes</code> already gives the hard boundary.</div></span></label>
+    <label class="opt"><input type="radio" name="D42" value="D42-e — Rich enforced lattice (Rust/Swift): pub(crate)/pub(super)/fileprivate/signature-sealing">
+      <span class="body"><span class="id">D42-e</span> <span class="name">Rich enforced lattice (Rust/Swift).</span>
+      <div class="why">Graduated visibility. No motivating use case in Hey (no packages, no classes, no mutable invariants). Over-built.</div></span></label>
+  </div>
+  <p class="bundle">Choosing <span class="mono">D42-c</span> adopts <span class="mono">D44-a, D45-a, D46-a, D47-a</span> as its defaults — override any below.</p>
+
+  <h2 class="dh">D43 — Scope unit</h2>
+  <p class="q">What is “private” scoped to?</p>
+  <div class="decision">
+    <label class="opt"><input type="radio" name="D43" value="D43-a — Source file (Swift fileprivate; today's private_owner_path)">
+      <span class="body"><span class="id">D43-a</span> <span class="name">The source file</span> (Swift <code>fileprivate</code>; today's <code>private_owner_path</code>).</span></label>
+    <label class="opt"><input type="radio" name="D43" value="D43-b — The module X declaration (Elixir/Go), consistent with the exposes surface">
+      <span class="body"><span class="id">D43-b</span> <span class="name">The <code>module X</code> declaration</span> (Elixir/Go), consistent with <code>exposes</code>.<span class="rec">RECOMMENDED</span></span></label>
+  </div>
+
+  <h2 class="dh">D44 — Can a spec reach privates?</h2>
+  <p class="q">The R2/R4 spec model imports the code under test. What does it see? (canon O1)</p>
+  <div class="decision">
+    <label class="opt"><input type="radio" name="D44" value="D44-a — Co-located internal-test hatch only; ordinary importers see the exposes surface only (Rust #[cfg(test)] / Go same-package _test); works inline too">
+      <span class="body"><span class="id">D44-a</span> <span class="name">Co-located test hatch only.</span><span class="rec">RECOMMENDED</span>
+      <div class="why">A <code>foo_spec.hey</code> importer sees only exposed names; a same-module/same-file spec region reaches privates (mirrors Rust <code>#[cfg(test)]</code> + Go same-package tests). Works for inline specs too (R2/R4: separate files are a convention, not a rule).</div></span></label>
+    <label class="opt"><input type="radio" name="D44" value="D44-b — General send-style runtime bypass any spec can use">
+      <span class="body"><span class="id">D44-b</span> <span class="name">General <code>send</code>-style bypass</span> — reintroduces advisory weakness; the resolver can't rule it unreachable.</span></label>
+    <label class="opt"><input type="radio" name="D44" value="D44-c — No hatch: specs test the public exposes surface only">
+      <span class="body"><span class="id">D44-c</span> <span class="name">No hatch</span> — public surface only.</span></label>
+  </div>
+
+  <h2 class="dh">D45 — Keyword semantics</h2>
+  <p class="q">Is <code>private</code> a word, a marker, or the mechanism?</p>
+  <div class="decision">
+    <label class="opt"><input type="radio" name="D45" value="D45-a — Non-exposure is the semantics; private is an optional ergonomic marker; private-in-exposes is an error">
+      <span class="body"><span class="id">D45-a</span> <span class="name">Non-exposure is the semantics; <code>private</code> is an optional marker</span> (private-in-<code>exposes</code> = error).<span class="rec">RECOMMENDED</span></span></label>
+    <label class="opt"><input type="radio" name="D45" value="D45-b — Drop the private keyword entirely (Go): only the exposes surface">
+      <span class="body"><span class="id">D45-b</span> <span class="name">Drop the keyword entirely</span> (Go) — only <code>exposes</code>.</span></label>
+    <label class="opt"><input type="radio" name="D45" value="D45-c — The private keyword is the mechanism (definition-site marking is what makes it private)">
+      <span class="body"><span class="id">D45-c</span> <span class="name">The keyword is the mechanism.</span></span></label>
+  </div>
+
+  <h2 class="dh">D46 — General escape hatch?</h2>
+  <p class="q">Any reflective / <code>send</code>-style way past the boundary outside tests?</p>
+  <div class="decision">
+    <label class="opt"><input type="radio" name="D46" value="D46-a — No general bypass; the only way in is the D44 co-located test tier">
+      <span class="body"><span class="id">D46-a</span> <span class="name">No general bypass</span> — only the D44 test tier.<span class="rec">RECOMMENDED</span></span></label>
+    <label class="opt"><input type="radio" name="D46" value="D46-b — Provide a Ruby send-style runtime bypass">
+      <span class="body"><span class="id">D46-b</span> <span class="name">Provide a <code>send</code>-style bypass.</span></span></label>
+  </div>
+
+  <h2 class="dh">D47 — One boundary for every declaration kind?</h2>
+  <p class="q">Do constants, operators (<code>exposes pow infix:'**'</code>), and <code>private actor</code>/<code>worker</code> all route through the same rule?</p>
+  <div class="decision">
+    <label class="opt"><input type="radio" name="D47" value="D47-a — Yes: one uniform exposes rule for every declaration kind, no per-kind privacy">
+      <span class="body"><span class="id">D47-a</span> <span class="name">Yes — one uniform <code>exposes</code> rule</span> for every kind.<span class="rec">RECOMMENDED</span></span></label>
+    <label class="opt"><input type="radio" name="D47" value="D47-b — Per-kind privacy semantics (e.g. a distinct private_constant rule)">
+      <span class="body"><span class="id">D47-b</span> <span class="name">Per-kind semantics</span> (e.g. a distinct <code>private_constant</code>).</span></label>
+  </div>
+  </form>
+
+  <div class="ruling">
+    <div class="lab">Your ruling</div>
+    <div class="val" id="ruling">D42-… D43-… D44-… D45-… D46-… D47-…</div>
+    <button class="copy" type="button" id="copy">Copy ruling</button>
+  </div>
+
+  <footer>Part of the Hey project's public log. Research + citations:
+  the private-visibility survey and the <code>exposes</code> module-system design. Corrections publish at the same prominence as the claims they correct.</footer>
+</main>
+<script>
+  const names=["D42","D43","D44","D45","D46","D47"];
+  const out=document.getElementById("ruling");
+  function refresh(){
+    out.textContent=names.map(n=>{const c=document.querySelector('input[name="'+n+'"]:checked');
+      return c?c.value.split(" — ")[0]:n+"-…";}).join(", ");
+  }
+  document.getElementById("docket").addEventListener("change",refresh);
+  document.getElementById("copy").addEventListener("click",()=>{
+    navigator.clipboard&&navigator.clipboard.writeText(out.textContent);
+    const b=document.getElementById("copy");b.textContent="Copied";setTimeout(()=>b.textContent="Copy ruling",1400);
+  });
+  refresh();
+</script>
+</body>
+</html>
