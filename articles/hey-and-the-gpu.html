@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What it would take for Hey to reach the GPU</title>
+<meta name="description" content="LLVM already ships the NVPTX and AMDGPU back-ends, so Hey is nearly a target-flag flip from emitting GPU code — but that is only about 20% of the job. The real wall is a kernel-legal value subset, and the first move is finishing Perceus reuse on the CPU, not writing GPU code.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-bucket" content="almost">
+<meta name="article-desc" content="LLVM makes the GPU back-end nearly free; the kernel-legal value subset is the wall — and the planned Perceus reuse pass may pay for it twice. Nothing here ships today.">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --fg: #1c1a17;
+    --muted: #5f5a52;
+    --rule: #e2ddd3;
+    --card: #ffffff;
+    --accent: #b3471f;
+    --accent-soft: #f3e4dc;
+    --good: #2f6b3a;
+    --good-soft: #e4efe4;
+    --bad: #9a3320;
+    --bad-soft: #f5e3df;
+    --code-bg: #f2efe8;
+    --th-bg: #efece4;
+    --shadow: 0 1px 2px rgba(30,26,22,.06), 0 6px 22px rgba(30,26,22,.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16150f;
+      --fg: #ece7dd;
+      --muted: #a49d8f;
+      --rule: #322f27;
+      --card: #1e1c16;
+      --accent: #e6753f;
+      --accent-soft: #372018;
+      --good: #7fc08a;
+      --good-soft: #1d2c1e;
+      --bad: #e0876f;
+      --bad-soft: #33211c;
+      --code-bg: #23211a;
+      --th-bg: #262319;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 22px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16150f;
+    --fg: #ece7dd;
+    --muted: #a49d8f;
+    --rule: #322f27;
+    --card: #1e1c16;
+    --accent: #e6753f;
+    --accent-soft: #372018;
+    --good: #7fc08a;
+    --good-soft: #1d2c1e;
+    --bad: #e0876f;
+    --bad-soft: #33211c;
+    --code-bg: #23211a;
+    --th-bg: #262319;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 22px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--serif);
+    font-size: 1.19rem;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { display: block; }
+  article {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 4.5rem 1.4rem 5rem;
+  }
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: .78rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.1rem;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(2.1rem, 5.4vw, 3.05rem);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    margin: 0 0 1.1rem;
+  }
+  .lede {
+    font-size: 1.42rem;
+    line-height: 1.44;
+    color: var(--muted);
+    margin: 0 0 2rem;
+    font-weight: 400;
+  }
+  h2 {
+    font-family: var(--sans);
+    font-size: 1.02rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin: 3.2rem 0 1rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--rule);
+    color: var(--fg);
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 1.06rem;
+    font-weight: 600;
+    margin: 2rem 0 .6rem;
+  }
+  p { margin: 0 0 1.15rem; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 600; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .86em;
+    background: var(--code-bg);
+    padding: .1em .38em;
+    border-radius: 4px;
+  }
+  .status-banner {
+    background: var(--bad-soft);
+    border: 1px solid var(--bad);
+    border-left: 4px solid var(--bad);
+    border-radius: 10px;
+    padding: .95rem 1.2rem;
+    margin: 0 0 2.2rem;
+    font-family: var(--sans);
+    font-size: .95rem;
+    line-height: 1.48;
+    color: var(--bad);
+    font-weight: 600;
+  }
+  .status-banner strong { color: var(--bad); }
+  .tldr {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 1.4rem 1.6rem .4rem;
+    box-shadow: var(--shadow);
+    margin: 0 0 1.6rem;
+  }
+  .tldr h2 {
+    border: 0;
+    margin: 0 0 .7rem;
+    padding: 0;
+    color: var(--accent);
+  }
+  .tldr ul { margin: 0; padding-left: 1.15rem; }
+  .tldr li { margin-bottom: .85rem; font-size: 1.08rem; line-height: 1.5; }
+  figure { margin: 2.2rem 0; }
+  figcaption {
+    font-family: var(--sans);
+    font-size: .84rem;
+    color: var(--muted);
+    margin-top: .7rem;
+    line-height: 1.45;
+  }
+  .diagram {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 1.4rem 1.1rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  .diagram svg { display: block; width: 100%; height: auto; min-width: 30rem; }
+  .tbl-wrap { overflow-x: auto; border-radius: 10px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--sans);
+    font-size: .96rem;
+    min-width: 34rem;
+    background: var(--card);
+    box-shadow: var(--shadow);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  caption {
+    caption-side: bottom;
+    font-family: var(--sans);
+    font-size: .84rem;
+    color: var(--muted);
+    text-align: left;
+    padding-top: .7rem;
+    line-height: 1.45;
+  }
+  th, td {
+    text-align: left;
+    padding: .72rem .85rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-size: .8rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--th-bg);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.free { color: var(--good); font-weight: 600; }
+  td.notfree { color: var(--bad); font-weight: 600; }
+  .pill {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: .74rem;
+    font-weight: 600;
+    padding: .12em .55em;
+    border-radius: 999px;
+    letter-spacing: .02em;
+  }
+  .pill.good { background: var(--good-soft); color: var(--good); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .note {
+    background: var(--accent-soft);
+    border-radius: 10px;
+    padding: 1.1rem 1.3rem;
+    margin: 2.4rem 0;
+    font-size: 1.02rem;
+    line-height: 1.5;
+  }
+  .note strong { color: var(--accent); }
+  ul.sources { font-family: var(--sans); font-size: .92rem; line-height: 1.5; padding-left: 1.15rem; }
+  ul.sources li { margin-bottom: .6rem; }
+  footer {
+    margin-top: 3.6rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: .86rem;
+    color: var(--muted);
+  }
+  /* SVG theme tokens */
+  .svg-box { fill: var(--card); stroke: var(--rule); }
+  .svg-free { fill: var(--good-soft); stroke: var(--good); }
+  .svg-notfree { fill: var(--bad-soft); stroke: var(--bad); }
+  .svg-label { fill: var(--fg); font-family: var(--sans); font-weight: 600; }
+  .svg-sub { fill: var(--muted); font-family: var(--sans); }
+  .svg-arrow { stroke: var(--muted); fill: none; }
+  .svg-arrowhead { fill: var(--muted); }
+  .svg-good-txt { fill: var(--good); font-family: var(--sans); font-weight: 600; }
+  .svg-bad-txt { fill: var(--bad); font-family: var(--sans); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<article>
+
+  <p class="eyebrow">Hey language · design note · 22 August 2026</p>
+
+  <h1>What it would take for Hey to reach the GPU</h1>
+
+  <p class="lede">LLVM already hands Hey a working GPU back-end for the price of a target-triple-plus-calling-convention flip — but that is only about a fifth of the job, and the hardest, most Hey-specific piece of the four-fifths that remains is one question Hey is unusually well placed to answer: which of Hey's values are legal inside a kernel.</p>
+
+  <div class="status-banner">
+    This is a design note. <strong>Nothing here is in the shipping toolchain</strong> — Hey has no GPU path today. It is a design exploration of what one would cost, not a feature, an announcement, or a plan of record.
+  </div>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>The first move is not GPU code.</strong> It is defining which Hey values are legal inside a kernel — the <em>kernel-legal value subset</em> — and finishing the planned Perceus reuse pass (in-place reuse of uniquely-owned values) on the CPU. The GPU falls out of that one piece of work, or it stays a note and never needs to exist.</li>
+      <li><strong>The back-end is nearly free.</strong> LLVM ships two production GPU back-ends — <strong>NVPTX</strong> (LLVM IR&nbsp;&rarr;&nbsp;PTX, NVIDIA's virtual instruction-set architecture, or ISA) and <strong>AMDGPU</strong> (LLVM IR&nbsp;&rarr;&nbsp;GCN/RDNA/CDNA code objects). Hey already emits LLVM IR text, so it is <em>architecturally one back-end flag away</em> from emitting PTX. That is real — and it is only about <strong>20%</strong> of "target a GPU."</li>
+      <li><strong>The real work is four net-new pieces.</strong> The back-end accepts only a <em>subset</em> of LLVM IR. The other ~<strong>80%</strong> — a device runtime, a <em>kernel-legal value subset</em>, a host/device memory model, and an offload layer — is all net-new, and none of it is what LLVM provides.</li>
+      <li><strong>Hey's runtime fights the GPU; its core helps.</strong> Boxed values, reference-count <code>dup</code>/<code>drop</code>, and actors are all <em>kernel-illegal</em>. But immutability plus no closures plus no aliasing means pure, race-free kernels for free — the single hardest GPU correctness property, gone by construction. Futhark, a purely functional array language, is the existence proof.</li>
+      <li><strong>Disclosed weakness:</strong> this is premature — today there is no Hey workload that clearly wants a GPU. On sourcing: the two load-bearing back-end anchors — NVPTX's "subset of LLVM IR" and AMDGPU's "ISA code generation for AMD GPUs" — were read as <em>raw text</em> and are the firmest citations here; it is the surrounding detail (intrinsic names, the address-space count, the libdevice wording, the "code objects only" clause) that is reader-paraphrase, and the Futhark claims come from search-result summaries rather than full-text fetches. Spot-check those before quoting.</li>
+      <li><strong>Check it in one line:</strong> emit one hand-written Hey kernel to an <code>nvptx64</code> module with a <code>ptx_kernel</code> function and see whether it assembles to PTX at all. If it does, the back-end claim holds; if it does not, this piece is wrong at step one.</li>
+    </ul>
+  </div>
+
+  <p>There is a tempting question buried here. Hey compiles native through LLVM and has no virtual machine, so <em>how much of the GPU does LLVM just give us?</em> The honest answer has two halves, and they point in opposite directions. The back-end half is a gift. The runtime-and-values half is a wall. This note walks both and lands on the one move that is cheap, real, and worth making first.</p>
+
+  <h2>The universal shape: a device half and a host half</h2>
+
+  <p>Every system that programs a GPU directly — CUDA, Mojo, Julia, Triton, Rust — splits into the same two halves, without exception. Naming that split is the most useful lens for the whole question, because <strong>LLVM sits almost entirely inside one half and none of the other.</strong></p>
+
+  <p>The <strong>device half</strong> is the <em>kernel</em> and its back-end: a function that runs on the GPU across a grid of threads, written in a <em>restricted</em> language (no arbitrary heap allocation, no OS calls, a fixed set of address spaces) and compiled to a device ISA — PTX for NVIDIA, GCN/RDNA/CDNA for AMD. The <strong>host half</strong> is the runtime: from the CPU, pick a device, allocate device memory, copy inputs across the host/device boundary, <em>launch</em> the kernel over a grid of blocks, copy results back, and synchronize. LLVM lives inside the device half. It provides <em>none</em> of the host half.</p>
+
+  <figure>
+    <div class="diagram" role="img" aria-label="Diagram of the host half and device half of GPU programming, showing that LLVM's NVPTX and AMDGPU back-ends live only in the device half and provide none of the host runtime.">
+      <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg">
+        <rect x="8" y="30" width="326" height="292" rx="12" class="svg-box"/>
+        <text x="24" y="58" class="svg-label" font-size="15">HOST HALF — the runtime</text>
+        <text x="24" y="78" class="svg-sub" font-size="12">CPU side · LLVM provides none of this</text>
+
+        <rect x="28" y="96" width="286" height="30" rx="6" class="svg-box"/>
+        <text x="42" y="116" class="svg-sub" font-size="12.5">pick device · allocate device memory</text>
+        <rect x="28" y="134" width="286" height="30" rx="6" class="svg-box"/>
+        <text x="42" y="154" class="svg-sub" font-size="12.5">copy host &rarr; device (PCIe / fabric)</text>
+        <rect x="28" y="172" width="286" height="30" rx="6" class="svg-box"/>
+        <text x="42" y="192" class="svg-sub" font-size="12.5">launch kernel over grid / blocks</text>
+        <rect x="28" y="210" width="286" height="30" rx="6" class="svg-box"/>
+        <text x="42" y="230" class="svg-sub" font-size="12.5">copy device &rarr; host · synchronize</text>
+
+        <text x="24" y="272" class="svg-bad-txt" font-size="12.5">CUDA Driver / HIP-ROCm</text>
+        <text x="24" y="292" class="svg-bad-txt" font-size="12.5">Hey: must be written (driver bindings)</text>
+
+        <line x1="334" y1="188" x2="386" y2="188" class="svg-arrow" stroke-width="2" marker-end="url(#ah)"/>
+        <line x1="386" y1="230" x2="334" y2="230" class="svg-arrow" stroke-width="2" marker-end="url(#ah)"/>
+        <text x="360" y="176" class="svg-sub" font-size="10.5" text-anchor="middle">launch</text>
+        <text x="360" y="248" class="svg-sub" font-size="10.5" text-anchor="middle">result</text>
+
+        <rect x="386" y="30" width="326" height="292" rx="12" class="svg-box"/>
+        <text x="402" y="58" class="svg-label" font-size="15">DEVICE HALF — the kernel</text>
+        <text x="402" y="78" class="svg-sub" font-size="12">GPU side · restricted subset only</text>
+
+        <rect x="406" y="96" width="286" height="52" rx="6" class="svg-free"/>
+        <text x="420" y="118" class="svg-good-txt" font-size="12.5">LLVM NVPTX &nbsp;&rarr;&nbsp; PTX (NVIDIA)</text>
+        <text x="420" y="138" class="svg-good-txt" font-size="12.5">LLVM AMDGPU &rarr; GCN / RDNA / CDNA</text>
+
+        <rect x="406" y="158" width="286" height="46" rx="6" class="svg-free"/>
+        <text x="420" y="178" class="svg-good-txt" font-size="12.5">tid / ctaid intrinsics · address spaces</text>
+        <text x="420" y="196" class="svg-good-txt" font-size="12.5">kernel calling conv · device math lib</text>
+
+        <rect x="406" y="214" width="286" height="30" rx="6" class="svg-box"/>
+        <text x="420" y="234" class="svg-sub" font-size="12.5">your values must fit the IR subset</text>
+
+        <text x="402" y="276" class="svg-good-txt" font-size="12.5">LLVM gives this for free (~20%)</text>
+        <text x="402" y="296" class="svg-sub" font-size="12.5">Hey: emits LLVM IR already &check;</text>
+
+        <defs>
+          <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L7,3 L0,6 Z" class="svg-arrowhead"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+    <figcaption>The two-halves shape every GPU language shares. LLVM owns a large slice of the green device half — the IR&rarr;ISA translators, the thread-index intrinsics, the address spaces, the calling conventions, a device math library — and none of the host half. Hey already reaches the door of the device half; the host half is net-new driver work. Sources: LLVM <a href="https://llvm.org/docs/NVPTXUsage.html">NVPTX</a> and <a href="https://llvm.org/docs/AMDGPUUsage.html">AMDGPU</a> user guides.</figcaption>
+  </figure>
+
+  <h2>What LLVM actually gives Hey for free</h2>
+
+  <p>Hey already emits LLVM IR text through its LLVM back-end (<code>stdlib/HeyLlvm.hey</code> + <code>runtime/heyc.c</code>), so the precise question is what an LLVM-IR-emitting language gets toward the GPU at no cost. The back-end docs answer it directly.</p>
+
+  <p>The <strong><a href="https://llvm.org/docs/NVPTXUsage.html">NVPTX</a></strong> user guide states plainly that "the NVPTX back-end supports a subset of LLVM IR along with a defined set of conventions used to represent GPU programming concepts." It distinguishes device functions from kernel functions (kernels use the <code>ptx_kernel</code> calling convention), exposes thread/block/grid coordinates through intrinsics like <code>llvm.nvvm.read.ptx.sreg.tid.x()</code>, defines a fixed set of address spaces, and ships <strong>libdevice</strong> — an LLVM bitcode math library reusable by any compiler that targets LLVM NVPTX.</p>
+
+  <p>The <strong><a href="https://llvm.org/docs/AMDGPUUsage.html">AMDGPU</a></strong> back-end mirrors this for AMD: it "provides ISA code generation for AMD GPUs," from the R600 family up through current GCN/RDNA/CDNA processors, with the <code>amdgpu_kernel</code> calling convention and its own address spaces — and it emits ELF code objects consumed by runtimes such as AMD's ROCm and PAL runtimes.</p>
+
+  <p>That last clause is the whole story of where the gift ends. Both back-ends <strong>generate code objects only.</strong> The host runtime — kernel launch, device memory, host&harr;device copy, device management — is explicitly out of scope; the NVPTX guide assumes familiarity with CUDA and points every host-side concern at the CUDA Driver API. And buried in "a <em>subset</em> of LLVM IR" is the sleeper cost: your language's values and its allocator have to be <em>expressible</em> in that subset. For Hey, that clause is the wall.</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <caption>Line up what "target a GPU" needs against what Hey has today. The back-end row is green; the four rows below it are all net-new work, and one of them fights Hey's runtime directly. Sources: LLVM <a href="https://llvm.org/docs/NVPTXUsage.html">NVPTX</a>/<a href="https://llvm.org/docs/AMDGPUUsage.html">AMDGPU</a> guides; <a href="https://julialang.org/blog/2017/03/cudanative">Julia CUDAnative</a>.</caption>
+      <thead>
+        <tr><th>Piece</th><th>From LLVM?</th><th>Hey today</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Share of "target a GPU"</strong></td>
+          <td class="free">~20% free</td>
+          <td class="notfree">~80% net-new (the four rows below)</td>
+        </tr>
+        <tr>
+          <td>Back-end (IR&nbsp;&rarr;&nbsp;PTX / GCN), intrinsics, address spaces, calling conventions, device math lib</td>
+          <td class="free">Free</td>
+          <td>Emits LLVM IR already; a target-triple + calling-convention flip in the existing emitter <span class="pill good">reachable</span></td>
+        </tr>
+        <tr>
+          <td>Device runtime — <code>cuModuleLoad</code>, <code>cuLaunchKernel</code>, device management, sync</td>
+          <td class="notfree">Not free</td>
+          <td>Must be written as driver bindings — a foreign-function interface (FFI) to the vendor driver; Hey has a C runtime to hang it on, but it is vendor-specific <span class="pill bad">net-new</span></td>
+        </tr>
+        <tr>
+          <td>Kernel-legal value subset — flat, unboxed, statically-typed, no device allocation, no refcount</td>
+          <td class="notfree">Not free</td>
+          <td>Boxed/tagged values + refcount <code>dup</code>/<code>drop</code> are <strong>not kernel-legal</strong> as-is <span class="pill bad">the wall</span></td>
+        </tr>
+        <tr>
+          <td>Host/device memory model — <code>cuMemAlloc</code>, host&harr;device copy, pre-sized output buffers, ownership resolved on the host</td>
+          <td class="notfree">Not free</td>
+          <td>Hey's refcounted heap does not cross the device boundary; buffers and ownership must be modelled explicitly <span class="pill bad">net-new</span></td>
+        </tr>
+        <tr>
+          <td>Offload / dialect layer for two-vendor portability</td>
+          <td class="notfree">Not free</td>
+          <td>No MLIR (Multi-Level Intermediate Representation), and a sibling design brief refuses to adopt its C++ framework; single-vendor first, or a tiny Hey-native abstraction <span class="pill bad">defer</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Why Hey's runtime is kernel-illegal — and its core is not</h2>
+
+  <p>Three parts of Hey's runtime fight the GPU, and it is worth being blunt about each.</p>
+
+  <p><strong>Boxed / tagged values.</strong> Hey's value representation is boxed — the same tagged boxing behind the tokenizer's O(n²) "boxed <code>push</code> clones the backing." GPUs are catastrophic at pointer-chasing and per-element heap indirection; a kernel wants flat, unboxed, statically-typed arrays. As-is, Hey's values are exactly the thing the NVPTX "subset of LLVM IR" clause rejects.</p>
+
+  <p><strong>Reference-count memory management.</strong> Hey is reference-counted. Refcount <code>dup</code>/<code>drop</code> on the device means atomic contention across thousands of threads, and device-side <code>malloc</code>/<code>free</code> is generally forbidden or ruinously slow. A kernel must run with <em>no allocation and no refcounting</em>: pre-sized output buffers, ownership resolved on the host.</p>
+
+  <p><strong>Actors.</strong> The actor/mailbox model is a <em>host</em> concurrency abstraction. GPUs do not run mailboxes; they run data-parallel grids. "Millions of lightweight actors" and "a grid of a million threads running one kernel" are different universes. Actors do not port to the device — at most, an actor could <em>own</em> a GPU stream and offload array work. Anything framed as "actors on the GPU" is a category error.</p>
+
+  <p>But now the other direction, which is where Hey is genuinely lucky. The single hardest correctness property in GPU programming is data races from aliased mutable state — and <strong>Hey has none by construction.</strong> Immutability, no closures, no aliasing: a pure immutable function over arrays is the <em>ideal</em> kernel body. No aliasing analysis, no <code>__restrict__</code>, no race conditions to reason about. The runtime is the liability; the value semantics are an asset.</p>
+
+  <div class="note">
+    <strong>Futhark is the existence proof.</strong> An immutable, purely functional array language does not just theoretically reach the GPU — per the project's own description, <a href="https://futhark-lang.org">Futhark</a> ships an optimising ahead-of-time compiler that generates GPU code, and its central trick is exactly the Hey problem: a simple type system for in-place updates that ensures referential transparency (<a href="https://dl.acm.org/doi/10.1145/3062341.3062354">PLDI 2017</a>). It keeps the pure functional surface while getting in-place array mutation underneath — the GPU cousin of the planned Perceus reuse pass, the in-place reuse of uniquely-owned values that would make immutable Hey C-fast on the CPU. Perceus itself — the reference-counting-with-reuse analysis Hey's design brief cites by name — is that CPU analysis; the same mechanism is what would make Hey GPU-legal. But Futhark reaches the GPU precisely by having <em>only</em> flat unboxed arrays — no boxing, no device refcounting, no actors. It rescues Hey's pure-value core; it does not rescue the runtime. (These Futhark claims are drawn from search-result summaries and the PLDI'17 title, not a full-text fetch — verify before quoting.)
+  </div>
+
+  <h2>The compiler path, and where Hey already sits</h2>
+
+  <p>It helps to see the pipeline as one line. <a href="https://arxiv.org/abs/2509.21039">Mojo</a> — the first language built on MLIR (Godoy et al., SC'25 workshops) — lowers through MLIR's GPU dialect stack: NVVM (its NVIDIA lowering dialect) to PTX, or ROCDL (its AMD dialect) to AMDGPU, per the <a href="https://mlir.llvm.org/docs/Dialects/GPU/">MLIR <code>gpu</code> dialect docs</a>. Hey, with no MLIR, would lower straight through its existing LLVM-text emitter. The device half is the tractable part for both. The precedents prove it: <a href="https://julialang.org/blog/2017/03/cudanative">Julia's CUDAnative</a> did the work as a <em>front-end restriction</em> (a GPU-legal subset) plus <em>driver bindings</em>, not a new back-end. Rust does it as a codegen backend plus a restricted subset. None of them found the back-end to be the hard part.</p>
+
+  <figure>
+    <div class="diagram" role="img" aria-label="Two compiler pipelines to GPU code. Mojo lowers through MLIR GPU dialects to NVVM or ROCDL then LLVM IR then device ISA. Hey lowers straight from its LLVM-text emitter to a GPU target triple then device ISA, then a device runtime loads and launches.">
+      <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L7,3 L0,6 Z" class="svg-arrowhead"/>
+          </marker>
+        </defs>
+        <text x="12" y="42" class="svg-sub" font-size="12">MOJO (via MLIR)</text>
+        <rect x="12" y="52" width="118" height="40" rx="7" class="svg-box"/>
+        <text x="71" y="76" class="svg-sub" font-size="12" text-anchor="middle">Mojo source</text>
+        <rect x="150" y="52" width="140" height="40" rx="7" class="svg-box"/>
+        <text x="220" y="70" class="svg-sub" font-size="11.5" text-anchor="middle">MLIR gpu dialect</text>
+        <text x="220" y="85" class="svg-sub" font-size="10.5" text-anchor="middle">(KGEN &rarr; gpu)</text>
+        <rect x="310" y="52" width="150" height="40" rx="7" class="svg-box"/>
+        <text x="385" y="70" class="svg-sub" font-size="11.5" text-anchor="middle">NVVM &rarr; PTX, or</text>
+        <text x="385" y="85" class="svg-sub" font-size="11.5" text-anchor="middle">ROCDL &rarr; AMDGPU</text>
+        <rect x="480" y="52" width="132" height="40" rx="7" class="svg-free"/>
+        <text x="546" y="76" class="svg-good-txt" font-size="11.5" text-anchor="middle">device ISA</text>
+        <line x1="130" y1="72" x2="148" y2="72" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+        <line x1="290" y1="72" x2="308" y2="72" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+        <line x1="460" y1="72" x2="478" y2="72" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+
+        <text x="12" y="140" class="svg-sub" font-size="12">HEY (straight through LLVM text)</text>
+        <rect x="12" y="150" width="118" height="40" rx="7" class="svg-box"/>
+        <text x="71" y="174" class="svg-sub" font-size="12" text-anchor="middle">Hey source</text>
+        <rect x="150" y="150" width="140" height="40" rx="7" class="svg-free"/>
+        <text x="220" y="168" class="svg-good-txt" font-size="11.5" text-anchor="middle">LLVM-text emitter</text>
+        <text x="220" y="183" class="svg-good-txt" font-size="10.5" text-anchor="middle">(exists today)</text>
+        <rect x="310" y="150" width="150" height="40" rx="7" class="svg-box"/>
+        <text x="385" y="168" class="svg-sub" font-size="11.5" text-anchor="middle">nvptx64 / amdgcn</text>
+        <text x="385" y="183" class="svg-sub" font-size="10.5" text-anchor="middle">triple + kernel conv</text>
+        <rect x="480" y="150" width="132" height="40" rx="7" class="svg-free"/>
+        <text x="546" y="174" class="svg-good-txt" font-size="11.5" text-anchor="middle">device ISA</text>
+        <line x1="130" y1="170" x2="148" y2="170" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+        <line x1="290" y1="170" x2="308" y2="170" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+        <line x1="460" y1="170" x2="478" y2="170" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+
+        <rect x="480" y="206" width="220" height="34" rx="7" class="svg-notfree"/>
+        <text x="590" y="227" class="svg-bad-txt" font-size="11.5" text-anchor="middle">device runtime loads &amp; launches</text>
+        <line x1="546" y1="190" x2="546" y2="204" class="svg-arrow" stroke-width="1.8" marker-end="url(#ah2)"/>
+        <text x="150" y="228" class="svg-bad-txt" font-size="11" >&larr; the not-free host half (CUDA / ROCm bindings)</text>
+      </svg>
+    </div>
+    <figcaption>Two roads to the same device ISA. Mojo pays for portability with MLIR's <code>gpu</code>/<code>nvvm</code>/<code>rocdl</code> dialect stack; Hey would reach a GPU target triple straight from the emitter it already has (green). Both roads end at the same red box neither language's compiler provides: the device runtime that actually loads and launches the code. Sources: <a href="https://arxiv.org/abs/2509.21039">Mojo (Godoy et al., SC'25)</a>; <a href="https://mlir.llvm.org/docs/Dialects/GPU/">MLIR GPU dialect docs</a>; <a href="https://julialang.org/blog/2017/03/cudanative">Julia CUDAnative</a>; LLVM back-end guides.</figcaption>
+  </figure>
+
+  <h2>The cheapest first move — and what is premature</h2>
+
+  <p>Start with the caveat that outranks all the engineering: Hey's headline is actors, immutability, and Ruby-grade ergonomics, not numerics, and today there is no Hey workload that clearly wants one. So the fully honest answer may be to write this down as a note and move on until a real workload appears. If Hey ever did chase it, the order is clear — and it deliberately does the design before the code.</p>
+
+  <p>The cheapest first move is not code at all. It is <strong>naming the kernel-legal subset</strong>: the Hey sublanguage that is GPU-expressible — monomorphic scalar element types, flat unboxed arrays, pure <code>map</code>/<code>reduce</code>/<code>scan</code>-shaped functions, no allocation, no refcount ops, no actors, output buffers pre-sized. This is a specification task, it gates everything else, and it composes directly with the Perceus reuse work.</p>
+
+  <p>Next, <strong>prove the back-end with a toy</strong>: push one hand-written Hey kernel through the existing LLVM-text emitter to an <code>nvptx64</code> module with a <code>ptx_kernel</code> function and the <code>tid</code>/<code>ctaid</code> intrinsics, and run it with a minimal CUDA-driver FFI harness. That is a spike, not a feature — it answers only "does our IR reach PTX at all." (It is also the one-line falsifier in the TL;DR.)</p>
+
+  <p>Only after that comes the first user-visible feature: a <strong>single-vendor <code>gpu.map</code> over unboxed arrays</strong> — allocate a device buffer, copy, launch a pure elementwise or reduce kernel, copy back, synchronize — NVIDIA-only first, mirroring early CUDAnative. Portability, a second vendor (AMDGPU), and richer kernels (tiling, shared memory) come last, and only if that first feature earns real use.</p>
+
+  <p>And the traps, plainly. <strong>Do not adopt the MLIR framework</strong> to get its GPU dialects — take the idea of an offload layer, not the C++ framework, on the same self-hosting grounds a sibling design brief already refuses it. <strong>Do not attempt actors on the GPU</strong> — a mailbox model does not run on a data-parallel grid; it is a category error. <strong>Do not attempt kernels over general boxed Hey values</strong> until the unboxed-array subset exists. <strong>Do not chase two vendors before one works</strong> — Julia shipped NVIDIA-only for years. And above all, <strong>do not start any of it before the Perceus reuse pass lands on the CPU</strong>: allocation-free kernels need the same unique-ownership, in-place, no-copy analysis. The CPU work is the prerequisite; the GPU is its second payoff.</p>
+
+  <p>The bottom line holds: LLVM hands Hey the PTX/GCN back-end nearly for free — a target-triple-plus-calling-convention flip in the emitter it already has — but that is about 20% of "target a GPU." The other 80% — device runtime, kernel-legal value subset, host/device memory model, offload layer — is real work, and Hey's boxed-value, refcount, and actor runtime makes the kernel-subset piece specifically harder than it was for Mojo, which pre-engineered flat static values — while being <em>easier on the correctness axis</em> than for any mutable language, because immutability kills races. The right first move is not code. It is defining the kernel-legal subset and finishing Perceus reuse on the CPU. Everything on the GPU falls out of that one piece of work — or, if no workload ever calls for it, it stays a note and never needs to.</p>
+
+  <h2>Sources</h2>
+  <ul class="sources">
+    <li>LLVM NVPTX back-end user guide — <a href="https://llvm.org/docs/NVPTXUsage.html">llvm.org/docs/NVPTXUsage.html</a></li>
+    <li>LLVM AMDGPU back-end user guide — <a href="https://llvm.org/docs/AMDGPUUsage.html">llvm.org/docs/AMDGPUUsage.html</a></li>
+    <li>MLIR GPU dialect docs (the <code>gpu</code>/NVVM/ROCDL lowering path) — <a href="https://mlir.llvm.org/docs/Dialects/GPU/">mlir.llvm.org/docs/Dialects/GPU/</a>; reader-paraphrase in the source brief, spot-check before quoting op names.</li>
+    <li>Futhark, "purely functional GPU-programming with nested parallelism and in-place array updates," PLDI 2017 — <a href="https://dl.acm.org/doi/10.1145/3062341.3062354">dl.acm.org/doi/10.1145/3062341.3062354</a>; project site <a href="https://futhark-lang.org">futhark-lang.org</a>. Cited from search-result summaries and the paper title, not a full-text fetch.</li>
+    <li>Mojo HPC evaluation (Godoy et al., SC'25 workshops) — <a href="https://arxiv.org/abs/2509.21039">arxiv.org/abs/2509.21039</a></li>
+    <li>Julia CUDAnative — <a href="https://julialang.org/blog/2017/03/cudanative">julialang.org/blog/2017/03/cudanative</a></li>
+    <li>Perceus (reference counting with in-place reuse) — cited by name in Hey's design brief; the source brief carries no verified citation, author list, or DOI, so none is linked here.</li>
+  </ul>
+
+  <footer>
+    Part of the Hey project's public log. Design note, not a shipped feature — see the status banner at the top.
+  </footer>
+
+</article>
+</main>
+</body>
+</html>

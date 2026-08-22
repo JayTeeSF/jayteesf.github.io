@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imports that change the flavor of the language</title>
+<meta name="description" content="In Hey, an import doesn't just pull in names — it can change how the language reads inside one file, per-file, at a cost you're warned about only when it's a real one: conflicts, shadowing, and overrides, never speed. A settled design, still deferred behind compiler completion.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-bucket" content="almost">
+<meta name="article-desc" content="How Hey's four import words — exposes, exposing, as, forms (plus conceals) — let a single file opt into another module's sugar, why the warning is about shadowing and never performance, and the four edge-decisions still open. A settled design, not yet built.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fbfaf7; --panel:#ffffff; --ink:#1c1a17; --muted:#5f5850;
+    --line:#e5e0d6; --accent:#9a4a1e; --accent-soft:#f3e6dc;
+    --code-bg:#f4f1ea; --code-ink:#33302b; --ok:#2f6b3a; --warn:#8a5a12;
+    --shadow:0 1px 2px rgba(30,24,16,.05),0 8px 24px rgba(30,24,16,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#141310; --panel:#1c1a16; --ink:#ece7dd; --muted:#a49c8f;
+      --line:#302c25; --accent:#e08a4f; --accent-soft:#2a201a;
+      --code-bg:#211e19; --code-ink:#e0dacd; --ok:#7bc48a; --warn:#e0b25a;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#141310; --panel:#1c1a16; --ink:#ece7dd; --muted:#a49c8f;
+    --line:#302c25; --accent:#e08a4f; --accent-soft:#2a201a;
+    --code-bg:#211e19; --code-ink:#e0dacd; --ok:#7bc48a; --warn:#e0b25a;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Newsreader",Georgia,"Times New Roman",serif;
+    font-size:19px; line-height:1.62; -webkit-font-smoothing:antialiased;
+  }
+  main{max-width:44rem; margin:0 auto; padding:3.5rem 1.35rem 5rem}
+  .eyebrow{
+    font-family:ui-sans-serif,system-ui,sans-serif; text-transform:uppercase;
+    letter-spacing:.14em; font-size:.72rem; font-weight:600; color:var(--accent);
+    margin:0 0 1.1rem;
+  }
+  h1{
+    font-weight:600; font-size:2.5rem; line-height:1.08; letter-spacing:-.015em;
+    margin:0 0 1rem;
+  }
+  .lede{font-size:1.24rem; color:var(--muted); margin:0 0 2rem; line-height:1.5}
+  h2{
+    font-weight:600; font-size:1.5rem; letter-spacing:-.01em;
+    margin:2.8rem 0 .8rem; padding-top:1.2rem; border-top:1px solid var(--line);
+  }
+  h3{font-weight:600; font-size:1.15rem; margin:1.8rem 0 .5rem}
+  p{margin:0 0 1.1rem}
+  a{color:var(--accent)}
+  strong{font-weight:600}
+  code{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:.86em; background:var(--code-bg); color:var(--code-ink);
+    padding:.12em .38em; border-radius:5px;
+  }
+  .tldr{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:1.3rem 1.5rem .5rem; margin:2rem 0 1rem; box-shadow:var(--shadow);
+  }
+  .tldr .tag{
+    font-family:ui-sans-serif,system-ui,sans-serif; font-size:.7rem;
+    font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--accent); display:block; margin-bottom:.5rem;
+  }
+  .tldr ul{margin:0; padding-left:1.15rem}
+  .tldr li{margin:0 0 .8rem; line-height:1.45}
+  pre{
+    background:var(--code-bg); border:1px solid var(--line); border-radius:12px;
+    padding:1rem 1.15rem; overflow-x:auto; margin:1.2rem 0;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:.82rem; line-height:1.55; color:var(--code-ink);
+  }
+  pre code{background:none; padding:0; font-size:1em; color:inherit}
+  .cmt{color:var(--muted)}
+  .kw{color:var(--accent); font-weight:600}
+  figure{margin:1.8rem 0}
+  figure svg{width:100%; height:auto; display:block}
+  .diagram{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:1.4rem 1.2rem; box-shadow:var(--shadow);
+  }
+  figcaption{
+    font-family:ui-sans-serif,system-ui,sans-serif; font-size:.78rem;
+    color:var(--muted); margin-top:.7rem; text-align:center; line-height:1.4;
+  }
+  .tbl-wrap{overflow-x:auto; margin:1.4rem 0}
+  table{border-collapse:collapse; width:100%; font-size:.9rem;
+    font-family:ui-sans-serif,system-ui,sans-serif;}
+  caption{
+    caption-side:bottom; font-size:.78rem; color:var(--muted);
+    margin-top:.6rem; text-align:left; font-family:ui-sans-serif,system-ui,sans-serif;
+  }
+  th,td{text-align:left; padding:.6rem .7rem; border-bottom:1px solid var(--line);
+    vertical-align:top}
+  thead th{
+    font-size:.72rem; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--muted); border-bottom:2px solid var(--line);
+  }
+  tbody th{font-weight:600; white-space:nowrap; color:var(--accent)}
+  tr:last-child td, tr:last-child th{border-bottom:none}
+  .callout{
+    border-left:3px solid var(--accent); background:var(--accent-soft);
+    padding:.9rem 1.1rem; border-radius:0 10px 10px 0; margin:1.4rem 0;
+    font-size:.95rem;
+  }
+  .callout .lab{
+    font-family:ui-sans-serif,system-ui,sans-serif; font-weight:700;
+    font-size:.7rem; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--accent); display:block; margin-bottom:.35rem;
+  }
+  .note{font-size:.9rem; color:var(--muted); font-style:italic}
+  .warnpill{color:var(--warn); font-weight:600}
+  .okpill{color:var(--ok); font-weight:600}
+  footer{
+    margin-top:3.5rem; padding-top:1.3rem; border-top:1px solid var(--line);
+    font-family:ui-sans-serif,system-ui,sans-serif; font-size:.82rem;
+    color:var(--muted);
+  }
+  .src{font-size:.82rem; color:var(--muted)}
+  .src ol{padding-left:1.2rem}
+  .src li{margin-bottom:.35rem}
+</style>
+</head>
+<body>
+<main>
+<article>
+  <p class="eyebrow">Hey language · design note · 22 August 2026</p>
+  <h1>Imports that change the flavor of the language</h1>
+  <p class="lede">In Hey an <code>import</code> is designed to do more than pull in names — one file can opt into another module's <em>sugar</em>, so the same language reads differently from file to file, and the only cost you're warned about is the one that's real: name collisions — conflicts, shadowing, and overrides — never speed. It's a settled design, still deferred behind compiler completion, not something that ships in today's build.</p>
+
+  <div class="tldr">
+    <span class="tag">TL;DR</span>
+    <ul>
+      <li>The import model is <strong>settled by design — but not yet built.</strong> It's a banked, reconstructed design deferred behind compiler completion; in the current build (v0.99.475a) the flat 4,096-slot function table described below is what actually exists.</li>
+      <li>The design runs on four words with four jobs — <code>exposes</code>, <code>exposing</code>, <code>as</code>, <code>forms</code> — plus <code>conceals</code> to subtract and <code>private</code> to never export.</li>
+      <li><strong>Flavor is per-file.</strong> A bare <code>import</code> gives you qualified access only; <code>exposing *</code> adopts a module's whole surface into <em>this</em> file — including Ruby-flavored arithmetic — without touching any other file.</li>
+      <li>The warned cost of adopting sugar is a <strong>conflict / shadowing / overrides</strong> warning, <strong>not</strong> a performance warning: sugar lowers at ~zero runtime cost, and where a real cost exists it's engineered away, not surfaced (ruling R1, 2026-08-22).</li>
+      <li>Dotted calls are method-like without objects: <strong>the receiver is argument one</strong>. <code>account.deposit(25)</code> lowers to <code>deposit(account, 25)</code>.</li>
+      <li>Resolution is <strong>lexical and static</strong>: the resolver picks the binding once and writes it into the HIR — the high-level IR the resolver produces; the runtime never re-resolves.</li>
+      <li>Four edge-decisions — <strong>35, 39, 40, 41</strong> — remain open as of 3 August 2026; no daily through 22 August revises the design.</li>
+    </ul>
+  </div>
+
+  <h2>Four words, four jobs</h2>
+  <p>Most module systems make you choose between two extremes: import a name and it's global everywhere, or qualify every single call. Hey's surface is built from four keywords, and each answers exactly one question about how much of a module you want and how it may be called.</p>
+
+  <p>A module names its public surface explicitly at the bottom — there's no <code>__all__</code> convention to remember, and nothing leaks unless the module says so:</p>
+
+<pre><code><span class="kw">module</span> BankAccount
+  <span class="kw">fn</span> deposit(account, amount) ... <span class="kw">end</span>
+  <span class="kw">private fn</span> valid_amount?(amount) ... <span class="kw">end</span>
+  <span class="kw">exposes</span> deposit forms: [:qualified, :unqualified, :dotted]
+<span class="kw">end</span></code></pre>
+
+  <p><code>private fn</code> is never exported; <code>valid_amount?</code> stays callable <em>inside</em> the module but is invisible outside it. Everything a caller may reach passes through that one <code>exposes</code> line — and the <code>forms:</code> on it <em>declares</em> which call-forms the exposure enables (a settled design; more on that below).</p>
+
+  <p>The importing file then chooses how much to take. Same module, five different postures:</p>
+
+<pre><code><span class="kw">import</span> "stdlib:RubyMath"                    <span class="cmt"># qualified only: RubyMath.div(-7,2)</span>
+<span class="kw">import</span> "stdlib:RubyMath" <span class="kw">exposing</span> *         <span class="cmt"># adopt the whole surface into THIS file</span>
+<span class="kw">import</span> "stdlib:RubyMath" <span class="kw">as</span> RM              <span class="cmt"># rename the namespace, adopt nothing</span>
+<span class="kw">import</span> './Actions.hey' <span class="kw">exposing:</span> [on_save]  <span class="cmt"># selective (bracket list)</span>
+<span class="kw">import</span> 'stdlib:RubyMath' <span class="kw">as</span> RM \
+  <span class="kw">exposing:</span> [div] \
+  <span class="kw">conceals:</span> [mod]                           <span class="cmt"># multi-clause with \ continuation</span></code></pre>
+
+  <p>A bare <code>import</code> is the default, restrained posture — "how you see the difference without adopting it." You get <code>RubyMath.div(-7, 2)</code> and nothing has changed about how the rest of your file reads. Everything else is a deliberate step toward pulling a module's flavor into your namespace.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <caption>The import vocabulary — each keyword answers one question. Source: <em>module-system</em> §"four words, four jobs".</caption>
+    <thead>
+      <tr><th scope="col">Word</th><th scope="col">The job it does</th><th scope="col">Example</th></tr>
+    </thead>
+    <tbody>
+      <tr><th scope="row">exposes</th><td>Declares a module's public surface (in the module itself)</td><td><code>exposes deposit forms: […]</code></td></tr>
+      <tr><th scope="row">exposing *</th><td>Adopt the module's <em>whole</em> surface into this file</td><td><code>import "…" exposing *</code></td></tr>
+      <tr><th scope="row">exposing: […]</th><td>Adopt a selected list of names only</td><td><code>exposing: [on_save]</code></td></tr>
+      <tr><th scope="row">as</th><td>Rename the module namespace; adopt nothing else</td><td><code>import "…" as RM</code></td></tr>
+      <tr><th scope="row">conceals: […]</th><td>Subtract names from what you'd otherwise get</td><td><code>conceals: [mod]</code></td></tr>
+      <tr><th scope="row">forms: […] <span class="note">(in <code>exposes</code>)</span></th><td>Declares which call-forms an exposure enables; adopting the exposure auto-enables them <span class="note">— settled design (unbuilt)</span></td><td><code>exposes deposit forms: […]</code></td></tr>
+      <tr><th scope="row">forms: […] <span class="note">(import clause)</span></th><td>Would narrow which call-forms an import accepts <span class="note">— settled but reserved syntax; not built yet</span></td><td><code>import "…" forms: [:dotted]</code></td></tr>
+      <tr><th scope="row">private</th><td>A declaration that is never exported</td><td><code>private fn valid_amount?</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="note">A drift worth flagging: <code>exposing *</code> (no colon, an adopt-all token) sits on the same page as <code>exposing:</code>, <code>conceals:</code> and <code>forms:</code> (colon, an argument list). The maintainer's reference marks this as likely intentional but never reconciled.</p>
+
+  <h2>Flavor is a per-file decision</h2>
+  <p>This is the part that makes Hey read differently from a language where an import is just a name lookup. <code>Math</code>, another stdlib module, exposes an operator — <code>exposes pow infix: '**'</code> — so when a file writes <code>import "stdlib:Math" exposing *</code>, it isn't only borrowing functions. It's adopting that module's <em>forms</em>, including the <code>**</code> operator. Arithmetic in that one file can take on Ruby's flavor. The file next door, importing nothing, still sees plain Hey. Nothing about the adoption reaches beyond the file that asked for it.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 300" role="img" aria-labelledby="flavTitle flavDesc" xmlns="http://www.w3.org/2000/svg">
+      <title id="flavTitle">Two files import the same module with different postures</title>
+      <desc id="flavDesc">Math sits in the middle. app.hey imports it exposing star and gets Ruby-flavored arithmetic, including the double-star operator; report.hey does a bare import and keeps plain Hey, using only qualified calls.</desc>
+      <defs>
+        <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <!-- center module -->
+      <rect x="285" y="112" width="150" height="76" rx="12" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="360" y="140" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="700" fill="var(--accent)">stdlib:Math</text>
+      <text x="360" y="162" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="var(--muted)">exposes pow</text>
+      <text x="360" y="177" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="var(--muted)">infix: '**'</text>
+
+      <!-- left file: exposing * -->
+      <rect x="24" y="40" width="220" height="120" rx="12" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="40" y="66" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="var(--ink)">app.hey</text>
+      <text x="40" y="90" font-family="ui-monospace,monospace" font-size="11" fill="var(--muted)">import … exposing *</text>
+      <text x="40" y="116" font-family="ui-monospace,monospace" font-size="12" fill="var(--ok)">2 ** 8</text>
+      <text x="40" y="134" font-family="ui-monospace,monospace" font-size="12" fill="var(--ok)">pow(2, 8)</text>
+      <text x="40" y="150" font-family="ui-sans-serif,system-ui" font-size="10.5" fill="var(--muted)">Ruby-flavored arithmetic, this file only</text>
+
+      <!-- right file: bare import -->
+      <rect x="476" y="40" width="220" height="120" rx="12" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="492" y="66" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="var(--ink)">report.hey</text>
+      <text x="492" y="90" font-family="ui-monospace,monospace" font-size="11" fill="var(--muted)">import … (bare)</text>
+      <text x="492" y="116" font-family="ui-monospace,monospace" font-size="12" fill="var(--ink)">Math.pow(2, 8)</text>
+      <text x="492" y="140" font-family="ui-sans-serif,system-ui" font-size="10.5" fill="var(--muted)">plain Hey — qualified</text>
+      <text x="492" y="154" font-family="ui-sans-serif,system-ui" font-size="10.5" fill="var(--muted)">calls only, no flavor adopted</text>
+
+      <g fill="none" stroke="var(--accent)" stroke-width="1.6" color="var(--accent)">
+        <path d="M244,110 C265,110 265,140 283,142" marker-end="url(#arr)"/>
+        <path d="M476,110 C455,110 455,140 437,142" marker-end="url(#arr)"/>
+      </g>
+      <text x="360" y="238" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12.5" fill="var(--ink)">Same module. Two files. Two flavors.</text>
+      <text x="360" y="258" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="var(--muted)">The adoption never crosses the file boundary.</text>
+    </svg>
+    <figcaption>Per-file adoption. <code>exposing *</code> in <code>app.hey</code> brings <code>Math</code>'s names and its <code>**</code> operator into scope; <code>report.hey</code>'s bare import leaves its own arithmetic untouched. Source: <em>module-system</em> §Syntax and §Semantics.</figcaption>
+  </figure>
+
+  <p>Two rules keep this from turning into chaos. First, <strong>precedence is owned by the symbol, never the module</strong> — "an import supplies meaning, never shape." A module may claim any existing symbol <em>except</em> the six state-mutation operators (<code>set … =</code>, <code>+=</code>, and their kin). Second, when adopted names collide, there's a clear order: inner scope beats outer; at the same scope, the later declaration or import wins — <em>and the compiler warns, naming both locations</em>. A rename, a narrower <code>exposing:</code>, or a <code>conceals:</code> silences it.</p>
+
+  <p>Even the built-ins play by these rules. <code>stdlib:BuiltIns</code> is an ordinary module whose surface is adopted at the outermost scope by default — and it's <em>concealable</em> like any other exposure. There's no privileged core you can't move out of the way.</p>
+
+  <h2>The warning is about conflicts — never performance</h2>
+  <p>It would be easy to assume that pulling a module's whole flavor into a file costs something at runtime, and that Hey ought to warn you about it. As of a maintainer ruling on <strong>22 August 2026</strong> (R1), it does not — and the reasoning is deliberate.</p>
+
+  <div class="callout">
+    <span class="lab">Ruling R1 — verbatim</span>
+    "yes, let's avoid warning about things that do NOT have a cost. Let's try to get rid of costs where possible. (Let's continue to strive for the Fast language that is ergonomic like Ruby, etc)"
+  </div>
+
+  <p>Most sugar — pipes, pattern-matching, with-chains, keyword and block sugar, transient builders, batch-update, and flavor-via-imports under the module system — lowers at <strong>roughly zero runtime cost</strong>. A warning for a cost that doesn't exist is noise, and it erodes trust in the warnings that do matter. So the warning you get when you expose or adopt sugar is reserved for <em>genuine correctness hazards</em>: <strong>name conflicts, shadowing, and overrides</strong>. Those change meaning, not speed.</p>
+
+  <p>And where a real cost <em>does</em> exist — the one identified case is a naive string-interpolation lowering that re-triggers a quadratic append — the doctrine is to <strong>engineer it away, not paper over it with a warning</strong>. That's the same runway as the rest of the compiler: remove costs (COW-by-default, byte tokenizer, buffer reuse), don't surface them. The north star is restated plainly: fast <em>and</em> ergonomic, sugar <em>and</em> speed, never either/or.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <caption>What Hey warns about at import/expose time — and what it deliberately doesn't. Source: ruling R1 (2026-08-22).</caption>
+    <thead>
+      <tr><th scope="col">Situation</th><th scope="col">Warned?</th><th scope="col">Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Adopting a module's sugar / flavor</td><td class="okpill">No cost warning</td><td>Lowers at ~zero runtime cost</td></tr>
+      <tr><td>Two adopted names collide (same scope)</td><td class="warnpill">Warns — names both sites</td><td>Real correctness hazard</td></tr>
+      <tr><td>An import shadows an existing name</td><td class="warnpill">Warns</td><td>Meaning changes silently otherwise</td></tr>
+      <tr><td>An import overrides a symbol</td><td class="warnpill">Warns (overrides report)</td><td>Whole-program meaning change</td></tr>
+      <tr><td>Interpolation re-triggers quadratic append</td><td class="okpill">Not warned — fixed</td><td>Cost engineered away, not surfaced</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="note">One guard rail on the doctrine: a warning is never a substitute for an error where the answer would be <em>wrong</em>. Warnings flag hazards; they don't bless something silently incorrect. Conflicts are the only hazard <em>warned</em> at import/expose time — not the only hazard the language guards against.</p>
+
+  <h2>Dotted calls: the receiver is argument one</h2>
+  <p>Hey has method-like syntax without objects. When you write <code>account.deposit(25)</code>, there is no method dispatch and no object with a <code>deposit</code> slot — the resolver rewrites it into an ordinary function call where <strong>the receiver becomes the first argument</strong>:</p>
+
+<pre><code>account.deposit(25)        <span class="cmt"># what you write</span>
+deposit(account, 25)       <span class="cmt"># what it lowers to</span></code></pre>
+
+  <p>Chains follow the same rule, one segment at a time, each resolved independently:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 210" role="img" aria-labelledby="chainTitle chainDesc" xmlns="http://www.w3.org/2000/svg">
+      <title id="chainTitle">A dotted chain unfolds into nested calls</title>
+      <desc id="chainDesc">a.deposit(25).withdraw(10).current_balance() is equivalent to current_balance(withdraw(deposit(a,25),10)); each segment's receiver becomes argument one.</desc>
+      <text x="24" y="46" font-family="ui-monospace,monospace" font-size="14" fill="var(--ink)">a<tspan fill="var(--accent)">.deposit(</tspan>25<tspan fill="var(--accent)">)</tspan><tspan fill="var(--accent)">.withdraw(</tspan>10<tspan fill="var(--accent)">)</tspan><tspan fill="var(--accent)">.current_balance()</tspan></text>
+      <line x1="24" y1="66" x2="470" y2="66" stroke="var(--line)" stroke-width="1"/>
+      <text x="24" y="92" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="var(--muted)">each dot: receiver slides into argument one</text>
+      <text x="24" y="128" font-family="ui-monospace,monospace" font-size="13.5" fill="var(--ink)">current_balance(</text>
+      <text x="48" y="150" font-family="ui-monospace,monospace" font-size="13.5" fill="var(--ink)">withdraw(deposit(a, 25), 10)</text>
+      <text x="24" y="172" font-family="ui-monospace,monospace" font-size="13.5" fill="var(--ink)">)</text>
+      <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="var(--accent)">
+        <text x="470" y="128">outermost segment</text>
+        <text x="470" y="154">innermost receiver: a</text>
+      </g>
+    </svg>
+    <figcaption><code>a.deposit(25).withdraw(10).current_balance()</code> ≡ <code>current_balance(withdraw(deposit(a, 25), 10))</code>. Source: <em>module-system</em> §Semantics, "Receiver = argument one."</figcaption>
+  </figure>
+
+  <p>That receiver rule is why <code>forms:</code> matters. A module's <code>exposes</code> can declare which call-forms are legal — <code>:qualified</code> (<code>M.f(x)</code>), <code>:unqualified</code> (<code>f(x)</code>), and <code>:dotted</code> (<code>x.f()</code>) — and adopting the exposure auto-enables the forms it declares. The <code>forms:</code> import-clause that would <em>narrow</em> those is shipped reserved-but-unbuilt on purpose: adding a keyword later is safe, taking one back is not.</p>
+
+  <h2>Decided once, at resolve time</h2>
+  <p>All of this — the receiver rewrite, the chosen binding when names collide, the operator a symbol resolves to — happens in the resolver, statically. The resolver rewrites <code>account.deposit(25)</code> into <code>deposit(account, 25)</code> and <strong>stores the selected binding in the HIR</strong>, the high-level IR it writes. From then on the meaning is fixed: "HIR already contains the selected binding," and the runtime never re-resolves. The same authoritative exposure record — names, forms, operator symbols, source locations — is what <code>Reflection.module(...)</code> reports and what drives the conflict warnings.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 150" role="img" aria-labelledby="pipeTitle pipeDesc" xmlns="http://www.w3.org/2000/svg">
+      <title id="pipeTitle">Resolution is lexical and static</title>
+      <desc id="pipeDesc">Source flows through the resolver, which fixes the binding into the high-level IR; the runtime executes the direct chosen call without re-resolving.</desc>
+      <defs>
+        <marker id="arr2" markerWidth="10" markerHeight="10" refX="7" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+      </defs>
+      <g font-family="ui-sans-serif,system-ui,sans-serif">
+        <rect x="14" y="40" width="150" height="66" rx="10" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="89" y="68" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">source</text>
+        <text x="89" y="88" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="var(--muted)">account.deposit(25)</text>
+
+        <rect x="230" y="40" width="180" height="66" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="320" y="64" text-anchor="middle" font-size="13" font-weight="700" fill="var(--accent)">resolver</text>
+        <text x="320" y="82" text-anchor="middle" font-size="10.5" fill="var(--muted)">picks binding once ·</text>
+        <text x="320" y="96" text-anchor="middle" font-size="10.5" fill="var(--muted)">rewrites to arg-one · warns</text>
+
+        <rect x="476" y="40" width="150" height="66" rx="10" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="551" y="60" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">HIR</text>
+        <text x="551" y="74" text-anchor="middle" font-size="9.5" fill="var(--muted)">high-level IR</text>
+        <text x="551" y="90" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="var(--muted)">deposit(account, 25)</text>
+        <text x="551" y="102" text-anchor="middle" font-size="10" fill="var(--ok)">binding baked in</text>
+
+        <text x="660" y="78" text-anchor="middle" font-size="11" fill="var(--muted)">runtime:</text>
+        <text x="660" y="92" text-anchor="middle" font-size="10" fill="var(--muted)">no re-resolve</text>
+      </g>
+      <g stroke="var(--accent)" stroke-width="1.8" fill="none">
+        <line x1="164" y1="73" x2="226" y2="73" marker-end="url(#arr2)"/>
+        <line x1="410" y1="73" x2="472" y2="73" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+    <figcaption>Lexical and static resolution. The binding is chosen once and written into the HIR (the high-level IR); the runtime executes the direct chosen call. Source: <em>module-system</em> §Semantics.</figcaption>
+  </figure>
+
+  <p>The payoff of doing it this way is concrete. Today's stopgap — the thing that actually runs in the current build — is a single flat, per-process function table shared by interpreter and compiler: every import registers its <em>entire</em> closure by name, with no tree-shaking and no visibility boundary. In that world "a module declaring fourteen functions comes to cost a hundred and forty-three," and 111 stdlib modules consume 3,336 of 4,096 slots — 81.4%. Meaning gets re-decided across 45-plus precedence sites and 28 name sites. The new resolver gives imports <em>one</em> owner and one place where a name's meaning is settled.</p>
+
+  <p>One boundary is drawn on purpose: <strong>no dynamic binding from data.</strong> Runtime arrays and maps cannot create lexical bindings. A hypothetical future <code>Modules.load(...)</code> module-value API would be a separate thing — the lexical layer stays lexical.</p>
+
+  <h2>Still open: four edge-decisions</h2>
+  <p>The core is settled — "the import model is settled," and the list of things not to vote on again is long: receiver = arg one; the inner-scope / later-at-same-scope conflict rule with its naming warning; <code>as</code> renaming; the explicit <code>exposes</code> surface; private helpers callable inside the module; adopted exposures auto-enabling declared forms; <code>forms:</code> narrowing and <code>conceals</code> removing; <code>stdlib:BuiltIns</code> implicit-outermost and concealable; independent chain-segment resolution; the runtime executing the direct chosen call. All of it is settled <em>design</em> — the language work itself is deferred behind compiler completion, so none of this yet exists in the build. Four narrow choices remain open as of 3 August 2026, and no daily through 22 August revises them.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <caption>The four open docket decisions. Source: <em>module-system</em> §"Settled vs open" and the 3 Aug decision docket.</caption>
+    <thead>
+      <tr><th scope="col">#</th><th scope="col">The question</th><th scope="col">Current lean</th></tr>
+    </thead>
+    <tbody>
+      <tr><th scope="row">35</th><td><code>value.name(...)</code> matches <em>both</em> a callable field and an imported receiver fn — which wins?</td><td>Leaning B: latest lexical decision wins, with a warning</td></tr>
+      <tr><th scope="row">39</th><td>What diagnostic fires when dotted syntax names no eligible receiver?</td><td>Rec A: an actionable compile-time error</td></tr>
+      <tr><th scope="row">40</th><td>Per-binding alias grammar: <code>div as ruby_div</code>, <code>{div: ruby_div}</code>, or both?</td><td>Proposal B: map-like spelling</td></tr>
+      <tr><th scope="row">41</th><td>Reusable selector sets (an <code>exposure_manifest</code>), compile-time only?</td><td>Best fit A: yes, compile-time only</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>A few things around the edges are genuinely unsettled beyond the docket: the per-binding alias spelling (that's decision 40 itself), and the module-path resolution algorithm — search paths, package roots, the <code>__init__</code>-equivalent — was never fully stated. Those are open ground, not settled design being described here.</p>
+
+  <div class="callout">
+    <span class="lab">Editor's note</span>
+    This note stays with the import <em>surface</em> and its semantics on purpose. The module system is also where two other threads land — <code>spec</code> files that import the code under test (a supported convention, never a requirement; R2), and a mutable class-based sublanguage offered as an opt-in <em>module</em> while Hey's core stays immutable (R3). Both are flavor-via-imports too, and both deserve their own note rather than a paragraph here. If this reads long, treat it as the first entry in a short series.
+  </div>
+
+  <h2>Why it's shaped this way</h2>
+  <p>The through-line is a single idea: an import supplies <em>meaning</em>, never <em>shape</em>. You can pull another module's flavor into one file and read arithmetic the way Ruby reads it — and Hey will tell you the truth about the only thing it warns you about, which is a name colliding with another name. It won't invent a performance tax to warn you about, because the design's whole posture is to remove costs rather than announce them. Decided once, at resolve time; fast at runtime; ergonomic where you write it. That's the language changing flavor without changing its promises — a design that's settled on paper, waiting on the compiler to make it real.</p>
+
+  <div class="src">
+    <h3>Sources</h3>
+    <ol>
+      <li><em>module-system.md</em> — reconstructed, banked design (2026-08-22), deferred behind compiler completion; in v0.99.475a <code>exposes</code>/<code>exposing</code> don't exist yet: "four words, four jobs" (<code>exposes</code> / <code>exposing</code> / <code>as</code> / <code>forms</code>, plus <code>conceals</code> / <code>private</code>); the <code>Math</code> operator exposure (<code>exposes pow infix: '**'</code>) and <code>RubyMath</code>'s <code>div</code> / <code>mod</code>; Semantics (lexical &amp; static, receiver = arg one, precedence owned by the symbol, conflict warnings, <code>BuiltIns</code> concealable); the flat 4,096-slot function-table problem; Settled-vs-open decisions 35 / 39 / 40 / 41; flagged drift.</li>
+      <li><em>maintainer-rulings.md</em> — Ruling R1 (2026-08-22): the exposed-sugar warning is conflict / shadowing / overrides, not performance; zero-cost sugar gets no warning; real costs are engineered away; fast <em>and</em> Ruby-ergonomic. Ruling R2: <code>spec</code> files importing the code under test are a supported convention, never a requirement. Ruling R3: the mutable class-based sublanguage is an opt-in module while Hey's core stays immutable.</li>
+    </ol>
+  </div>
+
+  <footer>Part of the Hey project's public log.</footer>
+</article>
+</main>
+</body>
+</html>

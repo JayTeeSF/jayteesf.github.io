@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testing Hey, immutably</title>
+<meta name="description" content="The decided design for Hey's test framework — minitest assertions on an ExUnit-style immutable engine — with no mutable state and no closures, and specs that cost production nothing. Design decided, build deferred behind the compiler.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-bucket" content="almost">
+<meta name="article-desc" content="minitest's assertion base over an ExUnit immutable-context engine: builder-fn and context-map fixtures, expect_receive for actors, value-combinator generators — specs in any file, skipped in production. Design decided, nothing built yet.">
+<style>
+  :root{
+    --bg:#fbfaf7;
+    --panel:#ffffff;
+    --ink:#1c1a17;
+    --muted:#5f5a52;
+    --rule:#e6e1d8;
+    --accent:#9a5218;
+    --accent-soft:#f3e7d9;
+    --good:#2f6b3a;
+    --bad:#a3401f;
+    --code-bg:#f4f1ea;
+    --diagram-line:#b7ad9d;
+    --shadow:0 1px 2px rgba(28,26,23,.06),0 8px 24px rgba(28,26,23,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14130f;
+      --panel:#1d1b16;
+      --ink:#eee9df;
+      --muted:#a49c8e;
+      --rule:#332f27;
+      --accent:#e39a5a;
+      --accent-soft:#2a2117;
+      --code-bg:#211e18;
+      --good:#7dc088;
+      --bad:#e58b62;
+      --diagram-line:#5a5344;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14130f;
+    --panel:#1d1b16;
+    --ink:#eee9df;
+    --muted:#a49c8e;
+    --rule:#332f27;
+    --accent:#e39a5a;
+    --accent-soft:#2a2117;
+    --code-bg:#211e18;
+    --good:#7dc088;
+    --bad:#e58b62;
+    --diagram-line:#5a5344;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.62;
+    font-size:18px;
+    -webkit-font-smoothing:antialiased;
+  }
+  main{display:block}
+  article{
+    max-width:760px;
+    margin:0 auto;
+    padding:64px 24px 96px;
+  }
+  .eyebrow{
+    text-transform:uppercase;
+    letter-spacing:.14em;
+    font-size:.72rem;
+    font-weight:650;
+    color:var(--accent);
+    margin:0 0 18px;
+  }
+  h1{
+    font-size:clamp(2rem,5.2vw,2.85rem);
+    line-height:1.08;
+    letter-spacing:-.02em;
+    margin:0 0 22px;
+    font-weight:720;
+  }
+  .lede{
+    font-size:1.24rem;
+    line-height:1.5;
+    color:var(--muted);
+    margin:0 0 20px;
+  }
+  .deferbar{
+    display:flex;align-items:flex-start;gap:10px;
+    background:var(--accent-soft);
+    border:1px solid var(--accent);
+    border-radius:12px;
+    padding:12px 16px;
+    font-size:.92rem;
+    color:var(--ink);
+    margin:0 0 34px;
+  }
+  .deferbar strong{color:var(--accent)}
+  h2{
+    font-size:1.45rem;
+    letter-spacing:-.01em;
+    margin:56px 0 14px;
+    padding-top:18px;
+    border-top:1px solid var(--rule);
+    font-weight:680;
+  }
+  h3{font-size:1.1rem;margin:34px 0 8px;font-weight:660}
+  p{margin:0 0 18px}
+  a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+  strong{font-weight:660}
+  .tldr{
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:14px;
+    padding:22px 26px 22px 24px;
+    box-shadow:var(--shadow);
+    margin:0 0 14px;
+  }
+  .tldr h2{
+    border:0;margin:0 0 10px;padding:0;
+    font-size:.78rem;text-transform:uppercase;letter-spacing:.13em;color:var(--accent);
+  }
+  .tldr ul{margin:0;padding-left:1.15em}
+  .tldr li{margin:0 0 9px}
+  .tldr li:last-child{margin-bottom:0}
+  .citekey{
+    font-size:.82rem;color:var(--muted);margin:0 0 20px;padding:0 2px;
+  }
+  code{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    font-size:.86em;
+    background:var(--code-bg);
+    padding:.12em .38em;
+    border-radius:5px;
+  }
+  pre{
+    background:var(--code-bg);
+    border:1px solid var(--rule);
+    border-radius:12px;
+    padding:16px 18px;
+    overflow-x:auto;
+    margin:0 0 22px;
+    font-size:.86rem;
+    line-height:1.55;
+  }
+  pre code{background:none;padding:0;font-size:1em}
+  .tok-c{color:var(--muted)}
+  .tok-k{color:var(--accent);font-weight:600}
+  figure{margin:30px 0;padding:0}
+  figcaption{
+    font-size:.82rem;color:var(--muted);margin-top:12px;text-align:center;
+  }
+  .diagram-wrap{
+    background:var(--panel);
+    border:1px solid var(--rule);
+    border-radius:14px;
+    padding:22px 18px 10px;
+    box-shadow:var(--shadow);
+    overflow-x:auto;
+  }
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .svg-box{fill:var(--panel);stroke:var(--diagram-line);stroke-width:1.5}
+  .svg-box-accent{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+  .svg-label{fill:var(--ink);font-family:system-ui,sans-serif;font-size:13px;font-weight:600}
+  .svg-sub{fill:var(--muted);font-family:ui-monospace,monospace;font-size:11px}
+  .svg-flow{stroke:var(--diagram-line);stroke-width:1.6;fill:none}
+  .svg-flow-accent{stroke:var(--accent);stroke-width:1.8;fill:none}
+  .svg-arrowfill{fill:var(--diagram-line)}
+  .svg-arrowfill-accent{fill:var(--accent)}
+  .svg-note{fill:var(--muted);font-family:system-ui,sans-serif;font-size:11px;font-style:italic}
+  .table-wrap{overflow-x:auto;margin:24px 0 8px;border:1px solid var(--rule);border-radius:12px}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:520px}
+  caption{caption-side:bottom;font-size:.82rem;color:var(--muted);padding:12px 8px 0;text-align:left}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
+  thead th{
+    background:var(--accent-soft);color:var(--ink);font-weight:660;font-size:.8rem;
+    text-transform:uppercase;letter-spacing:.04em;border-bottom:1.5px solid var(--rule);
+  }
+  tbody tr:last-child td{border-bottom:0}
+  .yes{color:var(--good);font-weight:650}
+  .no{color:var(--bad);font-weight:650}
+  .adapt{color:var(--accent);font-weight:650}
+  .editnote{
+    background:var(--accent-soft);
+    border-left:3px solid var(--accent);
+    border-radius:0 10px 10px 0;
+    padding:14px 18px;
+    font-size:.92rem;
+    color:var(--ink);
+    margin:30px 0;
+  }
+  .editnote strong{color:var(--accent)}
+  .cite{color:var(--muted);font-size:.86em}
+  footer{
+    max-width:760px;margin:0 auto;padding:0 24px 72px;
+  }
+  .footline{
+    border-top:1px solid var(--rule);
+    padding-top:22px;
+    color:var(--muted);
+    font-size:.9rem;
+  }
+  .kicker{
+    display:inline-block;font-size:.72rem;font-weight:650;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--accent);background:var(--accent-soft);
+    padding:3px 9px;border-radius:999px;margin-bottom:10px;
+  }
+</style>
+</head>
+<body>
+<main>
+<article>
+  <p class="eyebrow">Hey language · design note · 22 August 2026</p>
+  <h1>Testing Hey, immutably</h1>
+  <p class="lede">Hey has no mutable instance state and no closures — the two things almost every test framework leans on for fixtures. So we <em>chose</em> the framework: minitest's assertion vocabulary sitting on an immutable engine modeled on Elixir's ExUnit, where a fixture is just data you pass as an argument, and a spec costs a production build exactly nothing.</p>
+
+  <div class="deferbar">
+    <div><strong>Design decided, not yet built.</strong> Everything in this note is the ruled design — the maintainer's decision, not shipped code. Implementation is <strong>deferred behind compiler completion</strong> and coupled to the module system for the separate-file convention; nothing here is built yet. <span class="cite">(R4 status; spec-architecture: "Nothing here is built")</span></div>
+  </div>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>One decision, adopted.</strong> Hey's spec framework is <strong>minitest's assertion base + the immutable ExUnit model</strong> — the maintainer's ruling after the survey found Elixir solves the fixture and actor gaps immutably, with QuickCheck-style value generators closing the third. <span class="cite">(R4)</span></li>
+      <li><strong>Fixtures without mutation or closures.</strong> A fixture is a <strong>builder <code>fn</code></strong> that returns a fresh immutable value, or a <strong>context map</strong> a <code>setup</code> block returns and the runner threads into each case — ExUnit's model, no <code>@ivars</code>, no capture. <span class="cite">(R4, survey §1.4)</span></li>
+      <li><strong>Actors get <code>expect_receive … within N ms</code></strong> — you wait for the message, never <code>sleep; assert</code>. <span class="cite">(R4, spec-architecture B5)</span></li>
+      <li><strong>Properties use value generators</strong>, not closures — <code>property "…" for x in integers()</code>, generators as combinator values from the QuickCheck/Hypothesis lineage. <span class="cite">(R4, survey §1.3)</span></li>
+      <li><strong>A spec lives in any file.</strong> A dedicated <code>foo_spec.hey</code> that imports <code>foo</code> is a supported convention, not a requirement; inline specs stay first-class, and specs reach privates only via a co-located internal-test hatch. <span class="cite">(R2 + amendment, R6/D44-a)</span></li>
+      <li><strong>Production pays nothing.</strong> Every lane must <em>parse</em> a spec block, but only the test runner <em>executes</em> it — spec code is conditionally compiled, like Rust's <code>#[cfg(test)]</code>. <span class="cite">(R5)</span></li>
+      <li><strong>No mutable-class module needed.</strong> R3's "try immutable first" holds: the design makes specs fully immutable, so the opt-in mutable sublanguage is never required to test Hey code. <span class="cite">(R3, R4)</span></li>
+    </ul>
+  </div>
+  <p class="citekey"><strong>How to read the citations:</strong> <code>R#</code> = a maintainer ruling; <code>A#</code> / <code>B#</code> = the spec-architecture proposal (parts A and B); <code>§#</code> = a section of the framework survey; <code>O#</code> = an open question in the proposal (Part C).</p>
+
+  <p>Every test framework you have ever used makes the same quiet assumption: that <code>setup</code> can stash something in a mutable slot — an <code>@ivar</code>, a <code>this.x</code>, a variable captured by a <code>beforeEach</code> closure — and each test can read it back. That assumption is <strong>impossible in Hey</strong>. There is no mutable instance state and there are no closures to capture the fixture. <span class="cite">(survey §1.4, spec-architecture A3)</span></p>
+
+  <p>The tempting fix would be to bend the language: bolt on a mutable, class-based sublanguage just so specs can behave like xUnit. The maintainer's ruling was the opposite — <strong>Hey's core stays immutable</strong>; a mutable class flavor is at most an opt-in module and a last resort, and specs must try to test the real code immutably first. <span class="cite">(R3)</span> This note is the story of how that "try first" is answered <em>on paper</em> — the design is decided, not yet built — and it has a single through-line:</p>
+
+  <p style="font-size:1.12rem;border-left:3px solid var(--accent);padding-left:18px;color:var(--ink)"><strong>The design gives Hey a full-featured test framework — minitest's assertions over ExUnit's immutable engine — without one line of mutable state or one closure, and without slowing production down at all.</strong></p>
+
+  <h2>The base: minitest's assertions, kept; its fixtures, dropped</h2>
+
+  <p>The survey treated minitest as the leading candidate and asked the blunt question: is it <em>sufficient</em>? The verdict was <strong>"almost."</strong> minitest is the right base and covers roughly 80% as-is, but it is not sufficient alone — it leaves exactly three gaps, and the load-bearing fix is to keep minitest's assertion face while replacing its fixture face. <span class="cite">(spec-architecture B0)</span></p>
+
+  <p>minitest itself makes this clean, because it already ships <strong>two faces over one engine</strong>: the classic <code>Minitest::Test</code> subclass, and a spec face (<code>describe</code>/<code>it</code>/<code>_(x).must_equal</code>). Adopting minitest therefore does not force a DSL choice — and its stated philosophy, <em>"minitest is ruby … it avoids magic,"</em> is exactly the ethos Hey wants. <span class="cite">(survey §1.1/§1.2)</span> What Hey keeps is the assertion vocabulary; what it refuses is the one piece built on mutation.</p>
+
+  <div class="table-wrap">
+  <table>
+    <caption>Which minitest pieces Hey adopts, adapts, or drops — condensed from the sufficiency verdict. <span class="cite">(spec-architecture B0)</span></caption>
+    <thead>
+      <tr><th scope="col">minitest feature</th><th scope="col">Adopt?</th><th scope="col">Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>Minitest::Test</code> subclass + <code>test_*</code> methods</td><td class="adapt">Adapt</td><td>Becomes a <code>spec</code> block with <code>it "…"</code> cases — the grouped-named-tests <em>shape</em> is fine, the stateful <em>class</em> is not</td></tr>
+      <tr><td><code>assert_equal</code> / <code>assert</code> / <code>refute</code> / <code>assert_raises</code> / <code>assert_in_delta</code></td><td class="yes">Yes</td><td>The assertion vocabulary is complete and immutability-neutral; keep it essentially as-is</td></tr>
+      <tr><td>spec face: <code>describe</code>/<code>it</code> + <code>_(x).must_equal</code></td><td class="yes">Yes</td><td>Adopted as the surface — one engine, spec face, no DSL magic</td></tr>
+      <tr><td>classic <code>setup</code>/<code>teardown</code> with <code>@ivars</code></td><td class="no">No</td><td>The one hard-incompatible piece — replaced with builder-fn / context-map fixtures</td></tr>
+      <tr><td><code>parallelize_me!</code> isolation</td><td class="yes">Yes, and cheaper</td><td>Immutability makes per-test isolation nearly free</td></tr>
+      <tr><td><code>Minitest::Mock</code></td><td class="no">Drop</td><td>Not needed — substitute a dependency by passing a value; observe interactions via the mailbox</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The mapped assertion set is small and shaped by Hey's own history. <code>expect X to_equal Y</code> is the workhorse: <em>value</em> equality — not type equality — is the semantics, because in Hey casts convey type, so equality compares the values themselves, and over immutable values that is total and well-defined. <code>expect X to_be true/false</code> covers truthiness. <code>expect X to_be_close Y within D</code> — mapping minitest's <code>assert_in_delta</code> — is a float-tolerance matcher that B2 calls <em>essential</em> (citing the survey), given Hey's <code>scale(2.5, 2)</code>-class float defects. And <code>expect X to_raise "…"</code> / <code>to_fail</code> covers the error path, subsuming today's <code>expect error</code>. <span class="cite">(spec-architecture B2, O4)</span></p>
+
+  <h2>Fixtures as data, not state</h2>
+
+  <p>Here is the load-bearing change, and it is smaller than it sounds. Three surveyed languages already do fixtures with neither mutable state nor closures, and Hey borrows from all three: <strong>Go/Rust</strong> (a fixture is just a helper function you call at the top of a test), <strong>ExUnit</strong> (<code>setup</code> returns an immutable context map that the runner threads into each test as an argument), and <strong>pytest</strong> (fixtures injected by parameter name). <span class="cite">(survey §1.4, A4)</span> ExUnit is the closest living relative — an immutable, actor language that already proved this works. <span class="cite">(A5)</span></p>
+
+  <p>The default is the plainest form: a <strong>builder <code>fn</code></strong> that returns a fresh value. Because values are immutable, "fresh per test" is automatic — there is nothing to reset.</p>
+
+  <pre><code><span class="tok-c"># the builder fixture — no framework feature at all</span>
+<span class="tok-k">fn</span> fresh_account() -&gt; deposit(open_account(), 100) <span class="tok-k">end</span>
+
+<span class="tok-k">spec</span> <span>"BankAccount"</span>
+  <span class="tok-k">it</span> <span>"withdraws"</span>
+    <span class="tok-k">let</span> a = fresh_account()
+    <span class="tok-k">expect</span> balance(withdraw(a, 30)) to_equal 70
+  <span class="tok-k">end</span>
+<span class="tok-k">end</span></code></pre>
+
+  <p>When several cases share setup, the <strong>context map</strong> takes over — ExUnit's exact model. A <code>setup</code> block <em>returns</em> an immutable map; the runner hands it to each <code>it</code> as a named value. No <code>@ivar</code> is written, no closure captures anything — the fixture is data passed as an argument. Because the value is immutable, one map is safe to hand to every case; there is nothing to copy.</p>
+
+  <pre><code><span class="tok-k">spec</span> <span>"BankAccount"</span>
+  <span class="tok-k">setup</span>
+    { account: fresh_account(), rate: 0.05 }   <span class="tok-c"># returns an immutable map</span>
+  <span class="tok-k">end</span>
+  <span class="tok-k">it</span> <span>"reads the seeded balance"</span> using ctx
+    <span class="tok-k">expect</span> balance(ctx.account) to_equal 100
+  <span class="tok-k">end</span>
+<span class="tok-k">end</span></code></pre>
+
+  <p>The diagram below is the whole idea. In a mutable framework the arrow between tests goes <em>through a shared slot</em>, which is why tests leak into each other and need resetting. In Hey the arrow is a value, passed to each case; there is no shared slot to leak — and no copy either, because a shared immutable value is safe to hand around.</p>
+
+  <figure>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 680 300" role="img" aria-labelledby="fixdiag-title">
+        <title id="fixdiag-title">A setup block returns one immutable context map, which the runner passes as a separate argument into each independent it-case.</title>
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="svg-arrowfill-accent"/>
+          </marker>
+        </defs>
+        <!-- setup box -->
+        <rect class="svg-box-accent" x="24" y="112" width="180" height="76" rx="10"/>
+        <text class="svg-label" x="114" y="140" text-anchor="middle">setup</text>
+        <text class="svg-sub" x="114" y="162" text-anchor="middle">returns an</text>
+        <text class="svg-sub" x="114" y="176" text-anchor="middle">immutable { } map</text>
+        <!-- fan-out arrows -->
+        <path class="svg-flow-accent" d="M204,138 C270,138 300,58 360,58" marker-end="url(#ar)"/>
+        <path class="svg-flow-accent" d="M204,150 C270,150 300,150 360,150" marker-end="url(#ar)"/>
+        <path class="svg-flow-accent" d="M204,162 C270,162 300,242 360,242" marker-end="url(#ar)"/>
+        <text class="svg-note" x="250" y="104" text-anchor="middle">passed, as ctx</text>
+        <!-- it boxes -->
+        <rect class="svg-box" x="360" y="30" width="290" height="56" rx="10"/>
+        <text class="svg-label" x="378" y="54">it "reads the balance"</text>
+        <text class="svg-sub" x="378" y="72">expect balance(ctx.account) to_equal 100</text>
+
+        <rect class="svg-box" x="360" y="122" width="290" height="56" rx="10"/>
+        <text class="svg-label" x="378" y="146">it "applies the rate"</text>
+        <text class="svg-sub" x="378" y="164">expect apply(ctx.rate, ctx.account) …</text>
+
+        <rect class="svg-box" x="360" y="214" width="290" height="56" rx="10"/>
+        <text class="svg-label" x="378" y="238">it "withdraws"</text>
+        <text class="svg-sub" x="378" y="256">expect balance(withdraw(ctx.account,30)) …</text>
+
+        <text class="svg-note" x="505" y="292" text-anchor="middle">each case is handed the same value — no shared slot, nothing to reset</text>
+      </svg>
+    </div>
+    <figcaption>The ExUnit-style immutable fixture: one <code>setup</code> returns a value; the runner threads that same value into every case as <code>ctx</code>. <span class="cite">(survey §1.4 / A5; spec-architecture B3)</span></figcaption>
+  </figure>
+
+  <p>A third form falls out for free: <strong>table tests</strong>. A table is an immutable list of value-tuples, and running one case per row needs no closures — just iteration. This is the most Hey-native shape, and it matches the spirit of the existing corpus.</p>
+
+  <pre><code><span class="tok-k">spec</span> <span>"Math.scale"</span>
+  <span class="tok-k">each</span> [ (2, 2.5, 5.0), (4, 0.5, 2.0), (3, 3, 9) ] <span class="tok-k">as</span> (x, f, want)
+    <span class="tok-k">it</span> <span>"scales #{x} by #{f}"</span>
+      <span class="tok-k">expect</span> scale(x, f) to_equal want
+    <span class="tok-k">end</span>
+  <span class="tok-k">end</span>
+<span class="tok-k">end</span></code></pre>
+
+  <p>And there is no <code>teardown</code>. pytest's <code>yield</code>-teardown exists to release side-effecting resources; immutable Hey values have nothing to release. If a spec touches an actor or Jobs resource, teardown is <em>the runtime reclaiming it</em>, not a user callback. <span class="cite">(spec-architecture B3, A8)</span></p>
+
+  <h2>The two remaining gaps</h2>
+
+  <p>After fixtures, two of the three gaps are left: minitest has no message-passing story and no property layer. Both are closed with patterns from ExUnit and QuickCheck — again, neither needs a closure or a mutable cell.</p>
+
+  <h3>Actors: wait for the message, never sleep</h3>
+
+  <p>The naive actor test — <code>sleep(100); assert mailbox empty</code> — is the trap. The disciplined replacement is ExUnit's <code>assert_receive</code>, adopted here as <strong><code>expect_receive pattern within N ms</code></strong>: the spec spawns the actor, sends it a message with the test as the reply target, and <strong>blocks until a matching reply arrives</strong> or the timeout fails it. It is deterministic because it waits for the <em>event</em>, not the clock. <span class="cite">(spec-architecture B5; survey §1.7)</span> The eight Erlang/OTP shapes back this up — assert the <em>next message's identity</em>, assert an <em>invariant after synchronized chaos</em>, probe liveness by draining the mailbox — and Hey needs <strong>no mocking subsystem</strong>: you substitute a collaborator by passing a value and verify interactions by asserting on what lands in a test-controlled mailbox. <span class="cite">(survey §1.8, A6)</span></p>
+
+  <h3>Properties: generators are values, not closures</h3>
+
+  <p>The highest-value oracle-free add for a compiler is property-based and metamorphic testing, and it fits Hey because QuickCheck-style generators are <strong>combinator values</strong> (<code>integers()</code>, <code>lists(...)</code>, <code>corpus_programs()</code>) returning immutable data — no capture. Shrinking operates on the generated data, not on a closure. This is the gap minitest leaves entirely; Hey closes it from the QuickCheck/Hypothesis lineage. <span class="cite">(spec-architecture B0 gap 3, B4/B7; survey §1.3, A7)</span></p>
+
+  <pre><code><span class="tok-k">spec</span> <span>"scale properties"</span>
+  <span class="tok-k">property</span> <span>"scaling by 1 is identity"</span> <span class="tok-k">for</span> x <span class="tok-k">in</span> integers()
+    <span class="tok-k">expect</span> scale(x, 1) to_equal x
+  <span class="tok-k">end</span>
+  <span class="tok-k">property</span> <span>"comments don't change output"</span> <span class="tok-k">for</span> p <span class="tok-k">in</span> corpus_programs()
+    <span class="tok-k">expect</span> compile(strip_comments(p)) to_equal compile(p)   <span class="tok-c"># metamorphic</span>
+  <span class="tok-k">end</span>
+<span class="tok-k">end</span></code></pre>
+
+  <p>That second block is a <em>metamorphic relation</em> — "adding a comment must not change compiled output" — the single highest-value class of check for Hey's own compiler. It is phased after the fixture work, but the surface is already closure-free. <span class="cite">(spec-architecture B4; survey §1.3)</span></p>
+
+  <h2>Where specs live, what happens to the ones we have, and what they cost</h2>
+
+  <p>Three rulings settle placement, the existing corpus, and cost — and they matter as much as the engine.</p>
+
+  <p><strong>A spec lives in any file (R2).</strong> The target architecture is a dedicated file that imports the code under test — <code>foo.hey</code> alongside a <code>foo_spec.hey</code> that does <code>import './foo.hey' exposing: [names]</code> — which reuses the ordinary module system, no new import mechanism. But the same-day amendment is emphatic: the separate file is a <strong>supported convention, not a restriction</strong>. A <code>spec</code> block may live inline with the code it tests, and inline specs stay first-class. The design must neither prohibit nor force separate spec files. As for reaching a module's <em>privates</em>, that question is settled too: a spec sees only the <code>exposes</code> surface an ordinary importer sees, and reaches privates <strong>only via a co-located internal-test hatch</strong> — Rust's <code>#[cfg(test)]</code> / Go's same-package idiom, and it works for inline specs as well. <span class="cite">(R2 + amendment; R6/D44-a; spec-architecture B1)</span></p>
+
+  <p><strong>The tests we already have are reframed, not rewritten (B6).</strong> Hey already carries a <strong>786-file <code>specs/language/*.hey</code> golden corpus</strong>. Today those files use the declarative golden harness — the form that accepts only <code>expect stdout/stderr/error/exit</code> — and the new <code>to_equal</code> assertion vocabulary is the destination, not today's reality. The ruling is that this corpus becomes <strong>one <em>kind</em> of expectation</strong> among several — the declarative golden form living alongside the new value-assertion, actor, and property forms — rather than being thrown out and re-authored. The runner's exact form is still an open question. <span class="cite">(spec-architecture A2, A9/B6; survey §0)</span></p>
+
+  <p><strong>A spec costs production nothing (R5).</strong> This corrects an earlier framing. The interpreter <em>skipping</em> spec blocks is not a defect — it is by design. Spec blocks are conditionally compiled and executed <strong>only in test mode</strong>, the way Rust uses <code>#[cfg(test)]</code> and Go uses build tags. A production build emits no spec code and pays nothing. The one real requirement is that <em>every</em> lane must still <strong>parse</strong> a spec block correctly — find it and its <code>end</code> — so it never breaks the surrounding code. The only genuine defect would be a lane <em>mis-parsing</em> the block, never a lane declining to run it in production. <span class="cite">(R5)</span></p>
+
+  <figure>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 680 240" role="img" aria-labelledby="cfgdiag-title">
+        <title id="cfgdiag-title">One source file is parsed by every lane, but the spec block is only executed by the test runner; a production build drops it and pays nothing.</title>
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="svg-arrowfill"/>
+          </marker>
+          <marker id="ar2a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="svg-arrowfill-accent"/>
+          </marker>
+        </defs>
+        <!-- source -->
+        <rect class="svg-box" x="20" y="86" width="170" height="70" rx="10"/>
+        <text class="svg-label" x="105" y="112" text-anchor="middle">foo.hey</text>
+        <text class="svg-sub" x="105" y="132" text-anchor="middle">code + spec block</text>
+        <!-- parse gate -->
+        <path class="svg-flow" d="M190,121 L250,121" marker-end="url(#ar2)"/>
+        <rect class="svg-box" x="250" y="86" width="150" height="70" rx="10"/>
+        <text class="svg-label" x="325" y="108" text-anchor="middle">every lane</text>
+        <text class="svg-sub" x="325" y="128" text-anchor="middle">PARSES the block</text>
+        <text class="svg-sub" x="325" y="144" text-anchor="middle">(finds its end)</text>
+        <!-- split -->
+        <path class="svg-flow" d="M400,105 C450,105 470,58 520,58" marker-end="url(#ar2)"/>
+        <path class="svg-flow-accent" d="M400,138 C450,138 470,184 520,184" marker-end="url(#ar2a)"/>
+        <!-- prod -->
+        <rect class="svg-box" x="520" y="30" width="150" height="58" rx="10"/>
+        <text class="svg-label" x="595" y="54" text-anchor="middle">production build</text>
+        <text class="svg-sub" x="595" y="74" text-anchor="middle">spec dropped — 0 cost</text>
+        <!-- test -->
+        <rect class="svg-box-accent" x="520" y="156" width="150" height="58" rx="10"/>
+        <text class="svg-label" x="595" y="180" text-anchor="middle">test runner</text>
+        <text class="svg-sub" x="595" y="200" text-anchor="middle">spec EXECUTES</text>
+      </svg>
+    </div>
+    <figcaption>Every lane parses the spec so it can't break surrounding code; only the test runner executes it. Production emits no spec code. <span class="cite">(R5)</span></figcaption>
+  </figure>
+
+  <h2>The payoff: no mutability required</h2>
+
+  <p>Put the pieces together and R3's cautious "try immutable first, use the mutable module only as a last resort" turns out to have a clean answer in the design: it was never needed. Fixtures are builder functions and immutable context maps; actor checks wait for messages; generators are values; isolation is nearly free because there is no shared mutable state to reset. <strong>Every dimension of the framework is closed with a closure-free, immutable-safe mechanism drawn from a language that already ships it</strong> — ExUnit above all, then Go/Rust and pytest, with QuickCheck-style generators for properties. <span class="cite">(spec-architecture B7, R4)</span></p>
+
+  <p>So the mutable-class sublanguage that R3 held in reserve is <strong>not needed for testing Hey</strong>. That is the whole win, stated by the ruling that adopted the design: specs are fully immutable, and Hey's core stays immutable with them. <span class="cite">(R4)</span></p>
+
+  <div class="editnote">
+    <strong>Editor's note.</strong> This is one design note covering the shape of the whole framework. Each of its sections — the assertion mapping, immutable fixtures, actor <code>expect_receive</code> discipline, and value-generator properties — has enough depth (and enough open questions, like the runner's exact form and how the 786-file golden corpus is reframed) to stand as its own article. Treat this as the index piece of a series, not the last word on any one lane. And to be clear about status: <strong>nothing here is built yet — this is the decided design, deferred behind compiler completion</strong> and coupled to the module system for the separate-file convention. <span class="cite">(R4 status; spec-architecture A1)</span></div>
+
+  <p class="cite">Grounded in: <em>maintainer-rulings.md</em> (R2, R3, R4, R5, R6/D44-a); <em>spec-architecture.md</em> (the research-backed proposal, parts A/B); and <em>spec-test-framework-shapes.md</em> (the framework survey). Claims not supported by those documents were left out.</p>
+</article>
+</main>
+<footer>
+  <p class="footline">Part of the Hey project's public log.</p>
+</footer>
+</body>
+</html>

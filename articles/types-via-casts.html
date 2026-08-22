@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>No type annotations in your code, every type in the compiler</title>
+<meta name="description" content="Hey is fully typed and enforces every type — but user source never writes a -> type annotation. A cast conveys the type instead, and the compiler reads it off the cast.">
+<meta name="article-date" content="2026-08-22">
+<meta name="article-bucket" content="almost">
+<meta name="article-desc" content="How Hey moved type notation from written annotations to casts: x.to_i is Int, x.to_s is Str, x.to_f is Float, and the compiler's IR still carries every type. The boolean cast !! is decided but not yet built on trunk (grep = 0).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#faf8f4;
+    --surface:#ffffff;
+    --surface-2:#f2efe8;
+    --ink:#201c17;
+    --ink-soft:#4d463d;
+    --ink-faint:#7a7267;
+    --rule:#e2ddd2;
+    --rule-strong:#cfc7b8;
+    --accent:#9a4a1e;
+    --accent-soft:#f3e6dc;
+    --good:#2f6d46;
+    --good-soft:#e3f0e6;
+    --good-border:rgba(47,109,70,.32);
+    --note-border:rgba(154,74,30,.28);
+    --code-bg:#f5f2ea;
+    /* red status-banner palette — static rgba/hex only, no computed-color functions */
+    --warn-bg:#fbeae2;
+    --warn-border:#e0a488;
+    --warn-accent:#b8431f;
+    --warn-ink:#7c2f14;
+    --shadow:0 1px 2px rgba(32,28,23,.05), 0 8px 28px rgba(32,28,23,.06);
+    --serif:"Newsreader", Georgia, "Times New Roman", serif;
+    --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#16130f;
+      --surface:#1f1b16;
+      --surface-2:#26211b;
+      --ink:#f2ece2;
+      --ink-soft:#cfc6b8;
+      --ink-faint:#9b9184;
+      --rule:#332c24;
+      --rule-strong:#43392e;
+      --accent:#e2925f;
+      --accent-soft:#3a271b;
+      --good:#8fd0a5;
+      --good-soft:#233024;
+      --good-border:rgba(143,208,165,.32);
+      --note-border:rgba(226,146,95,.30);
+      --code-bg:#241f19;
+      --warn-bg:#33201a;
+      --warn-border:#6e3a29;
+      --warn-accent:#e2925f;
+      --warn-ink:#f0c3ad;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 34px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16130f;
+    --surface:#1f1b16;
+    --surface-2:#26211b;
+    --ink:#f2ece2;
+    --ink-soft:#cfc6b8;
+    --ink-faint:#9b9184;
+    --rule:#332c24;
+    --rule-strong:#43392e;
+    --accent:#e2925f;
+    --accent-soft:#3a271b;
+    --good:#8fd0a5;
+    --good-soft:#233024;
+    --good-border:rgba(143,208,165,.32);
+    --note-border:rgba(226,146,95,.30);
+    --code-bg:#241f19;
+    --warn-bg:#33201a;
+    --warn-border:#6e3a29;
+    --warn-accent:#e2925f;
+    --warn-ink:#f0c3ad;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 34px rgba(0,0,0,.45);
+  }
+  :root[data-theme="light"]{
+    --good-border:rgba(47,109,70,.32);
+    --note-border:rgba(154,74,30,.28);
+    --warn-bg:#fbeae2;
+    --warn-border:#e0a488;
+    --warn-accent:#b8431f;
+    --warn-ink:#7c2f14;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--serif);
+    font-size:19px;
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  main{max-width:46rem;margin:0 auto;padding:3.2rem 1.35rem 4rem}
+  article > *{margin-inline:auto}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:.72rem;
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    margin:0 0 1.1rem;
+  }
+  h1{
+    font-size:clamp(2rem,5.4vw,3rem);
+    line-height:1.08;
+    font-weight:600;
+    letter-spacing:-.012em;
+    margin:0 0 1.1rem;
+    text-wrap:balance;
+  }
+  .lede{
+    font-size:1.24rem;
+    line-height:1.5;
+    color:var(--ink-soft);
+    margin:0 0 2rem;
+  }
+  h2{
+    font-size:1.5rem;
+    font-weight:600;
+    letter-spacing:-.008em;
+    margin:2.8rem 0 .8rem;
+    line-height:1.2;
+  }
+  h3{font-size:1.12rem;font-weight:600;margin:1.8rem 0 .5rem}
+  p{margin:0 0 1.1rem}
+  a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:.06em}
+  strong{font-weight:600}
+  code{
+    font-family:var(--mono);
+    font-size:.86em;
+    background:var(--code-bg);
+    padding:.1em .36em;
+    border-radius:5px;
+    border:1px solid var(--rule);
+  }
+  .status-banner{
+    display:flex;
+    gap:.75rem;
+    align-items:flex-start;
+    background:var(--warn-bg);
+    border:1px solid var(--warn-border);
+    border-left:4px solid var(--warn-accent);
+    border-radius:10px;
+    padding:.9rem 1.1rem;
+    margin:0 0 1.9rem;
+    font-size:.92rem;
+    line-height:1.45;
+    color:var(--warn-ink);
+  }
+  .status-banner .tag{
+    font-family:var(--mono);
+    font-size:.66rem;
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    font-weight:600;
+    color:var(--warn-accent);
+    white-space:nowrap;
+    padding-top:.18em;
+  }
+  .status-banner strong{color:var(--warn-accent)}
+  .status-banner code{background:rgba(0,0,0,.06);border-color:var(--warn-border)}
+  .tldr{
+    background:var(--surface);
+    border:1px solid var(--rule);
+    border-left:3px solid var(--accent);
+    border-radius:12px;
+    padding:1.3rem 1.5rem .4rem;
+    margin:0 0 2rem;
+    box-shadow:var(--shadow);
+  }
+  .tldr h2{margin:0 0 .6rem;font-size:.82rem;letter-spacing:.09em;text-transform:uppercase;font-family:var(--mono);color:var(--ink-faint);font-weight:500}
+  .tldr ul{margin:0;padding:0 0 0 1.05rem}
+  .tldr li{margin:0 0 .85rem;line-height:1.45}
+  pre{
+    background:var(--code-bg);
+    border:1px solid var(--rule);
+    border-radius:10px;
+    padding:1rem 1.15rem;
+    overflow-x:auto;
+    font-family:var(--mono);
+    font-size:.82rem;
+    line-height:1.62;
+    margin:0 0 1.4rem;
+  }
+  pre code{background:none;border:none;padding:0;font-size:1em}
+  .tok-key{color:var(--accent);font-weight:500}
+  .tok-com{color:var(--ink-faint);font-style:italic}
+  .tok-ty{color:var(--good);font-weight:500}
+  .fig{
+    margin:1.8rem 0 1.6rem;
+    background:var(--surface);
+    border:1px solid var(--rule);
+    border-radius:12px;
+    padding:1.4rem 1.3rem 1.1rem;
+    box-shadow:var(--shadow);
+  }
+  .figwrap{overflow-x:auto}
+  .fig svg{width:100%;min-width:660px;height:auto;display:block}
+  figcaption{
+    font-size:.86rem;
+    color:var(--ink-faint);
+    margin-top:.9rem;
+    line-height:1.45;
+    font-family:var(--serif);
+  }
+  .table-wrap{overflow-x:auto;margin:1.5rem 0 1.6rem;border:1px solid var(--rule);border-radius:12px;box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;font-size:.92rem;background:var(--surface)}
+  caption{
+    caption-side:top;
+    text-align:left;
+    font-family:var(--mono);
+    font-size:.72rem;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    padding:.9rem 1rem .3rem;
+  }
+  th,td{padding:.72rem .9rem;text-align:left;border-bottom:1px solid var(--rule);vertical-align:top}
+  thead th{
+    font-family:var(--mono);
+    font-size:.72rem;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    font-weight:500;
+    background:var(--surface-2);
+  }
+  tbody tr:last-child td{border-bottom:none}
+  td code{white-space:nowrap}
+  .ty-pill{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:.78rem;
+    font-weight:500;
+    padding:.08em .5em;
+    border-radius:20px;
+    background:var(--good-soft);
+    color:var(--good);
+    border:1px solid var(--good-border);
+    white-space:nowrap;
+  }
+  .ty-pill.pending{
+    background:var(--warn-bg);
+    color:var(--warn-accent);
+    border-color:var(--warn-border);
+  }
+  blockquote{
+    margin:1.6rem 0;
+    padding:.2rem 0 .2rem 1.2rem;
+    border-left:3px solid var(--rule-strong);
+    color:var(--ink-soft);
+    font-style:italic;
+  }
+  blockquote p:last-child{margin-bottom:0}
+  .note{
+    background:var(--accent-soft);
+    border:1px solid var(--note-border);
+    border-radius:10px;
+    padding:1rem 1.2rem;
+    margin:1.8rem 0;
+    font-size:.95rem;
+    color:var(--ink-soft);
+  }
+  .note strong{color:var(--ink)}
+  hr{border:none;border-top:1px solid var(--rule);margin:2.8rem 0}
+  footer{
+    margin-top:3rem;
+    padding-top:1.3rem;
+    border-top:1px solid var(--rule);
+    font-family:var(--mono);
+    font-size:.76rem;
+    letter-spacing:.04em;
+    color:var(--ink-faint);
+  }
+  .src{font-size:.8rem;color:var(--ink-faint);font-family:var(--mono)}
+</style>
+</head>
+<body>
+<main>
+<article>
+  <p class="eyebrow">Hey language · design note · 22 August 2026</p>
+  <h1>No type annotations in your code, every type in the compiler</h1>
+  <p class="lede">Hey source stops writing type annotations and starts casting — <code>x.to_i</code>, <code>x.to_s</code>, <code>x.to_f</code> — and the compiler reads the exact same type off the cast. The type-bearing casts stay in the code; only the <em>notation</em> — the written <code>-&gt; type</code> arrow — leaves it. Nothing about the type system got weaker. The boolean cast <code>!!</code> is the decided spelling for this too, but it is not built on trunk yet.</p>
+
+  <div class="status-banner" role="note">
+    <span class="tag">Status</span>
+    <div>This note describes a <strong>decided design direction</strong>, not a feature fully in the shipping toolchain. The three conversion casts (<code>.to_i</code>, <code>.to_s</code>, <code>.to_f</code>) are built; the boolean cast <strong><code>!!</code> is decided but NOT built on trunk</strong> — <code>grep heyc.c</code> for <code>"!!"</code> returns 0. Where the two sources differ (the language reference presents <code>!!</code> as settled contract; the construct census records it unbuilt), this page discloses the gap rather than papering over it.</div>
+  </div>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>Hey is fully typed, and user source writes no <code>-&gt; type</code> annotation.</strong> There is no <code>-&gt; bool</code> or <code>-&gt; i64</code> in user code — a <em>cast</em> conveys the type, the compiler reads the exact same type off it, and it still recognizes and enforces every type. The notation moved; the type system did not weaken.</li>
+      <li><strong>Three built casts, three result types:</strong> <code>x.to_i</code> is <span class="ty-pill">Int</span>, <code>x.to_s</code> is <span class="ty-pill">Str</span>, <code>x.to_f</code> is <span class="ty-pill">Float</span>. The fourth cast is the boolean one, <code>!!x</code> → <span class="ty-pill pending">Bool</span>; its build status is the disclosed weakness below.</li>
+      <li><strong>The compiler reads the type off the cast, and the compiler's intermediate representation (IR) carries it.</strong> <code>fn g(x) return x.to_i end</code> infers <code>-&gt; Int</code> with no annotation; the IR goldens still print <code>-&gt; i64</code>.</li>
+      <li><strong>The old <code>?</code>-name→bool rule is superseded.</strong> A function's boolean-ness is meant to come from a cast in its body, not from a <code>?</code> on its name.</li>
+      <li><strong>Disclosed weakness:</strong> the boolean cast <code>!!</code> is <em>decided direction, not built on trunk</em> — <code>grep heyc.c</code> for <code>"!!"</code> returns 0, so a reader who types <code>!!x</code> today gets nothing. The sources record it as decided-but-not-built; they give no <code>!!</code>-specific scheduling note, only the general rule that language features wait behind compiler completion.</li>
+      <li><strong>Reproduce it:</strong> compile <code>fn g(x) return x.to_i end</code> and inspect the <code>specs/ir/*.hir</code> golden — it prints <code>-&gt; i64</code>, the type you never wrote.</li>
+    </ul>
+  </div>
+
+  <figure class="fig">
+    <div class="figwrap">
+    <svg viewBox="0 0 760 316" role="img" aria-labelledby="figtitle figdesc" font-family="'IBM Plex Mono', ui-monospace, monospace">
+      <title id="figtitle">Where the type lives across the compiler pipeline</title>
+      <desc id="figdesc">User source contains a cast but no arrow-type annotation. As the code flows through tokens, final syntax, resolved names, high-level IR, mid-level IR and LLVM, the compiler reads the type off the cast and the intermediate representations carry an explicit arrow type from the high-level IR onward.</desc>
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- USER SOURCE box -->
+      <g color="var(--accent)">
+        <rect x="14" y="30" width="242" height="92" rx="10" fill="var(--accent-soft)" stroke="currentColor" stroke-width="1.5"/>
+        <text x="30" y="54" font-size="11" fill="var(--ink-faint)" letter-spacing="1">USER SOURCE</text>
+        <text x="30" y="80" font-size="13" fill="var(--ink)"><tspan fill="var(--accent)">fn</tspan> g(x) <tspan fill="var(--accent)">return</tspan> x.to_i <tspan fill="var(--accent)">end</tspan></text>
+        <text x="30" y="102" font-size="12" fill="var(--ink-faint)">no  -&gt; type  written</text>
+      </g>
+
+      <!-- COMPILER READS label -->
+      <g>
+        <line x1="256" y1="76" x2="306" y2="76" stroke="currentColor" color="var(--ink-faint)" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <text x="281" y="66" font-size="10" fill="var(--ink-faint)" text-anchor="middle">reads</text>
+        <text x="281" y="94" font-size="10" fill="var(--ink-faint)" text-anchor="middle">the cast</text>
+      </g>
+
+      <!-- IR box -->
+      <g color="var(--good)">
+        <rect x="306" y="30" width="242" height="92" rx="10" fill="var(--good-soft)" stroke="currentColor" stroke-width="1.5"/>
+        <text x="322" y="54" font-size="11" fill="var(--ink-faint)" letter-spacing="1">HIR / MIR GOLDEN</text>
+        <text x="322" y="80" font-size="14" fill="var(--ink)">fn g(x) <tspan fill="var(--good)">-&gt; i64</tspan></text>
+        <text x="322" y="102" font-size="12" fill="var(--ink-faint)">type is explicit here</text>
+      </g>
+
+      <!-- pipeline track -->
+      <text x="380" y="176" font-size="11" fill="var(--ink-faint)" text-anchor="middle" letter-spacing="1">THE COMPILER CONTRACT — SEVEN STAGES</text>
+      <g font-size="10.5">
+        <!-- 7 stages: source, tokens, final syntax, resolved names, HIR, MIR, LLVM -->
+        <g>
+          <rect x="14" y="198" width="90" height="44" rx="8" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+          <text x="59" y="224" fill="var(--ink)" text-anchor="middle">source</text>
+        </g>
+        <g>
+          <rect x="118" y="198" width="90" height="44" rx="8" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+          <text x="163" y="224" fill="var(--ink)" text-anchor="middle">tokens</text>
+        </g>
+        <g>
+          <rect x="222" y="198" width="90" height="44" rx="8" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+          <text x="267" y="220" fill="var(--ink)" text-anchor="middle">final</text>
+          <text x="267" y="233" fill="var(--ink)" text-anchor="middle">syntax</text>
+        </g>
+        <g>
+          <rect x="326" y="198" width="90" height="44" rx="8" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+          <text x="371" y="220" fill="var(--ink)" text-anchor="middle">resolved</text>
+          <text x="371" y="233" fill="var(--ink)" text-anchor="middle">names</text>
+        </g>
+        <g>
+          <rect x="430" y="198" width="90" height="44" rx="8" fill="var(--good-soft)" stroke="var(--good)"/>
+          <text x="475" y="220" fill="var(--ink)" text-anchor="middle">HIR</text>
+          <text x="475" y="233" fill="var(--good)" text-anchor="middle" font-size="9">-&gt; i64</text>
+        </g>
+        <g>
+          <rect x="534" y="198" width="90" height="44" rx="8" fill="var(--good-soft)" stroke="var(--good)"/>
+          <text x="579" y="220" fill="var(--ink)" text-anchor="middle">MIR</text>
+          <text x="579" y="233" fill="var(--good)" text-anchor="middle" font-size="9">-&gt; i64</text>
+        </g>
+        <g>
+          <rect x="638" y="198" width="90" height="44" rx="8" fill="var(--good-soft)" stroke="var(--good)"/>
+          <text x="683" y="220" fill="var(--ink)" text-anchor="middle">LLVM</text>
+          <text x="683" y="233" fill="var(--good)" text-anchor="middle" font-size="9">i64</text>
+        </g>
+        <g color="var(--ink-faint)">
+          <line x1="104" y1="220" x2="116" y2="220" stroke="currentColor" marker-end="url(#arrow)"/>
+          <line x1="208" y1="220" x2="220" y2="220" stroke="currentColor" marker-end="url(#arrow)"/>
+          <line x1="312" y1="220" x2="324" y2="220" stroke="currentColor" marker-end="url(#arrow)"/>
+          <line x1="416" y1="220" x2="428" y2="220" stroke="currentColor" marker-end="url(#arrow)"/>
+          <line x1="520" y1="220" x2="532" y2="220" stroke="currentColor" marker-end="url(#arrow)"/>
+          <line x1="624" y1="220" x2="636" y2="220" stroke="currentColor" marker-end="url(#arrow)"/>
+        </g>
+      </g>
+
+      <!-- caption band -->
+      <g color="var(--ink-faint)">
+        <line x1="14" y1="272" x2="728" y2="272" stroke="var(--rule)" />
+        <text x="14" y="294" font-size="11" fill="var(--ink-faint)">Type is absent in the source a person writes, explicit from the high-level IR onward. No stage after name resolution re-reads raw source.</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>The compiler contract is seven stages — <code>source → tokens → final syntax → resolved names → HIR → MIR → LLVM</code> — and no stage after name resolution reinterprets raw source. The type the reader never typed appears — once, correctly — from the high-level IR onward. (The <code>i64</code> box shows the arrow type the goldens print; the standard LLVM lowering of that scalar is not drawn from these sources.) <span class="src">[13-language-reference §Compiler contract + §Casts convey type]</span></figcaption>
+  </figure>
+
+  <h2>The one idea</h2>
+  <p>Hey has a full, enforced type system. What this note changes is only <em>how a type is indicated in the source a person writes</em>: instead of a written annotation, a value is cast, and the compiler reads the exact same type off the cast.<span class="src"> [13-language-reference §Casts convey type]</span></p>
+
+  <p>Read the language reference plainly:</p>
+  <blockquote>
+    <p>Hey is fully typed and the compiler fully recognizes and enforces every type. What changes is only how a type is indicated in user-facing source: instead of a written <code>-&gt; type</code> annotation (no <code>-&gt; bool</code>/<code>-&gt; i64</code> in user code), a value is <strong>cast</strong>, and the compiler reads the exact same type off the cast. This is a notation change, never a weakening of the type system — the type is every bit as real as if it had been written out.</p>
+  </blockquote>
+
+  <p><strong>Reader takeaway:</strong> after this section you can state the whole thesis in one line — the annotation left the <em>source</em>, not the type from the compiler.</p>
+
+  <h2>A cast is the annotation</h2>
+  <p>A cast does two jobs at once. It converts the value, and by converting it, it <em>tells the compiler the result's type</em>. There is nothing else to declare. Four casts, one for each of the result types <span class="ty-pill">Int</span>, <span class="ty-pill">Str</span>, <span class="ty-pill">Float</span> and <span class="ty-pill pending">Bool</span> — three built on trunk today, and the fourth, the boolean cast, decided but not yet built.<span class="src"> [13-language-reference, cast table; language-full-shape §3 casts table]</span></p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>The four casts and the type each conveys</caption>
+      <thead>
+        <tr><th scope="col">Cast</th><th scope="col">Result type</th><th scope="col">Build status on trunk</th><th scope="col">What it means</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>x.to_i</code></td>
+          <td><span class="ty-pill">Int</span></td>
+          <td>Built (native lane)</td>
+          <td>Scalar <code>i64</code>. The compiler picks the representation (<code>i64</code> vs. boxed); user code never spells the width.</td>
+        </tr>
+        <tr>
+          <td><code>x.to_s</code> / <code>x.to_string</code></td>
+          <td><span class="ty-pill">Str</span></td>
+          <td>Built (native lane, <code>to_s</code>/<code>to_string</code> builtins)</td>
+          <td>Convert to a string.</td>
+        </tr>
+        <tr>
+          <td><code>x.to_f</code></td>
+          <td><span class="ty-pill">Float</span></td>
+          <td>Built, present in all lanes (newly landed)</td>
+          <td>Convert to a decimal — <code>3.to_f()</code> gives <code>3.0</code>.</td>
+        </tr>
+        <tr>
+          <td><code>!!x</code></td>
+          <td><span class="ty-pill pending">Bool</span></td>
+          <td>Decided, NOT built (<code>grep heyc.c "!!"</code> = 0)</td>
+          <td>Double-not: the decided spelling for the boolean cast — negate to a boolean, then back. No implementation on trunk yet.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>That third column carries two facts worth holding onto. First, on representation: with <code>x.to_i</code> the compiler, not the programmer, decides whether the value lives as a raw <code>i64</code> or a boxed integer — representation choices stay inside the compiler and out of user-facing code, which is the whole point of moving the notation. Second, on lane coverage: only <code>.to_f</code> is verified present in every compilation lane, while <code>.to_i</code> and <code>.to_s</code>/<code>.to_string</code> are cited in the native lane on trunk.<span class="src"> [13-language-reference cast table; language-full-shape §3 casts table + §Divergences]</span></p>
+
+  <p><strong>Reader takeaway:</strong> you can now read a Hey function's return type off its final cast — no arrow to hunt for — and know the compiler read it the same way.</p>
+
+  <h2>Inference, worked</h2>
+  <p>Because the cast carries the type, a function's return type falls out of its body with nothing written down. Here is the case that actually compiles on trunk today:</p>
+
+  <pre><code><span class="tok-key">fn</span> g(x) <span class="tok-key">return</span> x.to_i <span class="tok-key">end</span>     <span class="tok-com"># infers -&gt; <span class="tok-ty">Int</span>, no annotation — BUILT</span></code></pre>
+
+  <p><code>x.to_i</code> makes <code>g</code> return <code>Int</code>, inferred exactly as if the type had been written, because the cast <em>is</em> where the type was written. The language reference pairs this with a boolean example — <code>fn f(x) return !!x end</code> is meant to infer <code>-&gt; Bool</code> the same way:</p>
+
+  <pre><code><span class="tok-key">fn</span> f(x) <span class="tok-key">return</span> !!x <span class="tok-key">end</span>       <span class="tok-com"># decided: infers -&gt; Bool — the not-yet-built case</span></code></pre>
+
+  <p>So the demonstrator to reach for is <code>g</code>. It shows the whole mechanism working end to end; <code>f</code> shows where the mechanism is heading once the boolean cast is wired.<span class="src"> [13-language-reference §Casts convey type; language-full-shape §3 casts table]</span></p>
+
+  <p><strong>Reader takeaway:</strong> you can predict a function's inferred return type by reading its body's final cast — and you can tell which examples run today (<code>g</code>) from which document the destination (<code>f</code>).</p>
+
+  <h2>The source drops the annotation; the IR keeps the type</h2>
+  <p>The key thing to hold onto: dropping the annotation from source does not drop the type from the compiler. The type is fully real, so the compiler's own intermediate representation still carries it. The goldens in <code>specs/ir/*.hir</code> — the high-level IR (HIR) and mid-level IR (MIR) stages — print <code>-&gt; bool</code>, <code>-&gt; i64</code>, <code>-&gt; str</code>, <code>-&gt; boxed</code>, and so on. That is the rule working, not a violation of it — the type was <em>read off the code</em>, never written by hand.<span class="src"> [13-language-reference §Casts convey type]</span></p>
+
+  <p>Note that the IR carries more inferred types than the four casts produce: a <code>nil</code>/object return prints <code>-&gt; boxed</code>, which no cast spells. That is the inference reading the code, not a cast the programmer wrote.</p>
+
+  <p>One consequence for anyone who works on the compiler: when inference <em>sharpens</em>, the IR goldens legitimately shift. A result that once printed <code>-&gt; i64</code> may now print <code>-&gt; bool</code>; a <code>nil</code>/object return may now print <code>-&gt; boxed</code>. That is the type being read more precisely — regenerate the goldens to match. Do not mistake the sharper type for unrelated drift, and never strip <code>-&gt; type</code> out of the IR: user <em>source</em> omits the annotation, but the <em>compiler</em> still knows the type.<span class="src"> [13-language-reference §Casts convey type]</span></p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Same function — source view vs. IR view</caption>
+      <thead>
+        <tr><th scope="col">What the reader writes</th><th scope="col">What the compiler infers</th><th scope="col">What the IR golden prints</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>fn g(x) return x.to_i end</code></td><td><span class="ty-pill">Int</span></td><td><code>-&gt; i64</code></td></tr>
+        <tr><td><code>… return x.to_s end</code></td><td><span class="ty-pill">Str</span></td><td><code>-&gt; str</code></td></tr>
+        <tr><td>a <code>nil</code>/object return</td><td><span class="ty-pill">boxed</span></td><td><code>-&gt; boxed</code></td></tr>
+        <tr><td><code>fn f(x) return !!x end</code> <em>(decided, not built)</em></td><td><span class="ty-pill pending">Bool</span></td><td><code>-&gt; bool</code> <em>(once wired)</em></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>Reader takeaway:</strong> you can now tell a real golden shift from drift — a sharper <code>-&gt; type</code> in <code>specs/ir/*.hir</code> is inference improving, not a bug to chase.</p>
+
+  <h2>What this supersedes: the <code>?</code>-name→bool rule</h2>
+  <p>Hey used to infer boolean-ness from a function's <em>name</em>: a trailing <code>?</code> made the return type <code>bool</code>. In the native emitter that rule is a single line — <code>if (len&gt;0 &amp;&amp; name[len-1]=='?') return "bool";</code>, at <code>runtime/heyc.c:5797</code> on trunk.<span class="src"> [language-full-shape §3, Operators]</span></p>
+
+  <p>The cast model <strong>supersedes</strong> that name-based inference. Boolean-ness is meant to come from the cast in the body — <code>!!x</code> — not from a punctuation mark on the name. The design canon records the old rule as an oddity that the decided cast model (<code>!!</code>/<code>.to_i</code>/<code>.to_s</code>/<code>.to_f</code>) makes a latent defect to remove, not a feature to keep. Note the timing tension: the replacement it points to, <code>!!</code>, is not built yet — so the old line is superseded in the design, and still the only boolean-return inference actually running on trunk.<span class="src"> [language-full-shape §3 + §Divergences]</span></p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Old rule vs. the cast model</caption>
+      <thead>
+        <tr><th scope="col"></th><th scope="col">Old: <code>?</code>-name→bool</th><th scope="col">Decided: the cast</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">Where the type comes from</th><td>The function's <em>name</em> ends in <code>?</code></td><td>The <em>value</em> is cast, e.g. <code>!!x</code></td></tr>
+        <tr><th scope="row">Applies to</th><td>Only functions named <code>…?</code></td><td>Any expression, anywhere</td></tr>
+        <tr><th scope="row">Status on trunk</th><td>Running — <code>heyc.c:5797</code>; superseded oddity, latent defect to remove</td><td>Decided type mechanism — <code>!!</code> not built yet</td></tr>
+        <tr><th scope="row">Type in the IR</th><td><code>-&gt; bool</code></td><td><code>-&gt; bool</code> (read off the cast, once wired)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>Reader takeaway:</strong> you can now read a <code>?</code>-suffixed function two ways at once — as the boolean-return rule that still runs today, and as the exact construct the cast model is scheduled to retire.</p>
+
+  <h2>Why this is not a weakening</h2>
+  <p>It would be easy to misread "no annotations in source" as "looser typing." It is the opposite kind of change. The type system's job — recognize and enforce every type — is unchanged; the enforcement still happens, and the IR still carries the type end to end. All that moved is the <em>notation</em>: from a written arrow to a cast the programmer was already reaching for.<span class="src"> [13-language-reference §Casts convey type]</span></p>
+
+  <p>This also keeps a standing tension out of user code. Hey's doctrine is that user code does not use type annotations, yet the parser still accepts a handful of parameter type annotations (<code>i64 f64 bool str boxed nil</code>) — in direct tension with that doctrine. The decided direction moves types to casts, not to <code>-&gt; type</code>, resolving the tension in favor of the doctrine.<span class="src"> [language-full-shape §5, parameter type annotation]</span></p>
+
+  <p>Why is the boolean cast still unbuilt while its design is settled? The sources give no <code>!!</code>-specific scheduling note — but they do give a general reason. The maintainer's rulings set an explicit doctrine that language work is deferred behind compiler completion (R1, R2, R4), and the strictness-levels ruling (D48-a) applies exactly that pattern to a new compiler capability. So <code>!!</code> falls under a sourced reason-class — language features wait for the compiler — even though no note names <code>!!</code> itself. Read the specific timing as undocumented, not as unexplained.<span class="src"> [language-full-shape §3 casts table (decided, not built); maintainer-rulings R1/R2/R4 + D48-a — language work deferred behind compiler completion]</span></p>
+
+  <p><strong>Reader takeaway:</strong> you can answer the obvious objection yourself now — casts-not-annotations is a stricter, not looser, story — and you can state precisely what is and isn't known about the one unbuilt piece.</p>
+
+  <div class="note">
+    <strong>Build-status honesty, in one place.</strong> <code>.to_f</code> is present and irreducible in every lane on trunk (newly landed). <code>.to_i</code> and <code>.to_s</code>/<code>.to_string</code> are present and irreducible on trunk, cited in the native lane. The <code>!!</code> force-cast is the <em>decided</em> spelling for the boolean cast and the model this note describes, but it has no implementation yet (<code>grep heyc.c "!!"</code> = 0). The sources give no <code>!!</code>-specific scheduling note, though they do defer language work behind compiler completion as a general rule. The name→type rule at <code>heyc.c:5797</code> is what the design says it supersedes — and, until <code>!!</code> is wired, still the boolean-return inference that actually runs. <span class="src">[language-full-shape §3 casts table + §Divergences; maintainer-rulings R1/R2/R4 + D48-a]</span>
+  </div>
+
+  <hr>
+
+  <p class="src">Sources — every factual claim above is grounded in these three documents: <br>
+  · <code>docs/developers/13-language-reference.md</code> — §"Casts convey type, annotations do not" (the short-cite "§Casts convey type" above), the cast table, the <code>f</code>/<code>g</code> inference examples, the IR-carries-the-type paragraphs, and §"Compiler contract".<br>
+  · <code>research-backed/language-full-shape.md</code> — §3 Operators (the <code>?</code>-name→bool rule at <code>heyc.c:5797</code>, marked superseded), the casts table (<code>.to_i</code>/<code>.to_s</code> native-lane, <code>.to_f</code> all-lanes, <code>!!</code> decided-not-built with grep=0), §5 (parameter-annotation tension), §Divergences (constructs whose trunk status diverged from the 470a census).<br>
+  · <code>research-backed/maintainer-rulings.md</code> — R1/R2/R4 and D48-a: language work is deferred behind compiler completion, the strictness-levels feature among it. Cited here as the general reason-class that covers <code>!!</code>; no source gives an <code>!!</code>-specific scheduling note.</p>
+
+  <footer>Part of the Hey project's public log.</footer>
+</article>
+</main>
+</body>
+</html>
