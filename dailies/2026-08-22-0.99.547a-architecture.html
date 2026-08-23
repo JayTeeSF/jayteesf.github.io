@@ -274,7 +274,7 @@
         <div class="node node-good"><strong>Tokens</strong><small><code>HeyTokens</code> owns spelling, boundaries, and spans.</small></div>
         <div class="node node-good"><strong>Tree</strong><small>Generated syntax tree owns grouping and node structure.</small></div>
         <div class="node node-good"><strong>HIR</strong><small>Structural HIR owns program meaning; <code>HeyNames</code> resolves bindings and module surfaces.</small></div>
-        <div class="node node-work"><strong>MIR</strong><small>Now also carries neutral <code>extern</code> / <code>Module.method</code> facts, validated by <code>HeyMir.validate</code>.</small></div>
+        <div class="node node-work"><strong>MIR</strong><small>Now also carries neutral <code>extern</code> / <code>Module.method</code> facts, whose declaration form <code>HeyMir.validate</code> accepts.</small></div>
         <div class="node node-work"><strong>LLVM</strong><small>The Hey-owned emitter lowers those facts mechanically via <code>json_call</code>.</small></div>
       </div>
     </div>
@@ -294,21 +294,21 @@
     <div class="authority-strip" aria-label="Authority convergence summary">
       <div class="authority-stage good-stage"><strong>Resolver establishes</strong><small><code>HeyNames</code> already knows every module signature and receiver.</small></div>
       <div class="authority-arrow" aria-hidden="true">&rarr;</div>
-      <div class="authority-stage work-stage"><strong>MIR carries it neutrally</strong><small>A plain <code>extern</code> / <code>Module.method</code> fact, no semantics attached, checked by <code>HeyMir.validate</code>.</small></div>
+      <div class="authority-stage work-stage"><strong>MIR carries it neutrally</strong><small>A plain <code>extern</code> / <code>Module.method</code> fact, no semantics attached. <code>HeyMir.validate</code> accepts the declaration form; stricter path-wide invariants (rejecting a module namespace as a runtime argument) remain follow-up.</small></div>
       <div class="authority-arrow" aria-hidden="true">&rarr;</div>
       <div class="authority-stage good-stage"><strong>Emitter lowers mechanically</strong><small>Via <code>json_call</code> today; resolved comparisons join the shared authority path.</small></div>
     </div>
-    <figcaption id="conv-figure-caption">Provenance: landed commits <code>c69cd901</code> (receiver-sugar canonicalization, Option A), <code>2fa500a4</code> (resolver&rarr;MIR canonicalization stage + <code>HeyMir.validate</code>), and <code>fb276378</code> (extern-facade dispatch), measured at <abbr class="ver" title="v0.99.547a">547a</abbr>.</figcaption>
+    <figcaption id="conv-figure-caption">Provenance: <code>fb276378</code> established the extern-facade dispatch and <code>c69cd901</code> added resolver-informed receiver-sugar canonicalization (Option A). <code>2fa500a4</code> <strong>records the follow-up</strong> to promote that canonicalization into a named resolver&rarr;MIR stage and tighten <code>HeyMir.validate</code>; it does not itself implement that stage, which still lives in <code>tools/hey_extern_annotate.hey</code>. Measured at <abbr class="ver" title="v0.99.547a">547a</abbr>.</figcaption>
   </figure>
 
   <section id="mechanism" class="anchor">
     <h2>Why <code>json_call</code> is a lowering choice, not a semantic one</h2>
     <p>The important discipline here is the one that keeps the architecture honest. The <code>extern</code> fact in the MIR says <em>what</em> is being called and with what shape. It does not say <em>how</em> the backend must reach it. Today the Hey-owned emitter reaches it through a generic <code>json_call</code> dispatch. The MIR source itself records the plan in a comment: <code>json_call</code> dispatch today, real <code>hey_fn_*</code> symbols later.</p>
-    <p>That separation is why the flip is cheap. When the emitter later resolves these to direct <code>hey_fn_*</code> symbols, nothing in the resolver, the HIR, or the MIR needs to move. Only the lowering step changes. The language semantics were fixed the moment the resolver wrote the fact down.</p>
+    <p>That separation is why the flip is cheap. When the emitter later resolves these to direct <code>hey_fn_*</code> symbols, nothing in the resolver, the HIR, or the MIR needs to move. Only the lowering step changes. The language semantics were fixed the moment the resolver wrote the fact down. This is exactly why the earlier Crypto/Bytes regression was fixed by lowering precedence rather than by changing the <code>extern</code> semantics.</p>
     <p>Two rulings keep the mechanism from over-reaching:</p>
     <div class="decision-grid">
       <article class="decision-card"><h3>Option A: modules are not runtime values</h3><p>A module is a compile-time selector, never a first-class value you can pass or store at runtime. Receiver-sugar module calls are canonicalized at resolve time, so the backend never has to model a module as data.</p></article>
-      <article class="decision-card"><h3>Native facade wins precedence</h3><p>Where a dedicated native-C facade lowering exists for a call, it takes precedence over the generic <code>extern</code>&rarr;<code>json_call</code> route. The mechanical path is the fallback for the frontier, not a replacement for hand-tuned facades.</p></article>
+      <article class="decision-card"><h3>Native facade wins precedence</h3><p>Where a dedicated native-C facade lowering exists for a call — for example the <code>Crypto</code>/<code>Bytes</code> typed paths caught by the parent differential — it takes precedence over the generic <code>extern</code>&rarr;<code>json_call</code> route. The mechanical path is the fallback for the frontier, not a replacement for hand-tuned facades.</p></article>
     </div>
   </section>
 
@@ -347,7 +347,7 @@
           <tr><td class="nowrap"><code>d17e41f5</code></td><td>Census fix.</td><td>Makes the coverage measurement trustworthy at 132 units.</td></tr>
           <tr><td class="nowrap"><code>c8841c5e</code></td><td><code>json(&lt;extern call&gt;)</code> lowering via the extern route.</td><td>Extends the mechanical route to a common cross-unit shape.</td></tr>
           <tr><td class="nowrap"><code>c69cd901</code></td><td>Receiver-sugar canonicalization (Option A).</td><td>Normalizes module calls at resolve time; modules stay compile-time selectors.</td></tr>
-          <tr><td class="nowrap"><code>2fa500a4</code></td><td>Resolver&rarr;MIR canonicalization stage + <code>HeyMir.validate</code>.</td><td>Names the stage that writes neutral facts and checks them.</td></tr>
+          <tr><td class="nowrap"><code>2fa500a4</code></td><td>Architecture follow-up recorded (docs-only).</td><td>Records that the current bridge must become a named resolver&rarr;MIR canonicalization stage used by every authoritative MIR path, then that <code>HeyMir.validate</code> should reject a module namespace used as a runtime argument. This commit records the work; it does not implement the stage — canonicalization currently lives in <code>tools/hey_extern_annotate.hey</code>.</td></tr>
           <tr><td class="nowrap"><code>786f7367</code></td><td>Version bump <abbr class="ver" title="v0.99.546a">546a</abbr>&rarr;<abbr class="ver" title="v0.99.547a">547a</abbr>.</td><td>Marks the cross-unit-frontier milestone.</td></tr>
           <tr><td class="nowrap"><code>2e6313f8</code></td><td>Resolved boxed expressions enter the normal relational-comparison path.</td><td>Routes a resolved cross-unit compare through the shared semantic authority; flips <code>bits_flags</code> and <code>bloom_filter</code> to covered.</td></tr>
         </tbody>
@@ -362,7 +362,7 @@
       <div class="status-row">
         <div class="status-label good-label"><strong>Converged since 533a</strong><small>Real, landed movement toward single authority.</small></div>
         <div class="status-cards">
-          <div class="status-card good-card"><strong>Extern bridge landed</strong><small>Resolver signatures reach MIR as neutral facts and are validated there.</small></div>
+          <div class="status-card good-card"><strong>Extern bridge landed</strong><small>Resolver signatures reach MIR as neutral facts, and <code>HeyMir.validate</code> accepts their declaration form.</small></div>
           <div class="status-card good-card"><strong>Cross-unit frontier closing</strong><small>111/132 covered; comparisons route through the shared authority.</small></div>
           <div class="status-card good-card"><strong>Module semantics ruled</strong><small>Option A settles modules as compile-time selectors, removing a runtime-value ambiguity.</small></div>
           <div class="status-card good-card"><strong>Receiver sugar normalized</strong><small>Module calls canonicalized once, at resolve time.</small></div>
@@ -397,8 +397,15 @@ sh tools/hey_llvm_gap_census.sh
 # The shared comparison authority the resolved path now enters
 grep -n 'hey_llvm_cmp_expr_value\|hey_llvm_value_cmp_i64' stdlib/HeyLlvm.hey
 
-# The neutral extern fact the resolver writes into MIR
-grep -n 'extern ' stdlib/HeyMir.hey
+# The bridge tool and the neutral extern declaration it writes into MIR
+grep -n 'extern ' tools/hey_extern_annotate.hey stdlib/HeyMir.hey
+
+# Targeted per-slice regression gates
+bash test/regression_extern_facade_dispatch.sh
+bash test/regression_extern_visibility.sh
+bash test/regression_extern_json_call.sh
+bash test/regression_module_receiver_canonicalization.sh
+bash test/regression_extern_boxed_comparison.sh
 
 # Differential verify: the compiler-contract lane must stay
 # byte-identical to the parent (25 pre-existing fails, zero introduced)</code></pre>
