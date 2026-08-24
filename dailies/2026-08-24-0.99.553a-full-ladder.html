@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hey 0.99.553a full-ladder status: the last O(n^2) in the honest benchmark set is closed. String self-append (sconcat, set s = s + piece) was quadratic because a str accumulator is a raw C-string — every + rebuilt a fresh string from the whole prefix. 553a lands Track C2: a compiler-proven unique self-append accumulator (empty seed, every reassignment set s = s + piece, name-safe, in a named function) now holds a persistent owned HeyString and appends in place through the runtime's geometric fast path, so sconcat is O(n). Receipt: strdup_bytes doubles per size-doubling (O(n), 8.5M->68M at N=500k->4M) versus an alias-defeated twin's 4x/doubling O(n^2); string_grows is O(log N). The win is scoped (self-host emitter, named-function, handled read-out) with three soundness-safe follow-ups filed; a cross-machine re-measure is pending. The two dictionary O(n^2) levers (549a overwrite, 552a interprocedural update) and Distributed Hey (two-machine-verified at 551a) all stay closed.">
+  <meta name="article-date" content="2026-08-24">
+  <meta name="article-bucket" content="daily">
+  <meta name="article-version" content="0.99.553a">
+  <meta name="article-desc" content="Hey 0.99.553a full-ladder status: Track C2 lands and the last of the three O(n^2) mechanisms — string self-append (sconcat) — goes linear. sconcat was quadratic because a str accumulator is a raw C-string: every + manufactured a fresh string value from the whole prefix, so the persistent thing was a char*, not a refcounted backing. 553a licenses a compiler-proven unique self-append accumulator (empty seed + every reassignment set s = s + piece + name-safe, in a named function) to hold a persistent owned HeyString and append in place via the runtime's sole-owner geometric fast path. Receipt (self-host compiled, alloc counters): strdup_bytes doubles per size-doubling (O(n)) versus an alias-defeated twin's 4x/doubling O(n^2), string_grows O(log N) — the counter, not wall-clock, is the proof the whole-prefix copy is gone. Scope: self-host emitter, named-function accumulators, handled read-out; three soundness-safe narrowings (native heyc.c mirror, top-level-scope accumulator, structured-MIR eligibility) are filed follow-ups, not correctness blockers. Cross-machine/cross-language re-measure pending. The 1BRC map cliff (552a, O(1)/op) and Distributed Hey (two-machine-verified at 551a) stay closed.">
+  <meta name="article-index-title" content="Hey 553a: the last O(n^2) falls — string self-append goes linear.">
+  <meta name="article-index-desc" content="Track C2 lands. String self-append (sconcat, set s = s + piece) — the single remaining O(n^2), a representation problem — is now linear for compiler-proven accumulators. A str local seeded empty whose every reassignment is a self-append and that is otherwise only borrowed (in a named function) holds a persistent owned HeyString and appends in place through the runtime's geometric fast path instead of rebuilding a fresh string from the whole prefix each +. Receipt: strdup_bytes doubles per size-doubling (O(n), 8.5M->68M at N=500k->4M) vs an alias-defeated twin's 4x/doubling O(n^2); string_grows O(log N) — proven by the allocation counter, not wall-clock. The win is deliberately scoped (self-host emitter, named-function, handled read-out); three soundness-safe narrowings are filed as follow-ups, not blockers; a cross-machine re-measure is pending. Both dictionary O(n^2) levers (549a overwrite, 552a interprocedural update) and Distributed Hey (two-machine-verified at 551a) stay closed.">
+  <title>Hey 553a: The Last O(n&sup2;) Falls · Full Ladder · August 24, 2026</title>
+  <style>
+    :root {
+      --bg: #f6f3ec; --surface: #ffffff; --surface-2: #eee9df; --ink: #20262a;
+      --muted: #5d686f; --line: #c8c1b5; --link: #175f9e;
+      --good: #16623b; --good-bg: #e1f2e7; --work: #805300; --work-bg: #fff0c8;
+      --bad: #9a3030; --bad-bg: #f9e3e3; --next: #573597; --next-bg: #ece5f8;
+      --info: #1e5b82; --info-bg: #e3f0f8; --neutral: #555f66; --neutral-bg: #e8ebed;
+      --code-bg: #172129; --code-fg: #eef5f8;
+      --shadow: 0 12px 34px rgba(35, 31, 24, .08); --radius: 16px; --max: 1080px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111416; --surface: #191e21; --surface-2: #242a2e; --ink: #edf1f3;
+        --muted: #aeb8bd; --line: #3b4449; --link: #9bc9f2;
+        --good: #8bd6aa; --good-bg: #153426; --work: #ffd477; --work-bg: #3b2f13;
+        --bad: #ffaaa2; --bad-bg: #45211f; --next: #c7a9ff; --next-bg: #2d2341;
+        --info: #9fd4f6; --info-bg: #193346; --neutral: #c0c8cc; --neutral-bg: #293034;
+        --code-bg: #090c0e; --code-fg: #f4f7f8; --shadow: 0 12px 34px rgba(0,0,0,.28);
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111416; --surface: #191e21; --surface-2: #242a2e; --ink: #edf1f3;
+      --muted: #aeb8bd; --line: #3b4449; --link: #9bc9f2;
+      --good: #8bd6aa; --good-bg: #153426; --work: #ffd477; --work-bg: #3b2f13;
+      --bad: #ffaaa2; --bad-bg: #45211f; --next: #c7a9ff; --next-bg: #2d2341;
+      --info: #9fd4f6; --info-bg: #193346; --neutral: #c0c8cc; --neutral-bg: #293034;
+      --code-bg: #090c0e; --code-fg: #f4f7f8; --shadow: 0 12px 34px rgba(0,0,0,.28);
+    }
+    :root[data-theme="light"] {
+      --bg: #f6f3ec; --surface: #ffffff; --surface-2: #eee9df; --ink: #20262a;
+      --muted: #5d686f; --line: #c8c1b5; --link: #175f9e;
+      --good: #16623b; --good-bg: #e1f2e7; --work: #805300; --work-bg: #fff0c8;
+      --bad: #9a3030; --bad-bg: #f9e3e3; --next: #573597; --next-bg: #ece5f8;
+      --info: #1e5b82; --info-bg: #e3f0f8; --neutral: #555f66; --neutral-bg: #e8ebed;
+      --code-bg: #172129; --code-fg: #eef5f8;
+      --shadow: 0 12px 34px rgba(35, 31, 24, .08); --radius: 16px; --max: 1080px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+      font: 17px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .page { width: 100%; max-width: var(--max); margin: 0 auto; padding: 0 22px; }
+    .hero { background: linear-gradient(180deg, var(--surface-2), var(--bg)); border-bottom: 1px solid var(--line); padding: 40px 0 30px; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+    h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.12; margin: 0 0 14px; }
+    .dek { font-size: 19px; color: var(--muted); margin: 0 0 16px; max-width: 74ch; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 14px; color: var(--muted); }
+    main { padding: 8px 0 60px; }
+    section { margin: 30px 0; }
+    h2 { font-size: 25px; margin: 34px 0 12px; }
+    h3 { font-size: 19px; margin: 22px 0 8px; }
+    p, li { max-width: 78ch; }
+    a { color: var(--link); }
+    code { background: var(--surface-2); padding: 1px 5px; border-radius: 6px;
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 16px 18px; border-radius: 12px; overflow-x: auto; }
+    pre code { background: none; color: inherit; padding: 0; }
+    .tldr { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 24px 20px; box-shadow: var(--shadow); }
+    .abbr, .ver { border-bottom: 1px dotted var(--muted); cursor: help; text-decoration: none; }
+    .status-line { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 16px; }
+    .badge { font-size: 13px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); }
+    .badge.good { background: var(--good-bg); color: var(--good); }
+    .badge.work { background: var(--work-bg); color: var(--work); }
+    .badge.bad  { background: var(--bad-bg);  color: var(--bad); }
+    .badge.next { background: var(--next-bg); color: var(--next); }
+    .scroll { overflow-x: auto; }
+    .ladder-grid { display: grid; grid-template-columns: 150px repeat(5, minmax(150px, 1fr)); gap: 8px; min-width: 760px; margin: 8px 0 6px; }
+    .ladder-label { align-self: center; font-weight: 700; font-size: 14px; color: var(--muted); }
+    .rung { border-radius: 12px; padding: 9px 11px; font-size: 13px; border: 1px solid var(--line); background: var(--surface); }
+    .rung strong { display: block; font-size: 13.5px; margin-bottom: 2px; }
+    .rung small { color: var(--muted); }
+    .r-good { background: var(--good-bg); }
+    .r-work { background: var(--work-bg); }
+    .r-bad  { background: var(--bad-bg); }
+    .r-next { background: var(--next-bg); }
+    table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 22px 18px; box-shadow: var(--shadow); }
+    .pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+    .p-good { background: var(--good-bg); color: var(--good); }
+    .p-work { background: var(--work-bg); color: var(--work); }
+    .p-next { background: var(--next-bg); color: var(--next); }
+    .num { font-variant-numeric: tabular-nums; text-align: right; }
+    .bar { display: inline-block; height: 11px; border-radius: 3px; background: var(--good); vertical-align: middle; }
+    .bar-slow { background: var(--bad); }
+    footer { border-top: 1px solid var(--line); margin-top: 40px; padding: 22px 0 60px; color: var(--muted); font-size: 14px; }
+    caption, figcaption { color: var(--muted); font-size: 14px; text-align: left; margin-top: 8px; }
+    dl.glossary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 8px 0 0; }
+    dl.glossary dt { font-weight: 700; }
+    dl.glossary dd { margin: 0; color: var(--muted); max-width: 78ch; }
+    @media (max-width: 640px) { dl.glossary { grid-template-columns: 1fr; } dl.glossary dd { margin: 0 0 8px; } }
+  </style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="page">
+    <p class="eyebrow">Hey · full-ladder status · 24 August 2026</p>
+    <h1>Hey <abbr class="ver" title="v0.99.553a">553a</abbr>: the last O(n&sup2;) falls.</h1>
+    <p class="dek">String self-append — <code>set s = s + piece</code>, the last quadratic in the honest benchmark set — is now <strong>linear</strong> for compiler-proven accumulators. It was O(n&sup2;) because a <code>str</code> accumulator is a raw C-string: every <code>+</code> rebuilt a fresh string from the whole prefix. 553a lands <strong>Track C2</strong>: a proven unique self-append accumulator holds a persistent owned string and appends <em>in place</em> through the runtime's geometric fast path. The two dictionary levers (<a href="2026-08-24-0.99.552a-full-ladder.html">549a &amp; 552a</a>) and <a href="2026-08-24-0.99.551a-full-ladder.html">Distributed Hey</a> (two-machine-verified at 551a) stay closed.</p>
+    <div class="meta">
+      <span>Current landed source: <strong>0.99.553a</strong> (branch <code>trunk</code>, local); Track C2 stack <code>783f4328a</code>&hellip;<code>91ccca53e</code></span>
+      <span>Version stamp: <strong>bumped to 553a</strong>; 48 HIR/MIR goldens version-line-only</span>
+      <span>Article status: sconcat is <em>O(n) for named-function accumulators, scoped</em>; cross-machine re-measure pending</span>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+  <section class="tldr" aria-labelledby="tldr">
+    <h2 id="tldr">TL;DR</h2>
+    <ul>
+      <li><strong>The last O(n&sup2;) is closed for the common case.</strong> <code>set s = s + piece</code> was quadratic because a <code>str</code> accumulator is a raw C-string — each <code>+</code> manufactures a fresh string value from the <em>whole prefix</em> before the concat can help, so the persistent thing is a <code>char*</code>, not a refcounted backing. The runtime already had a sole-owner, geometric, in-place append fast path; it was <em>inert</em> because the emitter never routed through it. 553a routes through it.</li>
+      <li><strong>How (a general compiler fact, not a benchmark hack):</strong> the compiler licenses a <em>unique self-append string accumulator</em> — a <code>str</code> local seeded empty (<code>let s = ''</code>) whose <em>every</em> reassignment is a self-append <code>set s = s + piece</code> (<code>s</code> is both the target and the sole left operand) and whose other uses are non-retaining borrows. A licensed accumulator holds a persistent owned <code>HeyString</code>; each append grows that one backing in place (doubling its capacity) instead of copying the prefix; a raw C-string is materialized only when the value is read out. The analysis is proven decoupled first, then the codegen; a load-bearing negative — an alias <code>let old = s</code> between appends — <em>defeats</em> the licence, so <code>old</code> keeps its pre-append bytes.</li>
+      <li><strong>Receipt (O(n), by the allocation counter — not wall-clock):</strong> a named-function accumulator swept N = 500k&rarr;4M copies <strong>strdup_bytes</strong> 8.5M &rarr; 17M &rarr; 34M &rarr; 68M — <strong>exactly doubling per size-doubling</strong> (O(n)); <code>string_grows</code> goes 18&rarr;21 (O(log&nbsp;N)); total time ~2&times; per doubling. An <em>alias-defeated</em> twin at equal N copies strdup_bytes 4&times; per doubling (O(n&sup2;), 940&times;&ndash;3765&times; more bytes). The counter is the proof the whole-prefix copy is gone; wall-clock alone would not be.</li>
+      <li><strong>Exact scope, stated plainly.</strong> The win applies to a compiler-proven self-append accumulator <em>in a named function</em>, read out by a bare print/return/store, lowered by the <em>self-host</em> emitter (the path the default compile uses). Three <strong>soundness-safe</strong> narrowings remain as filed follow-ups — a missed optimization is never a miscompile: <em>(a)</em> a top-level <code>program</code>-scope accumulator is licensed by the analysis but not yet lowered; <em>(b)</em> a <code>len(s)</code> read-out defeats the licence and falls back to the safe O(n&sup2;) path; <em>(c)</em> the native C reference emitter's mirror is deferred. The cross-language / cross-machine bench re-measure is pending on the maintainer's next cherry-pick.</li>
+      <li><strong>All three O(n&sup2;) mechanisms are now closed (named apart).</strong> 549a closed the in-place map <em>overwrite</em>; 552a closed the interprocedural map <em>update</em> (the 1BRC shape, O(1)/op); 553a closes string self-append. This is <em>not</em> a language-wide owned-string ABI (that would be a later, separate representation change). <a href="2026-08-24-0.99.551a-full-ladder.html">Distributed Hey</a> stays closed (landed + two-machine-verified at 551a).</li>
+    </ul>
+  </section>
+
+  <section class="card" aria-label="The sconcat scaling sweep">
+    <h2>String self-append, made linear</h2>
+    <p>A named-function accumulator (<code>let s = ''; while &hellip; set s = s + piece</code>, read out with a bare print) was built and swept across sizes. Under the allocation counter, the bytes copied grow <strong>linearly</strong> with the work — the signature that the per-<code>+</code> whole-prefix copy is gone:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Appends N</th><th class="num">total (ms)</th><th class="num">string_grows</th><th class="num">strdup_bytes</th><th>shape</th></tr></thead>
+      <tbody>
+        <tr><td><strong>500,000</strong></td><td class="num">20</td><td class="num">18</td><td class="num">8,500,064</td><td><span class="bar" style="width:22px"></span> O(n)</td></tr>
+        <tr><td><strong>1,000,000</strong></td><td class="num">34</td><td class="num">19</td><td class="num">17,000,067</td><td><span class="bar" style="width:44px"></span> &times;2.00</td></tr>
+        <tr><td><strong>2,000,000</strong></td><td class="num">62</td><td class="num">20</td><td class="num">34,000,067</td><td><span class="bar" style="width:88px"></span> &times;2.00</td></tr>
+        <tr><td><strong>4,000,000</strong></td><td class="num">119</td><td class="num">21</td><td class="num">68,000,067</td><td><span class="bar" style="width:176px"></span> &times;2.00</td></tr>
+      </tbody>
+    </table></div>
+    <figcaption><code>strdup_bytes</code> doubles for every doubling of N (O(n)); <code>string_grows</code> &mdash; the count of geometric capacity doublings on the one backing &mdash; rises by ~1 per doubling (O(log&nbsp;N)); total time tracks ~2&times; per doubling (net of ~6&nbsp;ms fixed process start). Contrast the same loop with an alias inserted (<code>let peek = s</code>), which defeats the licence and takes the old raw-C-string path:</figcaption>
+    <div class="scroll"><table>
+      <thead><tr><th>Appends N</th><th class="num">licensed strdup_bytes</th><th class="num">alias-defeated strdup_bytes</th><th>ratio</th></tr></thead>
+      <tbody>
+        <tr><td><strong>2,000</strong></td><td class="num">34,058</td><td class="num">32,022,065</td><td><span class="bar bar-slow" style="width:60px"></span> ~940&times;</td></tr>
+        <tr><td><strong>4,000</strong></td><td class="num">68,058</td><td class="num">128,044,065</td><td><span class="bar bar-slow" style="width:120px"></span> ~1,880&times;</td></tr>
+        <tr><td><strong>8,000</strong></td><td class="num">136,058</td><td class="num">512,088,065</td><td><span class="bar bar-slow" style="width:190px"></span> ~3,765&times;</td></tr>
+      </tbody>
+    </table></div>
+    <figcaption>Licensed: <code>strdup_bytes</code> 2&times;/doubling (O(n)). Defeated: 4&times;/doubling (O(n&sup2;)) &mdash; the whole-prefix copy is back. The defeated twin cannot run at 4M (O(n&sup2;) copies hundreds of GB); the proof is the <em>shape</em> at equal N. Wall-clock is not the proof &mdash; the byte counter is.</figcaption>
+  </section>
+
+  <section>
+    <h2 id="ladder">The ladder at <abbr class="ver" title="v0.99.553a">553a</abbr></h2>
+    <div class="status-line" aria-label="Status legend">
+      <span class="badge good">Landed / measured / verified</span>
+      <span class="badge work">Active / scoped / same-host-verified</span>
+      <span class="badge bad">Open blocker</span>
+      <span class="badge next">After blockers / planned</span>
+    </div>
+    <figure aria-labelledby="ladder-title" role="img"
+      aria-label="A five-track ladder at 553a. The compiler and performance tracks now close all three O(n squared) mechanisms: the in-place map overwrite at 549a, the interprocedural map update at 552a, and string self-append at 553a. sconcat is linear for compiler-proven named-function accumulators on the self-host emitter, with three soundness-safe follow-ups (native mirror, top-level scope, structured eligibility) and a cross-machine re-measure pending. The Distributed Hey track landed and ran across two machines at 551a and stays closed. Runtime and product tracks are reproduced from the 533a ladder as last-verified state.">
+      <div class="scroll"><div class="ladder-grid">
+        <div class="ladder-label">Compiler <small>(as of 553a)</small></div>
+        <div class="rung r-good"><strong>Generated front end</strong><small>Tokenizer, syntax, name resolution, structural HIR.</small></div>
+        <div class="rung r-good"><strong>Cross-unit call lowering</strong><small>Imported <code>Module.method</code> lowers mechanically.</small></div>
+        <div class="rung r-good"><strong>1BRC map cliff closed (552a)</strong><small>Generalized consume-transfer + in-place <code>put</code>; interproc map update O(1)/op.</small></div>
+        <div class="rung r-good"><strong>Track C2: sconcat O(n) (553a)</strong><small>Persistent owned-string accumulator; in-place append. Scoped: self-host, named-fn.</small></div>
+        <div class="rung r-work"><strong>P2: one-true-compiler</strong><small>Extern-facade frontier; a fresh 553a construct/fallback census opens the campaign.</small></div>
+
+        <div class="ladder-label">Runtime <small>(as of 533a)</small></div>
+        <div class="rung r-good"><strong>Central box ownership</strong><small>Measured web retention 308 &rarr; 6 B/request.</small></div>
+        <div class="rung r-work"><strong>Clone &rarr; retain cleanup</strong><small>Allocation win; not re-measured this cycle.</small></div>
+        <div class="rung r-bad"><strong>Actor-handle count</strong><small>~240 B/spawn; needs a refcount/generation table.</small></div>
+        <div class="rung r-next"><strong>Long soak receipts</strong><small>Whole-process and per-worker workloads.</small></div>
+        <div class="rung"><small>Unchanged since 533a.</small></div>
+
+        <div class="ladder-label">Performance <small>(active 553a)</small></div>
+        <div class="rung r-good"><strong>COW maps default-on</strong><small>Clone-per-put O(n&sup2;) eliminated at 547a.</small></div>
+        <div class="rung r-good"><strong>W9 map overwrite (549a)</strong><small>has?/get/keys condition-read reuse; ~122&times; re-measured.</small></div>
+        <div class="rung r-good"><strong>Interproc map update (552a)</strong><small>merge-shape reuses in place; K-sweep flat, ~237&times; @K=2000.</small></div>
+        <div class="rung r-good"><strong>sconcat O(n) (553a)</strong><small>In-place owned-string append; strdup_bytes 2&times;/doubling vs twin 4&times;.</small></div>
+        <div class="rung r-next"><strong>sconcat follow-ups</strong><small>Native mirror, top-level scope, len read-out: scoped-out, O(n&sup2;) fallback (safe).</small></div>
+
+        <div class="ladder-label">Distributed <small>(551a)</small></div>
+        <div class="rung r-good"><strong>Ruling: runtime, not VM</strong><small>Stdlib/runtime services; no bytecode shipping, no DSM.</small></div>
+        <div class="rung r-good"><strong>v0 substrate landed</strong><small>TLS server + binary Codec + transport/node/remote, four attributable layers.</small></div>
+        <div class="rung r-good"><strong>Stale-incarnation enforced</strong><small>Prior-incarnation frames rejected; deterministic + e2e falsified.</small></div>
+        <div class="rung r-good"><strong>Two-machine L2 gate (all 4 legs)</strong><small>Darwin&harr;Linux over ethernet: call/send/monitor&rarr;NODE_DOWN/stale over the wire.</small></div>
+        <div class="rung r-next"><strong>L3 matrix · registry</strong><small>Partition/at-most-once on real NICs; Registry/Rinda/Jobs. Extern-facade frontier open.</small></div>
+
+        <div class="ladder-label">Products <small>(as of 533a)</small></div>
+        <div class="rung r-work"><strong>Package structure</strong><small>Install/verify flow active.</small></div>
+        <div class="rung r-work"><strong>Target archives</strong><small>Native-host gated, closure backed.</small></div>
+        <div class="rung r-bad"><strong>Signed releases</strong><small>Evidence not yet produced.</small></div>
+        <div class="rung r-next"><strong>Mobile / TV receipts</strong><small>Open.</small></div>
+        <div class="rung r-next"><strong>Maintained applications</strong><small>Beyond fixtures.</small></div>
+      </div></div>
+      <figcaption id="ladder-title">The compiler and performance tracks now close <strong>all three</strong> O(n&sup2;) mechanisms &mdash; the in-place map overwrite (549a), the interprocedural map update (552a), and string self-append (553a). sconcat is linear for compiler-proven <em>named-function</em> accumulators on the self-host emitter; three soundness-safe follow-ups (native mirror, top-level scope, <code>len</code> read-out) fall back to the safe O(n&sup2;) path, and a cross-machine re-measure is pending. The compiler's live rung is now <strong>P2, one-true-compiler closure</strong>. The <strong>Distributed Hey</strong> track landed and ran across two machines at 551a and stays closed. Runtime and product tracks are reproduced from earlier full ladders as last-verified state (treat their numbers as of <abbr class="ver" title="v0.99.533a">533a</abbr>).</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>How Track C2 works</h2>
+    <p>The fix is a general compiler fact plus a runtime path that already existed. It was built in four steps, each proven before the next:</p>
+    <ul>
+      <li><strong>Analysis (decoupled, report-only first).</strong> The compiler recognizes a <em>unique self-append string accumulator</em>: a <code>str</code> local seeded empty, whose every reassignment is <code>set s = s + piece</code> (<code>s</code> is the target <em>and</em> the sole left operand, and <code>piece</code> does not re-read <code>s</code>), and whose every other occurrence is a non-retaining borrow. This is surfaced as a report line and mutation-proven &mdash; the positive is licensed; an alias (<code>let old = s</code>), an argument-pass, and a bare return are each refused &mdash; before any code generation depends on it.</li>
+      <li><strong>Codegen (self-host emitter).</strong> A licensed accumulator's slot holds a persistent owned <code>HeyString</code> (seeded empty). <code>set s = s + piece</code> lowers to &ldquo;load the string, append the piece in place, store it back&rdquo; &mdash; the runtime's sole-owner fast path grows that one backing geometrically (doubling capacity) rather than copying the prefix. A raw C-string is materialized <em>only</em> when the accumulator is read out (returned, printed, or stored). Non-accumulator code is byte-for-byte identical.</li>
+      <li><strong>Why the alias must defeat it.</strong> The in-place grow is safe only because the backing is provably sole-owned. Binding <code>let old = s</code> publishes a second reference to that buffer; if the licence still fired, the next append would corrupt <code>old</code>. So the alias defeats the licence and <code>old</code> keeps its pre-append value &mdash; verified behaviourally and by the analysis refusing the aliased function. The soundness guard is checked at run time too (<code>hey_box_assert_sole</code>), and a dedicated falsification aborts exactly when a backing is wrongly shared.</li>
+      <li><strong>Conservative by construction.</strong> Where the emitter cannot yet prove or lower a shape &mdash; a top-level <code>program</code>-scope accumulator, a <code>len(s)</code>-style read-out, or the native reference emitter &mdash; it falls back to the ordinary raw-C-string path. That is slower (the old O(n&sup2;)) but never wrong. These are filed follow-ups, deliberately <em>not</em> a general owned-string rewrite of the language.</li>
+    </ul>
+    <p>This is kept named apart from the two dictionary levers and the compiler-authority receipts. It removes a <em>representation</em> bottleneck the ownership machinery structurally could not reach.</p>
+  </section>
+
+  <section>
+    <h2>Scope &amp; the three follow-ups</h2>
+    <p>A refresh should be honest about what a win does <em>not</em> yet cover. Track C2 lands the mechanism and the common pattern; three narrowings are filed, ranked, and parked (each a missed optimization, never a correctness risk):</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Follow-up</th><th>What it is</th><th>Until then</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Native emitter mirror</strong></td><td>The self-host emitter lowers the in-place append; the native C <em>reference</em> emitter is not yet mirrored. The default compile path is self-host, so the win is live.</td><td>Native-emitted code (a non-default path, not exercised by any gate) keeps the O(n&sup2;) path.</td></tr>
+        <tr><td><strong>Top-level scope</strong></td><td>The analysis licenses an accumulator written directly in a <code>program</code> body, but the emitter only lowers named-function bodies.</td><td>A top-level accumulator stays O(n&sup2;) (correct output). Write it in a named function to get O(n).</td></tr>
+        <tr><td><strong>Structured eligibility</strong></td><td>The eligibility scans match on raw MIR text; a function whose file path contains its own name can be misread. Move the scans onto structured MIR operands.</td><td>A rare false-negative (a missed licence), never a false-positive.</td></tr>
+      </tbody>
+    </table></div>
+    <p>The cross-language / cross-machine bench has been asked to re-measure sconcat and the string workloads once 553a reaches its shared branch; that number is <strong>pending</strong> and is not asserted here. If the re-measure contradicts this local receipt, that reopens Track C2 &mdash; otherwise the slice is closed and the main thread has moved on.</p>
+  </section>
+
+  <section>
+    <h2>Distributed Hey &mdash; closed at 551a (carried)</h2>
+    <p>Nothing on the distributed track changed this cycle; it is recorded here as last-verified, not re-run. At <abbr class="ver" title="v0.99.550a">550a</abbr> the v0 substrate landed as four attributable layers &mdash; native TLS server accept, a versioned binary <code>Codec</code> (measured O(n) encode), and the <code>DistTransport</code>/<code>DistNode</code>/<code>DistRemote</code> substrate with node identity + incarnation, backpressure, heartbeats, reconnect and remote monitors &mdash; and stale-incarnation rejection was enforced and falsified. At <abbr class="ver" title="v0.99.551a">551a</abbr> the two-machine TLS L2 gate went green across all four legs on real hardware: a macOS node and a Linux node over fast ethernet ran <code>Remote.call</code> (TLS, <code>reply=pong</code>), <code>Remote.send</code> (tcp, at-most-once), the <code>kill&rarr;NODE_DOWN</code> monitor (tcp), and stale-incarnation rejection (TLS) &mdash; node A observed exactly the incarnation node B advertised, a genuine cross-host run. A published <a href="../articles/how-to-run-distributed-hey.html">&ldquo;How to run distributed Hey&rdquo;</a> walkthrough accompanies it. Verified honestly: examples run <em>interpreted</em> because the LLVM back end does not yet lower the cross-unit <code>Dist*</code>/<code>Codec</code> calls (the extern-facade frontier &mdash; the same frontier the P2 campaign now targets); the remaining rungs are the deterministic L3 partition / at-most-once matrix and a cluster registry. v0 guardrails held: no Registry/Rinda/Jobs/gossip, at-most-once with no auto-replay, and socket IO stays in its owning context (a documented deviation with a filed follow-up).</p>
+  </section>
+
+  <section id="verify">
+    <h2>Verification &amp; falsification</h2>
+    <p>The version at <code>stdlib/Version.hey</code> now reads <strong>0.99.553a</strong>; the 48 HIR/MIR goldens were regenerated for the version line only (the embedded <code>language 0.99.552a</code> &rarr; <code>553a</code> and its content hash), with <em>no</em> body drift &mdash; Track C2's codegen change is emitter-only and the licence is report-only in the MIR.</p>
+    <ul>
+      <li><strong>Track C2 is proven, not just fast.</strong> The analysis is mutation-proven (spec 1354): the accumulator is licensed; the alias, argument-pass, and bare-return negatives are refused. The load-bearing negative &mdash; <code>let old = s; set s = s + piece</code> keeps <code>old</code> at its pre-append bytes &mdash; is a spec (1355) and a compiled run. Boundary cases (a materialized C-string at a <code>str</code> parameter; return/store with balanced releases and no over-free under the RC assert; a slice taken before continued appends stays intact) all hold. Ownership specs 1189 and 1346&ndash;1355 are green.</li>
+      <li><strong>The O(n) claim is a counter, not a clock.</strong> On the named-function sweep, <code>strdup_bytes</code> doubles per size-doubling and <code>string_grows</code> is O(log&nbsp;N); an alias-defeated twin at equal N copies 4&times; per doubling. The answer is identical with copy-on-write on and off (<code>HEY_RC_COW=0</code>/<code>=1</code>) and the RC assert does not fire. The proof is the allocation shape, not the wall-clock.</li>
+      <li><strong>Scoped honestly.</strong> Where the emitter cannot lower a shape it falls back to the safe O(n&sup2;) path; those cases (top-level scope, <code>len</code> read-out, native mirror) are filed follow-ups, and the ladder marks them as such rather than claiming universal linear sconcat.</li>
+      <li><strong>Both prior levers carried:</strong> the 552a interprocedural-merge fix (flat K-sweep, verifier lockstep) and the 551a two-machine distributed gate remain green; nothing here perturbs them.</li>
+    </ul>
+  </section>
+
+  <section id="research-sources">
+    <h2>Repository sources</h2>
+    <ul>
+      <li>Track C2 stack (branch <code>trunk</code>, local): <code>783f4328a</code> (Phase&nbsp;1 &mdash; decoupled owned-str-accumulator analysis, spec 1354) &rarr; <code>1cb54c76f</code> (Phase&nbsp;2 &mdash; self-host emitter + runtime shims: persistent owned-<code>HeyString</code> accumulator, in-place append) &rarr; <code>9ebad4c68</code> (Phase&nbsp;3 &mdash; proofs, spec 1355 + boundary/slice/falsification) &rarr; <code>91ccca53e</code> (Phase&nbsp;4 &mdash; perf receipt, <code>bench/scaling/sconcat_scaling.hey</code>) &rarr; <code>cc5865e00</code> (553a stamp) &rarr; <code>edeb60a4c</code> (goldens version-line). Plan + receipts: <code>docs/agents/trackc2-implementation-plan.md</code>, <code>docs/agents/trackc2-phase4-perf-receipt.md</code>. Follow-ups: <code>docs/agents/trackc2-native-mirror-followup.md</code>, <code>docs/agents/trackc2-toplevel-scope-followup.md</code>.</li>
+      <li>Prior levers carried: 1BRC map cliff (552a) <code>b2a0dd50</code>&hellip;<code>b3a948f7</code>; Distributed (551a) substrate <code>1bef2feb</code>&hellip;<code>1122d06f</code>. Version single source: <code>stdlib/Version.hey</code> (now 0.99.553a).</li>
+      <li>The <code>hey-lang-tgz</code> working tree has no public remote; the code is mirrored to the <code>hey-lang-tgz</code> branch of <code>hey-lang-bootstrap-plan</code> for the cross-language bench to pull and re-measure sconcat and the string workloads.</li>
+      <li>Prior state: <a href="2026-08-24-0.99.552a-full-ladder.html">the 552a full ladder</a> (the interprocedural map cliff falls) and <a href="2026-08-24-0.99.551a-full-ladder.html">the 551a full ladder</a> (Distributed Hey goes real). Runtime and product tracks: the August 19 full ladder, as of <abbr class="ver" title="v0.99.533a">533a</abbr>.</li>
+    </ul>
+  </section>
+
+  <section id="glossary">
+    <h2>Glossary</h2>
+    <p><strong>Reference</strong> for the shorthand used <em>above</em>. We use codenames internally and they leak into these pages; rather than strip them out, they are defined here and used consistently day to day. Terms coined since the previous daily are marked <b>NEW</b>.</p>
+    <dl class="glossary">
+      <dt>sconcat</dt><dd>String self-append, <code>set s = s + piece</code> in a loop. Was O(n&sup2;); the target of Track C2.</dd>
+      <dt>Track C2 <b>NEW</b></dt><dd>The work that makes sconcat linear via a narrow persistent-owned-string accumulator &mdash; kept named apart from the map/ownership tracks.</dd>
+      <dt>self-append accumulator <b>NEW</b></dt><dd>A <code>str</code> local seeded empty whose every reassignment is <code>set s = s + piece</code> and that is otherwise only borrowed. The shape the compiler licenses.</dd>
+      <dt>owned <code>HeyString</code> / backing <b>NEW</b></dt><dd>A reference-counted string value with a growable buffer (the &ldquo;backing&rdquo;). An accumulator holds one and grows it in place; an ordinary <code>str</code> is a raw C-string (<code>char*</code>).</dd>
+      <dt>in-place append <b>NEW</b></dt><dd>Growing the accumulator's one backing (doubling its capacity) instead of building a fresh string from the whole prefix each <code>+</code>. Turns O(n&sup2;) into O(n).</dd>
+      <dt>read-out <b>NEW</b></dt><dd>The moment an accumulator's value is used (returned, printed, stored) &mdash; the one place a raw C-string is materialized from the owned string.</dd>
+      <dt>licence / defeats the licence <b>NEW</b></dt><dd>The compiler&rsquo;s permission to lower the fast path. An alias (<code>let old = s</code>), an argument-pass, or an unhandled read-out <em>defeats</em> it, and the code falls back to the safe O(n&sup2;) path.</dd>
+      <dt>strdup_bytes / string_grows <b>NEW</b></dt><dd>Runtime allocation counters. <code>strdup_bytes</code> = total bytes copied (O(n) when linear, O(n&sup2;) when not); <code>string_grows</code> = geometric capacity doublings (O(log&nbsp;N)). The receipt&rsquo;s proof, instead of wall-clock.</dd>
+      <dt>self-host emitter / native emitter</dt><dd>The two code generators. The Hey-owned (self-host) emitter is the default compile path and carries the Track C2 win; the native C emitter is the reference/bootstrap one (its mirror is a follow-up).</dd>
+      <dt>1BRC map cliff (552a)</dt><dd>The interprocedural <code>set stats = merge(stats,k,v)</code> map update that deep-cloned the whole map each time; closed at 552a to O(1)/op.</dd>
+      <dt>K-sweep</dt><dd>A benchmark that holds the total work fixed and varies the map size K; a flat time across K is the signature of O(1)/update.</dd>
+      <dt>extern-facade frontier</dt><dd>Cross-unit stdlib calls (e.g. <code>Dist*</code>/<code>Codec</code>) the LLVM back end does not yet lower to real symbols, so those examples run interpreted. The target of the P2 one-true-compiler campaign.</dd>
+      <dt>P2 / one-true-compiler <b>NEW</b></dt><dd>The next main-thread campaign: close the extern-facade frontier so the Hey-owned pipeline lowers every construct, with the C emitter kept as runtime/ABI/bootstrap only &mdash; not a second semantic compiler.</dd>
+      <dt>COW (copy-on-write)</dt><dd>Sharing a value until it is written, then copying. Maps are COW by default since 547a; running with <code>HEY_RC_COW=0</code> forces eager copies and is used as a soundness cross-check.</dd>
+      <dt>landed / verified / deployed</dt><dd>Landed = committed and through the checks. Verified = a named check reproduced the evidence. Deployed = on trunk, the state users feel. 553a is landed and stamped on <code>trunk</code> (local); a cross-machine re-measure is pending.</dd>
+    </dl>
+  </section>
+</main>
+
+<footer class="page">
+  <p><strong>Status note.</strong> This is a dated full-ladder status report at source version <abbr class="ver" title="v0.99.553a">553a</abbr>. The compiler and performance tracks now close all three O(n&sup2;) mechanisms; string self-append (Track C2) is linear for compiler-proven named-function accumulators on the self-host emitter, with three soundness-safe follow-ups and a cross-machine re-measure still pending. The Distributed Hey track is carried from 551a as last-verified (landed and run across two machines); the runtime and product tracks carry earlier numbers by reference. Short version labels expand on hover.</p>
+  <p><strong>Publication vocabulary.</strong> &ldquo;Decided&rdquo; is a ruling. &ldquo;Implemented&rdquo; means code exists. &ldquo;Verified&rdquo; means a named check passed. &ldquo;Landed&rdquo; means committed in the cited checkpoint. &ldquo;Announced&rdquo; means a planned track opened for the record. &ldquo;Released&rdquo; and &ldquo;deployed&rdquo; require their own evidence and are never inferred here.</p>
+</footer>
+</body>
+</html>
