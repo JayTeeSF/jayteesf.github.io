@@ -442,10 +442,49 @@ A current-incarnation call reply=pong</code></pre>
     </ol>
   </div>
 
-  <h2>Docker</h2>
+  <h2>Two nodes in Docker, on one Linux host</h2>
 
-  <!-- DOCKER RECIPE: pending the Linux agent's verified two-container recipe + the alpine openssl-dev build fix -->
-  <p>A Docker recipe that runs two nodes as two containers on one Linux host over a bridge network is forthcoming — pending a verified two-container setup and the Alpine <code>openssl-dev</code> build fix. It will land here once it has been run end-to-end; no invented commands until then. The <code>SNI=localhost</code> insight above is what makes it straightforward: the same fixture cert already authenticates a container bridge IP with no regeneration.</p>
+  <p>No second machine? Two containers on a Docker bridge are two separate network stacks talking over a real <code>veth</code>/bridge — not the loopback kernel shortcut — so it is a genuine cross-node run. This was verified container-to-container (<code>reply=pong</code>) on Linux; the commands below are that verified run.</p>
+
+  <h3>Fix the image first (five real build breaks)</h3>
+
+  <p>The stock <code>docker/linux/alpine/Dockerfile</code> cannot build this version as shipped — most notably a genuine regression: the distributed TLS work added <code>#include &lt;openssl/err.h&gt;</code> to the runtime, so <code>build-base ruby</code> alone fails with <code>openssl/err.h: No such file or directory</code>. The full package line the build needs:</p>
+
+  <pre><code>apk add --no-cache build-base ruby openssl-dev openssl python3 clang llvm</code></pre>
+
+  <p><code>openssl-dev</code>/<code>openssl</code> supply the TLS headers, <code>python3</code> builds the stdlib archive, and <code>clang</code>/<code>llvm</code> emit it; also <code>mkdir -p /usr/bin/subcmds</code> before the subcommand symlinks. Build the <strong>build target</strong> — the slim dev/dist image ships the <code>hey</code> runner but not a <code>--run</code>-capable <code>heyc</code> plus compiler source, so you want the full <code>/src</code> tree:</p>
+
+  <pre><code>docker build -f docker/linux/alpine/Dockerfile --target build -t hey-build .
+<span class="tok-c"># inside: /src/build/heyc --version</span></code></pre>
+
+  <h3>Run two containers on a bridge</h3>
+
+  <p>Create a user-defined bridge, start node B bound to <code>0.0.0.0</code> inside its container, then dial from node A <em>by container name</em> — Docker's DNS resolves it to the bridge IP:</p>
+
+  <pre><code>docker network create heynet
+
+<span class="tok-c"># node B (server) — bind 0.0.0.0 inside the container</span>
+docker run -d --name heyNodeB --network heynet \
+  -e HEY_ROOT=/src -e HEY_STDLIB_PATH=/src/stdlib -e HEY_COMPILER_BUILD_DIR=/src/build \
+  -e HEY_DIST_BIND=0.0.0.0 -e HEY_DIST_ACCEPT_MS=300000 -w /src hey-build \
+  /src/build/heyc examples/distributed/01_ping_pong.hey --run -- server 9101 tcp
+
+<span class="tok-c"># node A (client) — connect by CONTAINER NAME (docker DNS -> bridge IP)</span>
+docker run --rm --network heynet \
+  -e HEY_ROOT=/src -e HEY_STDLIB_PATH=/src/stdlib -e HEY_COMPILER_BUILD_DIR=/src/build \
+  -e HEY_DIST_PEER=heyNodeB -w /src hey-build \
+  /src/build/heyc examples/distributed/01_ping_pong.hey --run -- client 9101 tcp</code></pre>
+
+  <p>Node A reaches B by container name across the bridge — two separate network stacks — and prints the real reply:</p>
+
+  <pre><code>A handshake ok with peer=B incarnation=inc-23514a08...
+A got reply=pong echo.ping=hello from A from=node-B</code></pre>
+
+  <p>For TLS, bind-mount the fixture certs (the distribution bundle excludes <code>test/fixtures</code>, so they come from the host): add <code>-v "$PWD/test/fixtures/tls:/certs:ro"</code>, then <code>HEY_DIST_CERT</code>/<code>HEY_DIST_KEY=/certs/server-*.pem</code> on B and <code>HEY_DIST_CA=/certs/ca-cert.pem HEY_DIST_SNI=localhost</code> on A. As on real hardware, <code>SNI=localhost</code> verifies the fixture cert over the bridge IP — no regeneration.</p>
+
+  <p><strong>Partition demo.</strong> With a monitor (<code>03</code>) live, <code>docker network disconnect heynet heyNodeB</code> and node A observes <code>NODE_DOWN</code>; <code>docker network connect</code> and reconnect, and B comes back with a <em>new</em> incarnation — the same failure and restart semantics as the physical peer kill above.</p>
+
+  <p class="cite">The Docker image fixes are committed on the Linux verification branch; the two-container run above was executed end-to-end on Docker&nbsp;29.6.2.</p>
 
   <h2>What's next, and what you can build</h2>
 
