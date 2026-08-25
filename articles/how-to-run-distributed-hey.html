@@ -3,542 +3,371 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Distributed Hey across two machines</title>
-<meta name="description" content="A practical how-to: bring up two Hey nodes over TLS on your own Linux and macOS boxes and run send, call, monitor, and incarnation rejection — with the real transcripts from a verified macOS-to-Arch-Linux run.">
+<meta name="description" content="Distributed Hey, from dream to working demo: run two Hey nodes on one machine, in Docker, or across two machines; then see the path to seamless actors, Jobs, clustering, supervision, and observability.">
 <meta name="article-date" content="2026-08-24">
-<meta name="article-bucket" content="featured">
-<meta name="article-version" content="0.99.551a">
-<meta name="article-desc" content="Step-by-step setup and use for distributed Hey: the TLS fixture certs, the SNI=localhost insight that lets one cert authenticate any peer IP, the HEY_DIST_* porting seam, and a two-machine walk-through of examples 01-04 with the real Darwin-to-Linux transcripts. Four-leg L2 gate green over the wire; examples run interpreted today.">
-<meta name="index-title" content="How to run distributed Hey across two machines">
-<meta name="index-desc" content="Bring up two Hey nodes over TLS on a Linux box and a macOS box and run send/call/monitor/incarnation, following the verified real-hardware transcripts. One fixture cert authenticates any peer IP via SNI=localhost; the HEY_DIST_* env seam is the only porting edit. Examples run interpreted today (the LLVM backend does not yet lower the cross-unit Dist calls).">
+<meta name="article-version" content="0.99.553a">
+<title>Distributed Hey: one program, more machines</title>
 <style>
-  :root{
-    --bg:#fbfaf7;
-    --panel:#ffffff;
-    --ink:#1c1a17;
-    --muted:#5f5a52;
-    --rule:#e6e1d8;
-    --accent:#9a5218;
-    --accent-soft:#f3e7d9;
-    --good:#2f6b3a;
-    --good-soft:#e6f0e3;
-    --bad:#a3401f;
-    --bad-soft:#f6e5dd;
-    --code-bg:#f4f1ea;
-    --diagram-line:#b7ad9d;
-    --shadow:0 1px 2px rgba(28,26,23,.06),0 8px 24px rgba(28,26,23,.05);
-  }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#14130f;
-      --panel:#1d1b16;
-      --ink:#eee9df;
-      --muted:#a49c8e;
-      --rule:#332f27;
-      --accent:#e39a5a;
-      --accent-soft:#2a2117;
-      --good:#7dc088;
-      --good-soft:#1c2a1d;
-      --bad:#e58b62;
-      --bad-soft:#2c1d16;
-      --code-bg:#211e18;
-      --diagram-line:#5a5344;
-      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
-    }
-  }
-  :root[data-theme="dark"]{
-    --bg:#14130f;
-    --panel:#1d1b16;
-    --ink:#eee9df;
-    --muted:#a49c8e;
-    --rule:#332f27;
-    --accent:#e39a5a;
-    --accent-soft:#2a2117;
-    --good:#7dc088;
-    --good-soft:#1c2a1d;
-    --bad:#e58b62;
-    --bad-soft:#2c1d16;
-    --code-bg:#211e18;
-    --diagram-line:#5a5344;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
-  }
-  [data-theme="light"]{
-    --bg:#fbfaf7;
-    --panel:#ffffff;
-    --ink:#1c1a17;
-    --muted:#5f5a52;
-    --rule:#e6e1d8;
-    --accent:#9a5218;
-    --accent-soft:#f3e7d9;
-    --good:#2f6b3a;
-    --good-soft:#e6f0e3;
-    --bad:#a3401f;
-    --bad-soft:#f6e5dd;
-    --code-bg:#f4f1ea;
-    --diagram-line:#b7ad9d;
-    --shadow:0 1px 2px rgba(28,26,23,.06),0 8px 24px rgba(28,26,23,.05);
-  }
-  *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--ink);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    line-height:1.62;
-    font-size:18px;
-    -webkit-font-smoothing:antialiased;
-  }
-  main{display:block}
-  article{
-    max-width:760px;
-    margin:0 auto;
-    padding:64px 24px 96px;
-  }
-  .eyebrow{
-    text-transform:uppercase;
-    letter-spacing:.14em;
-    font-size:.72rem;
-    font-weight:650;
-    color:var(--accent);
-    margin:0 0 18px;
-  }
-  h1{
-    font-size:clamp(2rem,5.2vw,2.85rem);
-    line-height:1.08;
-    letter-spacing:-.02em;
-    margin:0 0 22px;
-    font-weight:720;
-  }
-  .lede{
-    font-size:1.24rem;
-    line-height:1.5;
-    color:var(--muted);
-    margin:0 0 20px;
-  }
-  .statusrow{display:flex;flex-direction:column;gap:12px;margin:0 0 34px}
-  .bar{
-    display:flex;align-items:flex-start;gap:10px;
-    border-radius:12px;
-    padding:12px 16px;
-    font-size:.92rem;
-    color:var(--ink);
-    line-height:1.5;
-  }
-  .builtbar{background:var(--good-soft);border:1px solid var(--good)}
-  .builtbar strong{color:var(--good)}
-  .statusbar{background:var(--bad-soft);border:1px solid var(--bad)}
-  .statusbar strong{color:var(--bad)}
-  h2{
-    font-size:1.45rem;
-    letter-spacing:-.01em;
-    margin:56px 0 14px;
-    padding-top:18px;
-    border-top:1px solid var(--rule);
-    font-weight:680;
-  }
-  h3{font-size:1.1rem;margin:34px 0 8px;font-weight:660}
-  p{margin:0 0 18px}
-  a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
-  strong{font-weight:660}
-  .tldr{
-    background:var(--panel);
-    border:1px solid var(--rule);
-    border-radius:14px;
-    padding:22px 26px 22px 24px;
-    box-shadow:var(--shadow);
-    margin:0 0 14px;
-  }
-  .tldr h2{
-    border:0;margin:0 0 10px;padding:0;
-    font-size:.78rem;text-transform:uppercase;letter-spacing:.13em;color:var(--accent);
-  }
-  .tldr ul{margin:0;padding-left:1.15em}
-  .tldr li{margin:0 0 9px}
-  .tldr li:last-child{margin-bottom:0}
-  .tldr .warn strong{color:var(--bad)}
-  code{
-    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-    font-size:.86em;
-    background:var(--code-bg);
-    padding:.12em .38em;
-    border-radius:5px;
-  }
-  pre{
-    background:var(--code-bg);
-    border:1px solid var(--rule);
-    border-radius:12px;
-    padding:16px 18px;
-    overflow-x:auto;
-    margin:0 0 22px;
-    font-size:.86rem;
-    line-height:1.55;
-  }
-  pre code{background:none;padding:0;font-size:1em}
-  .tok-c{color:var(--muted)}
-  .tok-k{color:var(--accent);font-weight:600}
-  figure{margin:30px 0;padding:0}
-  figcaption{
-    font-size:.82rem;color:var(--muted);margin-top:12px;text-align:center;
-  }
-  .diagram-wrap{
-    background:var(--panel);
-    border:1px solid var(--rule);
-    border-radius:14px;
-    padding:22px 18px 10px;
-    box-shadow:var(--shadow);
-    overflow-x:auto;
-  }
-  svg{display:block;margin:0 auto;max-width:100%;height:auto}
-  .svg-box{fill:var(--panel);stroke:var(--diagram-line);stroke-width:1.5}
-  .svg-box-accent{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
-  .svg-label{fill:var(--ink);font-family:system-ui,sans-serif;font-size:13px;font-weight:600}
-  .svg-sub{fill:var(--muted);font-family:ui-monospace,monospace;font-size:11px}
-  .svg-flow-accent{stroke:var(--accent);stroke-width:1.8;fill:none}
-  .svg-arrowfill-accent{fill:var(--accent)}
-  .svg-note{fill:var(--muted);font-family:system-ui,sans-serif;font-size:11px;font-style:italic}
-  .svg-chip{fill:var(--code-bg);stroke:var(--rule);stroke-width:1}
-  .svg-chip-t{fill:var(--ink);font-family:ui-monospace,monospace;font-size:11px;font-weight:600}
-  .table-wrap{overflow-x:auto;margin:24px 0 8px;border:1px solid var(--rule);border-radius:12px}
-  table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:560px}
-  caption{caption-side:bottom;font-size:.82rem;color:var(--muted);padding:12px 8px 0;text-align:left}
-  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
-  thead th{
-    background:var(--accent-soft);color:var(--ink);font-weight:660;font-size:.8rem;
-    text-transform:uppercase;letter-spacing:.04em;border-bottom:1.5px solid var(--rule);
-  }
-  tbody tr:last-child td{border-bottom:0}
-  tbody th[scope=rowgroup]{
-    background:var(--code-bg);font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;
-    color:var(--muted);font-weight:660;
-  }
-  td .ok{color:var(--good);font-weight:660}
-  .editnote{
-    background:var(--accent-soft);
-    border-left:3px solid var(--accent);
-    border-radius:0 10px 10px 0;
-    padding:14px 18px;
-    font-size:.92rem;
-    color:var(--ink);
-    margin:30px 0;
-  }
-  .editnote strong{color:var(--accent)}
-  .gotcha{
-    background:var(--bad-soft);
-    border:1px solid var(--bad);
-    border-radius:12px;
-    padding:18px 20px 6px;
-    margin:26px 0;
-  }
-  .gotcha h3{margin:0 0 10px;color:var(--bad)}
-  .gotcha ol{margin:0 0 12px;padding-left:1.2em}
-  .gotcha li{margin:0 0 12px}
-  .cite{color:var(--muted);font-size:.86em}
-  .storyline{
-    font-size:1.12rem;border-left:3px solid var(--accent);
-    padding-left:18px;color:var(--ink);
-  }
-  abbr.ver{cursor:help;text-decoration:none;border-bottom:1px dotted var(--muted)}
-  .sources{
-    border-top:1px solid var(--rule);margin-top:44px;padding-top:18px;
-    font-size:.84rem;color:var(--muted);
-  }
-  .sources h2{border:0;padding:0;margin:0 0 8px;font-size:.82rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
-  footer{
-    max-width:760px;margin:0 auto;padding:0 24px 72px;
-  }
-  .footline{
-    border-top:1px solid var(--rule);
-    padding-top:22px;
-    color:var(--muted);
-    font-size:.9rem;
-  }
-  a.gloss{color:inherit;border-bottom:1px dotted var(--muted);cursor:pointer;text-decoration:none}
-  .gloss-pop{
-    position:absolute;z-index:60;max-width:280px;
-    padding:.7rem .85rem;border:1px solid var(--rule);border-radius:.5rem;
-    background:#fcfcfb;color:#0b0b0b;box-shadow:0 6px 20px rgba(0,0,0,0.18);
-    font-size:.85rem;line-height:1.45;
-  }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]) .gloss-pop{background:#1f1f1e;color:#f2f2f0;box-shadow:0 6px 20px rgba(0,0,0,0.5)}
-  }
-  :root[data-theme="dark"] .gloss-pop{background:#1f1f1e;color:#f2f2f0;box-shadow:0 6px 20px rgba(0,0,0,0.5)}
-  .gloss-pop-def{margin:0 0 .5rem}
-  .gloss-pop-link{font-weight:600;white-space:nowrap;color:#2a78d6}
-  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .gloss-pop-link{color:#5ea3f2}}
-  :root[data-theme="dark"] .gloss-pop-link{color:#5ea3f2}
+:root {
+  --bg:#f5f7f8; --panel:#fff; --panel2:#eef3f5; --ink:#142027; --muted:#5d6a72;
+  --line:#d9e2e6; --accent:#0b8797; --accent2:#6946c7; --good:#24734f; --warn:#a85f1b;
+  --bad:#a44732; --code:#111820; --codeInk:#e9f4f7; --shadow:0 14px 40px rgba(20,32,39,.08);
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1317; --panel:#151d22; --panel2:#1d282e; --ink:#edf4f7; --muted:#9dabb2;
+  --line:#29363d; --accent:#39c1d1; --accent2:#a88df1; --good:#68c692; --warn:#e1a254;
+  --bad:#e48268; --code:#080d11; --codeInk:#eef8fa; --shadow:0 18px 44px rgba(0,0,0,.28);
+}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1120px;margin:auto;padding:52px 22px 100px}
+h1,h2,h3{line-height:1.1;letter-spacing:-.025em;text-wrap:balance}
+h1{font-size:clamp(2.6rem,7vw,5.3rem);margin:.15em 0 .25em;max-width:12ch}
+h2{font-size:clamp(1.7rem,4vw,2.55rem);margin:2.4em 0 .55em}
+h3{font-size:1.15rem;margin:.2em 0 .45em}
+p{max-width:68ch;color:var(--muted)}
+.lede{font-size:clamp(1.12rem,2.4vw,1.42rem);color:var(--ink);max-width:61ch}
+.eyebrow{font:700 .74rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:var(--accent)}
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:34px;align-items:center;margin-bottom:58px}
+@media(max-width:860px){.hero{grid-template-columns:1fr}}
+.heroCard,.card,.callout,.terminal,.clusterPanel{background:var(--panel);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}
+.heroCard{padding:22px}
+.dream{display:grid;grid-template-columns:1fr 64px 1fr;gap:14px;align-items:center;min-height:360px}
+@media(max-width:620px){.dream{grid-template-columns:1fr}.flowArrow{transform:rotate(90deg)}}
+.nodeStack{display:grid;gap:12px}
+.node{padding:15px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)}
+.node strong{display:block;color:var(--ink)}
+.node small{display:block;color:var(--muted);margin-top:3px}
+.node.web{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));background:color-mix(in srgb,var(--accent) 9%,var(--panel))}
+.node.worker{border-color:color-mix(in srgb,var(--accent2) 45%,var(--line));background:color-mix(in srgb,var(--accent2) 9%,var(--panel))}
+.flowArrow{height:4px;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px;position:relative}
+.flowArrow:after{content:"";position:absolute;right:-1px;top:-5px;border-left:10px solid var(--accent2);border-top:7px solid transparent;border-bottom:7px solid transparent}
+.dreamCaption{grid-column:1/-1;text-align:center;color:var(--muted);font-size:.88rem}
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}.pill{font:700 .76rem ui-monospace,monospace;border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--panel)}
+.pill.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 50%,var(--line))}.pill.now{color:var(--accent)}
+.showcase{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0 36px}
+@media(max-width:820px){.showcase{grid-template-columns:1fr}}
+.card{padding:20px}.card .num{font-size:2rem;font-weight:850;color:var(--ink);line-height:1}.card p{margin:.5em 0 0;font-size:.92rem}
+.codePair{display:grid;grid-template-columns:1fr 1fr;gap:16px}.codePair>div{min-width:0}@media(max-width:800px){.codePair{grid-template-columns:1fr}}
+pre{margin:0;background:var(--code);color:var(--codeInk);border-radius:16px;padding:18px;overflow:auto;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.inline{background:var(--panel2);border:1px solid var(--line);padding:.1em .35em;border-radius:5px;color:var(--ink)}
+.sectionGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(270px,.55fr);gap:22px;align-items:start}@media(max-width:900px){.sectionGrid{grid-template-columns:1fr}}
+.terminal{overflow:hidden}.termHead{padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--line);font:700 .76rem ui-monospace,monospace;color:var(--muted)}.terminal pre{border-radius:0}
+.output{border-left:4px solid var(--good)}
+.callout{padding:18px 20px}.callout h3{display:flex;align-items:center;gap:8px}.callout.detail{border-left:5px solid var(--accent)}.callout.warning{border-left:5px solid var(--warn)}.callout.target{border-left:5px solid var(--accent2)}
+.callout p:last-child{margin-bottom:0}
+.steps{counter-reset:step;display:grid;gap:16px}.step{counter-increment:step;display:grid;grid-template-columns:46px 1fr;gap:14px;align-items:start}.step:before{content:counter(step);display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:var(--accent);color:white;font-weight:850}.stepBody{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+.compare{display:grid;grid-template-columns:1fr 80px 1fr;gap:12px;align-items:center;margin:24px 0}.compare .side{padding:20px;border-radius:18px;border:1px solid var(--line);background:var(--panel)}.compare .side.future{border-color:color-mix(in srgb,var(--accent2) 55%,var(--line));background:color-mix(in srgb,var(--accent2) 8%,var(--panel))}.compare .mid{text-align:center;font-size:2rem;color:var(--accent2)}@media(max-width:720px){.compare{grid-template-columns:1fr}.compare .mid{transform:rotate(90deg)}}
+.frictionGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}@media(max-width:760px){.frictionGrid{grid-template-columns:1fr}}.friction{padding:18px;border:1px solid var(--line);background:var(--panel);border-radius:16px}.friction .bad{font:700 .75rem ui-monospace,monospace;color:var(--bad);text-transform:uppercase;letter-spacing:.08em}.friction .fix{font:700 .75rem ui-monospace,monospace;color:var(--good);text-transform:uppercase;letter-spacing:.08em;margin-top:14px}.friction p{margin:.4em 0 0}
+.clusterPanel{padding:20px}.clusterTop{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px}.health{display:flex;gap:7px;align-items:center}.dot{width:10px;height:10px;border-radius:50%;background:var(--good)}.dot.warn{background:var(--warn)}
+.nodes{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:780px){.nodes{grid-template-columns:repeat(2,1fr)}}.nodeTile{padding:14px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)}.nodeTile .name{font-weight:800}.metric{display:flex;justify-content:space-between;font:12px ui-monospace,monospace;color:var(--muted);margin-top:8px}.bar{height:7px;border-radius:99px;background:color-mix(in srgb,var(--line) 70%,transparent);overflow:hidden;margin-top:6px}.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px}
+.timeline{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin:28px 0}.mile{position:relative;padding:18px 12px 12px;border-top:4px solid var(--line)}.mile:before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;background:var(--line);top:-9px;left:12px}.mile.done{border-color:var(--good)}.mile.done:before{background:var(--good)}.mile.now{border-color:var(--accent)}.mile.now:before{background:var(--accent)}.mile.next{border-color:var(--accent2)}.mile.next:before{background:var(--accent2)}.mile b{display:block;margin-top:4px}.mile small{color:var(--muted)}@media(max-width:820px){.timeline{grid-template-columns:1fr}.mile{border-top:0;border-left:4px solid var(--line);padding-left:22px}.mile:before{left:-9px;top:22px}}
+footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
 </style>
 </head>
 <body>
 <main>
-<article>
-  <p class="eyebrow">Hey language · how-to · 24 August 2026</p>
-  <h1>How to run distributed Hey across two machines</h1>
-  <p class="lede">A copy-pasteable guide to bringing up two Hey nodes over TLS — one on Linux, one on macOS — and running <strong>send</strong>, <strong>call</strong>, <strong>monitor</strong>, and <strong>incarnation rejection</strong> across the wire between them. Everything below was run on real hardware, and the transcripts are the real output, not a mock-up.</p>
-
-  <div class="statusrow">
-    <div class="bar builtbar"><div><strong>Verified on real hardware.</strong> The four-example gate is green over a real macOS&nbsp;&harr;&nbsp;Arch&nbsp;Linux Ethernet link on Hey&nbsp;<abbr class="ver" title="v0.99.551a">551a</abbr> (01 and 04 over TLS, 02 and 03 over TCP). The commands and output here are exactly what those runs produced.</div></div>
-    <div class="bar statusbar"><div><strong>Interpreted today.</strong> The examples run through the interpreter (<code>build/heyc &lt;ex&gt; --run</code>), not the native binary: the LLVM back-end does not yet lower the cross-unit distribution and codec calls — the <a class="gloss" href="glossary.html#extern-facade" data-def="The boundary where the native compiler still hands a call off to a runtime-provided function instead of lowering it to machine code. The cross-unit Dist*/Codec calls sit on this frontier today.">extern-facade frontier</a>. Interpreted over real TLS across real NICs is still a genuine distributed run.</div></div>
-  </div>
-
-  <div class="tldr">
-    <h2>TL;DR</h2>
-    <ul>
-      <li><strong>You can run two Hey nodes on your own two boxes today.</strong> Build <code>heyc</code>, set the <code>HEY_DIST_*</code> seam &mdash; two of its variables carry your server's LAN IP, the rest the accept window and TLS material &mdash; and run examples <code>01</code>&ndash;<code>04</code> from <code>examples/distributed/</code>.</li>
-      <li><strong>One fixture certificate authenticates any peer.</strong> The client sets <a class="gloss" href="glossary.html#sni" data-def="Server Name Indication: the hostname the TLS client announces in its handshake. OpenSSL matches the certificate's SAN against this name, not against the peer's IP address.">SNI</a>=<code>localhost</code>; OpenSSL checks the cert's <code>DNS:localhost</code> name against that, independent of the peer's actual IP — so the same test cert works at <code>127.0.0.1</code>, a container bridge, or <code>192.168.1.188</code>. No per-host cert.</li>
-      <li><strong>The only porting edit is the <code>HEY_DIST_*</code> env seam.</strong> The examples are hard-coded to <code>127.0.0.1</code>; the environment variables override bind host, peer host, the accept window, and the TLS material — nothing in the source changes.</li>
-      <li><strong>Distribution is a library, not a VM.</strong> <code>Remote.send</code> is at-most-once, <code>Remote.call</code> is ordinary messaging with a correlation id, and a restarted node presents a new <a class="gloss" href="glossary.html#incarnation" data-def="A fresh cryptographic id minted each time a node process starts. A reference carrying a prior incarnation is rejected, so a restart is a new logical runtime — no silent resurrection.">incarnation</a> so stale references are rejected, not routed.</li>
-      <li class="warn"><strong>Disclosed limits.</strong> The accept is single-shot — do not probe the port with <code>nc</code> — and everything runs interpreted for now. Both are explained in the gotchas box below.</li>
-      <li><strong>Falsify it yourself.</strong> The exact commands, the fixture cert path, and the real transcripts are all here. Two boxes on one LAN reproduce the whole gate.</li>
-    </ul>
-  </div>
-
-  <figure>
-    <div class="diagram-wrap">
-      <svg viewBox="0 0 680 250" role="img" aria-labelledby="topo-title">
-        <title id="topo-title">Two-node topology: node A on macOS at 192.168.1.68 is the client; node B on Arch Linux at 192.168.1.188 is the server listening on port 9101. A server-authenticated TLS connection runs between them over the LAN. The client sets SNI=localhost so the fixture certificate, whose name is localhost, authenticates node B at its real LAN IP.</title>
-        <rect class="svg-box" x="24" y="52" width="250" height="120" rx="12"/>
-        <text class="svg-label" x="44" y="82">node A &#183; client</text>
-        <text class="svg-sub" x="44" y="104">macOS (Darwin)</text>
-        <text class="svg-sub" x="44" y="122">192.168.1.68</text>
-        <rect class="svg-chip" x="44" y="134" width="210" height="26" rx="7"/>
-        <text class="svg-chip-t" x="54" y="151">HEY_DIST_SNI=localhost</text>
-        <rect class="svg-box-accent" x="406" y="52" width="250" height="120" rx="12"/>
-        <text class="svg-label" x="426" y="82">node B &#183; server :9101</text>
-        <text class="svg-sub" x="426" y="104">Arch Linux &#183; OpenSSL 3.6.3</text>
-        <text class="svg-sub" x="426" y="122">192.168.1.188</text>
-        <rect class="svg-chip" x="426" y="134" width="210" height="26" rx="7"/>
-        <text class="svg-chip-t" x="436" y="151">CN=localhost &#183; SAN DNS:localhost</text>
-        <line class="svg-flow-accent" x1="274" y1="100" x2="398" y2="100"/>
-        <polygon class="svg-arrowfill-accent" points="398,100 388,95 388,105"/>
-        <line class="svg-flow-accent" x1="406" y1="128" x2="282" y2="128"/>
-        <polygon class="svg-arrowfill-accent" points="282,128 292,123 292,133"/>
-        <text class="svg-label" x="340" y="30" text-anchor="middle">server-authenticated TLS</text>
-        <text class="svg-sub" x="340" y="46" text-anchor="middle">client verifies B's cert against the fixture CA</text>
-        <text class="svg-note" x="340" y="210" text-anchor="middle">SNI=localhost matches the cert's name, not the peer's IP &#8212; so one fixture cert authenticates B at any address.</text>
-      </svg>
+<section class="hero">
+  <div>
+    <p class="eyebrow">Distributed Hey · practical guide</p>
+    <h1>Imagine if adding a machine felt like adding another worker.</h1>
+    <p class="lede">Your web process accepts a burst of work. Hey actors spread that work across cores, containers, and other machines. One machine disappears; the rest keep going. A replacement joins. Your application still mostly talks in actors, immutable values, and jobs.</p>
+    <div class="pills">
+      <span class="pill good">real two-machine transport works</span>
+      <span class="pill good">TLS + send + call + monitor</span>
+      <span class="pill now">cluster ergonomics are next</span>
     </div>
-    <figcaption>The topology used for every transcript below. Both boxes sit on <code>192.168.1.0/24</code> over fast Ethernet; the Linux box has no firewall. Server binds on B, client dials from A.</figcaption>
-  </figure>
-
-  <h2>What distributed Hey actually is</h2>
-
-  <p>Distributed Hey is <strong>stdlib-first</strong>: no distributed VM, no bytecode shipping. Distribution is runtime and library services on the actor runtime, so joining two nodes means starting an explicit node value and sending messages, not deploying a cluster. Four small primitives carry the model, and you watch each one run below: <code>Node.start</code>, an <a class="gloss" href="glossary.html#at-most-once" data-def="A delivery guarantee where success means the message was accepted for transport, not that the remote actor processed it. Messages arrive zero or one times, never more.">at-most-once</a> <code>Remote.send</code>, a correlated <code>Remote.call</code> (a <code>request_id</code>, a <code>reply_to</code>, an ordinary send and a bounded wait — not a second RPC protocol), and a <code>Distributed.monitor</code> that reports <em>observed</em> peer loss (suspicion, never perfect detection — a partition and a death look the same). The safety net is the <a class="gloss" href="glossary.html#incarnation" data-def="A fresh cryptographic id minted each time a node process starts. A reference carrying a prior incarnation is rejected, so a restart is a new logical runtime — no silent resurrection.">incarnation</a>: a <code>NodeId</code> carries a fresh cryptographic id minted each process start, so a restart is a genuinely new logical runtime and a <code>RemotePid</code> bearing a prior incarnation is rejected, not routed. No registry, no Rinda-style tuple space, no gossip in v0 — and one documented deviation you will not trip over here: socket IO stays in its owning context.</p>
-
-  <h2>Set up the TLS certificates</h2>
-
-  <p>You do not generate anything. The repository ships a complete fixture chain under <code>test/fixtures/tls/</code>: a CA (<code>CN=Hey Test Root CA</code>), a server certificate (<code>CN=localhost</code>, with <code>subjectAltName = DNS:localhost, IP:127.0.0.1</code>), and the <code>openssl.cnf</code> that produced them. That is everything both sides need.</p>
-
-  <p class="storyline"><strong>The key insight, verified on the wire: the client presents <code>SNI=localhost</code>, and OpenSSL checks the certificate's <code>DNS:localhost</code> name against that SNI — independent of the peer's real IP.</strong></p>
-
-  <p>That is why this is easy. You are not verifying "the machine at this address" but "a peer holding the key for the name <code>localhost</code>," and the name travels in the handshake — so the same fixture cert authenticates node B at <code>127.0.0.1</code>, a container bridge, or <code>192.168.1.188</code>, with no per-host cert and no regeneration when the IP changes. A client that presents the <em>wrong</em> CA fails the handshake closed, no application data exchanged — the failure mode you want.</p>
-
-  <h2>The <code>HEY_DIST_*</code> environment seam</h2>
-
-  <p>The examples ship hard-coded to <code>127.0.0.1</code>, and the defaults keep a single-host run working with no configuration. Reaching across two machines is the one porting edit: a handful of environment variables, entirely outside the source.</p>
-
-  <div class="table-wrap">
-  <table>
-    <caption>The distribution environment seam. Server-side and client-side variables, with their defaults. Grounded in <code>examples/distributed/</code> and the verified run.</caption>
-    <thead>
-      <tr><th scope="col">Variable</th><th scope="col">Side</th><th scope="col">Meaning (default)</th></tr>
-    </thead>
-    <tbody>
-      <tr><th scope="rowgroup" colspan="3">Addressing</th></tr>
-      <tr><td><code>HEY_DIST_BIND</code></td><td>server</td><td>Bind host &mdash; set to the server's LAN IP (default <code>127.0.0.1</code>)</td></tr>
-      <tr><td><code>HEY_DIST_PEER</code></td><td>client</td><td>Connect host &mdash; set to the server's LAN IP (default <code>127.0.0.1</code>)</td></tr>
-      <tr><td><code>HEY_DIST_ACCEPT_MS</code></td><td>server</td><td>Accept window in ms &mdash; widen for a coordinated two-box run (default <code>5000</code>)</td></tr>
-      <tr><th scope="rowgroup" colspan="3">TLS material</th></tr>
-      <tr><td><code>HEY_DIST_CERT</code> / <code>HEY_DIST_KEY</code></td><td>server</td><td>Server certificate and private key</td></tr>
-      <tr><td><code>HEY_DIST_CA</code></td><td>client</td><td>CA to verify the server against</td></tr>
-      <tr><td><code>HEY_DIST_SNI</code></td><td>client</td><td>Server name to present &mdash; set to <code>localhost</code> to match the fixture cert</td></tr>
-    </tbody>
-  </table>
   </div>
 
-  <h2>Walk-through: run 01&ndash;04 across the two boxes</h2>
+  <div class="heroCard" aria-label="Visual of a Hey service spreading work across machines">
+    <div class="dream">
+      <div class="nodeStack">
+        <div class="node web"><strong>Web node</strong><small>accept upload</small></div>
+        <div class="node"><strong>Job coordinator</strong><small>1,000 immutable jobs</small></div>
+      </div>
+      <div class="flowArrow" aria-hidden="true"></div>
+      <div class="nodeStack">
+        <div class="node worker"><strong>worker-a</strong><small>same machine · healthy</small></div>
+        <div class="node worker"><strong>worker-b</strong><small>container · healthy</small></div>
+        <div class="node worker"><strong>worker-c</strong><small>Linux box · healthy</small></div>
+        <div class="node worker"><strong>worker-d</strong><small>restarted · rejoining</small></div>
+      </div>
+      <div class="dreamCaption">The destination: one programming model, more places where work can run.</div>
+    </div>
+  </div>
+</section>
 
-  <p><strong>Prerequisites</strong>, on <em>both</em> boxes: the repository cloned, <code>heyc</code> built (its <code>build/heyc</code> present), and the <code>test/fixtures/tls/</code> and <code>examples/distributed/</code> trees in place. Server runs on the Linux box (node B), client on the macOS box (node A). On each machine, first source the toolchain environment in the same shell you run from — <code>. ./bin/htgz-env.sh</code> — which is what puts <code>build/heyc</code> on your path for the commands below. Every command is verbatim.</p>
+<section>
+  <p class="eyebrow">Show me first</p>
+  <h2>What the dream should feel like</h2>
+  <div class="codePair">
+    <div>
+      <p><strong>Application code should stay boring.</strong></p>
+      <pre><code>import 'stdlib:Jobs'
 
-  <h3>01 &mdash; ping/pong over TLS</h3>
+fn resize(job)
+  return Images.resize(job.image, job.width)
+end
 
-  <p>Start the server on node B. The wide accept window gives you time to start the client by hand on the other box:</p>
+program
+  let workers = Jobs.cluster('image-workers')
+  let results = Jobs.map(workers, uploads, resize)
+  save(results)
+end</code></pre>
+    </div>
+    <div>
+      <p><strong>The runtime should do the distributed work.</strong></p>
+      <div class="card">
+        <div class="nodeStack">
+          <div class="node"><strong>node-a</strong><small>coordinator · 12 actors</small></div>
+          <div class="node worker"><strong>node-b</strong><small>32 jobs running</small></div>
+          <div class="node worker"><strong>node-c</strong><small>28 jobs running</small></div>
+          <div class="node"><strong>node-d</strong><small>NODE_DOWN → work requeued</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout target" style="margin-top:16px">
+    <h3>That exact Jobs API is the destination, not today's API.</h3>
+    <p>The transport underneath it is real today. The remaining work is making distribution feel native to Hey actors and Jobs rather than making application code manually manage peers and connections.</p>
+  </div>
+</section>
 
-  <pre><code><span class="tok-c"># node B (Arch Linux) &#8212; server</span>
-. ./bin/htgz-env.sh
-HEY_DIST_CERT=test/fixtures/tls/server-cert.pem \
-HEY_DIST_KEY=test/fixtures/tls/server-key.pem \
-HEY_DIST_BIND=192.168.1.188 \
-HEY_DIST_ACCEPT_MS=900000 \
-build/heyc examples/distributed/01_ping_pong.hey --run -- server 9101 tls</code></pre>
-
-  <p>Then dial from node A. The client points <code>HEY_DIST_PEER</code> at B's IP, verifies against the fixture CA, and presents <code>SNI=localhost</code>:</p>
-
-  <pre><code><span class="tok-c"># node A (macOS) &#8212; client</span>
-HEY_DIST_CA=test/fixtures/tls/ca-cert.pem \
-HEY_DIST_SNI=localhost \
-HEY_DIST_PEER=192.168.1.188 \
-build/heyc examples/distributed/01_ping_pong.hey --run -- client 9101 tls</code></pre>
-
-  <p>Node A prints its handshake and the reply — the real output:</p>
-
-  <pre><code>A handshake ok with peer=B incarnation=inc-8c48db05...
-A got reply=pong echo.ping=hello from A from=node-B</code></pre>
-
-  <p>A observed B's <em>advertised</em> incarnation, so the peer on the other end of the TLS session is genuinely the remote node over the wire, not a loopback stand-in — the whole point of the first leg.</p>
-
-  <h3>02&ndash;04 &mdash; send, monitor, and incarnation rejection</h3>
-
-  <p>The remaining three examples run the same way — same <code>server 9101</code> / <code>client 9101</code> positional pattern — swapping the example file and the transport argument. Legs 02 and 03 run over <code>tcp</code>, so drop the four TLS variables (<code>HEY_DIST_CERT</code>/<code>HEY_DIST_KEY</code> on B, <code>HEY_DIST_CA</code>/<code>HEY_DIST_SNI</code> on A) and keep only the addressing seam:</p>
-
-  <pre><code><span class="tok-c"># 02 send / 03 monitor &#8212; transport arg is literally "tcp"</span>
-<span class="tok-c"># node B (server):</span> HEY_DIST_BIND=192.168.1.188 HEY_DIST_ACCEPT_MS=900000 \
-    build/heyc examples/distributed/02_remote_actor.hey --run -- server 9101 tcp
-<span class="tok-c"># node A (client):</span> HEY_DIST_PEER=192.168.1.188 \
-    build/heyc examples/distributed/02_remote_actor.hey --run -- client 9101 tcp
-<span class="tok-c"># 03 monitor: same as 02, swap 02_remote_actor.hey -> 03_remote_monitor.hey</span>
-
-<span class="tok-c"># 04 &#8212; over TLS, same variables as 01, transport arg "tls"</span>
-<span class="tok-c">#   swap the file to 04_stale_incarnation.hey</span></code></pre>
-
-  <p><strong>02 remote_actor (send)</strong> demonstrates at-most-once delivery. Node A prints <code>A sent (accepted for transport, at-most-once)</code>; node B prints <code>B inbox received event=user_joined</code>. "Accepted for transport" is the honest phrasing — the send call succeeded, and on this run the event did land in B's inbox.</p>
-
-  <p><strong>03 remote_monitor</strong> demonstrates real-NIC failure detection. Node A prints <code>A monitoring remote pid actor=pong on node=B</code>; then you take B away — <code>Ctrl-C</code> or <code>kill</code> the server process on the Linux box — and A observes the loss and fires both notifications (this is observed loss: a network partition would look exactly the same):</p>
-
-  <pre><code>A observed connection loss code=peer_closed
-A watcher NODE_DOWN node=B reason=peer_closed
-A watcher DOWN remote_pid.node=B actor=pong reason=peer_closed</code></pre>
-
-  <p><strong>04 stale_incarnation</strong> demonstrates the safety net over TLS. Node A handshakes, then deliberately sends to a <em>prior</em>-incarnation reference, then makes a current call:</p>
-
-  <pre><code>A handshake ok peer_incarnation=inc-239d4256...
-A stale-incarnation send dispatched (server must reject, not route)
-A current-incarnation call reply=pong</code></pre>
-
-  <p>The prior-incarnation reference is rejected server-side while the current call is answered. A restart presents a different incarnation, so there is no silent resurrection of an old reference.</p>
-
-  <div class="table-wrap">
-  <table>
-    <caption>The four-leg gate, all green over the real Darwin&harr;Linux wire. 01 and 04 exercise the TLS path; 02 and 03 run over TCP and prove send plus real-NIC failure detection. The TLS path is proven by 01/04.</caption>
-    <thead>
-      <tr><th scope="col">Leg</th><th scope="col">Transport</th><th scope="col">Proves</th><th scope="col">Status</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code>01</code> ping_pong</td><td>TLS</td><td>Handshake + reply; A observed B's advertised incarnation</td><td><span class="ok">GREEN</span></td></tr>
-      <tr><td><code>02</code> remote_actor</td><td>TCP</td><td>At-most-once send accepted; event received in B's inbox</td><td><span class="ok">GREEN</span></td></tr>
-      <tr><td><code>03</code> remote_monitor</td><td>TCP</td><td>NODE_DOWN + DOWN on <em>observed</em> peer loss (<code>peer_closed</code>; a partition looks the same)</td><td><span class="ok">GREEN</span></td></tr>
-      <tr><td><code>04</code> stale_incarnation</td><td>TLS</td><td>Prior-incarnation ref rejected; current call answered</td><td><span class="ok">GREEN</span></td></tr>
-    </tbody>
-  </table>
+<section>
+  <p class="eyebrow">What exists now</p>
+  <h2>The bottom half already works</h2>
+  <div class="showcase">
+    <div class="card"><div class="num">2</div><p>independent Hey processes can connect over the network.</p></div>
+    <div class="card"><div class="num">TLS</div><p>authenticated transport is implemented and verified across real macOS ↔ Linux hardware.</p></div>
+    <div class="card"><div class="num">4</div><p>core behaviors: <strong>send</strong>, <strong>call</strong>, <strong>monitor</strong>, and stale-incarnation rejection.</p></div>
   </div>
 
-  <div class="gotcha">
-    <h3>Gotchas</h3>
-    <ol>
-      <li><strong>The accept is single-shot.</strong> <code>establish_accept</code> serves exactly one connection and then the server exits. Do <em>not</em> probe the port with <code>nc</code> or any raw-TCP tool first — a non-TLS connect burns the one accept and your real client will find nothing listening. Connect once, cleanly, with the client command.</li>
-      <li><strong>Everything runs interpreted today.</strong> Use <code>build/heyc &lt;ex&gt; --run</code>. The native LLVM path does not yet lower the cross-unit distribution and codec calls (the extern-facade frontier). Interpreted over real TLS across real NICs is still a valid distributed run — it is how the gate above was measured.</li>
-      <li><strong>Watch string building on large frames.</strong> <code>Codec.encode</code> is O(n) (measured slope near 1.0 &mdash; a chunk-list plus a join), so keep large frames on that path. A bare <code>s = s + x</code> accumulation is still O(n&sup2;) at the language level; do not hand-roll frame assembly with string concatenation.</li>
-    </ol>
+  <div class="compare">
+    <div class="side">
+      <span class="eyebrow">not this</span>
+      <h3>A distributed VM</h3>
+      <p>No bytecode shipping. No shared distributed heap. No raw pointers sent across the network.</p>
+    </div>
+    <div class="mid">→</div>
+    <div class="side future">
+      <span class="eyebrow">this</span>
+      <h3>Normal native programs exchanging immutable values</h3>
+      <p>Each node is an ordinary Hey process. Distribution is a library/runtime layer beside the actor model.</p>
+    </div>
   </div>
+</section>
 
-  <h2>Two nodes in Docker, on one Linux host</h2>
-
-  <p>No second machine? Two containers on a Docker bridge are two separate network stacks talking over a real <code>veth</code>/bridge — not the loopback kernel shortcut — so it is a genuine cross-node run. This was verified container-to-container (<code>reply=pong</code>) on Linux; the commands below are that verified run.</p>
-
-  <h3>Fix the image first (five real build breaks)</h3>
-
-  <p>The stock <code>docker/linux/alpine/Dockerfile</code> cannot build this version as shipped — most notably a genuine regression: the distributed TLS work added <code>#include &lt;openssl/err.h&gt;</code> to the runtime, so <code>build-base ruby</code> alone fails with <code>openssl/err.h: No such file or directory</code>. The full package line the build needs:</p>
-
-  <pre><code>apk add --no-cache build-base ruby openssl-dev openssl python3 clang llvm</code></pre>
-
-  <p><code>openssl-dev</code>/<code>openssl</code> supply the TLS headers, <code>python3</code> builds the stdlib archive, and <code>clang</code>/<code>llvm</code> emit it; also <code>mkdir -p /usr/bin/subcmds</code> before the subcommand symlinks. Build the <strong>build target</strong> — the slim dev/dist image ships the <code>hey</code> runner but not a <code>--run</code>-capable <code>heyc</code> plus compiler source, so you want the full <code>/src</code> tree:</p>
-
-  <pre><code>docker build -f docker/linux/alpine/Dockerfile --target build -t hey-build .
-<span class="tok-c"># inside: /src/build/heyc --version</span></code></pre>
-
-  <h3>Run two containers on a bridge</h3>
-
-  <p>Create a user-defined bridge, start node B bound to <code>0.0.0.0</code> inside its container, then dial from node A <em>by container name</em> — Docker's DNS resolves it to the bridge IP:</p>
-
-  <pre><code>docker network create heynet
-
-<span class="tok-c"># node B (server) — bind 0.0.0.0 inside the container</span>
-docker run -d --name heyNodeB --network heynet \
-  -e HEY_ROOT=/src -e HEY_STDLIB_PATH=/src/stdlib -e HEY_COMPILER_BUILD_DIR=/src/build \
-  -e HEY_DIST_BIND=0.0.0.0 -e HEY_DIST_ACCEPT_MS=300000 -w /src hey-build \
-  /src/build/heyc examples/distributed/01_ping_pong.hey --run -- server 9101 tcp
-
-<span class="tok-c"># node A (client) — connect by CONTAINER NAME (docker DNS -> bridge IP)</span>
-docker run --rm --network heynet \
-  -e HEY_ROOT=/src -e HEY_STDLIB_PATH=/src/stdlib -e HEY_COMPILER_BUILD_DIR=/src/build \
-  -e HEY_DIST_PEER=heyNodeB -w /src hey-build \
-  /src/build/heyc examples/distributed/01_ping_pong.hey --run -- client 9101 tcp</code></pre>
-
-  <p>Node A reaches B by container name across the bridge — two separate network stacks — and prints the real reply:</p>
-
-  <pre><code>A handshake ok with peer=B incarnation=inc-23514a08...
-A got reply=pong echo.ping=hello from A from=node-B</code></pre>
-
-  <p>For TLS, bind-mount the fixture certs (the distribution bundle excludes <code>test/fixtures</code>, so they come from the host): add <code>-v "$PWD/test/fixtures/tls:/certs:ro"</code>, then <code>HEY_DIST_CERT</code>/<code>HEY_DIST_KEY=/certs/server-*.pem</code> on B and <code>HEY_DIST_CA=/certs/ca-cert.pem HEY_DIST_SNI=localhost</code> on A. As on real hardware, <code>SNI=localhost</code> verifies the fixture cert over the bridge IP — no regeneration.</p>
-
-  <p><strong>Partition demo.</strong> With a monitor (<code>03</code>) live, <code>docker network disconnect heynet heyNodeB</code> and node A observes <code>NODE_DOWN</code>; <code>docker network connect</code> and reconnect, and B comes back with a <em>new</em> incarnation — the same failure and restart semantics as the physical peer kill above.</p>
-
-  <p class="cite">The Docker image fixes are committed on the Linux verification branch; the two-container run above was executed end-to-end on Docker&nbsp;29.6.2.</p>
-
-  <h2>What's next, and what you can build</h2>
-
-  <p>You now have the mechanism: two nodes, a TLS link with a verified server identity, at-most-once send, correlated call, monitored failure detection, and incarnation-guarded references — enough to build a real distributed program, with the runtime carrying the coordination so your code stays ordinary message-passing Hey. Two showcase demos already ride this path: <code>05_mandelbrot</code>, a distributed tile render, and <code>06_wordcount</code>, a MapReduce — pointers to what the four primitives compose into.</p>
-
-  <div class="editnote">
-    <strong>Credit.</strong> Verified on real hardware &mdash; macOS &harr; Arch Linux over fast Ethernet &mdash; by the Hey orchestrator and Linux bench agents. Every command and transcript on this page is from that run.
+<section>
+  <p class="eyebrow">Quick start · one machine</p>
+  <h2>See a real remote call in about a minute</h2>
+  <div class="sectionGrid">
+    <div class="steps">
+      <div class="step"><div class="stepBody">
+        <h3>Build the local compiler once</h3>
+        <pre><code>./bin/subcmds/hey-build --native</code></pre>
+      </div></div>
+      <div class="step"><div class="stepBody">
+        <h3>Start two Hey processes and make a remote call</h3>
+        <pre><code>examples/distributed/run_demo.sh \
+  examples/distributed/01_ping_pong.hey \
+  9101 tcp</code></pre>
+      </div></div>
+      <div class="step"><div class="stepBody">
+        <h3>Look for the proof</h3>
+        <pre class="output"><code>[A] A handshake ok with peer=B ...
+[A] A got reply=pong echo.ping=hello from A from=node-B
+[B] B handshake ok with peer=A app=pingpong</code></pre>
+      </div></div>
+    </div>
+    <aside class="callout detail">
+      <h3>What just happened?</h3>
+      <p>The script launched node B in the background and node A in the foreground. A created a <span class="inline">RemotePid</span>, sent a request through <span class="inline">Remote.call</span>, and B returned an immutable structured reply.</p>
+      <p>The <span class="inline">tcp</span> argument is deliberately the easiest development mode: no certificate setup, same transport protocol above the stream layer.</p>
+    </aside>
   </div>
+</section>
 
-  <div class="sources">
-    <h2>Sources</h2>
-    <p>Grounded in <code>examples/distributed/01_ping_pong.hey</code> through <code>04_stale_incarnation.hey</code> and the fixture chain under <code>test/fixtures/tls/</code> (CA <code>CN=Hey Test Root CA</code>; server <code>CN=localhost</code>, <code>subjectAltName = DNS:localhost, IP:127.0.0.1</code>; <code>openssl.cnf</code>), run on Hey&nbsp;<abbr class="ver" title="v0.99.551a">551a</abbr>. Node B: Arch Linux, kernel <code>Linux 7.1.4-arch1-1 x86_64</code>, OpenSSL 3.6.3, i7-1165G7, <code>192.168.1.188</code>. Node A: macOS (Darwin), <code>192.168.1.68</code>. Both on <code>192.168.1.0/24</code>, fast Ethernet, no firewall on the Linux box. The four-leg gate (01/04 TLS, 02/03 TCP) is green over that link. Examples run interpreted (<code>build/heyc &lt;ex&gt; --run</code>); the native back-end does not yet lower the cross-unit <code>Dist*</code>/<code>Codec</code> calls. Version shown short: <code>551a</code> is <code>v0.99.551a</code>.</p>
+<section>
+  <p class="eyebrow">Same machine · secure path</p>
+  <h2>Now run the same demo over TLS</h2>
+  <p>You do not need to manufacture certificates just to see it work. The repository already contains test-only TLS material.</p>
+  <div class="terminal">
+    <div class="termHead">copy / paste from the repository root</div>
+    <pre><code>export HEY_DIST_CERT="$PWD/test/fixtures/tls/server-cert.pem"
+export HEY_DIST_KEY="$PWD/test/fixtures/tls/server-key.pem"
+export HEY_DIST_CA="$PWD/test/fixtures/tls/ca-cert.pem"
+export HEY_DIST_SNI=localhost
+
+examples/distributed/run_demo.sh \
+  examples/distributed/01_ping_pong.hey \
+  9102 tls</code></pre>
   </div>
-</article>
-</main>
+  <div class="callout warning">
+    <h3>Those certificates are for the demo.</h3>
+    <p>They make the article reproducible. Do not copy the repository's private fixture key into a real service. Production deployment should issue a server certificate for the service name you actually use.</p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Optional · Docker</p>
+  <h2>Two nodes, one laptop, isolated Linux containers</h2>
+  <p>The simplest article path is two processes. If you want a closer simulation of two machines, build the existing Linux dev image and put two containers on one Docker network.</p>
+  <div class="terminal">
+    <div class="termHead">build + network</div>
+    <pre><code>docker build \
+  -f docker/linux/alpine/Dockerfile \
+  --target dev \
+  -t hey-dev:local .
+
+docker network create hey-dist</code></pre>
+  </div>
+  <div class="codePair" style="margin-top:16px">
+    <div>
+      <p><strong>Terminal 1 — node B</strong></p>
+      <pre><code>docker run --rm --name hey-b \
+  --network hey-dist \
+  -e HEY_DIST_BIND=0.0.0.0 \
+  hey-dev:local sh -lc '
+    HEY_ROOT=/opt/hey \
+    HEY_STDLIB_PATH=/opt/hey/stdlib \
+    heyc /opt/hey/examples/distributed/01_ping_pong.hey \
+      --run -- server 9101 tcp
+  '</code></pre>
+    </div>
+    <div>
+      <p><strong>Terminal 2 — node A</strong></p>
+      <pre><code>docker run --rm --name hey-a \
+  --network hey-dist \
+  -e HEY_DIST_PEER=hey-b \
+  hey-dev:local sh -lc '
+    HEY_ROOT=/opt/hey \
+    HEY_STDLIB_PATH=/opt/hey/stdlib \
+    heyc /opt/hey/examples/distributed/01_ping_pong.hey \
+      --run -- client 9101 tcp
+  '</code></pre>
+    </div>
+  </div>
+  <div class="callout detail"><h3>Why TCP here?</h3><p>This section is about seeing the node boundary. Once that is clear, use the TLS recipe above—or the real-two-machine recipe below—to exercise authenticated transport.</p></div>
+</section>
+
+<section>
+  <p class="eyebrow">Two real machines</p>
+  <h2>Move node B to another computer</h2>
+  <p>Assume node B is reachable at <span class="inline">192.168.1.20</span>. Both machines have the same Hey checkout and have run <span class="inline">./bin/subcmds/hey-build --native</span>.</p>
+  <div class="codePair">
+    <div>
+      <p><strong>Machine B — server</strong></p>
+      <pre><code>export HEY_DIST_BIND=192.168.1.20
+export HEY_DIST_ACCEPT_MS=15000
+export HEY_DIST_CERT="$PWD/test/fixtures/tls/server-cert.pem"
+export HEY_DIST_KEY="$PWD/test/fixtures/tls/server-key.pem"
+
+./build/heyc \
+  examples/distributed/01_ping_pong.hey \
+  --run -- server 9101 tls</code></pre>
+    </div>
+    <div>
+      <p><strong>Machine A — client</strong></p>
+      <pre><code>export HEY_DIST_PEER=192.168.1.20
+export HEY_DIST_CA="$PWD/test/fixtures/tls/ca-cert.pem"
+export HEY_DIST_SNI=localhost
+
+./build/heyc \
+  examples/distributed/01_ping_pong.hey \
+  --run -- client 9101 tls</code></pre>
+    </div>
+  </div>
+  <div class="callout detail">
+    <h3>Why connect to an IP but verify “localhost”?</h3>
+    <p>The repository's fixture certificate is issued for <span class="inline">localhost</span>. The socket connects to B's LAN IP, while TLS verifies the certificate name supplied through <span class="inline">HEY_DIST_SNI</span>. That trick is convenient for a test fixture; a real deployment should issue a certificate for its real DNS/service name.</p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Break it on purpose</p>
+  <h2>Distribution matters when something dies</h2>
+  <div class="showcase">
+    <div class="card"><h3>Remote actor</h3><pre><code>examples/distributed/run_demo.sh \
+  examples/distributed/02_remote_actor.hey 9202 tcp</code></pre><p>Proves <span class="inline">Remote.send</span> reaches the remote mailbox.</p></div>
+    <div class="card"><h3>Remote monitor</h3><pre><code>examples/distributed/run_demo.sh \
+  examples/distributed/03_remote_monitor.hey 9203 tcp</code></pre><p>Proves the surviving node observes <span class="inline">NODE_DOWN</span>.</p></div>
+    <div class="card"><h3>Restart identity</h3><pre><code>examples/distributed/run_incarnation_demo.sh tcp 9620</code></pre><p>Proves a stale <span class="inline">RemotePid</span> does not silently target a restarted runtime.</p></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">What still feels manual?</p>
+  <h2>Today's friction, and the feature that removes each piece</h2>
+  <p>This is the section the old article blurred. The left side is what feels awkward <em>today</em>. The right side is the specific product work that makes it disappear.</p>
+  <div class="frictionGrid">
+    <div class="friction"><div class="bad">today</div><h3>You create peers and connections yourself.</h3><p>Application code knows hostnames, ports, handshakes, and <span class="inline">DistTransport</span>.</p><div class="fix">fix</div><p><strong>Node service + connection-owning actors.</strong> A supervised node runtime owns listeners, peer connections, reconnects, and backoff.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>You explicitly construct remote actor addresses.</h3><p>You use <span class="inline">Remote.pid(node, name)</span> and keep track of where the actor lives.</p><div class="fix">fix</div><p><strong>Registry + discovery.</strong> Ask for <span class="inline">'resize-worker'</span>; get a local or remote actor reference.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>Jobs do not automatically spread across nodes.</h3><p>The transport can move messages, but the Jobs layer does not yet schedule work onto a distributed worker pool.</p><div class="fix">fix</div><p><strong>DistributedJobs.</strong> Put ordinary immutable jobs on local or remote workers with the same failure policy.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>The compiler path is not complete for every Dist*/Codec call shape.</h3><p>The demos still use <span class="inline">--run</span> while the one-true compiler closes the remaining boxed/callable cross-unit cases.</p><div class="fix">fix</div><p><strong>P2 compiler closure.</strong> Default build must compile the distributed examples through Hey → HIR → MIR → HeyLlvm → LLVM with zero fallback.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>Cluster membership is manual.</h3><p>A node can talk to a known peer; the runtime does not yet maintain a live view of “the cluster.”</p><div class="fix">fix</div><p><strong>Seeds → discovery → membership.</strong> Start simple with configured seeds/DNS; add gossip only if the system actually needs it.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>You cannot see the whole cluster at a glance.</h3><p>Transport counters exist, but cluster-wide health, actors, queues, jobs, latency, and restarts are not yet a coherent product surface.</p><div class="fix">fix</div><p><strong>Cluster observation.</strong> A first-class dashboard/API over node health, actors, mailboxes, jobs, traffic, backpressure, monitors, and supervision.</p></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">The missing centerpiece</p>
+  <h2>A distributed runtime needs a cockpit</h2>
+  <p>Clustering without observation is just a larger place for bugs to hide. Before sophisticated scheduling, Hey needs a boring, excellent view of what the cluster is doing.</p>
+  <div class="clusterPanel" aria-label="Mockup of the desired Hey cluster dashboard">
+    <div class="clusterTop">
+      <div><strong>HEY CLUSTER</strong><div style="color:var(--muted);font-size:.85rem">image-workers · 4 nodes · 79 actors · 168 queued jobs</div></div>
+      <div class="health"><i class="dot"></i><strong>3 healthy</strong>&nbsp;&nbsp;<i class="dot warn"></i><strong>1 suspect</strong></div>
+    </div>
+    <div class="nodes">
+      <div class="nodeTile"><div class="name">node-a</div><div class="metric"><span>actors</span><b>12</b></div><div class="metric"><span>queue</span><b>8</b></div><div class="metric"><span>p95</span><b>4ms</b></div><div class="bar"><i style="width:25%"></i></div></div>
+      <div class="nodeTile"><div class="name">node-b</div><div class="metric"><span>actors</span><b>32</b></div><div class="metric"><span>queue</span><b>74</b></div><div class="metric"><span>p95</span><b>7ms</b></div><div class="bar"><i style="width:62%"></i></div></div>
+      <div class="nodeTile"><div class="name">node-c</div><div class="metric"><span>actors</span><b>35</b></div><div class="metric"><span>queue</span><b>86</b></div><div class="metric"><span>p95</span><b>9ms</b></div><div class="bar"><i style="width:74%"></i></div></div>
+      <div class="nodeTile"><div class="name">node-d</div><div class="metric"><span>state</span><b style="color:var(--warn)">suspect</b></div><div class="metric"><span>last seen</span><b>2.3s</b></div><div class="metric"><span>jobs</span><b>requeueing</b></div><div class="bar"><i style="width:8%;background:var(--warn)"></i></div></div>
+    </div>
+  </div>
+  <div class="callout target" style="margin-top:16px">
+    <h3>Minimum useful observation surface</h3>
+    <p>Node membership and incarnation · connections/reconnects · actor counts · mailbox depth · job queue depth · send/call latency · bytes/frames · backpressure · NODE_DOWN/DOWN · restart history · dead letters · per-service health.</p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Road to seamless</p>
+  <h2>How the current substrate turns into “actors and jobs, anywhere”</h2>
+  <div class="timeline">
+    <div class="mile done"><small>done</small><b>Network substrate</b><small>codec · TLS · send/call/monitor · incarnation</small></div>
+    <div class="mile now"><small>now</small><b>Compiler closure</b><small>compile Dist*/Codec through the one true pipeline</small></div>
+    <div class="mile next"><small>next</small><b>Node runtime</b><small>connection-owning actors · registry · discovery</small></div>
+    <div class="mile next"><small>next</small><b>DistributedJobs</b><small>worker pools · requeue · backpressure</small></div>
+    <div class="mile next"><small>next</small><b>Cluster product</b><small>membership · supervision · observation</small></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Truth in advertising</p>
+  <h2>The next thing to fix is not another networking feature</h2>
+  <div class="callout warning">
+    <h3>The distributed examples still use the interpreter today.</h3>
+    <p>That is not the desired end state. The compiler can compile itself through the Hey-owned LLVM path with zero fallback, but the broader language corpus still contains cross-unit boxed-result and callable-value shapes that the emitter does not lower everywhere. Those same shapes are what keep the Dist*/Codec examples on <span class="inline">--run</span>.</p>
+    <p><strong>The correct next milestone is compiler completeness:</strong> the distributed examples should build as ordinary native programs with the default compiler path, with no fallback, before more distribution polish gets priority.</p>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Why this is worth finishing</p>
+  <h2>Hey starts from unusually good distributed assumptions</h2>
+  <div class="showcase">
+    <div class="card"><h3>Immutable values</h3><p>Messages already cross an ownership boundary. A machine boundary is conceptually another copy/serialization boundary, not a shared-memory illusion.</p></div>
+    <div class="card"><h3>Actors</h3><p>Concurrency is already message-oriented. Distribution extends that model instead of replacing it with RPC-shaped application architecture.</p></div>
+    <div class="card"><h3>Native programs</h3><p>No mandatory distributed VM is required. Each node can remain a normal compiled process with a small networking/runtime layer beside the actor system.</p></div>
+  </div>
+  <p class="lede">The goal is not to prove that two computers can exchange <span class="inline">pong</span>. That part works. The goal is to make adding a computer feel like giving the same Hey program more places where actors and jobs can run—and to make the cluster observable enough that you trust it when something goes wrong.</p>
+</section>
+
 <footer>
-  <p class="footline">Part of the Hey project's public log.</p>
+  Draft replacement for the previous “How to run Distributed Hey” article. Commands in the one-machine TCP and repository-fixture TLS quick starts were checked against the 0.99.553a private source snapshot on 24 August 2026. Docker commands follow the repository's existing Alpine dev-image layout and should be promoted to a checked-in compose/demo script before publication.
 </footer>
-<script>
-(function(){
-  var pop=null, current=null;
-  function closePop(){
-    if(pop){ pop.remove(); pop=null; current=null;
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onDocClick, true); }
-  }
-  function onKey(e){ if(e.key==='Escape') closePop(); }
-  function onDocClick(e){ if(pop && !pop.contains(e.target) && e.target!==current) closePop(); }
-  function openPop(a){
-    if(current===a){ closePop(); return; }
-    closePop(); current=a;
-    pop=document.createElement('div');
-    pop.className='gloss-pop'; pop.setAttribute('role','tooltip');
-    var def=document.createElement('p');
-    def.className='gloss-pop-def'; def.textContent=a.getAttribute('data-def');
-    var link=document.createElement('a');
-    link.href=a.getAttribute('href'); link.className='gloss-pop-link';
-    link.textContent='Full entry →';
-    pop.appendChild(def); pop.appendChild(link);
-    document.body.appendChild(pop);
-    var r=a.getBoundingClientRect();
-    var top=window.scrollY + r.bottom + 6;
-    var left=window.scrollX + r.left;
-    var maxLeft=window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
-    pop.style.top=top+'px';
-    pop.style.left=Math.max(8, Math.min(left, maxLeft))+'px';
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('click', onDocClick, true);
-  }
-  document.querySelectorAll('a.gloss').forEach(function(a){
-    a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openPop(a); });
-    a.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); openPop(a); } });
-  });
-})();
-</script>
+</main>
 </body>
 </html>
