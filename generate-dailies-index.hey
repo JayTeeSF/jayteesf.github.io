@@ -1,7 +1,6 @@
 #!/usr/bin/env hey
 
 import 'stdlib:Cli'
-import 'stdlib:Collections'
 import 'stdlib:Files'
 import 'stdlib:Text'
 
@@ -15,6 +14,28 @@ import 'stdlib:Text'
 # lives in a git repo).
 
 module DailiesIndex
+  # Hot-path helpers stay inside the compiled program. The older generator used
+  # Collections.compare and Files.basename while sorting/parsing every page;
+  # those qualified stdlib calls can fall through the sidecar path, turning an
+  # O(n log n) index sort into hundreds of serialized IPC round trips.
+  private fn compare_text(left, right)
+    if left < right
+      return -1
+    end
+    if left > right
+      return 1
+    end
+    return 0
+  end
+
+  private fn path_basename(path)
+    let parts = Text.split(path, '/')
+    if parts.length == 0
+      return path
+    end
+    return parts[parts.length - 1]
+  end
+
   fn new(dailies_dir)
     return {
       dailies_dir: dailies_dir,
@@ -143,8 +164,8 @@ module DailiesIndex
   # carries its own index copy and the generator becomes idempotent. Neither is
   # required: omit them and <title> / article-desc are used exactly as before.
   private fn parse_daily(path)
-    let content = Files.read_text(path)
-    let filename = Files.basename(path)
+    let content = read(path)
+    let filename = DailiesIndex.path_basename(path)
 
     let title = DailiesIndex.meta_value(content, 'article-index-title')
     if title == ''
@@ -181,12 +202,14 @@ module DailiesIndex
   end
 
   private fn daily_files(dailies_dir)
-    let candidates = Files.files(dailies_dir, '.html')
+    # Keep the index scoped to the immediate dailies/ directory. Files.files()
+    # recursively walks descendants, which is unnecessary work for an index.
+    let candidates = Files.entries(dailies_dir)
     let files = []
 
     for path in candidates
-      let name = Files.basename(path)
-      if name != 'index.html' and not Text.starts_with?(name, 'DRAFT-')
+      let name = DailiesIndex.path_basename(path)
+      if Text.ends_with?(name, '.html') and name != 'index.html' and not Text.starts_with?(name, 'DRAFT-')
         set files = [...files, path]
       end
     end
@@ -209,12 +232,12 @@ module DailiesIndex
   # Newest date first; filename ascending breaks ties (deterministic for
   # several dailies on one day). Undated files sort last, by filename.
   private fn compare_entries(left, right)
-    let date_cmp = Collections.compare(right.date, left.date)
+    let date_cmp = DailiesIndex.compare_text(right.date, left.date)
     if date_cmp != 0
       return date_cmp
     end
 
-    return Collections.compare(left.filename, right.filename)
+    return DailiesIndex.compare_text(left.filename, right.filename)
   end
 
   private fn daily_item_lines(daily)
@@ -365,3 +388,4 @@ program
     DailiesIndex.generate(DailiesIndex.new(dailies_dir))
   end
 end
+

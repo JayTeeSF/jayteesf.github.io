@@ -1,11 +1,32 @@
 #!/usr/bin/env hey
 
 import 'stdlib:Cli'
-import 'stdlib:Collections'
 import 'stdlib:Files'
 import 'stdlib:Text'
 
 module ArticlesIndex
+  # Hot-path helpers stay inside the compiled program. The older generator used
+  # Collections.compare and Files.basename while sorting/parsing every page;
+  # those qualified stdlib calls can fall through the sidecar path, turning an
+  # O(n log n) index sort into hundreds of serialized IPC round trips.
+  private fn compare_text(left, right)
+    if left < right
+      return -1
+    end
+    if left > right
+      return 1
+    end
+    return 0
+  end
+
+  private fn path_basename(path)
+    let parts = Text.split(path, '/')
+    if parts.length == 0
+      return path
+    end
+    return parts[parts.length - 1]
+  end
+
   fn new(articles_dir)
     return {
       articles_dir: articles_dir,
@@ -81,8 +102,8 @@ module ArticlesIndex
   # overrides on 2026-08-01 for the same reason. The two generators disagreeing
   # was itself the bug -- a fact restated in two programs, corrected in one.
   private fn parse_article(path)
-    let content = Files.read_text(path)
-    let filename = Files.basename(path)
+    let content = read(path)
+    let filename = ArticlesIndex.path_basename(path)
 
     let title = ArticlesIndex.meta_value(content, 'article-index-title')
     if title == ''
@@ -129,12 +150,15 @@ module ArticlesIndex
   end
 
   private fn article_files(articles_dir)
-    let candidates = Files.files(articles_dir, '.html')
+    # Files.files() is recursive. That made the article index walk articles/archive/
+    # and then flatten those paths with basename(), which was both slow and wrong.
+    # The index contract is the immediate contents of articles/.
+    let candidates = Files.entries(articles_dir)
     let files = []
 
     for path in candidates
-      let name = Files.basename(path)
-      if name != 'index.html' and name != 'glossary.html' and not Text.starts_with?(name, 'DRAFT-')
+      let name = ArticlesIndex.path_basename(path)
+      if Text.ends_with?(name, '.html') and name != 'index.html' and name != 'glossary.html' and not Text.starts_with?(name, 'DRAFT-')
         set files = [...files, path]
       end
     end
@@ -157,12 +181,12 @@ module ArticlesIndex
   # Stable order within a bucket: newest date first, filename ascending
   # breaks ties (and gives a deterministic order for same-day articles).
   private fn compare_entries(left, right)
-    let date_cmp = Collections.compare(right.date, left.date)
+    let date_cmp = ArticlesIndex.compare_text(right.date, left.date)
     if date_cmp != 0
       return date_cmp
     end
 
-    return Collections.compare(left.filename, right.filename)
+    return ArticlesIndex.compare_text(left.filename, right.filename)
   end
 
   private fn group_by_bucket(articles)
@@ -375,3 +399,4 @@ program
     ArticlesIndex.generate(ArticlesIndex.new(articles_dir))
   end
 end
+
