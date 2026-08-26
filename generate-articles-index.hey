@@ -5,10 +5,9 @@ import 'stdlib:Files'
 import 'stdlib:Text'
 
 module ArticlesIndex
-  # Hot-path helpers stay inside the compiled program. The older generator used
-  # Collections.compare and Files.basename while sorting/parsing every page;
-  # those qualified stdlib calls can fall through the sidecar path, turning an
-  # O(n log n) index sort into hundreds of serialized IPC round trips.
+  # Keep sort comparison local: Collections.compare in an O(n log n) comparator
+  # can force repeated delegated stdlib work. Files.basename/read_text are kept
+  # because they are already proven compiler-supported in the original script.
   private fn compare_text(left, right)
     if left < right
       return -1
@@ -20,11 +19,7 @@ module ArticlesIndex
   end
 
   private fn path_basename(path)
-    let parts = Text.split(path, '/')
-    if parts.length == 0
-      return path
-    end
-    return parts[parts.length - 1]
+    return Files.basename(path)
   end
 
   fn new(articles_dir)
@@ -102,7 +97,7 @@ module ArticlesIndex
   # overrides on 2026-08-01 for the same reason. The two generators disagreeing
   # was itself the bug -- a fact restated in two programs, corrected in one.
   private fn parse_article(path)
-    let content = read(path)
+    let content = Files.read_text(path)
     let filename = ArticlesIndex.path_basename(path)
 
     let title = ArticlesIndex.meta_value(content, 'article-index-title')
