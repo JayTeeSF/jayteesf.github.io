@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Current Hey architecture at the 0.99.553a stamp plus post-stamp work: one public frontend, one semantic resolution event, ProgramResolution before HIR, a compiler-owned typed-intrinsic registry, deterministic P2-LINK provider closure, HIR/MIR ownership facts and mechanical LLVM lowering. The next link rungs replace pure-Hey JSON/subprocess cross-unit calls with linked hey_fn symbols and one program-wide callable dispatcher.">
+<meta name="article-date" content="2026-08-25">
+<meta name="article-bucket" content="reference">
+<meta name="article-version" content="0.99.553a">
+<meta name="article-desc" content="Current Hey architecture at the 0.99.553a stamp plus post-stamp work: one public frontend, one semantic resolution event, ProgramResolution before HIR, a compiler-owned typed-intrinsic registry, deterministic P2-LINK provider closure, HIR/MIR ownership facts and mechanical LLVM lowering. The next link rungs replace pure-Hey JSON/subprocess cross-unit calls with linked hey_fn symbols and one program-wide callable dispatcher.">
+<meta name="article-index-title" content="The architecture of Hey — current">
+<meta name="article-index-desc" content="Canonical architecture reference: one Hey-owned frontend, resolve-once ProgramResolution, HIR/MIR, one program link plan, mechanical LLVM, and the P2-LINK transition to direct linked cross-unit Hey calls.">
+<title>The architecture of Hey — current</title>
+<style>
+:root{
+  --bg:#f5f2eb;--surface:#fff;--surface2:#ece7dc;--ink:#172027;--muted:#5f6970;--line:#c9c2b7;
+  --good:#176540;--goodbg:#e1f2e8;--work:#865800;--workbg:#fff0c8;--bad:#9b3434;--badbg:#f8e1e1;
+  --info:#145f84;--infobg:#e2f0f8;--violet:#5a3b92;--violetbg:#eee7fb;--code:#101920;--codefg:#eff5f7;
+  --max:1120px;--radius:15px;--shadow:0 10px 28px rgba(40,34,24,.07)
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101416;--surface:#181e21;--surface2:#242c30;--ink:#edf2f4;--muted:#aab6bc;--line:#3c474c;
+  --good:#8bd8ac;--goodbg:#153526;--work:#ffd47a;--workbg:#3c3014;--bad:#ffaaa3;--badbg:#45211f;
+  --info:#9bd3f4;--infobg:#193449;--violet:#c5abff;--violetbg:#2d2442;--code:#080c0e;--codefg:#f3f6f7;
+  --shadow:0 12px 34px rgba(0,0,0,.28)}}
+:root[data-theme="dark"]{--bg:#101416;--surface:#181e21;--surface2:#242c30;--ink:#edf2f4;--muted:#aab6bc;--line:#3c474c;--good:#8bd8ac;--goodbg:#153526;--work:#ffd47a;--workbg:#3c3014;--bad:#ffaaa3;--badbg:#45211f;--info:#9bd3f4;--infobg:#193449;--violet:#c5abff;--violetbg:#2d2442;--code:#080c0e;--codefg:#f3f6f7;--shadow:0 12px 34px rgba(0,0,0,.28)}
+:root[data-theme="light"]{--bg:#f5f2eb;--surface:#fff;--surface2:#ece7dc;--ink:#172027;--muted:#5f6970;--line:#c9c2b7;--good:#176540;--goodbg:#e1f2e8;--work:#865800;--workbg:#fff0c8;--bad:#9b3434;--badbg:#f8e1e1;--info:#145f84;--infobg:#e2f0f8;--violet:#5a3b92;--violetbg:#eee7fb;--code:#101920;--codefg:#eff5f7;--shadow:0 10px 28px rgba(40,34,24,.07)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}a{color:var(--info)}code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}code{background:var(--surface2);padding:.08em .34em;border-radius:5px;font-size:.92em}pre{background:var(--code);color:var(--codefg);padding:16px 18px;border-radius:12px;overflow:auto}.page{width:min(var(--max),calc(100% - 32px));margin:auto}.hero{padding:48px 0 34px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surface2),var(--bg))}.eyebrow{text-transform:uppercase;letter-spacing:.1em;font-size:.76rem;font-weight:850;color:var(--info);margin:0 0 10px}h1{font-size:clamp(2.25rem,6vw,4.6rem);line-height:.99;letter-spacing:-.045em;margin:0;max-width:1000px}h2{font-size:clamp(1.55rem,3vw,2.35rem);line-height:1.08;letter-spacing:-.025em;margin:44px 0 13px}h3{font-size:1.12rem;margin:22px 0 7px}.dek{max-width:80ch;color:var(--muted);font-size:1.15rem;margin:18px 0 0}.meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:18px;color:var(--muted);font-size:.9rem}main{padding:24px 0 70px}.notice,.card,.tldr,figure{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}.notice{border-left:5px solid var(--info);padding:15px 18px;margin:22px 0}.notice.warn{border-left-color:var(--work)}.tldr{padding:4px 24px 20px}.tldr h2{font-size:1.35rem;margin:20px 0 8px}.tldr li+li{margin-top:8px}.statusline{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 18px}.badge{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:3px 9px;font-size:.72rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase}.good{color:var(--good);background:var(--goodbg)}.work{color:var(--work);background:var(--workbg)}.bad{color:var(--bad);background:var(--badbg)}.info{color:var(--info);background:var(--infobg)}.violet{color:var(--violet);background:var(--violetbg)}.card{padding:18px 21px;margin:16px 0}.card h2,.card h3{margin-top:0}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.mini{border:1px solid var(--line);border-radius:12px;background:var(--surface2);padding:13px}.mini strong{display:block;margin-bottom:4px}.mini small{color:var(--muted);display:block;line-height:1.42}.scroll{overflow-x:auto}.ladder{min-width:900px;display:grid;grid-template-columns:145px repeat(5,minmax(145px,1fr));gap:8px}.label{display:flex;align-items:center;font-weight:850;color:var(--muted)}.rung{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface)}.rung strong{display:block;font-size:.88rem;margin-bottom:3px}.rung small{display:block;color:var(--muted);line-height:1.35}.rung.g{background:var(--goodbg);border-color:var(--good)}.rung.w{background:var(--workbg);border-color:var(--work)}.rung.r{background:var(--badbg);border-color:var(--bad)}.rung.i{background:var(--infobg);border-color:var(--info)}.rung.v{background:var(--violetbg);border-color:var(--violet)}table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{color:var(--muted)}.flow{display:flex;align-items:stretch;gap:8px;overflow-x:auto;padding-bottom:8px}.node{min-width:150px;flex:1;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface2)}.node strong{display:block;margin-bottom:4px}.node small{display:block;color:var(--muted);line-height:1.38}.arrow{align-self:center;color:var(--muted);font-weight:900;font-size:1.2rem}.callout{border-left:4px solid var(--violet);padding:4px 0 4px 15px;margin:18px 0}.feature{display:grid;grid-template-columns:170px 1fr;gap:16px;padding:16px 0;border-bottom:1px solid var(--line)}.feature:last-child{border-bottom:0}.feature .name{font-weight:850}.feature .body p{margin:.25rem 0}.codebox{background:var(--code);color:var(--codefg);padding:14px 16px;border-radius:11px;overflow:auto}.codebox code{background:none;color:inherit;padding:0}footer{border-top:1px solid var(--line);padding:24px 0 58px;color:var(--muted);font-size:.88rem}dl.glossary{display:grid;grid-template-columns:max-content 1fr;gap:7px 18px}dl.glossary dt{font-weight:800}dl.glossary dd{margin:0;color:var(--muted)}@media(max-width:760px){.grid,.grid.two{grid-template-columns:1fr}.feature{grid-template-columns:1fr}.page{width:calc(100% - 22px)}dl.glossary{grid-template-columns:1fr}.flow{flex-direction:column}.arrow{transform:rotate(90deg)}}
+</style>
+<script>(function(){try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}})();</script>
+</head>
+<body>
+<header class="hero"><div class="page"><p class="eyebrow">Hey architecture · canonical current reference</p>
+<h1>One resolution event. One program link plan. One production compiler path.</h1>
+<p class="dek">The visible stage sequence still looks like source → syntax → HIR → MIR → LLVM. What changed is <strong>who owns meaning</strong>. The resolver now publishes one versioned semantic artifact before HIR; the backend is being stripped of name/string/path inference; and P2-LINK is turning cross-unit pure-Hey calls into ordinary linked machine calls.</p>
+<div class="meta"><span>Current version stamp: <strong>0.99.553a</strong></span><span>Snapshot: <strong>post-stamp architecture work included</strong></span><span>North star: <strong>Hey → HIR → MIR → direct LLVM</strong></span></div>
+</div></header>
+<main class="page">
+<div class="notice"><strong>What did not change:</strong> Hey did not become a VM, bytecode system, dynamic module runtime, or JSON-RPC language. Stage-0 C remains a bootstrap/recovery/validation implementation. The public compiler frontend is Hey-owned.</div>
+
+<section><h2>The pipeline now</h2><div class="flow">
+<div class="node"><strong>1. Source manager</strong><small>Files, package roots, source graph, import identities.</small></div><div class="arrow">→</div>
+<div class="node"><strong>2. Tokens + final syntax</strong><small>Spans, grouping, forms, operator parse shape.</small></div><div class="arrow">→</div>
+<div class="node"><strong>3. HeyNames resolver</strong><small>Scopes, imports, exposure forms, receiver meaning, call target identity.</small></div><div class="arrow">→</div>
+<div class="node"><strong>4. ProgramResolution v1</strong><small>Exact resolved-call spans, signatures, definition semantic facts; deterministic and versioned.</small></div><div class="arrow">→</div>
+<div class="node"><strong>5. HIR</strong><small>Consumes resolver truth; does not re-resolve names.</small></div><div class="arrow">→</div>
+<div class="node"><strong>6. MIR</strong><small>ABI representation, ownership authorizations, explicit control/data flow.</small></div><div class="arrow">→</div>
+<div class="node"><strong>7. L1 link plan</strong><small>Program-specific pure-Hey provider closure.</small></div><div class="arrow">→</div>
+<div class="node"><strong>8. HeyLlvm → LLVM</strong><small>Mechanical lowering; P2-LINK is removing pure-Hey JSON/subprocess delegation.</small></div>
+</div></section>
+
+<section><h2>Authority map</h2><table><thead><tr><th>Question</th><th>Authority</th><th>Not allowed to rediscover it</th></tr></thead><tbody>
+<tr><td>How does source group and where is the call?</td><td>Tokenizer / final syntax with spans</td><td>HIR string scanners, backend text heuristics</td></tr>
+<tr><td>Which binding/module/function did a call resolve to?</td><td>HeyNames → ProgramResolution</td><td>HIR filesystem lookup, backend name matching</td></tr>
+<tr><td>What is the module's public surface?</td><td><code>exposes</code> declarations + resolver</td><td>Runtime module search</td></tr>
+<tr><td>Is a bare target a compiler/language outer exposure?</td><td>Resolver classification</td><td>Wrapper analyzers rebuilding shadow rules</td></tr>
+<tr><td>Is an identity a typed intrinsic and may a wrapper canonicalize to it?</td><td>Typed-intrinsic registry</td><td>Emitter name lists</td></tr>
+<tr><td>Which pure-Hey providers does this program link?</td><td>One L1 provider-closure artifact</td><td>Linker/emitter/dispatcher independently rescanning imports</td></tr>
+<tr><td>How is an authorized ownership move/reuse lowered?</td><td>MIR facts + verifier</td><td>Backend guesses based on spelling</td></tr>
+</tbody></table></section>
+
+<section><h2>ProgramResolution is the architectural hinge</h2>
+<div class="grid two"><div class="card"><h3>What is landed</h3><ul>
+<li>Produced before HIR by the authoritative self-host pipeline.</li><li>One semantic resolution event per compilation.</li><li>Versioned deterministic rows.</li><li>Exact full-source spans for resolved call sites.</li><li>Resolver signatures for cross-unit calls.</li><li>Definition-level wrapper semantic facts.</li><li>HIR and extern annotation consume the shared artifact instead of running resolution again.</li></ul></div>
+<div class="card"><h3>Why it matters</h3><p>The earlier compiler repeatedly reconstructed meaning from text: names in expression strings, module paths, facade tables and backend conditionals. ProgramResolution gives later phases a durable identity seam: an exact call site points to an exact resolved function, and later transformations can join on that identity rather than infer it again.</p></div></div>
+</section>
+
+<section><h2>Typed intrinsics: capability registry, not emitter folklore</h2>
+<p>The compiler now has a declarative typed-intrinsic registry with generated projections. An entry carries neutral capability facts such as identity, arity, result kind, typed-native lowering kind, wrapper-canonicalizable status and shared runtime ABI symbol. A drift gate verifies the projections, and a backend-completeness gate requires both emitters to satisfy registered entries.</p>
+<div class="callout"><strong>Still active:</strong> <code>Bytes.at</code> and <code>Bytes.slice</code> have not yet completed the replace-and-delete migration. The legacy <code>Text.replace('Bytes.at(', 'byte_at(')</code> / <code>Bytes.slice</code> rewrite and duplicate result-kind entries are still present in this snapshot. The resolver/registry spine is green; D is the migration that must consume it and delete those old authorities.</div>
+</section>
+
+<section><h2>P2-LINK: cross-unit Hey becomes ordinary linked Hey</h2>
+<div class="notice warn"><strong>The old shortcut:</strong> a resolved pure-Hey cross-unit call could be delegated through <code>hey_llvm_stdlib_json_call</code>. That was tolerable for JSON-shaped values and disastrous for callables: a same-process function value is not a wire value and must not be serialized.</div>
+<div class="flow">
+<div class="node"><strong>L1 · landed</strong><small>Resolver/import-derived transitive pure-Hey provider closure, deterministic, no allowlist.</small></div><div class="arrow">→</div>
+<div class="node"><strong>L2 · next</strong><small>Compile each provider object; prove global <code>hey_fn_Module__fn</code> symbols.</small></div><div class="arrow">→</div>
+<div class="node"><strong>L3 · next</strong><small>Resolved pure-Hey extern lowers directly to the linked <code>hey_fn_*</code> symbol; missing symbol = build integrity error.</small></div><div class="arrow">→</div>
+<div class="node"><strong>L4 · ruled</strong><small>One final-link-owned <code>@hey_program_call_callable_&lt;arity&gt;</code> union across the same L1 closure.</small></div>
+</div>
+<h3>Architecture C</h3><div class="grid">
+<div class="mini"><strong>Declared module stance</strong><small>What the module <em>is</em>: intrinsic/runtime-facade, compiled-in, ordinary pure-Hey, archive-legacy.</small></div>
+<div class="mini"><strong>Resolver/import graph</strong><small>Whether <em>this program</em> needs a particular provider.</small></div>
+<div class="mini"><strong>L1 link plan</strong><small>The program-specific set that actually participates in link/direct-call/dispatcher generation.</small></div>
+</div><p>“Linked” is therefore not a new hand-declared module ABI. It is a program-specific consequence of resolver truth.</p></section>
+
+<section><h2>Callables: semantic type, ordinary boxed machine ABI</h2>
+<p>The callable crash did <em>not</em> justify a new callable ABI letter. <code>HEY_CALLABLE</code> already travels as a boxed pointer at the machine boundary. The fix is architectural: the provider must be linked into the same process and the final link unit must own one dispatcher for each used arity over the whole link closure. Provider objects contribute callable-arm metadata; they do not each export competing dispatchers.</p>
+<ul><li>No JSON serialization of functions.</li><li>No runtime function-name table.</li><li>No hidden dispatcher parameter.</li><li>Canonical module-qualified callable identity prevents collisions such as <code>A.compare</code> vs <code>B.compare</code>.</li></ul></section>
+
+<section><h2>The module system is now a front-end contract</h2>
+<p>Modules are lexical and static. A module declares a complete public surface with <code>exposes</code>. A bare import provides only the qualified namespace. <code>as</code> renames the namespace. <code>exposing:</code> adopts selected bindings; <code>forms:</code> narrows qualified/unqualified/dotted/infix access; selector aliases use <code>old as new</code>; <code>conceals:</code> removes adopted/default names; facade re-export is explicit through <code>exposes *</code>.</p>
+<p>This distinction also resolves an architectural ambiguity: a static module namespace is not an ordinary runtime object passed through call ABI. Separately, <code>Module.load(...)</code> may return a runtime module value, but that value cannot create already-compiled identifiers, receiver forms or operator bindings.</p></section>
+
+<section><h2>Distributed Hey converges onto the same compiler</h2>
+<p>The distributed stack is deliberately ordinary Hey plus runtime primitives: <code>Codec</code> encodes values, <code>DistTransport</code> frames bytes over TCP/TLS, <code>DistNode</code> handles node identity/incarnation and routing, and <code>DistRemote</code> provides immutable remote PIDs plus send/call semantics. The two-machine TLS milestone proved the runtime substrate. P2-LINK is what makes those modules compile like any other pure-Hey provider instead of requiring an interpreted cross-unit escape hatch.</p>
+<p>Actor-owned IO now has an explicit v1 rule: ordinary crossing of a raw socket/listener/TLS handle is rejected; <code>Io.into_actor(handle)</code> moves a sole top-level handle and poisons the source reference. That is an ownership capability, not distributed serialization.</p></section>
+
+<section><h2>Current red edges</h2><table><thead><tr><th>Edge</th><th>Why it is still red</th><th>Next proof</th></tr></thead><tbody>
+<tr><td>Bytes wrapper canonicalization</td><td>Old textual rewrite/result-kind authorities still exist.</td><td>Exact call identity → wrapper fact → registry → node canonicalization; delete legacy entries.</td></tr>
+<tr><td>P2-LINK L2/L3/L4</td><td>Provider closure is known, but direct provider linking/call lowering/program-wide dispatcher are not yet the default end-to-end route.</td><td>Symbols, direct calls, callable falsification, no JSON/subprocess fallback.</td></tr>
+<tr><td>Behavioral 132/132</td><td>Authoritative emission alone previously hid wrong-code.</td><td>Build + run + compare, not just “consumer=hey-llvm-text”.</td></tr>
+<tr><td>Native FP</td><td>Reference/native lane can type/lower float work as integer work.</td><td>Correctness characterization and fix.</td></tr>
+<tr><td>Honest 1BRC</td><td>Method-form put/set identity does not yet feed the same ownership fact as builtin form.</td><td>Resolver/HIR canonical identity + real-source Linux receipt.</td></tr>
+<tr><td>Distributed native closure</td><td>Examples still await complete P2 compiler linkage.</td><td>01–06 default native build + local gate + native two-host TLS.</td></tr>
+</tbody></table></section>
+
+<section><h2>The terminal architecture gate</h2><pre><code>one public semantic frontend
+one resolution event
+one ProgramResolution truth
+one L1 program link plan
+one final callable dispatcher per used arity
+pure-Hey cross-unit calls = direct linked calls
+native/runtime facades keep their typed ABI
+132/132 behaviorally correct
+fallback_count = 0
+FAILBUILD = 0
+distributed 01-06 default-native + real TLS two-machine gate</code></pre></section>
+</main><footer class="page"><p>This page describes the current compiler architecture under version stamp <strong>0.99.553a</strong>, including post-stamp work visible in the supplied source snapshot. It intentionally distinguishes <em>landed mechanism</em>, <em>ruled target</em>, and <em>green end-to-end behavior</em>.</p></footer></body></html>
