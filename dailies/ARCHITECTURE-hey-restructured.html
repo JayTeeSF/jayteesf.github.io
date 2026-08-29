@@ -34,6 +34,16 @@
 </div><div class="arrowline"></div>
 <section class="callout good"><strong>The rule underneath the whole compiler:</strong> names are for people; identities are for the compiler. Two functions may have the same spelling and still be different functions. Two source spellings such as <code>put(m,k,v)</code> and <code>m.put(k,v)</code> may be different text while denoting the same operation. The resolver should settle both questions before ownership or code generation begins.</section>
 
+<h3>Module authority: where a name stops being a name</h3>
+<p>Stage 3 is also where module authority lives. Hey is removing the privileged built-in layer, so every operation ends up in a real module and each file’s vocabulary comes from its own imports. The chain is deliberately one-way:</p>
+<div class="flow">
+<div class="stage"><strong>Source syntax</strong><small>Bare, dotted or qualified — three ways to write one call.</small></div>
+<div class="stage"><strong>Lexical import/exposure resolution</strong><small>A module publishes capability; a scope activates it. Nearest scope wins; two modules offering one selector into one scope is refused, not guessed.</small></div>
+<div class="stage"><strong>One binding identity + authorized form</strong><small>Owning module, link name, arity, parameter and return ABI kinds, and whether the first argument came from a receiver.</small></div>
+<div class="stage"><strong>HIR → MIR → LLVM</strong><small>Carry that identity. Do not re-derive it.</small></div>
+</div>
+<section class="callout warn"><strong>Downstream stages must not independently re-resolve a call.</strong> Dotted, bare and qualified spellings of one operation must arrive at ownership analysis and code generation as a single canonical identity. Any pass that keys on the printed spelling instead — as the map-update ownership matcher did — will give two costs to one operation, and the language will be blamed for a compiler defect. Resolution decides meaning once; every later stage is allowed to optimize it and forbidden to re-decide it. The user-facing account is in <a href="../articles/imports-change-the-flavor.html">Imports that change the flavor of the language</a>.</section>
+
 <h2>What is already real</h2>
 <div class="grid">
 <div class="card"><h3>A real self-hosted pipeline</h3><p>Hey has a structured path through parsing, resolution, HIR, MIR and LLVM. The goal is no longer to invent that pipeline; it is to make it the single trustworthy authority for the whole product.</p></div>
@@ -50,6 +60,7 @@
 <tr><td><strong>One semantic ownership path</strong></td><td>Important ownership/reuse decisions still depend on printed MIR/textual forms in places. Equivalent operations can therefore get different costs.</td><td>Decode MIR once into records and make ownership/effect analysis consume those records rather than independent string scans.</td></tr>
 <tr><td><strong>MAP_PUT / real 1BRC</strong></td><td>The programmer sees method and builtin map update as one operation, but the compiler still gives method-form update an O(map) path in the known production case.</td><td>Resolve both spellings to one semantic map-update operation; prove sole-owner reuse on the production path; run the real 1BRC with zero fallback and compare against C on pinned inputs.</td></tr>
 <tr><td><strong>Module/source identity</strong></td><td>Some remaining compiler plumbing still risks using filename/module/name coincidence where a stable source-unit identity should be carried explicitly.</td><td>Finish logical-root + normalized-relative-path identity and carry import/module/function facts through definitions and calls without changing meaning at later stages.</td></tr>
+<tr><td><strong>Module authority / Sys cutover</strong></td><td>Name lookup is not yet module-only. A privileged ambient registry still answers hundreds of bare names, and the resolver that publishes binding identity is not yet the authoritative one. The resolver already publishes qualified and bare identity; the receiver form does not yet reach ownership as the same operation as its bare spelling.</td><td>Give every operation a module home; curate the recommended facade instead of merging modules by import order; publish receiver identity through the same resolved record as bare and qualified; route compiler authority through resolver identities; then delete the ambient registry once legacy-resolution hits read zero.</td></tr>
 </tbody></table>
 
 <h2>The immediate path: make the verifier trustworthy, then make the compiler fast</h2>
