@@ -169,6 +169,8 @@
 
   <p>The important part is what <code>Sys</code> <em>is not</em>. It is not a keyword, not a compiler concept, and not a fallback the resolver consults when a name is otherwise unknown. <strong>The compiler does not special-case the string <code>Sys</code>.</strong> It is a facade module written in Hey, which imports domain modules and re-exposes a chosen subset under chosen names. Anything you can do to any other module you can do to it.</p>
 
+  <p>The same treatment already reaches down to the names that look most privileged. Built-ins are defined as the <em>outer lexical surface</em> of <code>stdlib:BuiltIns</code>, and they follow the same conflict and concealment rules as any other import. That single sentence does most of the work in this design: a built-in is not a special case the resolver checks first, it is an exposure sitting at the outermost scope. Your own import is inner, so by rule one it simply wins — no override mechanism, no compiler exception, no escape hatch to learn. And <code>conceals: [length]</code> is an ordinary thing to write.</p>
+
   <p>So a project that dislikes the standard surface writes its own:</p>
 
 <pre><code><span class="kw">import</span> './System.hey' <span class="kw">exposing</span> *   <span class="cmt"># our house vocabulary, not stdlib's</span></code></pre>
@@ -218,7 +220,7 @@
       <tr><th scope="row">forms:</th><td>In the <code>exposes</code></td><td>Declares which call spellings that exposure <em>supports</em>: qualified, bare, receiver. Capability only.</td></tr>
       <tr><th scope="row">exposing</th><td>At the import</td><td>Which published names this scope adopts — <code>*</code> for the whole surface, a list for a selection.</td></tr>
       <tr><th scope="row">forms: <span class="note">(import clause)</span></th><td>At the import</td><td>Which supported spellings this scope activates. Narrowing, never widening.</td></tr>
-      <tr><th scope="row">conceals:</th><td>At the import</td><td>Subtracts from an adopted surface — the one way to take a name back out of an <code>exposing *</code>.</td></tr>
+      <tr><th scope="row">conceals:</th><td>At the import</td><td>Subtracts from an adopted surface — the one way to take a name back out of an <code>exposing *</code>. Removes the <em>local</em> binding only: it does not make the declaration private in its own module, and <strong>it does not remove qualified access</strong>.</td></tr>
       <tr><th scope="row">as</th><td>At the import</td><td>Local naming. Renames the namespace without adopting anything into the bare vocabulary.</td></tr>
       <tr><th scope="row">private</th><td>In the module</td><td>A declaration that is never exported, and so never has capability to describe.</td></tr>
     </tbody>
@@ -298,7 +300,7 @@
 
   <div class="callout">
     <span class="lab">State it plainly</span>
-    There is <strong>no runtime method lookup</strong>. There is <strong>no global method table</strong>. There is <strong>no type-directed receiver dispatch</strong>. The dot is compile-time sugar over a function call, and by the time the program runs, the dot is not a thing that exists.
+    There is <strong>no runtime method lookup</strong>. There is <strong>no global method table</strong>. There is <strong>no type-directed receiver dispatch</strong>. The dot is compile-time sugar over a function call, and by the time the program runs, the dot is not a thing that exists. The specification puts it in two sentences: <em>"HIR stores the selected binding identity. Runtime does not search again."</em>
   </div>
 
   <p>Chains follow the same rule, one segment at a time:</p>
@@ -361,15 +363,23 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
   <p>There is no rule of the shape "if the receiver looks like a map, use the generic map <code>put</code>; if it looks like an AVL tree, use <code>AVLTree.put</code>." A dotted selector is chosen the way any other name is chosen — by scope:</p>
 
   <ul>
-    <li>A nearer enclosing scope beats an outer one.</li>
-    <li>Within a scope, a later import of the same provider beats an earlier one, and the compiler warns.</li>
-    <li>The same selector arriving into one scope from <em>two different modules</em> is genuine ambiguity. The resolver refuses it — an error, never a silent pick.</li>
+    <li>An inner lexical scope beats an outer scope.</li>
+    <li>Within one scope, a later declaration or import beats an earlier one.</li>
   </ul>
 
+  <p>That is the whole rule, and it is deliberately stated in general terms. There is no separate case for a selector arriving from two different modules — the same two rules decide it. Given:</p>
+
+<pre><code><span class="kw">import</span> 'stdlib:A' <span class="kw">exposing:</span> [put]
+<span class="kw">import</span> 'stdlib:B' <span class="kw">exposing:</span> [put]   <span class="cmt"># later, same scope</span></code></pre>
+
+  <p><code>B</code>'s <code>put</code> wins the adopted selector, and the compiler warns. An override is never silent: the warning names the winner and the shadowed declaration, and offers the fixes — renaming the module, a narrower <code>exposing:</code> list, aliasing the selector, or <code>conceals:</code>.</p>
+
   <div class="callout">
-    <span class="lab">Two collisions, two different answers</span>
-    These last two rules are not the same rule, and the difference is load-bearing. <strong>A same-scope duplicate of the <em>same</em> provider</strong> — importing one module's <code>put</code> twice — resolves by later-wins and <strong>warns</strong>. <strong>A same-scope collision between <em>two different</em> modules</strong> — a generic map <code>put</code> and <code>AVLTree.put</code> both landing on the bare selector <code>put</code> — is <strong>refused outright</strong>. The compiler will not guess which module you meant. That refusal is what makes section 6 necessary: a facade cannot resolve its overlaps by import order, because import order is not allowed to resolve them.
+    <span class="lab">One rule, not two</span>
+    A collision does not become a different kind of event because the two candidates came from different modules. Inner beats outer; later beats earlier; the override warns and tells you how to fix it. What the language does <em>not</em> do is pick by looking at the receiver — that is the part a Ruby or Swift reader has to unlearn, and it is unrelated to how collisions resolve.
   </div>
+
+  <p class="note">Implementation gap, not design: today's candidate resolver refuses a cross-module selector collision outright instead of applying later-wins with a warning. That is a known conformance defect recorded against the compiler, not a narrowing of the rule above. The specification is the contract; the resolver has to come to it.</p>
 
   <p>Whatever that produces is <em>the</em> <code>put</code> for that scope, and it applies to every <code>x.put(...)</code> written there. Consider a scope that has adopted a curated <code>put</code> and also uses an AVL tree:</p>
 
@@ -388,6 +398,8 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
   <p>Both <code>AVLTree.put</code> and a generic map <code>put</code> are receiver-capable — the exposure catalog records the receiver form for both. Capability is not the deciding factor. Activation is. This scope activated one of them under the bare selector <code>put</code>, and that is what the dot reaches.</p>
 
   <p>The other meanings do not disappear. They stay available four ways: <strong>qualified</strong> (<code>Tree.put(...)</code>), <strong>aliased</strong> (adopted under a different local name), <strong>after concealing or replacing</strong> the curated one in this scope, or through <strong>a different curated facade</strong> that made the other choice. What is not available is having both under the same bare spelling and letting the compiler guess from the value.</p>
+
+  <p>The qualified route is guaranteed, which is what makes the rest of this safe to use. Adopting a selector, losing it to a later import, or concealing it outright all act on the <em>local</em> vocabulary only — none of them can take <code>Tree.put(...)</code> away from you. <code>conceals:</code> in particular removes a binding from the current scope without making the declaration private in its own module and without removing qualified access. There is always a spelling that says exactly which module you meant.</p>
 
   <div class="callout">
     <span class="lab">Why the constraint is worth it</span>
@@ -430,6 +442,10 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
     <strong>Import order must never silently define the <code>Sys</code> API.</strong> Every overlapping name in the facade is a decision somebody made and wrote down.
   </div>
 
+  <p>Notice that the language will not stop a merge-everything facade. It has no reason to: by the ordinary rule, the last import of a colliding selector simply wins. A facade that imports every domain module and re-exposes everything would compile, and it would have a real API — one determined by the order its import lines happen to sit in. The warnings would fire, but they fire inside the facade, where its author can stop reading them, and the programs downstream would inherit whatever fell out.</p>
+
+  <p>That is precisely why the discipline has to live in the facade rather than in the compiler. Because later-wins is order-dependent, a curator has to choose; a merge lets the file's line ordering choose, and then a reordering that looks like tidying silently changes what <code>put</code> means for every program that adopted the surface. Curation is not a safety net the compiler provides — it is the work, and nothing else does it.</p>
+
   <p>Which leaves three legitimate moves per collision, and only three:</p>
 
   <ol>
@@ -437,8 +453,6 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
     <li><strong>Give conflicting meanings distinct curated names.</strong> The facade may re-expose <code>Files.join</code> as <code>path_join</code> and <code>Text.join</code> as <code>join</code> — or expose neither under a bare name.</li>
     <li><strong>Leave them qualified.</strong> <code>Http.get</code> and <code>Web.put</code> are perfectly good names. A program doing HTTP should say so.</li>
   </ol>
-
-  <p>There is a backstop under the discipline. The candidate resolver already treats one selector arriving into one scope from two different modules as an error rather than a preference, so a merge-everything facade would fail rather than quietly pick. But a compiler refusing to guess is not a substitute for a curator making a choice. The refusal is the safety net; curation is the product.</p>
 
   <h2>7 · What belongs in Sys</h2>
   <p>The membership list is deliberately not frozen here, and it should not be frozen by an article. It is being derived from a census over real Hey applications rather than from anybody's taste, and the principle behind the census matters more than any snapshot of its output:</p>
@@ -479,7 +493,7 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
       <tr><th scope="row">2 · Home</th><td>Give every operation a real module. A third of the generic ambient names had no module home at all; they need one before anything else can proceed. This breaks nothing and needs no new syntax.</td></tr>
       <tr><th scope="row">3 · Curate</th><td>Build the facade against the census, resolving every collision by decision rather than by order.</td></tr>
       <tr><th scope="row">4 · Route authority</th><td>Make the compiler consume resolver identities — one binding identity and one authorized form per call site — instead of re-deriving meaning from a flat name table.</td></tr>
-      <tr><th scope="row">5 · Adapt</th><td>Keep the old ambient spellings working as compatibility adapters, deprecated and warned, so existing programs keep running while they move.</td></tr>
+      <tr><th scope="row">5 · Adapt</th><td>Keep the old ambient spellings working as compatibility adapters, deprecated and warned, so existing programs keep running while they move. This needs no new mechanism: built-ins are already the outer lexical surface of <code>stdlib:BuiltIns</code>, so a migrated file's own import is inner and wins by the ordinary rule, while an unmigrated file keeps resolving outward exactly as before.</td></tr>
       <tr><th scope="row">6 · Guide</th><td>On an unknown name, the compiler names the module that exposes it and prints the exact import line to paste. This is a table lookup over a standard library the compiler ships with, not fuzzy matching — and it is migration infrastructure, not polish.</td></tr>
       <tr><th scope="row">7 · Migrate</th><td>Move first-party code — stdlib, tools, specs, examples, the shipped apps — onto real imports.</td></tr>
       <tr><th scope="row">8 · Prove</th><td>Drive legacy-resolution hits to zero and show it, rather than assuming the adapters went unused.</td></tr>
@@ -506,7 +520,7 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
     </thead>
     <tbody>
       <tr><th scope="row">Module &amp; exposure design</th><td><span class="okpill">Settled.</span> Capability versus activation, receiver as first argument, lexical selection, per-scope flavor.</td></tr>
-      <tr><th scope="row">Resolver machinery</th><td><span class="okpill">Substantially built.</span> The candidate resolver walks scopes into a flat fact table, applies nearest-scope and later-in-scope rules, warns on shadowing, seals selectors a module never exposed, fails closed on cross-module ambiguity, refuses import cycles, captures signatures, emits a per-scope imported-symbol table, and links across files.</td></tr>
+      <tr><th scope="row">Resolver machinery</th><td><span class="okpill">Substantially built.</span> The candidate resolver walks scopes into a flat fact table, applies the inner-beats-outer and later-beats-earlier rules, warns on shadowing, seals selectors a module never exposed, refuses import cycles, captures signatures, emits a per-scope imported-symbol table, and links across files. One known conformance gap: it currently refuses a cross-module selector collision instead of applying later-wins with a warning as the specification requires.</td></tr>
       <tr><th scope="row">Qualified &amp; bare identity publication</th><td><span class="okpill">Real.</span> Resolved call sites carry owning module, link name, arity, parameter ABI kinds and return kind — and that signature has been checked against the backend's own header parser used as an oracle.</td></tr>
       <tr><th scope="row">Receiver identity publication</th><td><span class="warnpill">Active cutover work.</span> The resolver records that a first argument came from a receiver, but the canonicalization that makes <code>m.put(k, v)</code> and <code>put(m, k, v)</code> one operation before ownership analysis is characterized and queued, not landed. Section 4's cost split is the visible consequence.</td></tr>
       <tr><th scope="row">Sys membership</th><td><span class="warnpill">Being derived</span> from an application corpus. Not frozen, not published.</td></tr>
@@ -542,7 +556,8 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
     <ol>
       <li><em>Maintainer ruling, 31 July 2026</em> — there should be no built-ins at all; every function lives in a module; <code>Sys</code> imports and re-exposes the real domain modules; the three consequences, the collision surface created by adopting a whole surface, and the phased removal of the ambient registry. Same source: the compiler-suggests-the-import ruling as migration infrastructure, and the census finding fourteen of roughly sixty generic names housed in two or more modules.</li>
       <li><em>stdlib/module_exposure_catalog.json</em> — the generated per-module exposure surface: 115 modules; per-exposure <code>forms</code> (<code>qualified</code>, <code>receiver</code>, <code>bare</code>, <code>send</code>), arity and source location; 249 bare-form builtin names under <code>stdlib:BuiltIns</code>; the collisions on <code>put</code>, <code>get</code>, <code>join</code> and <code>map</code>. Its own header marks it a temporary authoritative surface until <code>exposes</code> declarations enter the active parser.</li>
-      <li><em>stdlib/HeyNames.hey</em> — the candidate resolver: the scope walk and fact table, nearest-scope and later-in-scope resolution, shadowing as a warning, selector sealing, fail-closed cross-module ambiguity, module-graph cycle refusal, signatures, per-scope imported symbols, cross-file unit linking.</li>
+      <li><em>docs/developers/modules-and-packages.md</em> — the canonical language contract quoted here: the two resolution rules and the override warning (§"Conflicts are lexical and visible"); <code>conceals:</code> removing a local binding without removing qualified access, and built-ins as the outer lexical surface of <code>stdlib:BuiltIns</code> subject to the same conflict and concealment rules (§"Remove adopted names"); and "HIR stores the selected binding identity. Runtime does not search again."</li>
+      <li><em>stdlib/HeyNames.hey</em> — the candidate resolver as currently implemented: the scope walk and fact table, inner-beats-outer and later-beats-earlier resolution, shadowing as a warning, selector sealing, module-graph cycle refusal, signatures, per-scope imported symbols, cross-file unit linking. Its refusal of cross-module selector collisions is a conformance gap against the contract above, not evidence about the contract.</li>
       <li><em>docs/agents/module-system-authority-cutover-PLAN.md</em> (Status: PLAN) — what resolved IR must carry for a backend to lower a call without guessing; the signatures / imported-symbols / resolved-calls records; the receiver flag as resolver metadata; parity against the backend's own header parser; the flip that has not happened.</li>
       <li><em>Ownership reports on the map-update split</em> — the textual match on the builtin <code>put(</code> spelling, the method form missing its consume and move markers, the measured flat-versus-growing control, and the canonicalize-at-call-identity repair.</li>
       <li><em>module-system.md</em> and the early-August decision docket — the four-words framing, the <code>Math</code> operator exposure, precedence owned by the symbol, and the four still-open edge decisions.</li>
