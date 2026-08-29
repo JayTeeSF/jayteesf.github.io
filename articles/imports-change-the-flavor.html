@@ -225,6 +225,11 @@
   </table>
   </div>
 
+  <h3>Capability metadata is meant to be read</h3>
+  <p>The point of writing exposure down as data, rather than leaving it implicit in the compiler, is that other things can read it. The same record that tells the resolver which forms are legal should be able to tell a person: the public name, the forms it supports, its operator symbol when it has one, and where it was declared. That is what makes a receiver form discoverable instead of folklore — a reader who meets <code>items.map(f)</code> can find out which module supplied it and how, and an editor can complete after a dot, explain an override warning, or offer the qualified spelling that sidesteps a conflict.</p>
+
+  <p>This is also the honest version of removing the built-ins. Today a built-in is a name scattered through a parser and several emitters, and nothing outside the compiler can enumerate it. Under the module system it becomes an ordinary exposure of an ordinary module — one a file can conceal, shadow with a visible warning, or import explicitly to compare against something else. <strong>Built-ins stop being exceptions only the compiler remembers and become inspectable language data.</strong> The generated exposure catalog is the current, temporary stand-in for exactly that record.</p>
+
   <p>Because activation is lexical, flavor is a per-scope decision. <code>Math</code> exposes an operator — <code>exposes pow infix: '**'</code> — so a file that writes <code>import "stdlib:Math" exposing *</code> is not only borrowing functions; it is activating that module's forms, including <code>**</code>. Arithmetic in that one file can read the way Ruby's reads. The file next door, importing nothing, still sees plain Hey.</p>
 
   <figure class="diagram">
@@ -358,8 +363,13 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
   <ul>
     <li>A nearer enclosing scope beats an outer one.</li>
     <li>Within a scope, a later import of the same provider beats an earlier one, and the compiler warns.</li>
-    <li>The same selector arriving into one scope from <em>two different modules</em> is genuine ambiguity. The candidate resolver refuses it outright rather than silently picking one.</li>
+    <li>The same selector arriving into one scope from <em>two different modules</em> is genuine ambiguity. The resolver refuses it — an error, never a silent pick.</li>
   </ul>
+
+  <div class="callout">
+    <span class="lab">Two collisions, two different answers</span>
+    These last two rules are not the same rule, and the difference is load-bearing. <strong>A same-scope duplicate of the <em>same</em> provider</strong> — importing one module's <code>put</code> twice — resolves by later-wins and <strong>warns</strong>. <strong>A same-scope collision between <em>two different</em> modules</strong> — a generic map <code>put</code> and <code>AVLTree.put</code> both landing on the bare selector <code>put</code> — is <strong>refused outright</strong>. The compiler will not guess which module you meant. That refusal is what makes section 6 necessary: a facade cannot resolve its overlaps by import order, because import order is not allowed to resolve them.
+  </div>
 
   <p>Whatever that produces is <em>the</em> <code>put</code> for that scope, and it applies to every <code>x.put(...)</code> written there. Consider a scope that has adopted a curated <code>put</code> and also uses an AVL tree:</p>
 
@@ -383,6 +393,15 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
     <span class="lab">Why the constraint is worth it</span>
     Lexical resolution is what makes section 4 possible. A type-directed dot would mean the meaning of <code>x.put(k, v)</code> depends on a value, which either forces a lookup at runtime or forces the optimizer to reason about types before it can reason about identity. Deciding once, by scope, is what lets three spellings collapse to one symbol before any optimization runs.
   </div>
+
+  <h3>The precedent is extension methods, not methods</h3>
+  <p>If Hey's rule feels exotic, it is not. The dot-without-dispatch shape is well travelled, and the languages that took it took it for the same reasons.</p>
+
+  <p>C# extension methods are ordinary static methods callable with instance-looking syntax, with the receiver as the first parameter. Kotlin states outright that extensions do not add members to the extended class and are resolved <em>statically</em> — the declared type at the call site decides, not the runtime value. That is Hey's rule with the serial numbers filed off, and it is why a Ruby or Swift reader's instinct mis-transfers: those languages dispatch on the receiver, and these do not.</p>
+
+  <p>The scope half has equally good precedent. Elixir's imports and aliases are lexical and narrowable with inclusion and exclusion lists. Haskell keeps a module's export list and an importer's hiding list as two separate decisions — which is exactly the capability-versus-activation split of section 2, arrived at independently. Those are better guides for Hey than any runtime method table.</p>
+
+  <p>Rust is worth naming for the one collision Hey has not settled. Where a callable field and a receiver function could claim the same dotted spelling, Rust removes the ambiguity in the grammar: <code>value.name(...)</code> is a method call, and a callable field must be written <code>(value.name)(...)</code>. Hey's open decision is whether to do something similar, apply the normal latest-lexical-binding rule with a warning, or reject the ambiguous spelling outright. Kotlin and C# both generally favour a real member over an extension; Hey has not ruled.</p>
 
   <h2>6 · Sys is curation, not merge</h2>
   <p>The moment a facade exists, a lazy implementation suggests itself: import every domain module, re-expose everything, and let import order settle the overlaps. That implementation must not be built.</p>
@@ -502,7 +521,7 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
 
   <p>A few narrower questions are genuinely open rather than merely unimplemented, and have been since the early-August docket: which wins when a dotted call matches both a callable field and an imported receiver function; exactly what diagnostic fires when dotted syntax names no eligible receiver; the per-binding alias spelling; and whether reusable selector sets are worth having as a compile-time-only construct. The module-path resolution algorithm — search paths, package roots — was also never fully stated.</p>
 
-  <p>One boundary is drawn on purpose and is not open: <strong>no dynamic binding from data.</strong> Runtime arrays and maps cannot create lexical bindings. A module-value API would be a separate thing; the lexical layer stays lexical.</p>
+  <p>One boundary is drawn on purpose and is not open: <strong>no dynamic binding from data.</strong> A runtime array or map cannot decide which lexical names exist after compilation. Python draws the same line and is a useful reference for it — ordinary imports are language syntax, while programmatic loading goes through a separate library call. Hey can add a module-value loader later; it would be a different mechanism, not an extension of this one. Reusable selector sets, if they are ever adopted, have to be compile-time manifests or generated source for the same reason. The lexical layer stays lexical.</p>
 
   <h2>10 · The promise</h2>
   <p>What a user should get out of all this is narrow and specific.</p>
@@ -527,6 +546,7 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
       <li><em>docs/agents/module-system-authority-cutover-PLAN.md</em> (Status: PLAN) — what resolved IR must carry for a backend to lower a call without guessing; the signatures / imported-symbols / resolved-calls records; the receiver flag as resolver metadata; parity against the backend's own header parser; the flip that has not happened.</li>
       <li><em>Ownership reports on the map-update split</em> — the textual match on the builtin <code>put(</code> spelling, the method form missing its consume and move markers, the measured flat-versus-growing control, and the canonicalize-at-call-identity repair.</li>
       <li><em>module-system.md</em> and the early-August decision docket — the four-words framing, the <code>Math</code> operator exposure, precedence owned by the symbol, and the four still-open edge decisions.</li>
+      <li><em>Language prior art</em> — C# extension members and Kotlin extensions (static resolution, receiver as first parameter, no members added to the extended type); Elixir imports, aliases and private functions (lexical, narrowable by inclusion and exclusion); Haskell modules (export list and import hiding as separate decisions); Rust field expressions (<code>value.name(...)</code> as a method call versus <code>(value.name)(...)</code> for a callable field); Python modules versus programmatic loading. Absorbed here from an earlier note on dot syntax without objects, which this article now supersedes.</li>
     </ol>
   </div>
 
