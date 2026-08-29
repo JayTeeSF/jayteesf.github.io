@@ -4,14 +4,29 @@
 require "pathname"
 
 class ArticlesIndex
+  # THE SHELF LABELS ARE THE SITE'S INFORMATION ARCHITECTURE, not a record of an
+  # internal publishing habit. The previous set -- featured / benchmarks / almost /
+  # daily -- described a benchmark campaign and a daily working log the site no
+  # longer runs, and two of its four sections rendered as "No articles found."
+  # A reader does not care which internal lane produced a page; they care which
+  # question it answers. These buckets are those questions, in reading order.
   BUCKET_HEADINGS = {
-    "featured" => "Featured",
-    "benchmarks" => "Benchmark stories",
-    "almost" => "Explored, not (yet) shipped",
-    "daily" => "Daily reports"
+    "start" => "Start here",
+    "how-it-works" => "How Hey works",
+    "build" => "Build with Hey",
+    "actors" => "Actors",
+    "research" => "Ideas and research",
+    "status" => "Current project status",
+    "reference" => "Reference"
   }.freeze
 
-  BUCKET_ORDER = %w[featured benchmarks almost daily].freeze
+  BUCKET_ORDER = %w[start how-it-works build actors research status reference].freeze
+
+  # Within a bucket the default order is newest first, which is wrong exactly
+  # where two pages were published the same day and one is the prerequisite for
+  # the other. article-index-rank is the escape hatch: lower sorts first, and it
+  # is compared as TEXT so a page may simply omit it and take the default.
+  DEFAULT_RANK = "50"
 
   def initialize(articles_dir)
     @articles_dir = Pathname(articles_dir).expand_path
@@ -36,7 +51,7 @@ class ArticlesIndex
 
   def article_files
     Pathname.glob(articles_dir.join("*.html"))
-      .reject { |path| ["index.html", "glossary.html"].include?(path.basename.to_s) }
+      .reject { |path| path.basename.to_s == "index.html" }
       .reject { |path| path.basename.to_s.start_with?("DRAFT-") }
       .sort_by { |path| path.basename.to_s }
   end
@@ -63,10 +78,10 @@ class ArticlesIndex
   # carries its own index copy and this generator is IDEMPOTENT. Neither is
   # required: omit them and <title> / article-desc are used exactly as before.
   #
-  # This mirrors generate-articles-index.hey and generate-dailies-index.rb,
-  # which grew the same two overrides for the same reason. The two generators
+  # This mirrors generate-articles-index.hey, its Hey twin. The two generators
   # disagreeing was itself the bug -- a fact restated in two programs, corrected
-  # in one.
+  # in one -- so any change here belongs in both. The dailies pair that once made
+  # this a foursome was retired on 2026-08-29 along with the dailies category.
   def parse_article(path)
     content = path.read
     filename = path.basename.to_s
@@ -95,7 +110,10 @@ class ArticlesIndex
             "(expected one of #{BUCKET_ORDER.join(', ')})"
     end
 
-    { filename: filename, title: title, date: date, bucket: bucket, desc: desc }
+    rank = extract_meta(content, "article-index-rank")
+    rank = DEFAULT_RANK if rank.nil? || rank.strip.empty?
+
+    { filename: filename, title: title, date: date, bucket: bucket, desc: desc, rank: rank }
   end
 
   def articles
@@ -103,6 +121,9 @@ class ArticlesIndex
   end
 
   def compare_entries(left, right)
+    comparison = left[:rank] <=> right[:rank]
+    return comparison unless comparison.zero?
+
     comparison = right[:date] <=> left[:date]
     return comparison unless comparison.zero?
 
@@ -129,16 +150,18 @@ class ArticlesIndex
     ]
   end
 
+  # AN EMPTY BUCKET RENDERS NOTHING AT ALL. The old generator emitted the heading
+  # plus "No articles found.", which is how the published index came to advertise
+  # two sections -- Benchmark stories, Daily reports -- that had no contents and
+  # no prospect of any. A shelf label with nothing on it is not information; it is
+  # the residue of a workflow. Callers skip the section entirely.
   def bucket_section(bucket, entries)
-    lines = ["  <h2>#{BUCKET_HEADINGS.fetch(bucket)}</h2>"]
+    return [] if entries.empty?
 
-    if entries.empty?
-      lines << '  <p class="empty">No articles found.</p>'
-    else
-      lines << '  <ul class="articles">'
-      entries.each { |article| lines.concat(article_item(article)) }
-      lines << "  </ul>"
-    end
+    lines = ["  <h2>#{BUCKET_HEADINGS.fetch(bucket)}</h2>"]
+    lines << '  <ul class="articles">'
+    entries.each { |article| lines.concat(article_item(article)) }
+    lines << "  </ul>"
 
     lines
   end
@@ -147,7 +170,8 @@ class ArticlesIndex
     grouped = grouped_articles
 
     sections = BUCKET_ORDER.flat_map do |bucket|
-      ["", *bucket_section(bucket, grouped.fetch(bucket, []))]
+      section = bucket_section(bucket, grouped.fetch(bucket, []))
+      section.empty? ? [] : ["", *section]
     end
 
     lines = [
@@ -202,9 +226,10 @@ class ArticlesIndex
       "<main>",
       '  <a class="home" href="../index.html">&larr; www.jayteesf.com</a>',
       "  <h1>Articles</h1>",
-      '  <p class="sub">Field notes from building and measuring the Hey programming',
-      "  language — a benchmark campaign with receipts, and the research that",
-      "  steers it.</p>",
+      '  <p class="sub">Essays, guides, research and current reference material from',
+      "  building the Hey programming language — how the language works, how its",
+      "  compiler is being made trustworthy and fast, and what its actor and",
+      "  distributed systems are trying to become.</p>",
       *sections,
       "</main>",
       "</body>",
