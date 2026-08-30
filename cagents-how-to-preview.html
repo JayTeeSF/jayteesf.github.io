@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Cagents how-to preview — operating the coordination graph</title>
+<style>
+:root{--ink:#101828;--muted:#667085;--line:#d8e0ea;--blue:#175cd3;--green:#067647;--amber:#b54708;--code:#101828}*{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:var(--ink);font:17px/1.6 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}header{background:#fff;border-bottom:1px solid var(--line);padding:58px 22px 46px}header>div,main{max-width:1100px;margin:auto}.eyebrow{text-transform:uppercase;letter-spacing:.13em;font-weight:800;font-size:.78rem;color:var(--blue)}h1{font-size:clamp(2.25rem,5vw,4.7rem);line-height:.98;margin:.18em 0 .25em;max-width:900px}.lede{font-size:1.25rem;color:#475467;max-width:800px}.draft{display:inline-block;border:1px solid #b2ccff;background:#eff4ff;border-radius:999px;padding:3px 9px;margin-left:8px;font-size:.72rem}.page{background:#fff;padding:28px 22px 80px}h2{font-size:2rem;line-height:1.1;margin:64px 0 16px}h3{font-size:1.28rem;margin:30px 0 10px}.rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:24px 0}.rail a{color:inherit;text-decoration:none;border:1px solid var(--line);border-radius:14px;padding:13px;background:#fbfcfe;font-weight:700}.rail a span{display:block;color:var(--muted);font-size:.82rem;font-weight:500}.callout{border-left:5px solid var(--blue);background:#eff6ff;border-radius:14px;padding:17px 20px;margin:20px 0}.good{border-left-color:#12b76a;background:#ecfdf3}.warn{border-left-color:#f79009;background:#fffaeb}.diagram{border:1px solid var(--line);border-radius:18px;background:#fcfdff;padding:16px;overflow:auto;margin:22px 0}.diagram svg{width:100%;min-width:760px;height:auto}.box{fill:#fff;stroke:#667085;stroke-width:2;rx:14}.blue{fill:#eff4ff;stroke:#175cd3}.green{fill:#ecfdf3;stroke:#12b76a}.amber{fill:#fffaeb;stroke:#f79009}.arrow{stroke:#667085;stroke-width:2.4;fill:none}.label{font:700 16px ui-sans-serif,system-ui;fill:#101828}.sub{font:500 12px ui-sans-serif,system-ui;fill:#475467}pre{background:var(--code);color:#e4e7ec;border-radius:17px;padding:18px;overflow:auto;line-height:1.48;font-size:.93rem}code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.flow{display:grid;gap:12px}.step{display:grid;grid-template-columns:42px 1fr;gap:14px}.n{width:38px;height:38px;border-radius:999px;background:#175cd3;color:white;display:grid;place-items:center;font-weight:800}.step>div:last-child{padding-bottom:14px;border-bottom:1px solid var(--line)}table{width:100%;border-collapse:collapse;margin:18px 0}th,td{border-bottom:1px solid var(--line);padding:11px;text-align:left;vertical-align:top}th{text-transform:uppercase;letter-spacing:.08em;font-size:.78rem;color:#475467}.kbd{display:inline-block;padding:1px 7px;border:1px solid #cfd6e2;border-bottom-width:2px;border-radius:7px;background:#fff;font-family:ui-monospace,monospace;font-size:.86em}.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{border:1px solid var(--line);border-radius:16px;padding:17px}.card h3{margin-top:0}.tiny{font-size:.9rem;color:var(--muted)}footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted)}@media(max-width:760px){.two{grid-template-columns:1fr}h1{font-size:2.45rem}.page{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<header><div><p class="eyebrow">Cagents · practical guide <span class="draft">preview · not indexed</span></p><h1>How to operate a Cagents project.</h1><p class="lede">The short version: record the human intent once, decompose it into goals and tasks, let refs carry current state, and use the CLI for every state-changing operation.</p></div></header>
+<main class="page">
+<div class="callout"><strong>This is the companion to the architecture article.</strong> It intentionally lives at the repository root until reviewed.</div>
+<nav class="rail"><a href="#start">1 · Start<span>bind actor + project</span></a><a href="#prompt">2 · Prompt<span>durable human intent</span></a><a href="#goals">3 · Goals<span>outcomes to make true</span></a><a href="#tasks">4 · Tasks<span>bounded execution</span></a><a href="#runs">5 · Runs<span>delegate safely</span></a><a href="#supervision">6 · Supervision<span>heartbeat + watchdog</span></a></nav>
+<h2 id="start">1. Start from one participant file</h2>
+<p>Agents should not recursively ingest the repository. Each persistent participant gets one <code>START.md</code> that gives exact bootstrap commands and tells it where current truth comes from.</p>
+<pre><code>cd "$HOME/dev/generic_cagents"
+git pull --rebase
+
+cd "$HOME/dev/cagents"
+git pull --rebase
+
+export CAGENTS_ACTOR=orchestrator
+export CAGENTS_SESSION="orchestrator-$(date -u +%Y%m%dT%H%M%SZ)"
+
+bin/cagents doctor
+bin/cagents use hey
+bin/cagents presence start
+bin/cagents update
+bin/cagents graph audit</code></pre>
+<div class="callout good"><strong>What the agent should not search for:</strong> no <code>NOW.md</code>, no task <code>STATE.md</code>, no participant <code>STATE.md</code>, no giant handoff journal. <code>cagents update</code> and <code>cagents now</code> derive current work from canonical objects and refs.</div>
+<h2 id="prompt">2. Record the overriding prompt</h2>
+<p>The project prompt is the durable answer to “what does the Maintainer ultimately want?” It is not a daily todo list.</p>
+<pre><code>bin/cagents project-prompt init \
+  --project cagents \
+  --id prompt_cagents_self_supervising_control_plane \
+  --title "Build Cagents into a self-supervising control plane" &lt;&lt;'EOF'
+Build Cagents so the Maintainer can supervise many persistent agents
+without depending on agents remembering handoff documents.
+EOF</code></pre>
+<p>If the intent evolves, append an amendment rather than silently rewriting history:</p>
+<pre><code>bin/cagents project-prompt amend --project cagents &lt;&lt;'EOF'
+Presence must distinguish an intentional budget pause from a blocked task.
+EOF</code></pre>
+<div class="diagram"><svg viewBox="0 0 980 300" role="img" aria-label="Prompt to goals to tasks"><defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#667085"/></marker></defs><rect class="box blue" x="45" y="95" width="210" height="100"/><text class="label" x="150" y="132" text-anchor="middle">PROMPT</text><text class="sub" x="150" y="158" text-anchor="middle">what does the human want?</text><path class="arrow" marker-end="url(#a)" d="M255 145 H365"/><rect class="box green" x="365" y="95" width="210" height="100"/><text class="label" x="470" y="132" text-anchor="middle">GOAL</text><text class="sub" x="470" y="158" text-anchor="middle">what outcome must become true?</text><path class="arrow" marker-end="url(#a)" d="M575 145 H685"/><rect class="box amber" x="685" y="95" width="245" height="100"/><text class="label" x="808" y="132" text-anchor="middle">TASK</text><text class="sub" x="808" y="158" text-anchor="middle">what bounded work advances it?</text></svg></div>
+<h2 id="goals">3. Decompose intent into goals</h2>
+<p>Goals are outcomes, not implementation steps. They can survive several failed approaches.</p>
+<pre><code>bin/cagents goal new \
+  --project cagents \
+  --id goal_supervision_watchdog \
+  --title "Algorithmic supervision without permanent agent overhead" \
+  --parent prompt_cagents_self_supervising_control_plane &lt;&lt;'EOF'
+Current work, actor presence and unattended execution must be detectable
+algorithmically before an agentic reconciler is involved.
+EOF</code></pre>
+<div class="two"><div class="card"><h3>Good goal</h3><p><strong>“Hosted control plane works from web and native clients.”</strong></p><p class="tiny">Observable outcome. Multiple tasks can advance it.</p></div><div class="card"><h3>Weak goal</h3><p><strong>“Edit server.hey and add three routes.”</strong></p><p class="tiny">That is an implementation task, not the outcome.</p></div></div>
+<h2 id="tasks">4. Create tasks as stable objects</h2>
+<p>A task gets a stable directory. Its workflow state and owner are refs. This makes transitions narrow and explicit.</p>
+<pre><code>printf '%s\n' 'Implement deterministic heartbeat supervision.' | \
+bin/cagents task new \
+  --project cagents \
+  --id heartbeat-supervision \
+  --title "Heartbeat supervision" \
+  --owner cagents-orchestrator \
+  --status ready</code></pre>
+<p>Conceptually, creation produces:</p>
+<pre><code>tasks/heartbeat-supervision/TASK.md
+refs/workflow/ready/heartbeat-supervision
+refs/owner/cagents-orchestrator/heartbeat-supervision</code></pre>
+<p>Starting it moves one ref:</p>
+<pre><code>bin/cagents task status \
+  --project cagents \
+  --id heartbeat-supervision \
+  --status in_progress</code></pre>
+<p>That should be published in the same Git transaction as other related ownership/lease mutations whenever the operation spans several refs.</p>
+<h3>Current state is a query</h3>
+<pre><code>bin/cagents now --project cagents
+bin/cagents task list --project cagents --status ready
+bin/cagents refs heartbeat-supervision --project cagents
+bin/cagents graph audit --project cagents</code></pre>
+<div class="callout"><strong>Invariant:</strong> every live task has exactly one workflow ref and exactly one owner ref unless the system explicitly models an unowned state.</div>
+<h2>5. Model waiting separately from ownership</h2>
+<p>Ownership answers “who is accountable?” Waiting answers “what must happen before progress can continue?” They should not be collapsed into one field.</p>
+<pre><code>task_X
+  owner       → orchestrator
+  waiting-on  → decision_Y
+  goal        → goal_compiler
+  workflow    → waiting</code></pre>
+<p>A single task can therefore remain accountable to one agent while it waits on the Maintainer, another agent, a decision, an external service, or a compiler fix.</p>
+<h2 id="runs">6. Delegate execution without surrendering accountability</h2>
+<p>The task owner can fan work out to sub-agents. The sub-agents execute attempts; they do not automatically become the task owner.</p>
+<div class="diagram"><svg viewBox="0 0 1020 420" role="img" aria-label="Owner and run group fanout"><defs><marker id="b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#667085"/></marker></defs><rect class="box blue" x="390" y="40" width="240" height="80"/><text class="label" x="510" y="73" text-anchor="middle">Task</text><text class="sub" x="510" y="98" text-anchor="middle">owner: orchestrator</text><path class="arrow" marker-end="url(#b)" d="M510 120 V180"/><rect class="box green" x="380" y="180" width="260" height="90"/><text class="label" x="510" y="215" text-anchor="middle">Run group</text><text class="sub" x="510" y="240" text-anchor="middle">policy: first-success / all / best-of</text><path class="arrow" marker-end="url(#b)" d="M440 270 L220 335"/><path class="arrow" marker-end="url(#b)" d="M510 270 V335"/><path class="arrow" marker-end="url(#b)" d="M580 270 L800 335"/><rect class="box" x="120" y="335" width="200" height="65"/><text class="label" x="220" y="372" text-anchor="middle">run A</text><rect class="box" x="410" y="335" width="200" height="65"/><text class="label" x="510" y="372" text-anchor="middle">run B</text><rect class="box" x="700" y="335" width="200" height="65"/><text class="label" x="800" y="372" text-anchor="middle">run C</text></svg></div>
+<pre><code>bin/cagents dispatch \
+  --project cagents \
+  --task heartbeat-supervision \
+  --label review-watchdog-edge-cases</code></pre>
+<table><thead><tr><th>Policy</th><th>Meaning</th></tr></thead><tbody><tr><td><code>all</code></td><td>Every child run must succeed.</td></tr><tr><td><code>first-success</code></td><td>Accept the first successful run; cancel/supersede the rest.</td></tr><tr><td><code>quorum:N</code></td><td>Require N agreeing/successful results.</td></tr><tr><td><code>best-of</code></td><td>Collect several results and evaluate them.</td></tr><tr><td><code>manual</code></td><td>Maintainer or owner chooses.</td></tr></tbody></table>
+<h2 id="supervision">7. Keep presence outside Git</h2>
+<p>Heartbeat is frequent operational state. It should not create a Git commit every few minutes.</p>
+<pre><code># agent/session comes online
+bin/cagents presence start
+
+# refreshed periodically
+bin/cagents presence heartbeat
+
+# intentional cost-saving pause
+bin/cagents presence pause --reason budget_pause --expected-return 'tomorrow'
+
+# normal shutdown
+bin/cagents presence stop --reason normal_shutdown</code></pre>
+<p>The local CLI keeps that state outside the coordination repo. The hosted service keeps the equivalent state in its operational database.</p>
+<h3>What the watchdog checks</h3>
+<div class="flow"><div class="step"><div class="n">1</div><div><strong>Read only facts.</strong><br>Workflow ref, owner, heartbeat age, lease, child runs, accepted result, latest durable activity.</div></div><div class="step"><div class="n">2</div><div><strong>Respect declared silence.</strong><br>If the agent said a build or delegated run will take 45 minutes, do not nag it at minute 10.</div></div><div class="step"><div class="n">3</div><div><strong>Nudge the owner.</strong><br>Ask the accountable agent to checkpoint or finish its own task through the CLI.</div></div><div class="step"><div class="n">4</div><div><strong>Escalate only ambiguity.</strong><br>A reconciler examines evidence only when deterministic facts conflict or the owner cannot respond.</div></div></div>
+<h2>8. Do not auto-label silence as blocked</h2>
+<table><thead><tr><th>Observed fact</th><th>Derived operational health</th></tr></thead><tbody><tr><td>Live heartbeat + recent activity</td><td><code>healthy</code></td></tr><tr><td>Owner intentionally paused</td><td><code>paused-owner</code></td></tr><tr><td>Running presence but heartbeat expired</td><td><code>unattended</code></td></tr><tr><td>Two workflow refs for one task</td><td><code>inconsistent</code></td></tr><tr><td>Task waits on explicit decision</td><td>workflow may be <code>waiting</code>; not a heartbeat problem</td></tr></tbody></table>
+<div class="callout warn"><strong>Keep dimensions separate.</strong> Workflow says what is happening to the work. Operational health says whether the coordination graph and live execution look healthy.</div>
+<h2>9. Use doctor, audit, reconcile and GC for different jobs</h2>
+<pre><code>doctor
+  Is the repository structurally valid?
+
+audit
+  Do deterministic facts look inconsistent?
+
+reconcile
+  What semantic repair is justified by evidence?
+
+gc
+  What cold history can be compacted without forgetting it?</code></pre>
+<p>The first two should be algorithmic. The third may need an agent. The fourth should follow explicit retention and strong-reference rules.</p>
+<h2>10. Keep high-cardinality metadata compact</h2>
+<p>Do not create one filesystem inode for every tag or backlink. Use physical refs for high-value operational edges; use compact metadata and derived indexes for descriptive relationships.</p>
+<pre><code>physical refs
+  workflow
+  owner
+  waiting-on
+  lease / active-run
+
+compact metadata + derived reverse index
+  tags
+  taxonomy
+  mentions
+  historical backlinks</code></pre>
+<h2>11. Treat Git commits as coordination transactions</h2>
+<p>Claiming a task may need to change several relationships:</p>
+<pre><code>remove  refs/workflow/ready/task_X
+add     refs/workflow/in_progress/task_X
+add     refs/owner/orchestrator/task_X
+create  execution lease</code></pre>
+<p>Publish those changes as one valid graph transition, not four externally visible half-states.</p>
+<h2>12. The normal operating loop</h2>
+<div class="diagram"><svg viewBox="0 0 1080 330" role="img" aria-label="Daily Cagents operating loop"><defs><marker id="c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#667085"/></marker></defs><rect class="box blue" x="30" y="115" width="150" height="80"/><text class="label" x="105" y="150" text-anchor="middle">update</text><text class="sub" x="105" y="172" text-anchor="middle">derive NOW</text><path class="arrow" marker-end="url(#c)" d="M180 155 H245"/><rect class="box" x="245" y="115" width="150" height="80"/><text class="label" x="320" y="150" text-anchor="middle">claim</text><text class="sub" x="320" y="172" text-anchor="middle">move refs</text><path class="arrow" marker-end="url(#c)" d="M395 155 H460"/><rect class="box green" x="460" y="115" width="150" height="80"/><text class="label" x="535" y="150" text-anchor="middle">work</text><text class="sub" x="535" y="172" text-anchor="middle">delegate if useful</text><path class="arrow" marker-end="url(#c)" d="M610 155 H675"/><rect class="box amber" x="675" y="115" width="150" height="80"/><text class="label" x="750" y="150" text-anchor="middle">checkpoint</text><text class="sub" x="750" y="172" text-anchor="middle">evidence / event</text><path class="arrow" marker-end="url(#c)" d="M825 155 H890"/><rect class="box" x="890" y="115" width="150" height="80"/><text class="label" x="965" y="150" text-anchor="middle">finish</text><text class="sub" x="965" y="172" text-anchor="middle">move to done</text></svg></div>
+<pre><code>bin/cagents update
+bin/cagents task list --status ready
+bin/cagents task status --id task_X --status in_progress
+# do the work; dispatch bounded runs if useful
+bin/cagents task event --id task_X --kind evidence &lt; receipt.txt
+bin/cagents task status --id task_X --status done
+bin/cagents graph audit</code></pre>
+<h2>13. What the Maintainer should see</h2>
+<p>The CLI and hosted UI should render the same underlying graph:</p>
+<pre><code>CAGENTS_NOW project=cagents
+prompt=prompt_cagents_self_supervising_control_plane
+
+ready=7
+in_progress=2
+blocked=1
+waiting=2
+
+ACTIVE / ATTENTION
+in_progress  cagents-orchestrator  server-web-control-plane
+waiting      orchestrator          compiler-native-coverage
+ready        cagents-orchestrator  managed-repository-provisioning</code></pre>
+<p>No agent authored that status page. It is a view.</p>
+<footer><p>Preview file: <code>/cagents-how-to-preview.html</code>. Companion: <code>/cagents-preview.html</code>.</p></footer>
+</main>
+</body></html>
