@@ -116,8 +116,15 @@
         <strong>22.3&ndash;23.0&times;</strong> at a batch of 32, and p50 latency <em>falls</em>
         from 131&ndash;260&nbsp;ms to 5&ndash;13&nbsp;ms as batching rises. 3,200 records need
         <strong>3,200</strong> device flushes one at a time and about <strong>104</strong> batched.</li>
-      <li><strong>&ldquo;SQLite is slow&rdquo; is false, and it is the most important thing in this
-        article.</strong> With <code>fullfsync</code> off, SQLite does <strong>23,354 rows/s</strong>
+      <li><strong>Above two concurrent writers this journal beats SQLite; at one writer it
+        loses.</strong> Measured on Linux with both engines on the same <code>fdatasync</code>
+        barrier: <strong>0.78&times;</strong> at 1 writer, <strong>8.08&times;</strong> at 8,
+        <strong>30.51&times;</strong> at 32 &mdash; and SQLite&rsquo;s p99 at 32 writers is
+        <strong>532&nbsp;ms</strong> against this journal&rsquo;s <strong>2.5&nbsp;ms</strong>.
+        SQLite gets <em>slower</em> as writers arrive. See
+        <a href="#done-properly">The comparison, done properly</a>.</li>
+      <li><strong>&ldquo;SQLite is slow&rdquo; is false as a blanket claim, and that is still
+        the most important thing in this article.</strong> With <code>fullfsync</code> off, SQLite does <strong>23,354 rows/s</strong>
         single-writer and beats this broker outright. The comparison only inverts once a real
         barrier is required, where SQLite goes <strong>83.4 &rarr; 77.0 &rarr; 66.2 txn/s</strong> at
         1 &rarr; 4 &rarr; 8 writers &mdash; throughput <em>falling</em>. A benchmark that does not
@@ -1687,6 +1694,15 @@ native_handle_closed
     <p>
       This is the intellectual heart of the comparison and it goes against us, so it goes first.
     </p>
+    <p style="border-left:3px solid #b3261e;padding-left:0.9rem">
+      <strong>Update, same day.</strong> Everything in this box is still true, and it was still
+      not a fair comparison &mdash; because I had diagnosed the unfairness only halfway. The
+      numbers below put a real device flush on one side and an <em>ordering barrier</em> on the
+      other. Once both sides are held to the same barrier, on Linux, the answer flips above two
+      writers. The corrected measurement is in
+      <a href="#done-properly">The comparison, done properly</a>; this box is kept as written
+      rather than quietly edited.
+    </p>
     <p>
       With <code>fullfsync</code> <strong>off</strong>, SQLite does <strong>23,354 rows/s</strong>
       single-writer and <strong>13,043 txn/s at 8 writers</strong>, at a p99 of
@@ -2043,7 +2059,194 @@ native_handle_closed
     </p>
   </div>
 
-  <h2 id="limits">The limits, stated plainly</h2>
+    <h2 id="done-properly">The comparison, done properly</h2>
+
+  <p>
+    Everything above about SQLite was measured honestly and compared dishonestly, and it took
+    three more probes to see why. The first comparison put a <em>real device flush</em> on one
+    side and an <em>ordering barrier</em> on the other, and I did not know that at the time
+    because macOS does not have one &ldquo;sync&rdquo; &mdash; it has three, and they differ by
+    two orders of magnitude.
+  </p>
+
+  <div class="figwrap">
+  <table>
+    <caption style="caption-side:top;text-align:left;padding-bottom:0.5rem">
+      <strong>Darwin has three durability tiers.</strong> M-series laptop, APFS.
+    </caption>
+    <thead><tr><th>Primitive</th><th>Cost</th><th>What it actually guarantees</th></tr></thead>
+    <tbody>
+      <tr><td><code>fsync</code> / <code>fdatasync</code></td><td>0.045&nbsp;ms</td>
+          <td>Reached the drive, not the platters. <strong>Not power-safe.</strong></td></tr>
+      <tr><td><code>F_BARRIERFSYNC</code></td><td>0.239&nbsp;ms</td>
+          <td>I/O ordering barrier. Still not a media flush.</td></tr>
+      <tr><td><code>F_FULLFSYNC</code></td><td>4.020&nbsp;ms</td>
+          <td>The drive flushed its cache. Power-safe.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Eighty-nine times between the fastest lie and the truth. Then the second probe: what does
+    Apple&rsquo;s SQLite actually issue? At <code>journal_mode=WAL, synchronous=FULL,
+    fullfsync=ON</code> a commit costs <strong>0.377&nbsp;ms</strong>. The pragma does change
+    behaviour &mdash; 0.080&nbsp;ms without it &mdash; but 0.377&nbsp;ms lands in the
+    <em>barrier</em> tier, nowhere near the 4.0&nbsp;ms flush tier. Meanwhile this journal&rsquo;s
+    single-writer p50 was 3.99&nbsp;ms: <em>exactly one <code>F_FULLFSYNC</code></em>, with no
+    waste around it.
+  </p>
+
+  <div class="callout">
+    <h2>The most dangerous shape a durability setting can have</h2>
+    <p>
+      On macOS that SQLite profile is <strong>not</strong> media-durable. On Linux the same
+      profile costs 0.605&nbsp;ms/commit against a bare <code>fdatasync</code> of
+      0.514&nbsp;ms &mdash; one real barrier per commit. So the configuration is durable on the
+      production platform and not on the development one. It will never fail a test on the
+      machine where it is wrong.
+    </p>
+  </div>
+
+  <p>
+    So the fair test has to run on Linux, where both engines use the same primitive. Both lanes
+    in one process, back to back, 80 records per writer, each SQLite writer on its own
+    connection with a 30-second busy timeout, no multi-row batching on either side because
+    neither caller batches:
+  </p>
+
+  <div class="figwrap">
+  <table>
+    <thead><tr><th>Writers</th><th>SQLite</th><th>This journal</th><th>Ratio</th>
+      <th>SQLite p99</th><th>Journal p99</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>1,630/s</td><td>1,279/s</td><td><strong>0.78&times;</strong></td><td>1.9&nbsp;ms</td><td>1.5&nbsp;ms</td></tr>
+      <tr><td>4</td><td>1,061/s</td><td>3,484/s</td><td><strong>3.28&times;</strong></td><td>3.0&nbsp;ms</td><td>1.9&nbsp;ms</td></tr>
+      <tr><td>8</td><td>944/s</td><td>7,628/s</td><td><strong>8.08&times;</strong></td><td>2.3&nbsp;ms</td><td>2.2&nbsp;ms</td></tr>
+      <tr><td>32</td><td>797/s</td><td>24,305/s</td><td><strong>30.51&times;</strong></td><td><strong>532&nbsp;ms</strong></td><td><strong>2.5&nbsp;ms</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    Two things there matter more than the headline ratio. <strong>SQLite gets slower as writers
+    arrive</strong> &mdash; 1,630 down to 797. That is not noise, it is the WAL write lock: a
+    committing writer holds it <em>across</em> its <code>fdatasync</code>, so the durable commit
+    rate is <code>1 / barrier_cost</code> however many are queued, and the queueing itself costs
+    something. The journal goes the other way, 1,279 up to 24,305, because more concurrent
+    callers mean a bigger batch under one barrier. Different asymptotes, not different constants.
+  </p>
+
+  <p>
+    And <strong>the tail is the real story</strong>. At 32 writers SQLite&rsquo;s p99 is
+    532&nbsp;ms against 2.5&nbsp;ms. Throughput ratios can be argued about; a half-second p99 on
+    a coordination write cannot.
+  </p>
+
+  <div class="callout">
+    <h2>Where SQLite still wins</h2>
+    <p>
+      <strong>At one writer, SQLite is faster</strong> &mdash; 1,630 against 1,279, a ratio of
+      0.78&times;. There is no batch to amortise, so the journal pays a barrier plus a queue
+      handoff for nothing. The crossover is between one and four writers.
+    </p>
+    <p>
+      That is not a caveat to be buried. If your hottest workload has one active writer, this
+      package is a cost and you should not adopt it.
+    </p>
+  </div>
+
+  <h2 id="platforms">Two platforms that disagree about what &ldquo;sync&rdquo; means</h2>
+
+  <p>
+    Development is Darwin; production is x86 Linux. They do not share a durability primitive,
+    and the gap is not cosmetic. On Darwin only <code>F_FULLFSYNC</code> reaches the media, and
+    it costs 4.0&nbsp;ms. On Linux <code>fdatasync</code> <em>is</em> the real barrier (given a
+    filesystem and device with write barriers enabled) and costs 0.514&nbsp;ms &mdash; correct
+    <em>and</em> eight times cheaper.
+  </p>
+
+  <p>
+    So the journal issues a different call per platform, reports which one it issued through
+    <code>hdl_sync_barrier_name()</code>, and the recovery gate asserts the right one per
+    platform so the promise cannot drift from the code. There is no fallback to a weaker
+    barrier: a filesystem that refuses the strong one gets the error back and the batch is not
+    acknowledged. And because a green gate on Darwin proves nothing about a platform using a
+    different primitive, Linux is gated separately in Docker.
+  </p>
+
+  <div class="aside">
+    <h3>A 3.5&times; optimisation we measured and did not take</h3>
+    <p>
+      On Linux, <code>fdatasync</code> still has to flush the file-size metadata when an append
+      extends the file. Preallocate the segment, write inside it, and that disappears:
+      0.454&nbsp;ms &rarr; <strong>0.131&nbsp;ms</strong> per barrier. On Darwin it changes
+      nothing, because the device flush dominates.
+    </p>
+    <p>
+      It is not implemented, and the reason is the whole ethic of the package. A preallocated
+      segment is full of zeros past the last commit, so recovery would have to tell
+      &ldquo;space we reserved and never wrote&rdquo; from &ldquo;a complete frame that has been
+      damaged&rdquo; &mdash; and the cheap way to do that is the all-zeros heuristic we refuse
+      etcd for. Doing it properly means the segment header must record the reserved extent,
+      which makes it a format change. A 3.5&times; speedup is not worth a recovery rule that
+      guesses.
+    </p>
+  </div>
+
+  <h2 id="clustering">Surviving the host, not just the process</h2>
+
+  <p>
+    Everything so far is <em>local</em> durability, and local durability has a hard edge: it
+    survives the process, the OS and the power cable, and it does not survive the machine. For
+    that a record has to be durable somewhere else before the caller is told yes.
+  </p>
+
+  <p>
+    Hey has a distributed substrate, and the interesting part of building on it was that its
+    documentation is honest enough to constrain the design. <code>Remote.send</code> is
+    at-most-once, and success means &ldquo;accepted for transport&rdquo;, explicitly <em>not</em>
+    &ldquo;processed remotely&rdquo;. Monitors report <em>suspicion</em> of loss, because
+    partition and death are observationally indistinguishable. Both facts point the same way:
+  </p>
+
+  <div class="callout">
+    <h2>A successful send is never durability</h2>
+    <p>
+      An acknowledgement counts only when a follower sends back an explicit receipt saying it
+      completed <em>its own</em> local barrier. A missing or late reply is a refusal, never an
+      optimistic success. Anything else would be acknowledging RAM again &mdash; just somebody
+      else&rsquo;s.
+    </p>
+  </div>
+
+  <p>
+    The rest follows. Local durability happens <em>first</em>, as in PostgreSQL, which never
+    substitutes a replica for the local flush &mdash; replicating first would let a node
+    acknowledge a record it cannot itself replay. A quorum is a majority <em>including this
+    node</em>; a quorum of one on a three-node cluster is a split brain with good manners. Every
+    append carries a term, and a higher term seen anywhere invalidates the write, because a
+    partitioned leader has no other way to learn it has been replaced.
+  </p>
+
+  <p>
+    The part worth stating loudest is what happens when the majority is unreachable: the append
+    <strong>fails</strong>, with <code>durable_log_quorum_unavailable</code>. It does not quietly
+    hand back a <code>local_durable</code> receipt. The record really is on local disk, and
+    saying so would even be true &mdash; but returning success there would claim host durability
+    that does not exist, and silent degradation is exactly how a system comes to believe it
+    survives host loss when it does not.
+  </p>
+
+  <p>
+    Two of the gates for this exist because I broke the code deliberately to check: counting a
+    transport-accepted-but-not-durable reply as an acknowledgement, and degrading to local
+    durability when the quorum is missing. Both go red. The network itself is <em>not</em> tested
+    here &mdash; the replication seam is injected, so what is proven is the decision, not the
+    transport. Whether TCP works is the substrate&rsquo;s problem; whether we acknowledge a write
+    a majority never confirmed is ours.
+  </p>
+
+<h2 id="limits">The limits, stated plainly</h2>
 
   <p>
     A durability article that oversells is worse than no article, so here is everything this package
