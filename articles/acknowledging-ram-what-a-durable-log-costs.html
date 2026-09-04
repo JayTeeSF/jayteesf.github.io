@@ -1,0 +1,2211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="We shipped a durable log that acknowledged writes on a barrier macOS says does not reach the platters. Fixing it cost 4x throughput. This is what the acknowledgement boundary actually costs, how hey_durable_log draws it, and an honest comparison against Redis, Valkey, PostgreSQL, SQLite, etcd and Kafka.">
+  <meta name="article-date" content="2026-09-04">
+  <meta name="article-bucket" content="research">
+  <meta name="article-desc" content="Between &ldquo;we replied ok&rdquo; and &ldquo;the bytes survive a power cut&rdquo; there is a gap you cannot see until the one moment it matters. We shipped a bug in that gap and fixed it this session; the fix cost 4x throughput, because the fast number was measuring a lie. Here is the format, the recovery rules, and where five other systems draw the same line &mdash; including the four places we are plainly weaker than they are.">
+  <meta name="article-index-title" content="Acknowledging RAM: What a Durable Log Actually Costs">
+<title>Acknowledging RAM: What a Durable Log Actually Costs</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem; padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border); border-radius: 0.7rem; background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    .plan {
+      margin: 0 0 2rem; padding: 1.1rem 1.3rem;
+      border: 3px solid #b3261e; border-radius: 0.6rem; background: rgba(179,38,30,0.08);
+    }
+    .plan .plan-tag { display: inline-block; font-weight: 800; letter-spacing: 0.04em; font-size: 0.9rem; text-transform: uppercase; margin: 0 0 0.4rem; color: #b3261e; }
+    @media (prefers-color-scheme: dark) { .plan .plan-tag { color: #ff9b93; } }
+    :root[data-theme="dark"] .plan .plan-tag { color: #ff9b93; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul { padding-left: 1.4rem; }
+    li { margin: 0.35rem 0; }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+    .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+    .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .term { border-left-color: #2a78d6; }
+    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; }
+    figure { margin: 1.75rem 0 2rem; }
+    figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+    .figwrap { overflow-x: auto; }
+    figcaption { margin-top: 0.6rem; font-size: 0.9rem; color: var(--muted); }
+    a.gloss { color: inherit; border-bottom: 1px dotted var(--muted); cursor: pointer; text-decoration: none; }
+    .gloss-pop {
+      position: absolute; z-index: 60; max-width: 280px;
+      padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem;
+      background: #fcfcfb; color: #0b0b0b; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      font-size: 0.85rem; line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    }
+    :root[data-theme="dark"] .gloss-pop { background: #1f1f1e; color: #f2f2f0; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .gloss-pop-def { margin: 0 0 0.5rem; }
+    .gloss-pop-link { font-weight: 600; white-space: nowrap; color: #2a78d6; }
+    @media (prefers-color-scheme: dark) { .gloss-pop-link { color: #5ea3f2; } }
+    :root[data-theme="dark"] .gloss-pop-link { color: #5ea3f2; }
+  </style>
+</head>
+<body>
+<article>
+
+  <header>
+    <h1>Acknowledging RAM: What a Durable Log Actually Costs</h1>
+    <p class="lede">
+      There is a gap between &ldquo;we replied <code>ok</code>&rdquo; and &ldquo;those bytes survive a
+      power cut,&rdquo; and it is invisible until the one moment it matters. We shipped a bug in that
+      gap and fixed it this session. The fix cost 4&times; throughput &mdash; which is the honest
+      shape of this entire subject, because the fast number had been measuring a lie.
+    </p>
+  </header>
+
+  <main>
+
+  <div class="plan">
+    <p class="plan-tag">Status: 0.2.0, local-durable only, not yet integrated</p>
+    <p>
+      <code>hey_durable_log</code> 0.2.0 is a packaged, gated C storage core with a Hey write path.
+      Its guarantees are <strong>local-disk</strong>: process crash, OS crash and power loss
+      <em>on this host</em>. There is <strong>no replication</strong>, <strong>no segment
+      rotation</strong>, and <strong>no position back-link</strong> in the frame header yet. The
+      benchmark host was contaminated by concurrent load and we have <strong>not run a power-cut
+      test</strong> on this hardware. Everything in the comparison section is read from primary
+      source at a pinned upstream tag; nothing in it was re-benchmarked here except SQLite.
+      Read the <a href="#limits">limits</a> before quoting any of it.
+    </p>
+  </div>
+
+  <div class="tldr">
+    <h2>TL;DR</h2>
+    <ul>
+      <li><strong>We acknowledged on a barrier that does not reach the platters.</strong> macOS's
+        own <code>fsync(2)</code> page says that after it returns &ldquo;the drive itself may not
+        physically write the data to the platters for quite some time,&rdquo; and that on power
+        loss &ldquo;the application may find that only some or none of their data was written.&rdquo;
+        We were calling <code>fdatasync</code>. Switching to <code>fcntl(F_FULLFSYNC)</code> took
+        us from <strong>3,602 records/s to 888 records/s</strong> at 8 writers. Same code, same
+        host, same parameters. The 3,602 was not a measurement of durability.</li>
+      <li><strong>One barrier is the unit of cost, so batch into it.</strong> Group commit is worth
+        <strong>22.3&ndash;23.0&times;</strong> at a batch of 32, and p50 latency <em>falls</em>
+        from 131&ndash;260&nbsp;ms to 5&ndash;13&nbsp;ms as batching rises. 3,200 records need
+        <strong>3,200</strong> device flushes one at a time and about <strong>104</strong> batched.</li>
+      <li><strong>&ldquo;SQLite is slow&rdquo; is false, and it is the most important thing in this
+        article.</strong> With <code>fullfsync</code> off, SQLite does <strong>23,354 rows/s</strong>
+        single-writer and beats this broker outright. The comparison only inverts once a real
+        barrier is required, where SQLite goes <strong>83.4 &rarr; 77.0 &rarr; 66.2 txn/s</strong> at
+        1 &rarr; 4 &rarr; 8 writers &mdash; throughput <em>falling</em>. A benchmark that does not
+        state which barrier both sides used is not a statement about durability.</li>
+      <li><strong>Where we are stronger:</strong> per-frame checksums (neither Redis nor Valkey has
+        <em>any</em> on the AOF record path &mdash; a payload bit flip is silently replayed as
+        data); a bounded queue with real backpressure (Redis's <code>aof_buf</code> is unbounded
+        and explicitly excluded from <code>maxmemory</code>); and failing <em>closed</em> on a
+        complete corrupt frame, where SQLite's recovery treats a torn tail and a corrupt frame
+        identically and discards silently with no error.</li>
+      <li><strong>Where we are weaker, plainly:</strong> no replication of any kind, against etcd's
+        consensus and Kafka's ISR; no segment rotation, so the journal grows; and no position
+        back-link, where PostgreSQL's <code>xl_prev</code> is &mdash; in Tom Lane's words &mdash;
+        &ldquo;our ONLY defense against replaying stale data.&rdquo; Ours chains CRC <em>values</em>,
+        which is position-independent, so we do not have that defence.</li>
+    </ul>
+  </div>
+
+  <h2>Movement I &mdash; What it costs to acknowledge RAM</h2>
+
+  <p>
+    Every service that writes something down has one line in it that decides everything else about
+    its failure modes: the point at which it tells the caller <em>yes</em>. Before that line, a
+    crash is a non-event &mdash; the caller retries and nothing was promised. After that line, a
+    crash that loses the write is a broken promise, and no amount of later cleverness repairs it.
+  </p>
+
+  <p>
+    The trouble is that the line is drawn in code that looks nothing like a promise. It is a
+    <code>write()</code> that returned the right number of bytes. It is an <code>fsync()</code> that
+    returned zero. It is a library call whose documentation used the word &ldquo;durable&rdquo; and
+    was, at the level of the sentence, telling the truth.
+  </p>
+
+<figure class="viz-root" id="fig-ack">
+  <style>
+    #fig-ack{
+      color-scheme: light;
+      --ak-surface:#fcfcfb; --ak-ink:#0b0b0b; --ak-dim:#52514e; --ak-faint:#898781;
+      --ak-line:#c3c2b7; --ak-panel:rgba(11,11,11,0.045);
+      --ak-good:#1d63c9; --ak-goodfill:rgba(29,99,201,0.10);
+      --ak-bad:#b3261e;  --ak-badfill:rgba(179,38,30,0.10);
+      --ak-border:rgba(11,11,11,0.10);
+      margin:1.75rem 0 2rem; padding:0; max-width:100%;
+      background:var(--ak-surface); border:1px solid var(--ak-border);
+      border-radius:0.7rem; overflow:hidden; line-height:1.5;
+    }
+    @media (prefers-color-scheme:dark){
+      :root:where(:not([data-theme="light"])) #fig-ack{
+        color-scheme:dark;
+        --ak-surface:#1a1a19; --ak-ink:#f4f4f2; --ak-dim:#c3c2b7; --ak-faint:#928f88;
+        --ak-line:#45443f; --ak-panel:rgba(255,255,255,0.055);
+        --ak-good:#5ea3f2; --ak-goodfill:rgba(94,163,242,0.16);
+        --ak-bad:#ff9b93;  --ak-badfill:rgba(255,155,147,0.16);
+        --ak-border:rgba(255,255,255,0.10);
+      }
+    }
+    :root[data-theme="dark"] #fig-ack{
+      color-scheme:dark;
+      --ak-surface:#1a1a19; --ak-ink:#f4f4f2; --ak-dim:#c3c2b7; --ak-faint:#928f88;
+      --ak-line:#45443f; --ak-panel:rgba(255,255,255,0.055);
+      --ak-good:#5ea3f2; --ak-goodfill:rgba(94,163,242,0.16);
+      --ak-bad:#ff9b93;  --ak-badfill:rgba(255,155,147,0.16);
+      --ak-border:rgba(255,255,255,0.10);
+    }
+    #fig-ack .ak-head{padding:18px 20px 4px}
+    #fig-ack .ak-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--ak-ink)}
+    #fig-ack .ak-sub{margin:6px 0 0;font-size:.85rem;color:var(--ak-dim)}
+    #fig-ack .figwrap{padding:10px 12px 0;overflow-x:auto}
+    #fig-ack svg{display:block;width:100%;height:auto}
+    #fig-ack .ak-band{fill:var(--ak-panel);stroke:var(--ak-line);stroke-width:1}
+    #fig-ack .ak-band-bad{fill:var(--ak-badfill);stroke:var(--ak-bad);stroke-width:1.5;stroke-dasharray:7 4}
+    #fig-ack .ak-band-good{fill:var(--ak-goodfill);stroke:var(--ak-good);stroke-width:1.5}
+    #fig-ack .ak-box{fill:var(--ak-surface);stroke:var(--ak-line);stroke-width:1.4}
+    #fig-ack .ak-box-ack{fill:var(--ak-surface);stroke:var(--ak-ink);stroke-width:2.4}
+    #fig-ack .ak-wall{fill:var(--ak-ink)}
+    #fig-ack .ak-wall-bad{fill:var(--ak-bad)}
+    #fig-ack .ak-axis{stroke:var(--ak-faint);stroke-width:1.2;fill:none}
+    #fig-ack .ak-flow{stroke:var(--ak-faint);stroke-width:1.4;fill:none}
+    #fig-ack .ak-drop{stroke:var(--ak-ink);stroke-width:1.3;stroke-dasharray:4 3;fill:none}
+    #fig-ack .ak-lane{fill:var(--ak-ink);font-size:14px;font-weight:700}
+    #fig-ack .ak-lane-sub{fill:var(--ak-dim);font-size:12.5px}
+    #fig-ack .ak-t{fill:var(--ak-ink);font-size:12.5px}
+    #fig-ack .ak-tb{fill:var(--ak-ink);font-size:12.5px;font-weight:700}
+    #fig-ack .ak-dim{fill:var(--ak-dim);font-size:12px}
+    #fig-ack .ak-warn{fill:var(--ak-bad);font-size:12.5px;font-weight:700}
+    #fig-ack .ak-ok{fill:var(--ak-good);font-size:12.5px;font-weight:700}
+    #fig-ack .ak-foot{padding:10px 20px 16px;margin:0;font-size:.78rem;color:var(--ak-faint)}
+  </style>
+
+  <div class="ak-head">
+    <p class="ak-title">Where the acknowledgement happens</p>
+    <p class="ak-sub">Both lanes cross the same wall &mdash; the durability barrier, the only moment
+      the bytes are actually on the device. The whole design is a claim about which side of that wall
+      the word &ldquo;ok&rdquo; comes out on.</p>
+  </div>
+
+  <div class="figwrap">
+    <svg viewBox="0 0 940 490" width="940" style="max-width:100%;min-width:820px;height:auto"
+         role="img" aria-labelledby="ak-t ak-d"
+         font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+      <title id="ak-t">Two timelines contrasting when a caller is told &ldquo;ok&rdquo;</title>
+      <desc id="ak-d">Top lane, the naive path: accept the mutation, reply ok, write to page cache,
+        and only later &mdash; if ever &mdash; cross the durability barrier. A hatched danger band
+        marks the span between the reply and the barrier, in which a crash destroys a mutation the
+        caller was told had succeeded. Bottom lane, this journal: accept the mutation, write DATA
+        frames, write the COMMIT frame, cross the durability barrier, and only then reply ok. The
+        reply sits strictly to the right of the barrier, so there is no danger band at all.</desc>
+
+      <defs>
+        <marker id="ak-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="var(--ak-faint)"/>
+        </marker>
+        <pattern id="ak-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="8" stroke="var(--ak-bad)" stroke-width="2.4" opacity="0.45"/>
+        </pattern>
+      </defs>
+
+      <!-- ================= LANE A : naive ================= -->
+      <rect class="ak-band-bad" x="10" y="16" width="920" height="198" rx="10"/>
+      <text class="ak-lane" x="28" y="42">Naive path &mdash; reply first, write eventually</text>
+      <text class="ak-lane-sub" x="28" y="60">the reply is on the wrong side of the wall</text>
+
+      <!-- danger band -->
+      <rect x="266" y="74" width="394" height="28" fill="url(#ak-hatch)" stroke="var(--ak-bad)" stroke-width="1.2" rx="4"/>
+      <text class="ak-warn" x="463" y="93" text-anchor="middle">a crash anywhere in here destroys an acknowledged mutation</text>
+
+      <!-- steps -->
+      <g color="var(--ak-faint)">
+        <line class="ak-flow" x1="166" y1="140" x2="196" y2="140" marker-end="url(#ak-arrow)"/>
+        <line class="ak-flow" x1="332" y1="140" x2="362" y2="140" marker-end="url(#ak-arrow)"/>
+        <line class="ak-flow" x1="522" y1="140" x2="654" y2="140" stroke-dasharray="5 5" marker-end="url(#ak-arrow)"/>
+      </g>
+
+      <rect class="ak-box" x="36" y="118" width="130" height="44" rx="7"/>
+      <text class="ak-t" x="101" y="145" text-anchor="middle">accept mutation</text>
+
+      <rect class="ak-box-ack" x="200" y="118" width="132" height="44" rx="7"/>
+      <text class="ak-tb" x="266" y="137" text-anchor="middle">reply &ldquo;ok&rdquo;</text>
+      <text class="ak-dim" x="266" y="153" text-anchor="middle">to the caller</text>
+
+      <rect class="ak-box" x="366" y="118" width="156" height="44" rx="7"/>
+      <text class="ak-t" x="444" y="137" text-anchor="middle">write() &rarr; page cache</text>
+      <text class="ak-dim" x="444" y="153" text-anchor="middle">RAM, not the device</text>
+
+      <!-- the wall -->
+      <rect class="ak-wall-bad" x="658" y="106" width="14" height="70" rx="2"/>
+      <text class="ak-warn" x="684" y="132">durability barrier</text>
+      <text class="ak-dim" x="684" y="149">&mdash; if and when it ever happens</text>
+
+      <!-- axis + markers -->
+      <g color="var(--ak-faint)">
+        <line class="ak-axis" x1="36" y1="188" x2="898" y2="188" marker-end="url(#ak-arrow)"/>
+      </g>
+      <text class="ak-dim" x="904" y="192">time</text>
+      <line class="ak-drop" x1="266" y1="162" x2="266" y2="188"/>
+      <circle cx="266" cy="188" r="4.5" fill="var(--ak-bad)"/>
+      <text class="ak-warn" x="266" y="206" text-anchor="middle">caller is told &ldquo;ok&rdquo; HERE</text>
+      <line class="ak-drop" x1="665" y1="176" x2="665" y2="188"/>
+      <circle cx="665" cy="188" r="4.5" fill="var(--ak-ink)"/>
+      <text class="ak-tb" x="665" y="206" text-anchor="middle">bytes durable HERE</text>
+
+      <!-- ================= LANE B : this journal ================= -->
+      <rect class="ak-band-good" x="10" y="238" width="920" height="238" rx="10"/>
+      <text class="ak-lane" x="28" y="264">hey_durable_log &mdash; barrier first, reply after</text>
+      <text class="ak-lane-sub" x="28" y="282">nothing is acknowledged that is not already on the device</text>
+
+      <!-- steps -->
+      <g color="var(--ak-faint)">
+        <line class="ak-flow" x1="158" y1="348" x2="184" y2="348" marker-end="url(#ak-arrow)"/>
+        <line class="ak-flow" x1="314" y1="348" x2="340" y2="348" marker-end="url(#ak-arrow)"/>
+        <line class="ak-flow" x1="466" y1="348" x2="490" y2="348" marker-end="url(#ak-arrow)"/>
+        <line class="ak-flow" x1="516" y1="348" x2="540" y2="348" marker-end="url(#ak-arrow)"/>
+      </g>
+
+      <rect class="ak-box" x="36" y="326" width="122" height="44" rx="7"/>
+      <text class="ak-t" x="97" y="353" text-anchor="middle">accept mutation</text>
+
+      <rect class="ak-box" x="188" y="326" width="126" height="44" rx="7"/>
+      <text class="ak-t" x="251" y="345" text-anchor="middle">DATA frames</text>
+      <text class="ak-dim" x="251" y="361" text-anchor="middle">seq, batch id, CRC32</text>
+
+      <rect class="ak-box" x="344" y="326" width="122" height="44" rx="7"/>
+      <text class="ak-t" x="405" y="345" text-anchor="middle">COMMIT frame</text>
+      <text class="ak-dim" x="405" y="361" text-anchor="middle">24-byte summary</text>
+
+      <!-- the wall, same glyph as lane A -->
+      <text class="ak-ok" x="503" y="302" text-anchor="middle">durability barrier</text>
+      <text class="ak-dim" x="503" y="318" text-anchor="middle">F_FULLFSYNC on Darwin</text>
+      <rect class="ak-wall" x="496" y="326" width="14" height="70" rx="2"/>
+
+      <rect class="ak-box-ack" x="540" y="326" width="140" height="44" rx="7"/>
+      <text class="ak-tb" x="610" y="345" text-anchor="middle">reply &ldquo;ok&rdquo;</text>
+      <text class="ak-dim" x="610" y="361" text-anchor="middle">to the caller</text>
+
+      <text class="ak-t" x="704" y="341">A crash before this reply is at</text>
+      <text class="ak-t" x="704" y="358">worst an ambiguous retry &mdash;</text>
+      <text class="ak-t" x="704" y="375">never a lost acknowledgement.</text>
+
+      <!-- axis + markers -->
+      <g color="var(--ak-faint)">
+        <line class="ak-axis" x1="36" y1="410" x2="898" y2="410" marker-end="url(#ak-arrow)"/>
+      </g>
+      <text class="ak-dim" x="904" y="414">time</text>
+      <line class="ak-drop" x1="503" y1="396" x2="503" y2="410"/>
+      <circle cx="503" cy="410" r="4.5" fill="var(--ak-ink)"/>
+      <text class="ak-tb" x="503" y="428" text-anchor="middle">bytes durable</text>
+      <line class="ak-drop" x1="610" y1="370" x2="610" y2="410"/>
+      <circle cx="610" cy="410" r="4.5" fill="var(--ak-good)"/>
+      <text class="ak-ok" x="610" y="428" text-anchor="middle">caller told &ldquo;ok&rdquo;</text>
+
+      <path class="ak-axis" d="M503,442 v8 h107 v-8" stroke="var(--ak-good)" stroke-width="1.4"/>
+      <text class="ak-ok" x="556" y="468" text-anchor="middle">the reply is strictly after the barrier</text>
+    </svg>
+  </div>
+
+  <p class="ak-foot">The wall is the same operation in both lanes, and it costs the same in both.
+    All that differs is which side of it the reply comes out on.</p>
+
+  <figcaption>
+    This is the whole argument in one picture. A durability claim is not a property of the code that
+    writes; it is a property of the <em>order</em> in which the reply and the barrier happen. In the
+    top lane the caller holds a receipt for bytes that live only in RAM, and the hatched span is the
+    exact interval in which a power cut turns that receipt into a lie. In the bottom lane the reply
+    cannot be emitted until the DATA frames, the COMMIT frame and the barrier have all completed, so
+    the hatched span has no width. Nothing else in the journal matters if this ordering is wrong.
+  </figcaption>
+</figure>
+
+  <p>
+    A record you have written passes through at least four custodians on its way to being real, and
+    each one will happily tell you it has the data while holding it somewhere volatile:
+  </p>
+
+  <ul>
+    <li><strong>Your process's own buffer.</strong> Lost on <code>SIGKILL</code>.</li>
+    <li><strong>The kernel page cache</strong>, after <code>write()</code> returns. Survives your
+      process dying. Lost on OS crash or power loss.</li>
+    <li><strong>The storage device's volatile write cache</strong>, after a plain
+      <code>fsync</code>/<code>fdatasync</code> on some platforms. Survives an OS crash. Lost on
+      power loss.</li>
+    <li><strong>Non-volatile media.</strong> The only one of the four that is what anybody meant.</li>
+  </ul>
+
+  <p>
+    Three of those four look identical from the caller's side. All four return success. All four
+    are fast, and the wrong three are <em>faster</em>, which is the trap: the incentive gradient
+    points directly at the bug, and every benchmark you run rewards you for having it.
+  </p>
+
+  <h3>The bug we shipped</h3>
+
+  <p>
+    Our acknowledgement rule was already written down and already gated: an append returns only
+    after its DATA frames are written, its COMMIT frame is written, and the durability barrier
+    returns. What we had wrong was <em>which call is the barrier</em>.
+  </p>
+
+  <p>
+    On Linux, <code>fdatasync</code> is a barrier. On Darwin it is not, and Apple says so in the
+    platform's own manual page for <code>fsync(2)</code> &mdash; not in a mailing-list thread, not
+    in a blog post, in the man page you get by typing <code>man 2 fsync</code>:
+  </p>
+
+  <div class="aside term">
+    <h3><code>man 2 fsync</code>, Darwin 25.6.0</h3>
+    <p style="margin:0">
+      After <code>fsync</code> returns, &ldquo;the drive itself may not physically write the data to
+      the platters for quite some time.&rdquo; On power loss, &ldquo;the application may find that
+      only some or none of their data was written.&rdquo; And, in the platform vendor's own words:
+      <strong>&ldquo;this is not a theoretical edge case.&rdquo;</strong>
+    </p>
+  </div>
+
+  <p>
+    That last sentence is the platform vendor pre-emptively refusing the excuse. We had built a
+    journal whose entire reason for existing is that acknowledgement must not be a lie, and on the
+    development platform the acknowledgement was a lie &mdash; the same defect as acknowledging
+    RAM, one layer down. Commit <code>e7f9ca4</code> switched the Darwin barrier to
+    <code>fcntl(fd, F_FULLFSYNC)</code>.
+  </p>
+
+  <div class="callout">
+    <h2>What correctness cost, exactly</h2>
+    <p>
+      Same host, same code, same parameters &mdash; 8 writers, 250 records each,
+      <code>max_batch</code> 64, 250&nbsp;&micro;s window:
+    </p>
+    <table>
+      <thead>
+        <tr><th>Barrier</th><th>Throughput</th><th>p50</th><th>Survives power loss on Darwin?</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>fdatasync</code></td><td>3,602/s</td><td>3.3&nbsp;ms</td><td><strong>No</strong></td></tr>
+        <tr><td><code>fcntl(F_FULLFSYNC)</code></td><td>888/s</td><td>9.0&nbsp;ms</td><td>Yes, to this host's device</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-bottom:0">
+      A 4&times; regression, published as a regression. There is no way to present this as an
+      improvement and there should not be: <strong>the fast number was measuring a lie</strong>, and
+      the correct response to discovering your benchmark was measuring the wrong thing is to publish
+      the slower, true one.
+    </p>
+  </div>
+
+  <p>
+    The generalisation is worth stating as a rule, because it survives this specific bug:
+    <strong>a throughput number for a durable system is uninterpretable unless it states which
+    barrier it used.</strong> Two builds of the same software on the same laptop can differ by
+    4&times; on nothing but that question, and the faster one is not better. We will return to this
+    in the comparison, because it is also the single fairest thing that can be said about SQLite.
+  </p>
+
+  <h3>Two ways to make the barrier honest, and we needed both</h3>
+
+  <p>
+    Picking the right call is only half of it. The other half is refusing to quietly pick a
+    different one. <code>hdl_sync_barrier_name()</code> is a public function that reports which
+    barrier this build issues, and the recovery gate asserts it per platform &mdash; so the stated
+    promise cannot drift away from the code without a test going red. A filesystem that refuses
+    <code>F_FULLFSYNC</code> gets the error returned and the batch is not acknowledged. There is no
+    silent fallback to a weaker barrier, because degrading silently would leave the promise stated
+    and unmet, which is worse than never making it.
+  </p>
+
+  <p>
+    The second half is what happens <em>after</em> a barrier fails, and here we had a gate asserting
+    the wrong thing. Our test required that an append following a failed sync return
+    <code>HDL_OK</code>. That is the <em>fsyncgate</em> defect exactly: continuing to acknowledge on
+    a descriptor whose <code>fsync</code> has already failed. PostgreSQL's answer, after the 2018
+    incident, was to PANIC. Ours is to poison the handle.
+  </p>
+
+  <div class="aside term">
+    <h3>Poisoned</h3>
+    <p style="margin:0">
+      A handle whose durability barrier has failed. Further appends return <code>HDL_POISONED</code>
+      rather than an acknowledgement. Reads still work &mdash; you may still need to get data out.
+      Only a reopen, which re-runs recovery, clears it. A failed <em>write</em> deliberately does
+      <em>not</em> poison: the bytes did not all reach the file, the batch is rolled back, and the
+      handle is provably back where it started. That distinction is itself gated.
+    </p>
+  </div>
+
+  <p>
+    Inverting a gate is not a refactor. A test that asserts the opposite of what it used to assert
+    is either a bug fix or a regression, and the difference is a judgement someone has to make and
+    record. So it was recorded, as a decision document
+    (<code>poison-the-log-after-a-failed-durability-barrier</code>), before the assertion was
+    flipped &mdash; commit <code>c9fee2a</code>.
+  </p>
+
+  <p class="muted">
+    Worth knowing about the PANIC-on-fsync-failure answer: it is necessary but not sufficient.
+    Rebello et al. (USENIX ATC '20) showed that <code>ext4</code> in <code>data=journal</code> mode
+    reports the error one <code>fsync</code> <em>late</em>, and measured that mounting with
+    <code>errors=remount-ro</code> does not rescue it. We inherit that problem too; poisoning does
+    not solve it.
+  </p>
+
+  <h2>Movement II &mdash; How this one works</h2>
+
+  <p>
+    The design is small on purpose. There are four moving parts: a byte format that makes damage
+    detectable, an acknowledgement boundary that sits after the barrier and nowhere else, a broker
+    that amortises the barrier across concurrent callers, and a recovery scan that makes exactly
+    one of three decisions about what it finds.
+  </p>
+
+  <h3>The frame format, and where a lie could hide</h3>
+
+  <p>
+    The format is explicitly little-endian and never writes native C structs &mdash; a journal whose
+    layout depends on your compiler's padding rules is a journal that cannot be read by the process
+    that has to recover it. Three structures, and all the recovery rules fall out of them.
+  </p>
+
+<figure class="viz-root" id="fig-bytes">
+  <style>
+    #fig-bytes{
+      color-scheme: light;
+      --by-surface:#fcfcfb; --by-ink:#0b0b0b; --by-dim:#52514e; --by-faint:#898781;
+      --by-line:#c3c2b7; --by-panel:rgba(11,11,11,0.05);
+      --by-key:#1d63c9;  --by-keyfill:rgba(29,99,201,0.12);
+      --by-hot:#b3261e;  --by-hotfill:rgba(179,38,30,0.12);
+      --by-warn:#8a5a00; --by-warnfill:rgba(138,90,0,0.14);
+      --by-border:rgba(11,11,11,0.10);
+      margin:1.75rem 0 2rem; padding:0; max-width:100%;
+      background:var(--by-surface); border:1px solid var(--by-border);
+      border-radius:0.7rem; overflow:hidden; line-height:1.5;
+    }
+    @media (prefers-color-scheme:dark){
+      :root:where(:not([data-theme="light"])) #fig-bytes{
+        color-scheme:dark;
+        --by-surface:#1a1a19; --by-ink:#f4f4f2; --by-dim:#c3c2b7; --by-faint:#928f88;
+        --by-line:#45443f; --by-panel:rgba(255,255,255,0.06);
+        --by-key:#5ea3f2;  --by-keyfill:rgba(94,163,242,0.18);
+        --by-hot:#ff9b93;  --by-hotfill:rgba(255,155,147,0.18);
+        --by-warn:#f0b34a; --by-warnfill:rgba(240,179,74,0.18);
+        --by-border:rgba(255,255,255,0.10);
+      }
+    }
+    :root[data-theme="dark"] #fig-bytes{
+      color-scheme:dark;
+      --by-surface:#1a1a19; --by-ink:#f4f4f2; --by-dim:#c3c2b7; --by-faint:#928f88;
+      --by-line:#45443f; --by-panel:rgba(255,255,255,0.06);
+      --by-key:#5ea3f2;  --by-keyfill:rgba(94,163,242,0.18);
+      --by-hot:#ff9b93;  --by-hotfill:rgba(255,155,147,0.18);
+      --by-warn:#f0b34a; --by-warnfill:rgba(240,179,74,0.18);
+      --by-border:rgba(255,255,255,0.10);
+    }
+    #fig-bytes .by-head{padding:18px 20px 4px}
+    #fig-bytes .by-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--by-ink)}
+    #fig-bytes .by-sub{margin:6px 0 0;font-size:.85rem;color:var(--by-dim)}
+    #fig-bytes .figwrap{padding:10px 12px 0;overflow-x:auto}
+    #fig-bytes svg{display:block;width:100%;height:auto}
+    #fig-bytes .by-cell{fill:var(--by-panel);stroke:var(--by-line);stroke-width:1.3}
+    #fig-bytes .by-cell-key{fill:var(--by-keyfill);stroke:var(--by-key);stroke-width:2}
+    #fig-bytes .by-cell-warn{fill:var(--by-warnfill);stroke:var(--by-warn);stroke-width:2.4}
+    #fig-bytes .by-cell-void{fill:none;stroke:var(--by-line);stroke-width:1.3;stroke-dasharray:5 4}
+    #fig-bytes .by-tick{stroke:var(--by-faint);stroke-width:1.2}
+    #fig-bytes .by-rule{stroke:var(--by-faint);stroke-width:1.2;fill:none}
+    #fig-bytes .by-lead{stroke:var(--by-ink);stroke-width:1.3;fill:none}
+    #fig-bytes .by-lead-hot{stroke:var(--by-hot);stroke-width:2;fill:none}
+    #fig-bytes .by-lead-warn{stroke:var(--by-warn);stroke-width:2;fill:none}
+    #fig-bytes .by-sec{fill:var(--by-ink);font-size:14px;font-weight:700}
+    #fig-bytes .by-sec-sub{fill:var(--by-dim);font-size:12.5px}
+    #fig-bytes .by-off{fill:var(--by-faint);font-size:12px;font-variant-numeric:tabular-nums}
+    #fig-bytes .by-f{fill:var(--by-ink);font-size:12.5px}
+    #fig-bytes .by-fm{fill:var(--by-dim);font-size:12px}
+    #fig-bytes .by-t{fill:var(--by-ink);font-size:12.5px}
+    #fig-bytes .by-hot{fill:var(--by-hot);font-size:12.5px;font-weight:700}
+    #fig-bytes .by-warnt{fill:var(--by-warn);font-size:12.5px;font-weight:700}
+    #fig-bytes .by-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    #fig-bytes .by-foot{padding:10px 20px 16px;margin:0;font-size:.78rem;color:var(--by-faint)}
+  </style>
+
+  <div class="by-head">
+    <p class="by-title">The v1 frame layout, and where a lie can hide</p>
+    <p class="by-sub">Every cell is drawn to scale &mdash; one byte is 16 units wide &mdash; and every
+      offset is the one in <span class="by-mono">docs/FORMAT.md</span>. Little-endian throughout; the
+      format never writes a native C struct.</p>
+  </div>
+
+  <div class="figwrap">
+    <svg viewBox="0 0 1160 550" width="1160" style="max-width:100%;min-width:1000px;height:auto"
+         role="img" aria-labelledby="by-t by-d"
+         font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+      <title id="by-t">Byte map of the v1 segment header, frame header and COMMIT payload</title>
+      <desc id="by-d">Three to-scale byte strips. The 64-byte segment header: magic HDLGv001 at
+        offset 0, header size at 8, format version at 12, segment generation at 16, creation time in
+        Unix nanoseconds at 24, 28 reserved zero bytes at 32, and a CRC32 of bytes 0 to 59 at offset
+        60. The 48-byte frame header: HDLF magic at 0, format version at 4, type at 6 where DATA is 1
+        and COMMIT is 2, frame length at 8, payload length at 12, sequence at 16, batch id at 24,
+        stream id at 32, the preceding frame's CRC32 at 40, and at 44 the CRC32 of the header with
+        that field zeroed followed by the payload. The record payload therefore begins at file offset
+        112, sixty-four plus forty-eight, which is the byte the corruption demonstration flips. The
+        24-byte COMMIT payload: first sequence at 0, last sequence at 8, DATA frame count at 16, and
+        a CRC32 over the ordered DATA-frame CRC values at 20.</desc>
+
+      <defs>
+        <marker id="by-arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="var(--by-warn)"/>
+        </marker>
+        <marker id="by-arrow-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="var(--by-hot)"/>
+        </marker>
+        <pattern id="by-pay" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="9" stroke="var(--by-faint)" stroke-width="1.6" opacity="0.55"/>
+        </pattern>
+      </defs>
+
+      <!-- ============ SEGMENT HEADER ============ -->
+      <text class="by-sec" x="64" y="30">Segment header &mdash; 64 bytes, at file offset 0</text>
+      <text class="by-sec-sub" x="640" y="30">fdatasync&rsquo;d, parent directory synced, before any mutation is accepted</text>
+
+      <g class="by-off" text-anchor="middle">
+        <text x="64" y="52">0</text><text x="192" y="52">8</text><text x="256" y="52">12</text>
+        <text x="320" y="52">16</text><text x="448" y="52">24</text><text x="576" y="52">32</text>
+        <text x="1024" y="52">60</text><text x="1088" y="52">64</text>
+      </g>
+      <g class="by-tick">
+        <line x1="64" y1="58" x2="64" y2="66"/><line x1="192" y1="58" x2="192" y2="66"/>
+        <line x1="256" y1="58" x2="256" y2="66"/><line x1="320" y1="58" x2="320" y2="66"/>
+        <line x1="448" y1="58" x2="448" y2="66"/><line x1="576" y1="58" x2="576" y2="66"/>
+        <line x1="1024" y1="58" x2="1024" y2="66"/><line x1="1088" y1="58" x2="1088" y2="66"/>
+      </g>
+
+      <rect class="by-cell" x="64"   y="68" width="128" height="56"/>
+      <rect class="by-cell" x="192"  y="68" width="64"  height="56"/>
+      <rect class="by-cell" x="256"  y="68" width="64"  height="56"/>
+      <rect class="by-cell" x="320"  y="68" width="128" height="56"/>
+      <rect class="by-cell" x="448"  y="68" width="128" height="56"/>
+      <rect class="by-cell" x="576"  y="68" width="448" height="56"/>
+      <rect class="by-cell-key" x="1024" y="68" width="64" height="56"/>
+
+      <g text-anchor="middle">
+        <text class="by-f by-mono" x="128" y="93">HDLGv001</text><text class="by-fm" x="128" y="110">magic</text>
+        <text class="by-f" x="224" y="93">hdr size</text><text class="by-fm" x="224" y="110">= 64</text>
+        <text class="by-f" x="288" y="93">version</text><text class="by-fm" x="288" y="110">= 1</text>
+        <text class="by-f" x="384" y="93">segment</text><text class="by-fm" x="384" y="110">generation</text>
+        <text class="by-f" x="512" y="93">created</text><text class="by-fm" x="512" y="110">unix ns</text>
+        <text class="by-f" x="800" y="93">reserved &mdash; 28 bytes, zero</text><text class="by-fm" x="800" y="110">room for v2 without moving anything</text>
+        <text class="by-f" x="1056" y="93">CRC32</text><text class="by-fm" x="1056" y="110">of 0..59</text>
+      </g>
+
+      <!-- ============ FRAME HEADER ============ -->
+      <text class="by-sec" x="64" y="172">Frame header &mdash; 48 bytes; the first one begins at file offset 64</text>
+
+      <g class="by-off" text-anchor="middle">
+        <text x="64" y="194">0</text><text x="128" y="194">4</text><text x="160" y="194">6</text>
+        <text x="192" y="194">8</text><text x="256" y="194">12</text><text x="320" y="194">16</text>
+        <text x="448" y="194">24</text><text x="576" y="194">32</text><text x="704" y="194">40</text>
+        <text x="768" y="194">44</text><text x="832" y="194">48</text>
+      </g>
+      <g class="by-tick">
+        <line x1="64" y1="200" x2="64" y2="208"/><line x1="128" y1="200" x2="128" y2="208"/>
+        <line x1="160" y1="200" x2="160" y2="208"/><line x1="192" y1="200" x2="192" y2="208"/>
+        <line x1="256" y1="200" x2="256" y2="208"/><line x1="320" y1="200" x2="320" y2="208"/>
+        <line x1="448" y1="200" x2="448" y2="208"/><line x1="576" y1="200" x2="576" y2="208"/>
+        <line x1="704" y1="200" x2="704" y2="208"/><line x1="768" y1="200" x2="768" y2="208"/>
+        <line x1="832" y1="200" x2="832" y2="208"/>
+      </g>
+
+      <rect class="by-cell" x="64"  y="210" width="64"  height="56"/>
+      <rect class="by-cell" x="128" y="210" width="32"  height="56"/>
+      <rect class="by-cell" x="160" y="210" width="32"  height="56"/>
+      <rect class="by-cell" x="192" y="210" width="64"  height="56"/>
+      <rect class="by-cell" x="256" y="210" width="64"  height="56"/>
+      <rect class="by-cell" x="320" y="210" width="128" height="56"/>
+      <rect class="by-cell" x="448" y="210" width="128" height="56"/>
+      <rect class="by-cell" x="576" y="210" width="128" height="56"/>
+      <rect class="by-cell-warn" x="704" y="210" width="64" height="56"/>
+      <rect class="by-cell-key"  x="768" y="210" width="64" height="56"/>
+      <rect x="832" y="210" width="256" height="56" fill="url(#by-pay)" stroke="var(--by-line)" stroke-width="1.3"/>
+
+      <g text-anchor="middle">
+        <text class="by-f by-mono" x="96" y="235">HDLF</text><text class="by-fm" x="96" y="252">magic</text>
+        <text class="by-f" x="224" y="235">frame</text><text class="by-fm" x="224" y="252">length</text>
+        <text class="by-f" x="288" y="235">payload</text><text class="by-fm" x="288" y="252">length</text>
+        <text class="by-f" x="384" y="243">sequence</text>
+        <text class="by-f" x="512" y="243">batch id</text>
+        <text class="by-f" x="640" y="235">stream id</text><text class="by-fm" x="640" y="252">zero for COMMIT</text>
+        <text class="by-warnt" x="736" y="235">prev</text><text class="by-warnt" x="736" y="252">CRC32</text>
+        <text class="by-f" x="800" y="235">this</text><text class="by-fm" x="800" y="252">CRC32</text>
+        <text class="by-f" x="960" y="235">record payload</text><text class="by-fm" x="960" y="252">payload length bytes</text>
+      </g>
+
+      <!-- leaders for the two 2-byte fields -->
+      <path class="by-lead" d="M144,266 V282 H130"/>
+      <text class="by-f" x="124" y="286" text-anchor="end">format version</text>
+      <path class="by-lead" d="M176,266 V306 H196"/>
+      <text class="by-f" x="202" y="310">frame type &mdash; DATA = 1, COMMIT = 2</text>
+
+      <!-- callout A: the previous-frame CRC -->
+      <path class="by-lead-warn" d="M704,268 L444,322" marker-end="url(#by-arrow-warn)"/>
+      <rect x="64" y="326" width="500" height="86" rx="8" fill="var(--by-warnfill)" stroke="var(--by-warn)" stroke-width="1.6"/>
+      <text class="by-warnt" x="80" y="348">Offset 40 &mdash; the preceding frame&rsquo;s CRC32 <tspan font-style="italic">value</tspan></text>
+      <text class="by-t" x="80" y="368">Chaining the value catches deletion and reordering. It is a</text>
+      <text class="by-t" x="80" y="386">value, not a position, so it cannot tell a fresh record from a</text>
+      <text class="by-t" x="80" y="404">stale one sitting at a recycled offset. See the caption.</text>
+
+      <!-- callout B: byte 112 -->
+      <path class="by-lead-hot" d="M832,266 V324" marker-end="url(#by-arrow-hot)"/>
+      <rect x="596" y="326" width="492" height="86" rx="8" fill="var(--by-hotfill)" stroke="var(--by-hot)" stroke-width="1.6"/>
+      <text class="by-hot" x="612" y="348">File offset 112 = 64 + 48 &mdash; the first payload byte</text>
+      <text class="by-t" x="612" y="368">This is the byte the corruption demonstration flips. The CRC32</text>
+      <text class="by-t" x="612" y="386">at frame offset 44 covers the header and the payload, so the</text>
+      <text class="by-t" x="612" y="404">frame stays complete and becomes wrong. That is the hard case.</text>
+
+      <!-- ============ COMMIT PAYLOAD ============ -->
+      <text class="by-sec" x="64" y="446">COMMIT payload &mdash; 24 bytes, straight after its own 48-byte frame header</text>
+
+      <g class="by-off" text-anchor="middle">
+        <text x="64" y="468">0</text><text x="192" y="468">8</text><text x="320" y="468">16</text>
+        <text x="384" y="468">20</text><text x="448" y="468">24</text>
+      </g>
+      <g class="by-tick">
+        <line x1="64" y1="474" x2="64" y2="482"/><line x1="192" y1="474" x2="192" y2="482"/>
+        <line x1="320" y1="474" x2="320" y2="482"/><line x1="384" y1="474" x2="384" y2="482"/>
+        <line x1="448" y1="474" x2="448" y2="482"/>
+      </g>
+
+      <rect class="by-cell" x="64"  y="484" width="128" height="52"/>
+      <rect class="by-cell" x="192" y="484" width="128" height="52"/>
+      <rect class="by-cell" x="320" y="484" width="64"  height="52"/>
+      <rect class="by-cell-key" x="384" y="484" width="64" height="52"/>
+
+      <g text-anchor="middle">
+        <text class="by-f" x="128" y="507">first</text><text class="by-fm" x="128" y="524">sequence</text>
+        <text class="by-f" x="256" y="507">last</text><text class="by-fm" x="256" y="524">sequence</text>
+        <text class="by-f" x="352" y="507">DATA</text><text class="by-fm" x="352" y="524">count</text>
+        <text class="by-f" x="416" y="507">CRC32</text><text class="by-fm" x="416" y="524">of CRCs</text>
+      </g>
+
+      <text class="by-t" x="480" y="500">These 24 bytes are what make a batch atomic. Recovery accepts the batch only if the</text>
+      <text class="by-t" x="480" y="518">frame count and the CRC32 taken over the ordered DATA-frame CRC values both agree, and</text>
+      <text class="by-t" x="480" y="536">a scan callback sees no record at all until its COMMIT has validated.</text>
+    </svg>
+  </div>
+
+  <p class="by-foot">Blue outline: a checksum field. Amber outline: the chain link. Hatched: caller
+    bytes, the only part of the file the journal does not interpret.</p>
+
+  <figcaption>
+    The layout is the reason a corrupt record is detectable at all: length, sequence, batch, and two
+    independent CRC32s bracket every byte the caller gave us, and the first of those caller bytes
+    lands at file offset 112 &mdash; where the article&rsquo;s demonstration flips a bit. The field at
+    frame offset 40 deserves the asterisk. It stores the preceding frame&rsquo;s CRC32
+    <em>value</em>, which is position-independent: it proves a frame follows the frame it claims to
+    follow, but it cannot prove that frame is not a perfectly checksummed leftover from an earlier
+    life of a recycled file. PostgreSQL solved this with a position back-link,
+    <code>xl_prev</code> &mdash; Tom Lane called recognising an old <code>xl_prev</code>
+    &ldquo;our ONLY defense against replaying stale data.&rdquo; v1 does not have that defence, which
+    is exactly why segment rotation is not implemented yet: the back-link is scheduled to land first.
+  </figcaption>
+</figure>
+
+  <table>
+    <caption class="muted" style="text-align:left;margin-bottom:0.5rem">
+      On-disk format v1. Full field table in <code>docs/FORMAT.md</code>.
+    </caption>
+    <thead>
+      <tr><th>Structure</th><th>Size</th><th>What it carries</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Segment header</strong></td><td>64 bytes</td>
+        <td><code>HDLGv001</code> magic (8), header size (4), format version (4), segment generation
+          (8), creation time in Unix nanoseconds (8), 28 reserved zero bytes, and a CRC32 of bytes
+          0&ndash;59 at offset 60. The creating process writes the header, synchronises it, and
+          synchronises the parent directory, all <em>before</em> the segment may accept a single
+          mutation.</td>
+      </tr>
+      <tr>
+        <td><strong>Frame header</strong></td><td>48 bytes</td>
+        <td><code>HDLF</code> magic (4), version (2), type &mdash; DATA=1 or COMMIT=2 (2), complete
+          frame length (4), payload length (4), sequence (8), batch id (8), stream id (8), the
+          <em>preceding</em> frame's CRC32 at offset 40, and at offset 44 a CRC32 over the header
+          with that last field zeroed followed by the payload.</td>
+      </tr>
+      <tr>
+        <td><strong>Commit payload</strong></td><td>24 bytes</td>
+        <td>First sequence (8), last sequence (8), DATA-frame count (4), and a CRC32 over the ordered
+          DATA-frame CRC values (4). A COMMIT frame therefore states how many records it is claiming
+          and fingerprints the exact set.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Two properties of that layout do most of the work. First, <strong>every frame carries its own
+    checksum</strong>, so a flipped payload bit is a detectable event rather than a record. Second,
+    the <strong>previous-frame CRC</strong> makes deletion and reordering detectable too, not just
+    accidental damage &mdash; you cannot excise a frame from the middle and leave a chain that
+    validates. It is not a cryptographic authentication mechanism and we do not claim it as one; an
+    adversary with write access can recompute the whole chain. It is a defence against damage, not
+    against malice.
+  </p>
+
+  <p>
+    Because those sizes are fixed and documented, the first record's payload byte is at offset
+    64&nbsp;+&nbsp;48&nbsp;=&nbsp;<strong>112</strong>. That number matters in a moment, because our
+    corruption spec writes a single byte there.
+  </p>
+
+  <h3>The acknowledgement boundary, in Hey</h3>
+
+  <p>
+    Here is a journal being opened. The three options are not tuning knobs with sensible defaults
+    behind them; they are the bounds that will actually be enforced, and a zero or negative value is
+    refused rather than replaced.
+  </p>
+
+  <div class="callout">
+    <h2>Opening: the bounds are the promise</h2>
+<pre><code>let opened = DurableLog.open('quickstart.hdl', {
+  library_path: Env.default('HEY_DURABLE_LOG_LIBRARY', ''),
+  queue_capacity: 256,
+  max_batch_records: 64,
+  batch_window_microseconds: 250
+})
+if opened.ok == false
+  fail opened.code + ': ' + opened.error
+end
+let journal = opened.value
+</code></pre>
+    <ul style="margin-bottom:0">
+      <li><code>queue_capacity</code> &mdash; how many submissions may be waiting for durability at
+        once. This is the backpressure bound: <strong>full means refuse, never grow.</strong></li>
+      <li><code>max_batch_records</code> &mdash; the most records one durability barrier may be
+        amortised across. At the limit, the batch closes and syncs.</li>
+      <li><code>batch_window_microseconds</code> &mdash; how long the writer waits to collect a
+        batch before closing it.</li>
+    </ul>
+  </div>
+
+  <p class="muted">
+    From <code>examples/quickstart.hey</code>, which is executed as written. A journal that accepted
+    <code>queue_capacity: 0</code> and substituted 4096 would be running with a bound its caller
+    never chose and does not know about &mdash; which is precisely how an unbounded-growth incident
+    starts, with everyone believing a number that was never in force. So it is refused, as
+    <code>durable_log_open_invalid</code>.
+  </p>
+
+  <p>
+    Now the append. The important word in the following snippet is <em>only</em>.
+  </p>
+
+  <div class="callout">
+    <h2>Appending: what the receipt is a receipt <em>for</em></h2>
+<pre><code># append returns ONLY after this record's DATA frame, its batch's COMMIT
+# frame, and the durability barrier have all completed. When it returns ok,
+# the record has survived the boundary -- there is nothing further to wait for.
+let receipt = DurableLog.append(journal, 42, 'first mutation')
+if receipt.ok == false
+  fail receipt.code + ': ' + receipt.error
+end
+says 'sequence ' + receipt.value.sequence
+says 'batch ' + receipt.value.batch_id
+says 'durability ' + receipt.value.durability
+</code></pre>
+<pre><code>sequence 1
+batch 1
+durability local_durable
+</code></pre>
+    <p style="margin-bottom:0">
+      A receipt describes durability that has <strong>already happened</strong>. It is not a promise
+      about the future and there is nothing to poll.
+    </p>
+  </div>
+
+  <p>The four receipt fields, and why each is a named value rather than an implied one:</p>
+
+  <ul>
+    <li><strong><code>sequence</code></strong> &mdash; the record's identity in this journal. Dense
+      and monotonic from 1, so a consumer can detect a gap. It continues across a clean close and
+      reopen and never restarts; restarting it would hand two different records the same identity,
+      which is the exact thing a consumer uses sequence numbers to prevent.</li>
+    <li><strong><code>batch_id</code></strong> &mdash; which durable batch carried the record.
+      Several records share one <code>batch_id</code> when group commit combines them, which under
+      load is the normal and desirable case. It is how you can tell, from the outside, that
+      amortisation happened.</li>
+    <li><strong><code>durable_offset</code></strong> &mdash; how far the journal is durable, in
+      bytes. Strictly advancing. A receipt reporting a non-advancing offset would be describing
+      bytes that are not there, so the spec asserts the inequality directly.</li>
+    <li><strong><code>durability</code></strong> &mdash; the guarantee actually achieved. Today it
+      is always <code>local_durable</code>. It is a <em>field</em> rather than an assumption so that
+      a future stronger level is a value your code can branch on, not a silent redefinition of what
+      the old value meant.</li>
+  </ul>
+
+  <div class="aside">
+    <h3><code>local_durable</code> means local</h3>
+    <p style="margin:0">
+      It survives process crash, OS crash and power loss <em>on this machine</em>. It does
+      <strong>not</strong> survive loss of the host or the disk. That requires quorum replication
+      before acknowledgement, which is not implemented. <code>DurableLog.capabilities()</code>
+      reports <code>quorum_replication</code> as <code>false</code>, and a spec asserts that it stays
+      false until it is real &mdash; a package must not advertise a durability it does not have.
+    </p>
+  </div>
+
+  <h3>Group commit: one barrier, many callers</h3>
+
+  <p>
+    A device flush costs about the same whether it carries one record or thirty-two. That single
+    fact is the whole economics of this design. <code>hdl_broker_submit</code> feeds a bounded
+    in-memory queue; one writer thread drains it, combines whatever concurrent requests are pending
+    into a single durable batch &mdash; DATA frames, then one COMMIT frame, then one barrier &mdash;
+    and releases every receipt in that batch together.
+  </p>
+
+<figure class="viz-root" id="fig-batch">
+  <style>
+    #fig-batch{
+      color-scheme: light;
+      --gc-surface:#fcfcfb; --gc-ink:#0b0b0b; --gc-dim:#52514e; --gc-faint:#898781;
+      --gc-line:#c3c2b7; --gc-panel:rgba(11,11,11,0.05);
+      --gc-ok:#1d63c9;   --gc-okfill:rgba(29,99,201,0.14);
+      --gc-bad:#b3261e;  --gc-badfill:rgba(179,38,30,0.12);
+      --gc-border:rgba(11,11,11,0.10);
+      margin:1.75rem 0 2rem; padding:0; max-width:100%;
+      background:var(--gc-surface); border:1px solid var(--gc-border);
+      border-radius:0.7rem; overflow:hidden; line-height:1.5;
+    }
+    @media (prefers-color-scheme:dark){
+      :root:where(:not([data-theme="light"])) #fig-batch{
+        color-scheme:dark;
+        --gc-surface:#1a1a19; --gc-ink:#f4f4f2; --gc-dim:#c3c2b7; --gc-faint:#928f88;
+        --gc-line:#45443f; --gc-panel:rgba(255,255,255,0.06);
+        --gc-ok:#5ea3f2;   --gc-okfill:rgba(94,163,242,0.20);
+        --gc-bad:#ff9b93;  --gc-badfill:rgba(255,155,147,0.18);
+        --gc-border:rgba(255,255,255,0.10);
+      }
+    }
+    :root[data-theme="dark"] #fig-batch{
+      color-scheme:dark;
+      --gc-surface:#1a1a19; --gc-ink:#f4f4f2; --gc-dim:#c3c2b7; --gc-faint:#928f88;
+      --gc-line:#45443f; --gc-panel:rgba(255,255,255,0.06);
+      --gc-ok:#5ea3f2;   --gc-okfill:rgba(94,163,242,0.20);
+      --gc-bad:#ff9b93;  --gc-badfill:rgba(255,155,147,0.18);
+      --gc-border:rgba(255,255,255,0.10);
+    }
+    #fig-batch .gc-head{padding:18px 20px 4px}
+    #fig-batch .gc-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--gc-ink)}
+    #fig-batch .gc-sub{margin:6px 0 0;font-size:.85rem;color:var(--gc-dim)}
+    #fig-batch .figwrap{padding:10px 12px 0;overflow-x:auto}
+    #fig-batch svg{display:block;width:100%;height:auto}
+    #fig-batch .gc-box{fill:var(--gc-surface);stroke:var(--gc-ink);stroke-width:1.4}
+    #fig-batch .gc-soft{fill:var(--gc-panel);stroke:var(--gc-line);stroke-width:1.2}
+    #fig-batch .gc-slot-full{fill:var(--gc-okfill);stroke:var(--gc-ok);stroke-width:1.4}
+    #fig-batch .gc-slot-free{fill:none;stroke:var(--gc-line);stroke-width:1.4;stroke-dasharray:4 3}
+    #fig-batch .gc-wall{fill:var(--gc-ink)}
+    #fig-batch .gc-flow{fill:none;stroke:var(--gc-faint);stroke-width:1.4}
+    #fig-batch .gc-flow-bad{fill:none;stroke:var(--gc-bad);stroke-width:1.8}
+    #fig-batch .gc-ret{fill:none;stroke:var(--gc-ok);stroke-width:1.8;stroke-dasharray:7 4}
+    #fig-batch .gc-h{fill:var(--gc-ink);font-size:13px;font-weight:700}
+    #fig-batch .gc-t{fill:var(--gc-ink);font-size:12.5px}
+    #fig-batch .gc-m{fill:var(--gc-dim);font-size:12px}
+    #fig-batch .gc-g{fill:var(--gc-faint);font-size:12px}
+    #fig-batch .gc-ok{fill:var(--gc-ok);font-size:12.5px;font-weight:700}
+    #fig-batch .gc-bad{fill:var(--gc-bad);font-size:12.5px;font-weight:700}
+    #fig-batch .gc-num{fill:var(--gc-ink);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+    #fig-batch .gc-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    #fig-batch .gc-foot{padding:10px 20px 16px;margin:0;font-size:.78rem;color:var(--gc-faint)}
+  </style>
+
+  <div class="gc-head">
+    <p class="gc-title">Group commit is what pays for the barrier</p>
+    <p class="gc-sub">A device flush costs what it costs. The only lever left is how many
+      acknowledgements one flush is allowed to carry.</p>
+  </div>
+
+  <div class="figwrap">
+    <svg viewBox="0 0 1100 646" width="1100" style="max-width:100%;min-width:960px;height:auto"
+         role="img" aria-labelledby="gc-t gc-d"
+         font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+      <title id="gc-t">Group commit: many writers, one bounded queue, one durability barrier</title>
+      <desc id="gc-d">Left: thirty-two concurrent writers submit into a bounded queue. One writer
+        thread drains the queue and combines what it finds into a single batch of DATA frames
+        followed by one COMMIT frame, which crosses a single durability barrier. A dashed return path
+        carries the acknowledgement back to every writer in that batch. A writer whose submit arrives
+        when the queue is full is refused rather than buffered. Below, a measured panel for 32 writers
+        and 3,200 records with a 250 microsecond window: at max_batch 1 those records cost 3,200
+        device flushes, 112 to 243 records per second, and a p50 latency of 131.0 to 259.9
+        milliseconds; at max_batch 32 they cost about 104 flushes, 2,494 to 5,490 records per second,
+        and a p50 of 5.4 to 12.8 milliseconds. Throughput rises 22.3 to 23.0 times while latency
+        falls at the same time.</desc>
+
+      <defs>
+        <marker id="gc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="var(--gc-faint)"/>
+        </marker>
+      </defs>
+
+      <!-- ============ MECHANISM ============ -->
+      <text class="gc-h" x="87"  y="34" text-anchor="middle">32 concurrent writers</text>
+      <text class="gc-h" x="248" y="34" text-anchor="middle">bounded queue</text>
+      <text class="gc-h" x="400" y="34" text-anchor="middle">one writer thread</text>
+      <text class="gc-h" x="655" y="34" text-anchor="middle">one batch</text>
+
+      <!-- writers -->
+      <rect class="gc-box" x="24" y="44"  width="126" height="34" rx="6"/>
+      <text class="gc-t"   x="87" y="66" text-anchor="middle">writer 1</text>
+      <rect class="gc-box" x="24" y="86"  width="126" height="34" rx="6"/>
+      <text class="gc-t"   x="87" y="108" text-anchor="middle">writer 2</text>
+      <rect class="gc-box" x="24" y="128" width="126" height="34" rx="6"/>
+      <text class="gc-t"   x="87" y="150" text-anchor="middle">writer 3</text>
+      <text class="gc-g"   x="87" y="186" text-anchor="middle">&hellip;</text>
+      <rect class="gc-box" x="24" y="204" width="126" height="34" rx="6"/>
+      <text class="gc-t"   x="87" y="226" text-anchor="middle">writer 32</text>
+
+      <!-- submit arrows -->
+      <g color="var(--gc-faint)">
+        <line class="gc-flow" x1="150" y1="61"  x2="204" y2="61"  marker-end="url(#gc-arrow)"/>
+        <line class="gc-flow" x1="150" y1="103" x2="204" y2="103" marker-end="url(#gc-arrow)"/>
+        <line class="gc-flow" x1="150" y1="145" x2="204" y2="145" marker-end="url(#gc-arrow)"/>
+      </g>
+      <!-- refused submit -->
+      <line class="gc-flow-bad" x1="150" y1="221" x2="186" y2="221"/>
+      <text class="gc-bad" x="196" y="227" font-size="17" text-anchor="middle">&#10007;</text>
+
+      <!-- queue slots -->
+      <rect class="gc-soft" x="206" y="44" width="84" height="200" rx="6"/>
+      <rect class="gc-slot-full" x="214" y="52"  width="68" height="24" rx="4"/>
+      <rect class="gc-slot-full" x="214" y="80"  width="68" height="24" rx="4"/>
+      <rect class="gc-slot-full" x="214" y="108" width="68" height="24" rx="4"/>
+      <rect class="gc-slot-full" x="214" y="136" width="68" height="24" rx="4"/>
+      <rect class="gc-slot-full" x="214" y="164" width="68" height="24" rx="4"/>
+      <rect class="gc-slot-full" x="214" y="192" width="68" height="24" rx="4"/>
+      <rect class="gc-slot-full" x="214" y="220" width="68" height="24" rx="4"/>
+      <text class="gc-g" x="248" y="262" text-anchor="middle">fixed capacity</text>
+
+      <rect x="24" y="282" width="266" height="60" rx="7" fill="var(--gc-badfill)" stroke="var(--gc-bad)" stroke-width="1.6"/>
+      <text class="gc-bad" x="38" y="302">&#10007; queue full &rarr; submit refused</text>
+      <text class="gc-t"   x="38" y="321">Backpressure is the design. The queue</text>
+      <text class="gc-t"   x="38" y="337">never grows to absorb the overload.</text>
+
+      <!-- writer thread -->
+      <line class="gc-flow" x1="290" y1="145" x2="326" y2="145" marker-end="url(#gc-arrow)" color="var(--gc-faint)"/>
+      <rect class="gc-box" x="330" y="98" width="140" height="94" rx="7"/>
+      <text class="gc-t" x="400" y="124" text-anchor="middle">drains the queue,</text>
+      <text class="gc-t" x="400" y="142" text-anchor="middle">combines whatever</text>
+      <text class="gc-t" x="400" y="160" text-anchor="middle">it finds into a</text>
+      <text class="gc-t" x="400" y="178" text-anchor="middle">single batch</text>
+      <text class="gc-g" x="400" y="212" text-anchor="middle">250 &micro;s window</text>
+
+      <line class="gc-flow" x1="470" y1="145" x2="506" y2="145" marker-end="url(#gc-arrow)" color="var(--gc-faint)"/>
+
+      <!-- the batch -->
+      <rect class="gc-soft" x="506" y="98" width="296" height="94" rx="7"/>
+      <rect class="gc-box" x="518" y="124" width="46" height="42" rx="5"/>
+      <text class="gc-t" x="541" y="150" text-anchor="middle">DATA</text>
+      <rect class="gc-box" x="570" y="124" width="46" height="42" rx="5"/>
+      <text class="gc-t" x="593" y="150" text-anchor="middle">DATA</text>
+      <rect class="gc-box" x="622" y="124" width="46" height="42" rx="5"/>
+      <text class="gc-t" x="645" y="150" text-anchor="middle">DATA</text>
+      <text class="gc-g"  x="686" y="150" text-anchor="middle">&hellip;</text>
+      <rect x="704" y="124" width="86" height="42" rx="5" fill="var(--gc-okfill)" stroke="var(--gc-ok)" stroke-width="2"/>
+      <text class="gc-ok" x="747" y="150" text-anchor="middle">COMMIT</text>
+      <text class="gc-g"  x="654" y="212" text-anchor="middle">every writer&rsquo;s records, one COMMIT frame</text>
+
+      <!-- the single barrier -->
+      <line class="gc-flow" x1="802" y1="145" x2="822" y2="145" marker-end="url(#gc-arrow)" color="var(--gc-faint)"/>
+      <rect class="gc-wall" x="828" y="98" width="16" height="94" rx="2"/>
+      <text class="gc-h" x="860" y="132">ONE durability barrier</text>
+      <text class="gc-t" x="860" y="152">for the whole batch</text>
+      <text class="gc-m" x="860" y="172">F_FULLFSYNC on Darwin</text>
+
+      <!-- return path -->
+      <path class="gc-ret" d="M836,196 V352 H14 V145 H17"/>
+      <polygon points="17,139.5 27,145 17,150.5" fill="var(--gc-ok)"/>
+      <text class="gc-ok" x="310" y="336">every writer in the batch is acknowledged &mdash; after this one barrier, never before</text>
+
+      <!-- ============ MEASURED PANEL ============ -->
+      <rect x="24" y="374" width="1052" height="256" rx="9" fill="none" stroke="var(--gc-line)" stroke-width="1.2"/>
+      <text class="gc-h" x="44" y="402">Measured &mdash; 32 writers &times; 100 records = 3,200 records, 250 &micro;s window, 3 interleaved rounds</text>
+      <text class="gc-m" x="44" y="422">Absolute figures are a floor: the host was under concurrent load. The ratios inside a round are the trustworthy part.</text>
+
+      <!-- CARD 1 : flushes -->
+      <rect x="44" y="436" width="336" height="152" rx="7" fill="var(--gc-panel)" stroke="var(--gc-line)" stroke-width="1"/>
+      <text class="gc-h" x="58" y="460">device flushes for those 3,200 records</text>
+      <text class="gc-m" x="58" y="478">&darr; fewer is better</text>
+      <text class="gc-t" x="58" y="506">max_batch 1</text>
+      <text class="gc-num" x="366" y="506" text-anchor="end">3,200</text>
+      <rect x="58" y="512" width="308" height="14" rx="3" fill="var(--gc-badfill)" stroke="var(--gc-bad)" stroke-width="1.4"/>
+      <text class="gc-t" x="58" y="550">max_batch 32</text>
+      <text class="gc-num" x="366" y="550" text-anchor="end">&asymp; 104</text>
+      <rect x="58" y="556" width="10" height="14" rx="2" fill="var(--gc-okfill)" stroke="var(--gc-ok)" stroke-width="1.4"/>
+
+      <!-- CARD 2 : throughput -->
+      <rect x="396" y="436" width="336" height="152" rx="7" fill="var(--gc-panel)" stroke="var(--gc-line)" stroke-width="1"/>
+      <text class="gc-h" x="410" y="460">records per second</text>
+      <text class="gc-m" x="410" y="478">&uarr; higher is better &mdash; bar spans the 3 rounds</text>
+      <text class="gc-t" x="410" y="506">max_batch 1</text>
+      <text class="gc-num" x="718" y="506" text-anchor="end">112 &ndash; 243</text>
+      <rect x="410" y="512" width="14" height="14" rx="3" fill="none" stroke="var(--gc-bad)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <rect x="410" y="512" width="6" height="14" rx="2" fill="var(--gc-badfill)" stroke="var(--gc-bad)" stroke-width="1.4"/>
+      <text class="gc-t" x="410" y="550">max_batch 32</text>
+      <text class="gc-num" x="718" y="550" text-anchor="end">2,494 &ndash; 5,490</text>
+      <rect x="410" y="556" width="308" height="14" rx="3" fill="none" stroke="var(--gc-ok)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <rect x="410" y="556" width="140" height="14" rx="3" fill="var(--gc-okfill)" stroke="var(--gc-ok)" stroke-width="1.4"/>
+
+      <!-- CARD 3 : latency -->
+      <rect x="748" y="436" width="308" height="152" rx="7" fill="var(--gc-panel)" stroke="var(--gc-line)" stroke-width="1"/>
+      <text class="gc-h" x="762" y="460">p50 latency</text>
+      <text class="gc-m" x="762" y="478">&darr; lower is better &mdash; bar spans the 3 rounds</text>
+      <text class="gc-t" x="762" y="506">max_batch 1</text>
+      <text class="gc-num" x="1042" y="506" text-anchor="end">131.0 &ndash; 259.9 ms</text>
+      <rect x="762" y="512" width="280" height="14" rx="3" fill="none" stroke="var(--gc-bad)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <rect x="762" y="512" width="141" height="14" rx="3" fill="var(--gc-badfill)" stroke="var(--gc-bad)" stroke-width="1.4"/>
+      <text class="gc-t" x="762" y="550">max_batch 32</text>
+      <text class="gc-num" x="1042" y="550" text-anchor="end">5.4 &ndash; 12.8 ms</text>
+      <rect x="762" y="556" width="14" height="14" rx="3" fill="none" stroke="var(--gc-ok)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <rect x="762" y="556" width="6" height="14" rx="2" fill="var(--gc-okfill)" stroke="var(--gc-ok)" stroke-width="1.4"/>
+
+      <text class="gc-ok" x="44" y="614">22.3&ndash;23.0&times; the throughput of batch 1 &mdash; and p50 falls at the same time. Both arrows point the right way, from one change.</text>
+    </svg>
+  </div>
+
+  <p class="gc-foot">Red bars: <span class="gc-mono">max_batch 1</span>, one flush per record. Blue
+    bars: <span class="gc-mono">max_batch 32</span>. Where a bar carries a dashed extension it spans
+    the three rounds &mdash; solid to the low value, dashed out to the high one.</p>
+
+  <figcaption>
+    This is the trade the barrier makes affordable. One device flush is the unit of cost, so the
+    question is never &ldquo;how do we flush faster&rdquo; but &ldquo;how many callers can one flush
+    honestly acknowledge.&rdquo; Batching 32 submissions turns 3,200 flushes into roughly 104 and buys
+    22.3&ndash;23.0&times; the throughput &mdash; and the counterintuitive part is that p50 latency
+    falls as well, from 131.0&ndash;259.9 ms to 5.4&ndash;12.8 ms, because a writer that waits a few
+    hundred microseconds for company stops queuing behind everyone else&rsquo;s separate flush. The
+    queue that feeds it is deliberately bounded: when it is full the submit is refused rather than
+    buffered, because an unbounded queue only converts a throughput problem into an out-of-memory
+    problem later. Two honest caveats: the benchmark host was under concurrent load, so treat the
+    absolute numbers as a floor and the within-round ratios as the result; and none of this helps a
+    single writer, whose throughput is <em>1 / barrier cost</em> and nothing else.
+  </figcaption>
+</figure>
+
+  <table>
+    <caption class="muted" style="text-align:left;margin-bottom:0.5rem">
+      32 concurrent writers, 100 records each (3,200 total), 250&nbsp;&micro;s window, varying only
+      <code>max_batch_records</code>. Conditions were <strong>interleaved</strong> across three
+      rounds; ranges are min&ndash;max across those rounds.
+    </caption>
+    <thead>
+      <tr><th><code>max_batch_records</code></th><th>Throughput</th><th>p50 latency</th><th>Device flushes for 3,200 records</th><th>Speed-up vs batch&nbsp;1</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>112&ndash;243/s</td><td>131&ndash;260&nbsp;ms</td><td>3,200</td><td>1&times;</td></tr>
+      <tr><td>8</td><td>1,002&ndash;1,792/s</td><td>18&ndash;34&nbsp;ms</td><td>400</td><td>7.4&ndash;8.9&times;</td></tr>
+      <tr><td>32</td><td>2,494&ndash;5,490/s</td><td>5&ndash;13&nbsp;ms</td><td>~104</td><td>22.3&ndash;23.0&times;</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Throughput and latency improve together here</strong>, which is not the usual shape of a
+    batching trade-off and is the entire point. The queue is not making anybody wait. It is
+    preventing 3,200 separate device flushes from happening, and waiting 250&nbsp;&micro;s to avoid
+    a 10&nbsp;ms flush is an obviously good trade.
+  </p>
+
+  <p>
+    The writer-scaling numbers say the same thing from a different angle. At <code>max_batch</code>
+    64 and a 250&nbsp;&micro;s window, median of three runs:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Writers</th><th>Throughput</th><th>p50</th><th>Achieved batch</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>102/s</td><td>10.0&nbsp;ms</td><td>1.00</td></tr>
+      <tr><td>8</td><td>774/s</td><td>10.0&nbsp;ms</td><td>8.00</td></tr>
+      <tr><td>32</td><td>3,014/s</td><td>9.8&nbsp;ms</td><td>31.87</td></tr>
+      <tr><td>64</td><td>4,788/s</td><td>13.0&nbsp;ms</td><td>57.76</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>p50 stays near 10&nbsp;ms from 1 writer to 32 while throughput rises 30&times;.</strong>
+    Concurrency is free until the batch fills. At 64 writers the achieved batch saturates at 57.76
+    against a cap of 64 and latency starts to climb &mdash; that is the point where the next producer
+    begins waiting for the <em>next</em> barrier instead of joining the current one.
+  </p>
+
+  <div class="callout">
+    <h2>The number this design cannot improve</h2>
+    <p style="margin-bottom:0">
+      Single-writer throughput is <code>1 / barrier_cost</code> and nothing else: <strong>102
+      records/s</strong> against a ~10&nbsp;ms flush on this host. No batching setting changes it,
+      because there is nothing to batch with. <strong>This journal cannot help a single-writer
+      workload.</strong> Its entire value is amortising one barrier across concurrent callers, and a
+      workspace with one active agent gains nothing at all from it.
+    </p>
+  </div>
+
+  <p class="muted">
+    <strong>What these numbers are not.</strong> The host was contaminated &mdash; five research
+    subagents and repeated C builds were running on the same laptop, and every condition got
+    monotonically faster from round 1 to round 3 by roughly 2&times; as that load drained. The
+    absolute figures are a <em>floor</em>. The ratios within an interleaved round are the
+    trustworthy part, because interleaving exposes every condition to the same drift. Specifically
+    <strong>not</strong> supported by this data: any claim that batch 64 differs from batch 32. It
+    wins one round, loses one, and ties one, and with 32 writers the achieved batch is ~31 either
+    way, so the setting is not binding. An earlier single-shot sweep appeared to show batch 32
+    beating batch 64 by 2.5&times;; the interleaved repeats refute that. It was drift.
+  </p>
+
+  <div class="aside">
+    <h3>The test barrier needed its own test</h3>
+    <p style="margin:0">
+      The group-commit gate proves &ldquo;fewer durable batches than records,&rdquo; and it can only
+      prove that if the writer threads genuinely contend &mdash; which is a test barrier's job.
+      <code>pthread_barrier_t</code> is an optional POSIX feature that Darwin does not provide, so
+      the gate did not build on this platform at all until a shim supplied a cycling
+      mutex/condition-variable barrier where the real one is absent. That shim has its own gate,
+      because a barrier that released early would leave the group-commit proof passing on timing
+      luck rather than on group commit &mdash; a green test measuring nothing, which is the failure
+      mode this whole article is about, one level up.
+    </p>
+  </div>
+
+  <h3>Recovery makes exactly one of three decisions</h3>
+
+  <p>
+    Reopen the same path and recovery runs automatically. It validates the segment header, every
+    complete frame, sequence and batch monotonicity, the previous-frame chain, and the commit
+    summary &mdash; and then it does one of three things. The difference between the first two is
+    the whole design.
+  </p>
+
+<figure class="viz-root" id="fig-torn">
+  <style>
+    #fig-torn{
+      color-scheme: light;
+      --tn-surface:#fcfcfb; --tn-ink:#0b0b0b; --tn-dim:#52514e; --tn-faint:#898781;
+      --tn-line:#c3c2b7; --tn-panel:rgba(11,11,11,0.05);
+      --tn-ok:#1d63c9;   --tn-okfill:rgba(29,99,201,0.12);
+      --tn-bad:#b3261e;  --tn-badfill:rgba(179,38,30,0.12);
+      --tn-warn:#8a5a00; --tn-warnfill:rgba(138,90,0,0.14);
+      --tn-border:rgba(11,11,11,0.10);
+      margin:1.75rem 0 2rem; padding:0; max-width:100%;
+      background:var(--tn-surface); border:1px solid var(--tn-border);
+      border-radius:0.7rem; overflow:hidden; line-height:1.5;
+    }
+    @media (prefers-color-scheme:dark){
+      :root:where(:not([data-theme="light"])) #fig-torn{
+        color-scheme:dark;
+        --tn-surface:#1a1a19; --tn-ink:#f4f4f2; --tn-dim:#c3c2b7; --tn-faint:#928f88;
+        --tn-line:#45443f; --tn-panel:rgba(255,255,255,0.06);
+        --tn-ok:#5ea3f2;   --tn-okfill:rgba(94,163,242,0.18);
+        --tn-bad:#ff9b93;  --tn-badfill:rgba(255,155,147,0.18);
+        --tn-warn:#f0b34a; --tn-warnfill:rgba(240,179,74,0.18);
+        --tn-border:rgba(255,255,255,0.10);
+      }
+    }
+    :root[data-theme="dark"] #fig-torn{
+      color-scheme:dark;
+      --tn-surface:#1a1a19; --tn-ink:#f4f4f2; --tn-dim:#c3c2b7; --tn-faint:#928f88;
+      --tn-line:#45443f; --tn-panel:rgba(255,255,255,0.06);
+      --tn-ok:#5ea3f2;   --tn-okfill:rgba(94,163,242,0.18);
+      --tn-bad:#ff9b93;  --tn-badfill:rgba(255,155,147,0.18);
+      --tn-warn:#f0b34a; --tn-warnfill:rgba(240,179,74,0.18);
+      --tn-border:rgba(255,255,255,0.10);
+    }
+    #fig-torn .tn-head{padding:18px 20px 4px}
+    #fig-torn .tn-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--tn-ink)}
+    #fig-torn .tn-sub{margin:6px 0 0;font-size:.85rem;color:var(--tn-dim)}
+    #fig-torn .figwrap{padding:10px 12px 0;overflow-x:auto}
+    #fig-torn svg{display:block;width:100%;height:auto}
+    #fig-torn .tn-panel{fill:none;stroke:var(--tn-line);stroke-width:1.2}
+    #fig-torn .tn-seg{fill:var(--tn-panel);stroke:var(--tn-faint);stroke-width:1.3}
+    #fig-torn .tn-data{fill:var(--tn-surface);stroke:var(--tn-ink);stroke-width:1.4}
+    #fig-torn .tn-commit{fill:var(--tn-okfill);stroke:var(--tn-ok);stroke-width:2}
+    #fig-torn .tn-drop{fill:none;stroke:var(--tn-faint);stroke-width:1.4;stroke-dasharray:5 4}
+    #fig-torn .tn-corrupt{stroke:var(--tn-bad);stroke-width:2.6}
+    #fig-torn .tn-torn{fill:var(--tn-warnfill);stroke:var(--tn-warn);stroke-width:2.4}
+    #fig-torn .tn-void{fill:none;stroke:var(--tn-warn);stroke-width:1.6;stroke-dasharray:5 4}
+    #fig-torn .tn-h{fill:var(--tn-ink);font-size:14px;font-weight:700}
+    #fig-torn .tn-hs{fill:var(--tn-dim);font-size:12px}
+    #fig-torn .tn-t{fill:var(--tn-ink);font-size:12.5px}
+    #fig-torn .tn-m{fill:var(--tn-dim);font-size:12px}
+    #fig-torn .tn-g{fill:var(--tn-faint);font-size:12px}
+    #fig-torn .tn-ok{fill:var(--tn-ok);font-size:12.5px;font-weight:700}
+    #fig-torn .tn-bad{fill:var(--tn-bad);font-size:12.5px;font-weight:700}
+    #fig-torn .tn-warn{fill:var(--tn-warn);font-size:12.5px;font-weight:700}
+    #fig-torn .tn-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    #fig-torn .tn-foot{padding:10px 20px 16px;margin:0;font-size:.78rem;color:var(--tn-faint)}
+  </style>
+
+  <div class="tn-head">
+    <p class="tn-title">Torn tail versus corruption &mdash; the distinction the whole package turns on</p>
+    <p class="tn-sub">One journal file, three states, read top to bottom. Two of them are damaged. Only
+      one of them is allowed to open.</p>
+  </div>
+
+  <div class="figwrap">
+    <svg viewBox="0 0 1120 600" width="1120" style="max-width:100%;min-width:980px;height:auto"
+         role="img" aria-labelledby="tn-t tn-d"
+         font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+      <title id="tn-t">Three states of one journal file: intact, torn tail, and corrupt</title>
+      <desc id="tn-d">Panel one, intact: a segment header, two DATA frames, a COMMIT frame, two more
+        DATA frames and a second COMMIT frame. Every frame's declared length matches the bytes on
+        disk and every CRC matches, so the log opens and both batches replay. Panel two, torn tail:
+        the same file, but the final COMMIT frame is physically cut short, its header's frame length
+        running past the end of the file. Recovery truncates the two uncommitted DATA frames and the
+        partial COMMIT back to the previous COMMIT boundary; that batch never returned a receipt, so
+        nothing acknowledged is lost. Panel three, corrupt: every frame is physically complete,
+        including the second DATA frame, but that frame's CRC32 does not match its contents. The log
+        refuses to open and reports durable_log_open_corruption. It is never silently skipped.</desc>
+
+      <defs>
+        <marker id="tn-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="var(--tn-warn)"/>
+        </marker>
+        <pattern id="tn-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="8" stroke="var(--tn-bad)" stroke-width="2.6" opacity="0.42"/>
+        </pattern>
+      </defs>
+
+      <!-- ================= PANEL 1 : INTACT ================= -->
+      <rect class="tn-panel" x="24" y="16" width="344" height="512" rx="9"/>
+      <text class="tn-h"  x="34" y="42">(i) intact</text>
+      <text class="tn-hs" x="34" y="60">nothing to repair</text>
+
+      <rect class="tn-seg"    x="34" y="76"  width="262" height="36" rx="5"/>
+      <text class="tn-m"      x="46" y="99">segment header, 64 B</text>
+      <rect class="tn-data"   x="34" y="118" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="46" y="141">DATA &middot; seq 1</text>
+      <rect class="tn-data"   x="34" y="160" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="46" y="183">DATA &middot; seq 2</text>
+      <rect class="tn-commit" x="34" y="202" width="262" height="36" rx="5"/>
+      <text class="tn-ok"     x="46" y="225">COMMIT &middot; batch 1</text>
+      <text class="tn-g"      x="300" y="225">boundary</text>
+      <rect class="tn-data"   x="34" y="244" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="46" y="267">DATA &middot; seq 3</text>
+      <rect class="tn-data"   x="34" y="286" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="46" y="309">DATA &middot; seq 4</text>
+      <rect class="tn-commit" x="34" y="328" width="262" height="36" rx="5"/>
+      <text class="tn-ok"     x="46" y="351">COMMIT &middot; batch 2</text>
+      <text class="tn-g"      x="300" y="351">boundary</text>
+
+      <text class="tn-t" x="34" y="382" font-weight="700">every frame:</text>
+      <path d="M34,392 v12 M296,392 v12 M34,398 H296" fill="none" stroke="var(--tn-ink)" stroke-width="2"/>
+      <text class="tn-m" x="34" y="424">declared frame length = bytes on disk,</text>
+      <text class="tn-m" x="34" y="440">and every CRC32 matches.</text>
+
+      <rect x="34" y="454" width="324" height="62" rx="7" fill="var(--tn-okfill)" stroke="var(--tn-ok)" stroke-width="1.8"/>
+      <text class="tn-ok" x="46" y="474">RECOVERY: opens</text>
+      <text class="tn-t"  x="46" y="493">Both batches replay in order. Every</text>
+      <text class="tn-t"  x="46" y="509">acknowledged record is present.</text>
+
+      <!-- ================= PANEL 2 : TORN TAIL ================= -->
+      <rect class="tn-panel" x="388" y="16" width="344" height="512" rx="9"/>
+      <text class="tn-h"  x="398" y="42">(ii) torn tail &mdash; <tspan fill="var(--tn-warn)">incomplete</tspan></text>
+      <text class="tn-hs" x="398" y="60">the writer was killed mid-frame</text>
+
+      <rect class="tn-seg"    x="398" y="76"  width="262" height="36" rx="5"/>
+      <text class="tn-m"      x="410" y="99">segment header, 64 B</text>
+      <rect class="tn-data"   x="398" y="118" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="410" y="141">DATA &middot; seq 1</text>
+      <rect class="tn-data"   x="398" y="160" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="410" y="183">DATA &middot; seq 2</text>
+      <rect class="tn-commit" x="398" y="202" width="262" height="36" rx="5"/>
+      <text class="tn-ok"     x="410" y="225">COMMIT &middot; batch 1</text>
+      <text class="tn-ok"     x="664" y="220">last good</text>
+      <text class="tn-ok"     x="664" y="235">boundary</text>
+
+      <!-- uncommitted, complete DATA frames -->
+      <rect class="tn-data"   x="398" y="244" width="262" height="36" rx="5" stroke-dasharray="6 4" opacity="0.6"/>
+      <text class="tn-t"      x="410" y="267" opacity="0.6">DATA &middot; seq 3</text>
+      <text class="tn-g"      x="664" y="267">dropped</text>
+      <rect class="tn-data"   x="398" y="286" width="262" height="36" rx="5" stroke-dasharray="6 4" opacity="0.6"/>
+      <text class="tn-t"      x="410" y="309" opacity="0.6">DATA &middot; seq 4</text>
+      <text class="tn-g"      x="664" y="309">dropped</text>
+
+      <!-- the torn frame: ragged right edge + dashed missing remainder -->
+      <path class="tn-torn" d="M398,328 H504 l7,6 l-7,6 l7,6 l-7,6 l7,6 l-7,6 H398 Z"/>
+      <rect class="tn-void" x="513" y="328" width="147" height="36" rx="4"/>
+      <text class="tn-warn" x="410" y="351">COMMIT</text>
+      <text class="tn-warn" x="586" y="351" text-anchor="middle">bytes never arrived</text>
+      <text class="tn-warn" x="664" y="351">torn</text>
+
+      <path class="tn-drop" d="M716,344 V242" stroke="var(--tn-warn)" marker-end="url(#tn-arrow)"/>
+      <text class="tn-warn" x="398" y="382">the last frame:</text>
+      <g>
+        <line x1="398" y1="398" x2="504" y2="398" stroke="var(--tn-warn)" stroke-width="2.6"/>
+        <line x1="504" y1="398" x2="660" y2="398" stroke="var(--tn-warn)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <line x1="398" y1="392" x2="398" y2="404" stroke="var(--tn-warn)" stroke-width="2"/>
+        <line x1="660" y1="392" x2="660" y2="404" stroke="var(--tn-warn)" stroke-width="2"/>
+      </g>
+      <text class="tn-m" x="398" y="424">its header&rsquo;s frame length runs past the</text>
+      <text class="tn-m" x="398" y="440">end of the file. Physically short.</text>
+
+      <rect x="398" y="454" width="324" height="62" rx="7" fill="var(--tn-warnfill)" stroke="var(--tn-warn)" stroke-width="1.8"/>
+      <text class="tn-warn" x="410" y="474">RECOVERY: opens, tail truncated</text>
+      <text class="tn-t"    x="410" y="493">Back to the last COMMIT boundary. Batch 2</text>
+      <text class="tn-t"    x="410" y="509">never got a receipt, so nothing is lost.</text>
+
+      <!-- ================= PANEL 3 : CORRUPT ================= -->
+      <rect class="tn-panel" x="752" y="16" width="344" height="512" rx="9"/>
+      <text class="tn-h"  x="762" y="42">(iii) corrupt &mdash; <tspan fill="var(--tn-bad)">complete but wrong</tspan></text>
+      <text class="tn-hs" x="762" y="60">one bit flipped at file offset 112</text>
+
+      <rect class="tn-seg"    x="762" y="76"  width="262" height="36" rx="5"/>
+      <text class="tn-m"      x="774" y="99">segment header, 64 B</text>
+
+      <!-- the corrupt frame: FULL width, solid, hatched -->
+      <rect x="762" y="118" width="262" height="36" rx="5" fill="url(#tn-hatch)"/>
+      <rect class="tn-corrupt" x="762" y="118" width="262" height="36" rx="5" fill="none"/>
+      <text class="tn-bad" x="774" y="133">DATA &middot; seq 1</text>
+      <text class="tn-bad" x="774" y="148">&#10007; CRC32 at frame offset 44 fails</text>
+      <text class="tn-bad" x="1028" y="141">full</text>
+
+      <rect class="tn-data"   x="762" y="160" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="774" y="183">DATA &middot; seq 2</text>
+      <rect class="tn-commit" x="762" y="202" width="262" height="36" rx="5"/>
+      <text class="tn-ok"     x="774" y="225">COMMIT &middot; batch 1</text>
+      <rect class="tn-data"   x="762" y="244" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="774" y="267">DATA &middot; seq 3</text>
+      <rect class="tn-data"   x="762" y="286" width="262" height="36" rx="5"/>
+      <text class="tn-t"      x="774" y="309">DATA &middot; seq 4</text>
+      <rect class="tn-commit" x="762" y="328" width="262" height="36" rx="5"/>
+      <text class="tn-ok"     x="774" y="351">COMMIT &middot; batch 2</text>
+
+      <text class="tn-bad" x="762" y="382">the flagged frame:</text>
+      <g>
+        <line x1="762" y1="398" x2="1024" y2="398" stroke="var(--tn-bad)" stroke-width="2.6"/>
+        <line x1="762" y1="392" x2="762" y2="404" stroke="var(--tn-bad)" stroke-width="2"/>
+        <line x1="1024" y1="392" x2="1024" y2="404" stroke="var(--tn-bad)" stroke-width="2"/>
+      </g>
+      <text class="tn-m" x="762" y="424">every declared byte is present. Nothing is</text>
+      <text class="tn-m" x="762" y="440">missing &mdash; the contents are wrong.</text>
+
+      <rect x="762" y="454" width="324" height="62" rx="7" fill="var(--tn-badfill)" stroke="var(--tn-bad)" stroke-width="1.8"/>
+      <text class="tn-bad" x="774" y="474">RECOVERY: refuses to open</text>
+      <text class="tn-t"   x="774" y="493">Fails closed as <tspan class="tn-mono">durable_log_open_corruption</tspan>.</text>
+      <text class="tn-t"   x="774" y="509">Never skipped, never quietly truncated away.</text>
+
+      <!-- ================= FOOTNOTE BAR ================= -->
+      <rect x="24" y="544" width="1072" height="46" rx="7" fill="var(--tn-panel)" stroke="var(--tn-line)" stroke-width="1"/>
+      <text class="tn-t" x="40" y="565">Collapsing these two cases is the bug. SQLite&rsquo;s WAL recovery reaches
+        <tspan class="tn-mono">src/wal.c:1511</tspan>, <tspan class="tn-mono">if(!isValid) break;</tspan> &mdash; and treats a torn tail</text>
+      <text class="tn-t" x="40" y="583">and a complete frame with a bad checksum identically: the scan stops, everything after it is discarded, and no error is reported.</text>
+    </svg>
+  </div>
+
+  <p class="tn-foot">Solid outline: a frame that is physically all there. Dashed outline: bytes that
+    are not on disk, or records recovery will drop. Hatching plus &#10007;: present and wrong.</p>
+
+  <figcaption>
+    This is the distinction the package exists to defend. An incomplete frame is a normal
+    consequence of a crash: the writer was interrupted, the batch never returned a receipt, and
+    truncating back to the last COMMIT boundary throws away only records nobody was ever promised.
+    A complete frame whose CRC32 disagrees with its contents is a different animal entirely &mdash;
+    the bytes arrived and then changed, which means the disk, the filesystem or something else is
+    lying, and quietly dropping the frame would launder that lie into a clean startup. So one case
+    truncates and opens; the other fails closed as <code>durable_log_open_corruption</code>. Systems
+    that route both down the same branch turn a detectable fault into silent data loss.
+  </figcaption>
+</figure>
+
+  <table>
+    <thead>
+      <tr><th>What is on disk</th><th>What recovery does</th><th>What the caller sees</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A physically short final frame, or complete valid DATA frames with no following COMMIT</td>
+        <td><strong>Truncates</strong> back to the last committed boundary</td>
+        <td><code>open</code> succeeds; the committed prefix is intact</td>
+      </tr>
+      <tr>
+        <td>A <strong>complete</strong> frame whose checksum fails</td>
+        <td><strong>Fails closed.</strong> Never silently skipped</td>
+        <td><code>durable_log_open_corruption</code></td>
+      </tr>
+      <tr>
+        <td>Anything else that stops the open</td>
+        <td>Fails closed, with the reason</td>
+        <td><code>durable_log_open_io</code>, <code>durable_log_open_invalid</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The rule underneath the table is one sentence: <strong>a torn tail was never acknowledged, so
+    discarding it loses nothing anyone was promised; a complete-but-damaged frame <em>was</em>
+    acknowledged, so discarding it would silently lose a mutation someone was told had
+    succeeded.</strong> Those two must never be confused, and skipping the second would silently
+    publish a prefix the writer never acknowledged.
+  </p>
+
+  <p>
+    Both halves are gated, and the corruption spec is deliberately precise about which case it is
+    creating. It writes one byte at offset 112 &mdash; the first payload byte of the first DATA
+    frame, which is followed by a valid COMMIT. The frame stays <em>physically complete</em>; only
+    its CRC breaks. That is what distinguishes it from a torn tail, which is legally truncatable.
+  </p>
+
+  <div class="callout">
+    <h2>Failing closed, gated</h2>
+<pre><code>let journal = DurableLog.open(path, {library_path: library, queue_capacity: 64,
+  max_batch_records: 16, batch_window_microseconds: 250}).value
+let a = DurableLog.append(journal, 3, 'alpha')
+let b = DurableLog.append(journal, 3, 'beta')
+says a.ok and b.ok
+says DurableLog.close(journal).ok
+
+let handle = Files.open(path, 'read_write').value
+let damaged = Files.write_at(handle, 112, Bytes.from_text('X', 'utf-8'))
+let synced = Files.sync(handle)
+let closed = Files.close(handle)
+
+let reopened = DurableLog.open(path, {library_path: library, queue_capacity: 64,
+  max_batch_records: 16, batch_window_microseconds: 250})
+says reopened.ok
+says reopened.code
+says reopened.value.status_name
+</code></pre>
+<pre><code>true
+true
+false
+durable_log_open_corruption
+corruption
+</code></pre>
+    <p style="margin-bottom:0">
+      <code>specs/corruption_closed_spec.hey</code>. Failing closed is necessary but not sufficient:
+      an operator's response to &ldquo;your journal is corrupt&rdquo; &mdash; stop writing, page a
+      human, restore from a verified snapshot &mdash; is nothing like the response to &ldquo;that
+      path does not exist.&rdquo; Until commit <code>fa21790</code> both arrived as the same opaque
+      <code>durable_log_open_failed</code>, so a damaged journal looked exactly like a typo.
+    </p>
+  </div>
+
+  <div class="callout">
+    <h2>Truncating a torn tail, gated on the same journal shape</h2>
+<pre><code># Cut the final COMMIT frame in half: the second batch's DATA frame is intact
+# but its COMMIT never completed, which is precisely what a crash mid-write
+# leaves behind.
+let handle = Files.open(path, 'read_write').value
+let size = Files.size(path)
+let cut = Files.truncate(handle, size - 24)
+let synced = Files.sync(handle)
+let closed = Files.close(handle)
+
+let recovered = DurableLog.open(path, {library_path: library, queue_capacity: 64,
+  max_batch_records: 16, batch_window_microseconds: 250}).value
+let cursor = DurableLog.replay_open(recovered).value
+says Bytes.decode(DurableLog.replay_next(cursor).value.payload, 'utf-8')
+says DurableLog.replay_next(cursor).value.done
+says DurableLog.close(recovered).ok
+</code></pre>
+<pre><code>alpha
+true
+true
+</code></pre>
+    <p style="margin-bottom:0">
+      <code>specs/truncated_tail_spec.hey</code>. The journal must come back holding exactly the
+      first batch &mdash; not zero records, and not a partial third.
+    </p>
+  </div>
+
+  <h3>Replay cursors, and why they refuse to grow</h3>
+
+  <p>
+    A replay cursor snapshots the last validated COMMIT boundary at the moment it opens, then streams
+    one record at a time up to that snapshot and stops. Records appended later are invisible to it
+    <em>by design</em>.
+  </p>
+
+  <p>
+    That sounds like a limitation and is actually the safety property. A cursor that quietly extended
+    itself to whatever is now on disk would expose a half-written batch at exactly the wrong moment,
+    and the bug would only appear under load. Because the cursor cannot observe anything committed
+    after it opened, it cannot observe a batch that is still being written. A materialiser applies a
+    finite, committed prefix and then opens another cursor.
+  </p>
+
+  <div class="callout">
+    <h2>A cursor never grows past the boundary it snapshotted</h2>
+<pre><code>let first = DurableLog.append(journal, 1, 'one')
+let early = DurableLog.replay_open(journal).value
+let later = DurableLog.append(journal, 1, 'two')
+says Bytes.decode(DurableLog.replay_next(early).value.payload, 'utf-8')
+says DurableLog.replay_next(early).value.done
+says DurableLog.replay_close(early).ok
+let fresh = DurableLog.replay_open(journal).value
+says Bytes.decode(DurableLog.replay_next(fresh).value.payload, 'utf-8')
+says Bytes.decode(DurableLog.replay_next(fresh).value.payload, 'utf-8')
+says DurableLog.replay_next(fresh).value.done
+</code></pre>
+<pre><code>one
+true
+true
+one
+two
+true
+</code></pre>
+    <p style="margin-bottom:0">
+      <code>specs/replay_snapshot_spec.hey</code>. The cursor opened before the second append sees
+      one record and reports <code>done</code>; a cursor opened after it sees both.
+      <code>replay_next</code> returns <code>{done: true}</code> at the end rather than an error,
+      because exhaustion is not a failure.
+    </p>
+  </div>
+
+  <h3>Typed refusals, because an operator has to branch on them</h3>
+
+  <p>
+    Every refusal this package can produce is a code you branch on rather than a string you parse,
+    and three of them encode design decisions rather than mere validation.
+  </p>
+
+  <div class="callout">
+    <h2>The refusals a real caller hits</h2>
+<pre><code>let library = Env.default('HEY_DURABLE_LOG_LIBRARY', '')
+
+# A library you named that is not there is refused, never replaced with
+# whichever build happens to be on the machine.
+let missing = DurableLog.open('errors.hdl', {library_path: '/nonexistent/lib.dylib'})
+says missing.code
+
+# A bound of zero is refused rather than silently replaced by a default, so
+# the queue limit in force is always the one you chose.
+let unbounded = DurableLog.open('errors.hdl', {library_path: library, queue_capacity: 0,
+  max_batch_records: 16, batch_window_microseconds: 250})
+says unbounded.code
+
+let journal = DurableLog.open('errors.hdl', {library_path: library, queue_capacity: 64,
+  max_batch_records: 16, batch_window_microseconds: 250}).value
+
+# A payload the journal cannot durably represent is refused without harming
+# the journal -- the next append still works.
+let bad = DurableLog.append(journal, 1, 42)
+says bad.code
+says DurableLog.append(journal, 1, 'still fine').ok
+
+# A closed journal is inert, not dangerous.
+let closed = DurableLog.close(journal)
+says DurableLog.append(journal, 1, 'too late').code
+</code></pre>
+<pre><code>durable_log_native_library_missing
+durable_log_open_invalid
+durable_log_payload_invalid
+true
+native_handle_closed
+</code></pre>
+    <p style="margin-bottom:0">
+      <code>examples/errors.hey</code>. Note the fourth line: a refused payload does not harm the
+      journal.
+    </p>
+  </div>
+
+  <p>
+    The first of those refusals is the one people argue about, so it is worth defending. The library
+    fallback chain &mdash; explicit <code>library_path</code>, then
+    <code>HEY_DURABLE_LOG_LIBRARY</code>, then <code>.hey/native/&hellip;</code>, then
+    <code>.native-build/&hellip;</code> &mdash; is exactly right when the caller expressed no
+    preference. It is exactly wrong when they did. <strong>A caller who names a build is choosing
+    which code writes their bytes.</strong> Silently loading a different one because the named one is
+    absent makes the durability of every subsequent write depend on ambient environment state the
+    caller did not choose, and does it without a word of warning. Commit <code>2f5a81d</code> made
+    that a refusal.
+  </p>
+
+  <h3>The one failure no journal can fix for you</h3>
+
+  <p>
+    If your caller crashed, timed out, or lost its connection <em>after</em> the COMMIT was made
+    durable but <em>before</em> it saw the receipt, then the mutation is in the journal and the
+    caller does not know it. Recovery finds a complete, correctly-committed batch and retains it,
+    which is the only correct thing it can do &mdash; the writer was, at the moment of the crash,
+    entitled to that acknowledgement.
+  </p>
+
+  <p>
+    No journal closes this gap, and it is worth being blunt about why: <strong>the failure is in the
+    space between &ldquo;durable&rdquo; and &ldquo;told you so,&rdquo; which is outside the
+    journal.</strong> Adding a cleverer format does not help. Adding replication does not help;
+    it moves the gap, it does not close it. An error, a timeout, or a lost response is
+    <em>not</em> proof that the mutation was absent.
+  </p>
+
+  <p>
+    The only correct resolution is <strong>application idempotency</strong>: give each mutation a
+    caller-supplied idempotency key, and on retry make the second attempt observe the first one's
+    effect instead of duplicating it. Design that in before you take traffic, not after you have two
+    of something. This is the one place where a durability library's honest answer is &ldquo;this is
+    your problem, and here is exactly why it has to be.&rdquo;
+  </p>
+
+  <h2>Movement III &mdash; How everyone else draws the same line</h2>
+
+  <p>
+    Five systems, read at pinned upstream tags rather than from memory or documentation: Redis
+    (8.10.1), Valkey (9.1.2), PostgreSQL (REL_18_6), SQLite, and etcd/Kafka. The interesting result
+    is not that we win somewhere. It is that <em>every one of these systems draws the acknowledgement
+    line somewhere defensible and somewhere surprising</em>, and several of them draw it in a place
+    their users do not expect.
+  </p>
+
+  <div class="callout">
+    <h2 style="color:#b3261e">Read this before you read the table: &ldquo;SQLite is slow&rdquo; is false</h2>
+    <p>
+      This is the intellectual heart of the comparison and it goes against us, so it goes first.
+    </p>
+    <p>
+      With <code>fullfsync</code> <strong>off</strong>, SQLite does <strong>23,354 rows/s</strong>
+      single-writer and <strong>13,043 txn/s at 8 writers</strong>, at a p99 of
+      <strong>0.09&nbsp;ms</strong>. That is not close to our broker. That <em>beats</em> our broker
+      outright, by more than an order of magnitude. Anybody who tells you SQLite is a slow database
+      has not measured one.
+    </p>
+    <p>
+      That comparison is not fair to us, and it is not meant to be &mdash; it is the exact
+      unequal-barrier comparison this article exists to warn about, put here deliberately with a
+      label on it, because it is the shape every misleading durability benchmark has.
+    </p>
+    <p>
+      The comparison only inverts once a <em>real barrier</em> is required. With
+      <code>fullfsync</code> on, SQLite goes <strong>83.4 &rarr; 77.0 &rarr; 66.2 transactions/s at
+      1 &rarr; 4 &rarr; 8 writers</strong>. Read that again: throughput <em>falls</em> as
+      concurrency rises. p99 goes from 9.9&nbsp;ms to 215&nbsp;ms to 480&nbsp;ms, and
+      <code>SQLITE_BUSY</code> stays at <strong>zero</strong> throughout &mdash; so the symptom is
+      latency, not an error a caller can retry on. The cause is structural: a WAL writer holds the
+      exclusive <code>WAL_WRITE_LOCK</code> <em>across</em> its fsync, so the durable commit rate is
+      <code>1 / barrier_cost</code> and does not improve with writers. SQLite has no group commit,
+      and that is not a defect &mdash; it is a consequence of one writer at a time.
+    </p>
+    <p>
+      Two numbers make the point without any journal in the picture at all. One SQLite writer
+      batching 64 rows per transaction does <strong>6,217 rows/s</strong> &mdash; 75&times; the
+      single-row figure, from batching alone. And <strong>23,354 versus 83.4</strong> is the price
+      of the barrier, in one database, on one machine, changing one PRAGMA.
+    </p>
+    <p style="margin-bottom:0">
+      <strong>So: any benchmark that does not state which barrier both sides used is not a statement
+      about durability.</strong> It is a statement about how much of the write path the faster side
+      skipped. We published a 4&times; regression on exactly this question in Movement I; we are not
+      going to turn around and quote a number against SQLite that depends on the same confusion.
+    </p>
+  </div>
+
+  <div class="aside term">
+    <h3>Two builds, one machine, different durability</h3>
+    <p style="margin:0">
+      It gets worse than a PRAGMA you might forget. Apple's <code>/usr/bin/sqlite3</code> 3.51.0
+      ships <code>DEFAULT_WAL_SYNCHRONOUS=1</code> (NORMAL); another SQLite build on the same laptop
+      ships 2 (FULL). Same machine, same library name, different durability, depending on which
+      binary you happened to link. At NORMAL, WAL commits do not sync at all, and what a power
+      failure costs you is not the last transaction but everything since the last WAL sync. Pin
+      <code>synchronous</code> explicitly at startup and fail startup on a mismatch; the compiled
+      default cannot be relied upon.
+    </p>
+  </div>
+
+  <h3>The comparison table</h3>
+
+  <table>
+    <caption class="muted" style="text-align:left;margin-bottom:0.5rem">
+      Where each system draws its acknowledgement line, and what it does with damage. Read at the
+      tags named in the sources.
+    </caption>
+    <thead>
+      <tr>
+        <th>System</th>
+        <th>Default acknowledgement boundary</th>
+        <th>Per-record integrity</th>
+        <th>Complete corrupt record on recovery</th>
+        <th>Backpressure</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>hey_durable_log</strong> 0.2.0</td>
+        <td>After DATA + COMMIT + device barrier. No weaker mode exists.</td>
+        <td>CRC32 per frame, plus a chain over the previous frame's CRC and a commit-summary CRC</td>
+        <td><strong>Fails closed</strong> as <code>durable_log_open_corruption</code></td>
+        <td>Bounded queue; full means refuse</td>
+      </tr>
+      <tr>
+        <td><strong>Redis AOF</strong> 8.10.1</td>
+        <td><code>everysec</code>: page cache. Only <code>appendfsync always</code> writes and fsyncs before the reply.</td>
+        <td><strong>None.</strong> No length prefix, no checksum on the record path</td>
+        <td>Since 8.10, <code>aof-load-corrupt-tail-max-size</code> (<code>config.c:3507</code>) truncates on a format error &mdash; discarding valid records <em>behind</em> the corruption</td>
+        <td><strong>None.</strong> <code>aof_buf</code> is unbounded and explicitly excluded from <code>maxmemory</code> (<code>evict.c:354-356</code>)</td>
+      </tr>
+      <tr>
+        <td><strong>Valkey</strong> 9.1.2</td>
+        <td>As Redis; no AOF default has moved</td>
+        <td><strong>None.</strong> <code>grep -in "crc\|checksum" src/aof.c</code> returns nothing</td>
+        <td>Declined Redis's truncate-on-corruption flag &mdash; <em>stricter than current Redis here</em>. But <code>valkey-check-aof --fix</code> truncates from the first bad byte to EOF</td>
+        <td>As Redis</td>
+      </tr>
+      <tr>
+        <td><strong>PostgreSQL WAL</strong> REL_18_6</td>
+        <td><code>XLogFlush</code> before commit returns, unless <code>synchronous_commit=off</code> (<code>xact.c:1498-1502</code>). Replication waiting happens strictly <em>after</em> the local flush &mdash; Postgres never substitutes a replica for the local fsync</td>
+        <td>CRC per record, <em>plus</em> <code>xl_prev</code> &mdash; a position back-link</td>
+        <td>Half fail-closed: in crash recovery from <code>pg_wal</code> a CRC failure is logged at LOG and treated as end-of-WAL. The server comes up</td>
+        <td>Out of scope here; not measured</td>
+      </tr>
+      <tr>
+        <td><strong>SQLite WAL</strong></td>
+        <td>Build- and PRAGMA-dependent. FULL + <code>fullfsync</code> is a real barrier; NORMAL is not</td>
+        <td>Per-frame validity check on the WAL</td>
+        <td><strong>Silently discards.</strong> <code>src/wal.c:1511</code> &mdash; <code>if(!isValid) break;</code> treats a torn tail and a complete corrupt frame identically, stops the scan, drops everything after, <em>and reports no error</em></td>
+        <td>One writer at a time via <code>WAL_WRITE_LOCK</code>; the symptom of overload is latency, not <code>SQLITE_BUSY</code></td>
+      </tr>
+      <tr>
+        <td><strong>etcd</strong></td>
+        <td>No response counting toward quorum until the entry and hard state are on stable storage (<code>etcd-io/raft raft.go:544-590</code>)</td>
+        <td>CRC chain</td>
+        <td>Not strictly fail-closed: <code>isTornEntry</code> (<code>decoder.go:166-201</code>) reclassifies a CRC failure as a torn write whenever any 512-byte sector of a <em>complete</em> record reads all-zero</td>
+        <td>Out of scope here; not measured</td>
+      </tr>
+      <tr>
+        <td><strong>Kafka</strong></td>
+        <td><code>acks=all</code> means &ldquo;the high watermark passed my offset&rdquo; &mdash; i.e. page cache on every ISR member. <code>flush.messages</code> and <code>flush.ms</code> both default to <code>Long.MAX_VALUE</code> (<code>ServerLogConfigs.java:101</code>, <code>:109</code>), so a default broker never fsyncs on produce. And <code>min.insync.replicas</code> defaults to <strong>1</strong> (<code>:155</code>)</td>
+        <td>CRC-32C per record <em>batch</em>, not per record. For magic v2 there is no record-level CRC at all (<code>LogValidator.java:511-515</code>)</td>
+        <td>Truncates <em>and</em> deletes: the first bad CRC ends the scan (<code>LogSegment.java:485-513</code>), then every later unflushed segment is deleted (<code>LogLoader.java:478-484</code>). The broker still starts</td>
+        <td>Producer <code>buffer.memory</code>, 32&nbsp;MB by default, blocks the caller; <code>queued.max.requests</code> 500 blocks the broker's network threads</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Where we are stronger</h3>
+
+  <p>
+    <strong>Per-frame checksums, against nothing at all.</strong> This is the finding that most
+    surprised us. Neither Redis nor Valkey computes any checksum over an AOF record. There is no
+    length prefix, no LSN and no CRC on that path &mdash; a payload bit flip produces bytes that
+    parse as a perfectly valid command, and the command is <em>silently applied</em> on load. Redis
+    has an open issue about it &mdash; <code>redis/redis#3730</code>, open since 2017. Valkey's own
+    <code>src/aof.c</code> returns nothing for a case-insensitive grep of <code>crc</code> or
+    <code>checksum</code>. That is not a subtle difference in strictness; it is the difference
+    between detecting damage and replaying it as data.
+  </p>
+
+  <p class="muted">
+    Stated precisely, because the scope matters: what we read is the <em>AOF record path</em>, in
+    <code>src/aof.c</code> at those tags. That is the path carrying the mutations you replay, and it
+    is the path our own frame format is the direct counterpart of. We did not audit the rest of
+    either codebase, and nothing here should be read as a claim about it.
+  </p>
+
+  <p>
+    <strong>A bounded queue that actually refuses.</strong> Redis's <code>aof_buf</code> grows
+    without a bound, and is explicitly excluded from the <code>maxmemory</code> accounting
+    (<code>evict.c:354-356</code>) &mdash;
+    so the memory that absorbs a stalled disk is memory the eviction policy cannot see. Our queue
+    has a capacity you chose, and at that capacity submissions are refused rather than accepted into
+    growth. This is the same argument as the <code>queue_capacity: 0</code> refusal: an
+    unbounded-growth incident begins with everyone believing a bound that was never in force.
+  </p>
+
+  <p>
+    <strong>Failing closed on a complete corrupt frame.</strong> SQLite's WAL recovery has one line
+    that decides this &mdash; <code>src/wal.c:1511</code>, <code>if(!isValid) break;</code> &mdash;
+    and it makes the opposite choice from ours: the scan breaks out of its loop
+    as soon as a frame does not validate, and it makes no distinction between &ldquo;this frame is
+    physically incomplete&rdquo; and &ldquo;this frame is complete and its checksum is wrong.&rdquo;
+    Everything after the break is discarded, and no error is returned to anybody. That is the exact
+    inverse of our rule, and it is not a small difference: the first case is a write nobody was
+    promised, and the second is a write somebody was told had succeeded.
+  </p>
+
+  <p class="muted">
+    Redis moved toward SQLite's behaviour in 8.10 with
+    <code>aof-load-corrupt-tail-max-size</code> (<code>config.c:3507</code>), which truncates on a
+    format error and discards the valid records sitting behind the corruption. Valkey declined to
+    take it. On this one question, <strong>Valkey is stricter than current Redis</strong> &mdash;
+    and it is the one place in this comparison where the two projects meaningfully diverge on the
+    AOF write path, which is otherwise barely diverged at all: no AOF default has moved. Valkey's
+    own repair tool is no gentler, mind: <code>valkey-check-aof --fix</code> truncates from the
+    first bad byte to EOF, discarding every valid record after it.
+  </p>
+
+  <p class="muted">
+    And Valkey knows. Issue #3515, &ldquo;Modernizing Valkey AOF,&rdquo; proposes per-entry
+    length/LSN/checksum headers, recycled fixed-size segments, and disk-capacity backpressure. That
+    is, near enough, a description of the format in Movement II, arrived at independently by people
+    with far more operational scar tissue than we have. It has not landed. We read that as
+    corroboration of the shape rather than as a win &mdash; the argument was already being made
+    inside the project we are comparing ourselves to.
+  </p>
+
+  <h3>Where we are weaker, and it is not close</h3>
+
+  <p>
+    <strong>1. We have no replication. None.</strong> etcd will not send any response that counts
+    toward a quorum until the entry and the hard state are on stable storage &mdash; a stronger
+    guarantee than ours in kind, not merely in degree, because it survives the loss of the machine.
+    Kafka has an in-sync replica set. We have a file on one disk. Lose the host, lose the journal.
+    &ldquo;Local-durable&rdquo; is the honest name for what we have and there is no reading of it
+    that competes with consensus.
+  </p>
+
+  <p>
+    The comment in <code>etcd-io/raft:raft.go:544-590</code> states the general principle better
+    than we did, and it is exactly our acknowledgement rule one layer up the stack:
+  </p>
+
+  <div class="aside term">
+    <h3><code>etcd-io/raft:raft.go:544-590</code></h3>
+    <p style="margin:0">
+      &ldquo;response messages that relate to &lsquo;voting&rsquo; on either leader election or log
+      appends require durability before they can be sent. It would be incorrect to publish a vote in
+      an election before that vote has been synced to stable storage locally. Similarly, it would be
+      incorrect to acknowledge a log append to the leader before that entry has been synced to
+      stable storage locally.&rdquo;
+    </p>
+  </div>
+
+  <p class="muted">
+    Two honest asterisks on etcd, for symmetry with the ones we put on ourselves. It ships an
+    <code>--unsafe-no-fsync</code> flag whose own help text reads &ldquo;Disables fsync, unsafe, will
+    cause data loss&rdquo; &mdash; which is the right way to offer a dangerous option, named for what
+    it does. And it is not strictly fail-closed: <code>isTornEntry</code>
+    (<code>etcd-io/etcd:server/storage/wal/decoder.go:166-201</code>) reclassifies a CRC failure as a
+    torn write whenever any 512-byte sector of a <em>complete</em> record reads all-zero. That is a
+    deliberate, documented trade against sector-granularity torn writes, and it is a place where our
+    rule is stricter than a system that is otherwise well ahead of us.
+  </p>
+
+  <p>
+    <strong>2. We have no segment rotation, so the journal grows.</strong> Forever, until the
+    filesystem fills. Both etcd and Kafka rotate segments; etcd's sequence is the one worth
+    copying (<code>wal.go:745-827</code>): truncate and fsync the old tail, take a preallocated
+    <code>N.tmp</code> from a background <code>filePipeline</code>, write the CRC chain, metadata and
+    hard state into it, fsync, rename, then fsync the directory &mdash; and crucially it writes
+    <em>no acknowledgeable payload</em> into the new segment before publishing it, so there is no
+    window in which an acknowledged record lives in a file that is not yet visible. The filename
+    carries the first sequence number, so the directory listing <em>is</em> the manifest, with no
+    separate file to corrupt.
+  </p>
+
+  <p class="muted">
+    For contrast, Kafka's log roll performs <em>zero</em> fsyncs &mdash; not on the file, not on the
+    directory &mdash; and publishes the new segment by a <code>ConcurrentSkipListMap.put</code>
+    (<code>UnifiedLog.java:2212-2214</code>). That is a coherent choice for a system whose durability
+    story is replication rather than local flush, and a bad model for a system whose durability story
+    <em>is</em> local flush. Redis's MP-AOF manifest sequence is closer to what we want &mdash; write
+    a temporary file, fsync the file, rename, fsync the directory (<code>aof.c:540-612</code>)
+    &mdash; though its manifest is unchecksummed plain text, which we would not copy.
+  </p>
+
+  <p>
+    <strong>3. We have no position back-link, and this is the subtle one.</strong> Our frame chain
+    links the <em>previous frame's CRC value</em>. That is position-independent: a frame chain that
+    validates does not prove the frames are where the writer put them. PostgreSQL's
+    <code>xl_prev</code> stores the previous record's <em>position</em>, and Tom Lane explained on
+    pgsql-hackers in January 2018 exactly why that matters:
+  </p>
+
+  <div class="aside term">
+    <h3>Tom Lane, pgsql-hackers, 12 January 2018</h3>
+    <p style="margin:0">
+      &ldquo;recognizing that the new record has an old <code>xl_prev</code> is our ONLY defense
+      against replaying stale data.&rdquo;
+    </p>
+  </div>
+
+  <p>
+    The scenario is not hypothetical. WAL segment recycling in Postgres is a bare rename with no
+    zeroing (<code>xlog.c:4022-4031</code>), so a recycled segment is full of complete,
+    correctly-CRC'd, <em>stale</em> records. The
+    checksum cannot save you, because the stale records' checksums are perfectly valid &mdash; they
+    were valid when they were written. Only the position can save you.
+  </p>
+
+  <p>
+    We do not have that defence today. We do not yet <em>need</em> it, because we do not recycle
+    segments &mdash; but that is the same as saying the missing defence and the missing feature are
+    the same gap. Which is why the position back-link is format v2 and it lands
+    <strong>before</strong> segment rotation, not after. Shipping rotation onto a
+    position-independent chain would be shipping the stale-replay bug deliberately.
+  </p>
+
+  <p>
+    <strong>4. Nothing we have approaches Postgres's maturity, and its refinements show it.</strong>
+    Consider one detail: Postgres never makes a solitary committer wait. <code>commit_delay</code>
+    defaults to 0, and even when it is set, the <code>commit_siblings</code> guard means a
+    transaction that is the only one in flight does not pay a group-commit delay for a group that
+    does not exist. Our broker has a fixed configurable window and no such refinement. That is a
+    small thing, and it is exactly the kind of small thing that decades of production produce and a
+    fortnight does not.
+  </p>
+
+  <div class="aside">
+    <h3>We were not the first to make the Darwin mistake, and that is the point</h3>
+    <p style="margin:0">
+      Two of the systems in this comparison already resolve their sync call to
+      <code>fcntl(fd, F_FULLFSYNC)</code> on Darwin: Redis does it through a platform macro
+      (<code>redis:src/config.h:125-132</code>), and etcd maps its <code>Fdatasync</code> to the same
+      <code>fcntl</code> &mdash; with a comment
+      (<code>etcd-io/etcd:client/pkg/fileutil/sync_darwin.go:25-38</code>) that reads like a summary
+      of our bug report: &ldquo;Fsync on HFS/OSX flushes the data on to the physical drive but the
+      drive may not write it to the persistent media for quite sometime and it may be written in
+      out-of-order sequence. Using F_FULLFSYNC ensures that the physical drive's buffer will also get
+      flushed to the media.&rdquo;
+    </p>
+    <p style="margin:0.7rem 0 0">
+      So the correct answer was sitting in two widely read codebases the whole time, and we still
+      shipped the wrong one &mdash; because the wrong one compiles, passes every test that does not
+      cut the power, and benchmarks four times better. Four of the five research briefs written for
+      this article independently flagged the same Darwin gap as an open question, in five different
+      projects, without coordinating. That is what makes this class of bug worth an article. It is
+      not hard to fix. It is hard to <em>notice</em>.
+    </p>
+  </div>
+
+  <div class="aside">
+    <h3>Kafka disagrees with itself, usefully</h3>
+    <p style="margin:0">
+      Kafka's data plane does not fsync on produce &mdash; <code>flush.messages</code> and
+      <code>flush.ms</code> both default to <code>Long.MAX_VALUE</code>, and the project states the
+      position in its own documentation: &ldquo;durability in Kafka does not require syncing data to
+      disk&rdquo; (<code>docs/operations/hardware-and-os.md:64</code>). But Kafka's <em>own metadata
+      log</em>, KRaft, flushes before acknowledging (<code>KafkaRaftClient.java:673-677</code>). The
+      same project, in the same repository, uses a stronger rule for the data it cannot afford to
+      lose than for yours. That is not hypocrisy &mdash; it is an accurate statement about which
+      losses replication can absorb and which it cannot &mdash; but it is worth noticing which side
+      of that line your data is on.
+    </p>
+    <p style="margin:0.7rem 0 0">
+      Kafka argues its side of that line explicitly, and the argument is good enough that it belongs
+      here rather than in a footnote. From <code>apache/kafka:docs/design/design.md:335</code>:
+      &ldquo;disk errors are the most common problem we observe in real operation of persistent data
+      systems and they often do not leave data intact. Secondly, even if this were not a problem, we
+      do not want to require the use of fsync on every write for our consistency guarantees as this
+      can reduce performance by two to three orders of magnitude.&rdquo; That is the same 4&times;
+      we measured, several times over, and it is the reason a system with replication is entitled to
+      a different answer than a system without one. We do not have replication, so we are not
+      entitled to that answer.
+    </p>
+    <p style="margin:0.7rem 0 0">
+      One trap in it, though, and Kafka names it too (<code>design.md:353</code>): &ldquo;when
+      acks=all, acknowledgement happens as soon as all the current in-sync replicas have received
+      the message&hellip; if a topic is configured with only two replicas and one fails (i.e., only
+      one in sync replica remains), then writes that specify acks=all will succeed. However, these
+      writes could be lost if the remaining replica also fails.&rdquo; With
+      <code>min.insync.replicas</code> at its default of 1, <code>acks=all</code> can mean one
+      machine's page cache.
+    </p>
+  </div>
+
+  <div class="aside">
+    <h3>&ldquo;<code>everysec</code>&rdquo; is not a one-second bound</h3>
+    <p style="margin:0">
+      Redis's <code>appendfsync everysec</code> is widely read as &ldquo;you can lose at most one
+      second.&rdquo; The documentation says one second; antirez has said two; and the code can
+      postpone the <code>write()</code> itself for under 2000&nbsp;ms (<code>aof.c:1448</code>) while
+      <code>server.aof_last_fsync</code> is updated <em>outside</em> the <code>sync_in_progress</code>
+      guard (<code>aof.c:1601-1605</code>), so a stalled disk can stretch the window indefinitely.
+      Separately, <code>no-appendfsync-on-rewrite yes</code> silently downgrades <code>always</code>
+      to <code>no</code> during a rewrite (<code>aof.c:1575-1579</code>) &mdash; and
+      <code>redis.conf:1555-1556</code> admits it in a comment. We have left the
+      one-second-versus-two-seconds contradiction unresolved rather than picking whichever reading
+      suits us; the point is that the bound is not a bound.
+    </p>
+  </div>
+
+  <h2 id="limits">The limits, stated plainly</h2>
+
+  <p>
+    A durability article that oversells is worse than no article, so here is everything this package
+    cannot currently do, without softening.
+  </p>
+
+  <ul>
+    <li>
+      <strong>Local disk only.</strong> The guarantees are process crash, OS crash and power loss on
+      <em>this host</em>. Losing the host or losing the disk loses the journal. Quorum replication
+      before acknowledgement is not implemented, and until it is, nothing built on this package can
+      be described as surviving host loss because it has a journal.
+    </li>
+    <li>
+      <strong>No segment rotation.</strong> The journal grows. There is no manifest, no retirement,
+      no snapshot-and-truncate. A journal that cannot rotate is a journal that grows until the
+      filesystem fills, and we have not tested against a genuinely full filesystem &mdash; only a
+      mocked <code>ENOSPC</code> is not the same thing, and we have not claimed otherwise.
+    </li>
+    <li>
+      <strong>No position back-link.</strong> The v1 chain links CRC values and is
+      position-independent, so it provides no defence against replaying stale records from a reused
+      segment. This is scheduled as format v2 and must land before rotation.
+    </li>
+    <li>
+      <strong>The benchmark host was contaminated.</strong> Concurrent research subagents and C
+      builds ran on the same laptop throughout; every condition sped up by roughly 2&times; across
+      three rounds as that load drained. Absolute figures are a floor, not a measurement of the
+      hardware. Only the ratios within an interleaved round are being claimed.
+    </li>
+    <li>
+      <strong>No power-cut test has been performed on this hardware.</strong> That
+      <code>F_FULLFSYNC</code> is the right call to issue is documented by Apple. That this
+      particular drive honours it end to end is <em>asserted by that documentation, not by a test we
+      ran</em>. Nobody has pulled the plug on this laptop mid-write and checked.
+    </li>
+    <li>
+      <strong>Group-commit statistics are not reachable from Hey.</strong>
+      <code>hdl_broker_get_stats</code> exposes <code>records</code>, <code>durable_batches</code>,
+      <code>largest_batch</code> and <code>max_queue_depth</code>, and that is what lets the C
+      gate <em>prove</em> combining happened, and the queue bound hold, rather than assume either. From Hey you can infer it from shared <code>batch_id</code>
+      values, but you cannot query it.
+    </li>
+    <li>
+      <strong>The comparison is a source reading, not a bake-off.</strong> Only SQLite was
+      benchmarked alongside us. Everything said about Redis, Valkey, PostgreSQL, etcd and Kafka comes
+      from reading their source at a pinned tag. We did not run any of them.
+    </li>
+    <li>
+      <strong>Queue depth and backpressure under saturation are not measured</strong>, and neither is
+      replay lag while writers saturate the log. The bounded queue is asserted by the specs; its
+      behaviour at the limit is not instrumented.
+    </li>
+  </ul>
+
+  <h2>What we would tell somebody building one of these</h2>
+
+  <p>
+    Four things, in the order we learned them.
+  </p>
+
+  <ul>
+    <li>
+      <strong>Name the barrier in a public function and gate it per platform.</strong> Not a comment,
+      not a constant &mdash; a function like <code>hdl_sync_barrier_name()</code> that a test can
+      assert against. The reason we found this bug is that somebody went looking for what the code
+      actually called; the reason it cannot come back is that a test now fails if the answer changes.
+    </li>
+    <li>
+      <strong>Publish the regression.</strong> When the correct barrier costs you 4&times;, the
+      number to put in the document is the slow one, with the fast one next to it labelled as not
+      power-loss durable. Anything else trains your future self to trust the wrong measurement.
+    </li>
+    <li>
+      <strong>Distinguish &ldquo;never acknowledged&rdquo; from &ldquo;acknowledged and
+      damaged.&rdquo;</strong> These look similar in a recovery scanner and they are opposites. Every
+      system in this comparison has a position on it, and only two of the five fail closed on a
+      complete corrupt record by default. SQLite silently truncates, PostgreSQL treats it as
+      end-of-WAL and starts, Kafka truncates and deletes later segments, and etcd fails closed except
+      when the damage looks sector-shaped. That is not a field consensus you can inherit; it is a
+      decision you have to make on purpose.
+    </li>
+    <li>
+      <strong>Say what you do not have.</strong> The most useful sentence in our documentation is
+      <code>quorum_replication: false</code>, asserted by a spec so it cannot quietly become
+      aspirational. The second most useful is the one admitting we never pulled the plug.
+    </li>
+  </ul>
+
+  <h2>Sources</h2>
+
+  <ul>
+    <li>
+      <strong>This package.</strong> <code>hey_durable_log</code> 0.2.0, published at
+      <code>jayteesf.github.io/packages/hey_durable_log/0.2.0/</code>, archive sha256
+      <code>f4a226e4789175145f8be931ba20d3abfb5cae54cce94bff50073816e1cf48ea</code>. The byte format and recovery
+      rules are <code>docs/FORMAT.md</code>; the acknowledgement boundary, group commit and cursor
+      semantics are <code>docs/DESIGN.md</code>; the executable quick start is
+      <code>docs/GETTING_STARTED.md</code>. Every Hey snippet above is copied from
+      <code>examples/quickstart.hey</code>, <code>examples/errors.hey</code>, or a file in
+      <code>specs/</code>, all of which are executed as written by the gate. The only edit is
+      whitespace: a few long option lines are wrapped for page width, and leading indentation is
+      stripped. No identifier, argument or expected output has been altered.
+    </li>
+    <li>
+      <strong>The benchmark.</strong> <code>docs/BENCHMARK-2026-09-04-darwin.md</code>. Apple silicon
+      laptop, 12 logical cores, 64&nbsp;GiB RAM, macOS 15.6 (Darwin 25.6.0), APFS internal SSD;
+      built <code>-O2 -std=c11 -Wall -Wextra -Werror -Wpedantic</code>; each producer submits one
+      record and waits for its receipt, so every latency is a full acknowledgement round trip. Read
+      its contamination note before quoting any figure from it.
+    </li>
+    <li>
+      <strong>The barrier fix and its consequences.</strong> Commit <code>e7f9ca4</code>
+      (<code>F_FULLFSYNC</code> on Darwin, gated per platform), <code>c9fee2a</code> (a failed
+      barrier poisons the handle), <code>2f5a81d</code> (a named library is honoured or refused),
+      <code>fa21790</code> (open failures carry their reason). The gate inversion is recorded as
+      <code>projects/hey_durable_log/decisions/poison-the-log-after-a-failed-durability-barrier.md</code>.
+    </li>
+    <li>
+      <strong>The <code>fsync(2)</code> quotations</strong> are from the macOS manual page on the
+      benchmark host &mdash; <code>man 2 fsync</code>, Darwin 25.6.0.
+    </li>
+    <li>
+      <strong>Five primary-source research briefs</strong>, all read at pinned upstream tags:
+      Redis AOF (<code>redis/redis</code> 8.10.1), Valkey (<code>valkey</code> 9.1.2), PostgreSQL WAL
+      (<code>REL_18_6</code>), the SQLite WAL baseline, and etcd/Kafka. Tom Lane's remark is from
+      pgsql-hackers, 12 January 2018. Rebello et al., USENIX ATC '20, is the source for PANIC on a
+      failed fsync being necessary but not sufficient, and for the <code>ext4</code>
+      <code>data=journal</code> late-error and <code>errors=remount-ro</code> results.
+    </li>
+    <li>
+      <strong>Line citations</strong> are shortened here for width; the briefs record them fully
+      qualified as <code>repo@tag:path:line</code> &mdash; for example
+      <code>postgres/postgres@REL_18_6:src/backend/access/transam/xact.c:1498-1502</code>,
+      <code>valkey@9.1.2:src/aof.c</code>, <code>sqlite/sqlite:src/wal.c:1511</code>, and
+      <code>apache/kafka:server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java:101</code>.
+      A bare <code>redis:</code> prefix means <code>redis/redis</code> at 8.10.1. Valkey issue #3515,
+      &ldquo;Modernizing Valkey AOF,&rdquo; and Redis issue #3730 are open upstream issues, not
+      landed code, and are described as such.
+    </li>
+    <li>
+      <strong>Not verified here, and therefore not claimed:</strong> we did not run Redis, Valkey,
+      PostgreSQL, etcd or Kafka; we did not audit anything outside the AOF record path in Redis and
+      Valkey; we did not measure backpressure or replay lag in any system including our own; and the
+      Kafka producer- and broker-side backpressure defaults quoted in the table are configuration
+      documentation, not a measurement of what those limits do under load.
+    </li>
+  </ul>
+
+  </main>
+
+  <footer>
+    <p>
+      Written 4 September 2026 against <code>hey_durable_log</code> 0.2.0 on branch
+      <code>main_v2</code>. The package is not integrated as any system's acknowledgement authority
+      and should not be until the position back-link, atomic segment rotation, and real
+      filesystem-exhaustion tests land. The comparison is a reading of other projects' source at
+      pinned tags; only SQLite was measured alongside this one, and no power-cut test has been
+      performed on this hardware.
+    </p>
+  </footer>
+
+</article>
+</body>
+</html>
