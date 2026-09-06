@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Distributed Hey, from dream to working demo: run two Hey nodes on one machine, in Docker, or across two machines; then see the path to seamless actors, Jobs, clustering, supervision, and observability.">
-<meta name="article-date" content="2026-08-24">
+<meta name="description" content="Distributed Hey, from a working two-node demo to clustered actors, Jobs, supervision, and durable log replication: run it locally, in Docker, or across real machines and see exactly which guarantees are live.">
+<meta name="article-date" content="2026-09-05">
 <meta name="article-bucket" content="build">
-<meta name="article-desc" content="Run Distributed Hey locally, in Docker, or across two real machines, with TCP/TLS Remote.call, Remote.send, monitoring, stale-incarnation rejection, and the path from today's explicit node API to seamless distributed actors.">
+<meta name="article-desc" content="Run Distributed Hey locally, in Docker, or across two real machines, with TCP/TLS Remote.call, Remote.send, monitoring, stale-incarnation rejection, clustered Jobs, and an explicit path from local durability to quorum-confirmed durable log replication.">
 <meta name="article-index-title" content="Distributed Hey: one program, more machines">
-<meta name="article-index-desc" content="A hands-on Distributed Hey walkthrough: local nodes, Docker, real two-machine TCP/TLS, Remote.call/send, monitors, stale-incarnation rejection, and the path toward seamless distributed actors and Jobs.">
-<meta name="article-version" content="0.99.553a">
+<meta name="article-index-desc" content="A hands-on Distributed Hey walkthrough: local nodes, Docker, real two-machine TCP/TLS, Remote.call/send, monitors, stale-incarnation rejection, clustered Jobs, and the durable-log path from local barriers to quorum confirmation.">
+<meta name="article-version" content="0.99.563a">
 <title>Distributed Hey: one program, more machines</title>
 <style>
 :root {
@@ -81,7 +81,7 @@ footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--line);color:v
     <div class="pills">
       <span class="pill good">real two-machine transport works</span>
       <span class="pill good">TLS + send + call + monitor</span>
-      <span class="pill now">cluster ergonomics are next</span>
+      <span class="pill now">cluster + durable log are the next product layer</span>
     </div>
   </div>
 
@@ -135,7 +135,7 @@ end</code></pre>
   </div>
   <div class="callout target" style="margin-top:16px">
     <h3>That exact Jobs API is the destination, not today's API.</h3>
-    <p>The transport underneath it is real today. The remaining work is making distribution feel native to Hey actors and Jobs rather than making application code manually manage peers and connections.</p>
+    <p>The transport underneath it is real today. The next product layer is making distribution feel native to Hey actors and Jobs while giving stateful services an explicit durability choice: local barrier or quorum-confirmed replicated log.</p>
   </div>
 </section>
 
@@ -310,8 +310,8 @@ export HEY_DIST_SNI=localhost
     <div class="friction"><div class="bad">today</div><h3>You explicitly construct remote actor addresses.</h3><p>You use <span class="inline">Remote.pid(node, name)</span> and keep track of where the actor lives.</p><div class="fix">fix</div><p><strong>Registry + discovery.</strong> Ask for <span class="inline">'resize-worker'</span>; get a local or remote actor reference.</p></div>
     <div class="friction"><div class="bad">today</div><h3>Jobs do not automatically spread across nodes.</h3><p>The transport can move messages, but the Jobs layer does not yet schedule work onto a distributed worker pool.</p><div class="fix">fix</div><p><strong>DistributedJobs.</strong> Put ordinary immutable jobs on local or remote workers with the same failure policy.</p></div>
     <div class="friction"><div class="bad">today</div><h3>The compiler path is not complete for every Dist*/Codec call shape.</h3><p>The demos still use <span class="inline">--run</span> while the one-true compiler closes the remaining boxed/callable cross-unit cases.</p><div class="fix">fix</div><p><strong>P2 compiler closure.</strong> Default build must compile the distributed examples through Hey → HIR → MIR → HeyLlvm → LLVM with zero fallback.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>Cluster membership is manual.</h3><p>A node can talk to a known peer; the runtime does not yet maintain a live view of “the cluster.”</p><div class="fix">fix</div><p><strong>Seeds → discovery → membership.</strong> Start simple with configured seeds/DNS; add gossip only if the system actually needs it.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>You cannot see the whole cluster at a glance.</h3><p>Transport counters exist, but cluster-wide health, actors, queues, jobs, latency, and restarts are not yet a coherent product surface.</p><div class="fix">fix</div><p><strong>Cluster observation.</strong> A first-class dashboard/API over node health, actors, mailboxes, jobs, traffic, backpressure, monitors, and supervision.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>Cluster membership is explicit.</h3><p>The current APIs use configured peers and explicit node identity; the durable-log cluster layer now exercises real peer processes, but it is not a magical global registry.</p><div class="fix">next</div><p><strong>Seeds → discovery → membership.</strong> Start with configured seeds/DNS, then add supervision and observation without hiding failure or identity.</p></div>
+    <div class="friction"><div class="bad">today</div><h3>Observation is still a product gap.</h3><p>Transport and journal receipts expose useful facts, but cluster-wide health, actors, queues, jobs, latency, terms, and restarts are not yet one coherent cockpit.</p><div class="fix">fix</div><p><strong>Cluster observation.</strong> A first-class dashboard/API over node health, actors, mailboxes, jobs, traffic, backpressure, monitors, supervision, and durable-log terms.</p></div>
   </div>
 </section>
 
@@ -338,14 +338,39 @@ export HEY_DIST_SNI=localhost
 </section>
 
 <section>
+  <p class="eyebrow">State that survives a machine</p>
+  <h2>Durable log turns cluster membership into a real guarantee</h2>
+  <p>Transport tells you that a peer accepted bytes. It does not tell you that a mutation survived the peer's storage barrier. <a href="acknowledging-ram-what-a-durable-log-costs.html"><code>hey_durable_log</code></a> makes that distinction explicit: local appends return <code>local_durable</code> only after the platform barrier, while the opt-in cluster layer returns <code>quorum_durable</code> only after a required majority confirms its own durable record.</p>
+  <div class="codePair">
+    <div>
+      <p><strong>Local journal</strong></p>
+      <pre><code>let journal = DurableLog.open('state.hdl', opts).value
+let receipt = DurableLog.append(journal, 3, 'mutation')
+says receipt.value.durability # local_durable</code></pre>
+    </div>
+    <div>
+      <p><strong>Cluster journal</strong></p>
+      <pre><code>let cluster = DurableLogCluster.open(journal, {
+  peers: ['node-b', 'node-c'],
+  term: 7,
+  replicate: remote_adapter
+}).value
+let receipt = DurableLogCluster.append(cluster, 3, 'mutation')
+says receipt.value.durability # quorum_durable</code></pre>
+    </div>
+  </div>
+  <div class="callout detail"><h3>The guarantees are named, never silently upgraded</h3><p>A missing majority returns <span class="inline">durable_log_quorum_unavailable</span>; it does not downgrade to local success. A stale leader is fenced by term. The real-peer cluster gate checks follower bytes, healing, leader hand-off, divergent history, and a running-node partition rather than treating a stopped container as a network partition. Read the package's <a href="acknowledging-ram-what-a-durable-log-costs.html">durability article</a> for the barrier, recovery, and performance limits.</p></div>
+</section>
+
+<section>
   <p class="eyebrow">Road to seamless</p>
   <h2>How the current substrate turns into “actors and jobs, anywhere”</h2>
   <div class="timeline">
     <div class="mile done"><small>done</small><b>Network substrate</b><small>codec · TLS · send/call/monitor · incarnation</small></div>
-    <div class="mile now"><small>now</small><b>Compiler closure</b><small>compile Dist*/Codec through the one true pipeline</small></div>
-    <div class="mile next"><small>next</small><b>Node runtime</b><small>connection-owning actors · registry · discovery</small></div>
-    <div class="mile next"><small>next</small><b>DistributedJobs</b><small>worker pools · requeue · backpressure</small></div>
-    <div class="mile next"><small>next</small><b>Cluster product</b><small>membership · supervision · observation</small></div>
+    <div class="mile now"><small>now</small><b>Compiler closure</b><small>compile the distributed stack through one strict pipeline</small></div>
+    <div class="mile done"><small>landed</small><b>Durable log</b><small>local barriers · recovery · segments · replay</small></div>
+    <div class="mile now"><small>now</small><b>Quorum cluster</b><small>real peers · healing · terms · fencing</small></div>
+    <div class="mile next"><small>next</small><b>Cluster product</b><small>membership · Jobs placement · observation</small></div>
   </div>
 </section>
 
@@ -354,9 +379,9 @@ export HEY_DIST_SNI=localhost
   <h2>The next thing to fix is not another networking feature</h2>
   <div class="callout warning">
     <h3>The distributed examples still run interpreted.</h3>
-    <p>This is worth stating exactly, because the flag name invites a wrong guess. <span class="inline">--run</span> is not “compile, then run.” In the current compiler it is a separate branch from every build path: it loads the source, and walks it with the same evaluator the interactive session uses. So every command on this page is genuinely running these programs through an interpreter, not through the native pipeline. <em>(Re-read from the compiler source on 29 August 2026; the flag is also the default when a <span class="inline">.hey</span> file is given with no subcommand.)</em></p>
-    <p>That is not the desired end state, and the reason is upstream of the examples. The compiler can compile itself through the Hey-owned LLVM path with zero fallback, but the emitter still fails closed on shapes that the distributed stack's own providers use: a checked-in gate pins that <span class="inline">stdlib/Codec.hey</span> and <span class="inline">stdlib/Binary.hey</span> are still refused, and <span class="inline">Binary</span> sits underneath both <span class="inline">Codec</span> and <span class="inline">DistTransport</span>. The cross-unit fallback route does not rescue them either: it serializes arguments as JSON and cannot encode a callable, which is exactly what these examples pass when they hand a handler function to a node.</p>
-    <p><strong>The correct next milestone is compiler completeness:</strong> the distributed examples should build as ordinary native programs with the default compiler path, with no fallback, before more distribution polish gets priority.</p>
+    <p>This is worth stating exactly, because the flag name invites a wrong guess. <span class="inline">--run</span> is not “compile, then run.” It is the interpreter branch, so the walkthrough commands are still deliberately labeled as interpreted demonstrations. Native distributed compilation is advancing through the strict Hey → HIR → MIR → HeyLlvm → LLVM path, but the actor/Jobs fixture still stops at an imported boxed <span class="inline">Io.read_exact</span> child-ABI boundary. That is a compiler closure task, not a reason to pretend the interpreter is native.</p>
+    <p>The compiler can compile itself through the Hey-owned LLVM path with zero fallback. The distributed closure has also crossed the missing-provider boundary: <span class="inline">DistNode</span>, <span class="inline">DistRemote</span>, and <span class="inline">DistTransport</span> are now compiled-in through their own module declarations. The remaining native refusal is narrower and visible: an imported boxed <span class="inline">Io.read_exact</span> call contains an <span class="inline">i64</span> child that the ABI adapter must box without discarding its resolved identity. The focused candidate preserves that child IR; native validation is still pending.</p>
+    <p><strong>The next milestone is two-dimensional:</strong> compile the distributed examples as ordinary native programs with no fallback, and make the cluster/durable-log product surface explicit about local versus quorum durability. Neither should be hidden behind an optimistic success path.</p>
   </div>
 </section>
 
@@ -372,7 +397,7 @@ export HEY_DIST_SNI=localhost
 </section>
 
 <footer>
-  Distributed Hey · practical guide · commands originally verified against Hey 0.99.553a on 24 August 2026. Docker recipe and the interpreter claim re-checked against the compiler sources on 29 August 2026; the walkthroughs themselves were not re-executed.
+  Distributed Hey · practical guide · updated 5 September 2026 against the current Hey compiler frontier and <code>hey_durable_log</code> 0.5.0. The walkthroughs remain intentionally interpreted; native distributed closure is tracked separately from the transport and cluster guarantees.
 </footer>
 </main>
 </body>

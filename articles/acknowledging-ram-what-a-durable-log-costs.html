@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="We shipped a durable log that acknowledged writes on a barrier macOS says does not reach the platters. Fixing it cost 4x throughput. This is what the acknowledgement boundary actually costs, how hey_durable_log draws it, and an honest comparison against Redis, Valkey, PostgreSQL, SQLite, etcd and Kafka.">
-  <meta name="article-date" content="2026-09-04">
+  <meta name="article-date" content="2026-09-05">
   <meta name="article-bucket" content="research">
   <meta name="article-desc" content="Between &ldquo;we replied ok&rdquo; and &ldquo;the bytes survive a power cut&rdquo; there is a gap you cannot see until the one moment it matters. We shipped a bug in that gap and fixed it this session; the fix cost 4x throughput, because the fast number was measuring a lie. Here is the format, the recovery rules, and where five other systems draw the same line &mdash; including the four places we are plainly weaker than they are.">
   <meta name="article-index-title" content="Acknowledging RAM: What a Durable Log Actually Costs">
@@ -89,16 +89,16 @@
   <main>
 
   <div class="plan">
-    <p class="plan-tag">Status: 0.2.0, local-durable only, not yet integrated</p>
+    <p class="plan-tag">Status: 0.5.0, local durability plus real-peer quorum replication</p>
     <p>
-      <code>hey_durable_log</code> 0.2.0 is a packaged, gated C storage core with a Hey write path.
-      Its guarantees are <strong>local-disk</strong>: process crash, OS crash and power loss
-      <em>on this host</em>. There is <strong>no replication</strong>, <strong>no segment
-      rotation</strong>, and <strong>no position back-link</strong> in the frame header yet. The
-      benchmark host was contaminated by concurrent load and we have <strong>not run a power-cut
-      test</strong> on this hardware. Everything in the comparison section is read from primary
-      source at a pinned upstream tag; nothing in it was re-benchmarked here except SQLite.
-      Read the <a href="#limits">limits</a> before quoting any of it.
+      <code>hey_durable_log</code> 0.5.0 is a packaged, gated C storage core with a Hey write path
+      and an opt-in cluster layer. Local receipts mean the DATA and COMMIT frames crossed this
+      host's platform barrier. Cluster receipts mean a required majority of real peers confirmed
+      their own durable records. The package now has format v3, directory journals, segments,
+      snapshots, replay positions, healing, leader hand-off, fencing, and a running-node
+      partition gate. Read the <a href="#limits">limits</a> before quoting any of it: a missing
+      quorum is still an error, and the replication connect path still needs a bounded connect
+      timeout in the Hey standard library.
     </p>
   </div>
 
@@ -135,11 +135,11 @@
         and explicitly excluded from <code>maxmemory</code>); and failing <em>closed</em> on a
         complete corrupt frame, where SQLite's recovery treats a torn tail and a corrupt frame
         identically and discards silently with no error.</li>
-      <li><strong>Where we are weaker, plainly:</strong> no replication of any kind, against etcd's
-        consensus and Kafka's ISR; no segment rotation, so the journal grows; and no position
-        back-link, where PostgreSQL's <code>xl_prev</code> is &mdash; in Tom Lane's words &mdash;
-        &ldquo;our ONLY defense against replaying stale data.&rdquo; Ours chains CRC <em>values</em>,
-        which is position-independent, so we do not have that defence.</li>
+      <li><strong>Where we are weaker, plainly:</strong> the cluster layer is opt-in rather than a
+        transparent replacement for local durability; peer connect timeout still belongs to the
+        standard library; and our benchmark is not a universal bake-off. Version 0.5.0 now has
+        real-peer quorum replication, segment rotation, snapshots, and position-aware format v3,
+        so those are no longer missing-feature claims.</li>
     </ul>
   </div>
 
@@ -739,13 +739,14 @@
     life of a recycled file. PostgreSQL solved this with a position back-link,
     <code>xl_prev</code> &mdash; Tom Lane called recognising an old <code>xl_prev</code>
     &ldquo;our ONLY defense against replaying stale data.&rdquo; v1 does not have that defence, which
-    is exactly why segment rotation is not implemented yet: the back-link is scheduled to land first.
+    was exactly why the original v1 article treated rotation as blocked. Format v3 now carries the
+    log-global position and term, and rotation is published only after the new segment is synced.
   </figcaption>
 </figure>
 
   <table>
     <caption class="muted" style="text-align:left;margin-bottom:0.5rem">
-      On-disk format v1. Full field table in <code>docs/FORMAT.md</code>.
+      On-disk format v3. Full field table in <code>docs/FORMAT.md</code>.
     </caption>
     <thead>
       <tr><th>Structure</th><th>Size</th><th>What it carries</th></tr>
@@ -881,10 +882,10 @@ durability local_durable
     <h3><code>local_durable</code> means local</h3>
     <p style="margin:0">
       It survives process crash, OS crash and power loss <em>on this machine</em>. It does
-      <strong>not</strong> survive loss of the host or the disk. That requires quorum replication
-      before acknowledgement, which is not implemented. <code>DurableLog.capabilities()</code>
-      reports <code>quorum_replication</code> as <code>false</code>, and a spec asserts that it stays
-      false until it is real &mdash; a package must not advertise a durability it does not have.
+      <strong>not</strong> survive loss of the host or the disk by itself. The opt-in cluster layer
+      adds <code>quorum_durable</code> after a required majority confirms its own local barriers;
+      without that majority the append fails as <code>durable_log_quorum_unavailable</code> rather
+      than downgrading to local success.
     </p>
   </div>
 
@@ -1771,7 +1772,7 @@ native_handle_closed
     </thead>
     <tbody>
       <tr>
-        <td><strong>hey_durable_log</strong> 0.2.0</td>
+        <td><strong>hey_durable_log</strong> 0.5.0</td>
         <td>After DATA + COMMIT + device barrier. No weaker mode exists.</td>
         <td>CRC32 per frame, plus a chain over the previous frame's CRC and a commit-summary CRC</td>
         <td><strong>Fails closed</strong> as <code>durable_log_open_corruption</code></td>
@@ -1922,15 +1923,12 @@ native_handle_closed
   </p>
 
   <p>
-    <strong>2. We have no segment rotation, so the journal grows.</strong> Forever, until the
-    filesystem fills. Both etcd and Kafka rotate segments; etcd's sequence is the one worth
-    copying (<code>wal.go:745-827</code>): truncate and fsync the old tail, take a preallocated
-    <code>N.tmp</code> from a background <code>filePipeline</code>, write the CRC chain, metadata and
-    hard state into it, fsync, rename, then fsync the directory &mdash; and crucially it writes
-    <em>no acknowledgeable payload</em> into the new segment before publishing it, so there is no
-    window in which an acknowledged record lives in a file that is not yet visible. The filename
-    carries the first sequence number, so the directory listing <em>is</em> the manifest, with no
-    separate file to corrupt.
+    <strong>2. The first implementation had no segment rotation; 0.5.0 does.</strong> The current
+    journal is a directory of segments named by index and base position. A new segment is synced
+    before it accepts a batch and published by one rename after its bytes are durable. Recovery
+    checks the position, sequence, batch, and checksum chain across the seam; retirement follows a
+    verified snapshot and is itself recorded durably. The old v1 comparison remains useful as the
+    design history, but it is no longer the current package contract.
   </p>
 
   <p class="muted">
@@ -1968,11 +1966,10 @@ native_handle_closed
   </p>
 
   <p>
-    We do not have that defence today. We do not yet <em>need</em> it, because we do not recycle
-    segments &mdash; but that is the same as saying the missing defence and the missing feature are
-    the same gap. Which is why the position back-link is format v2 and it lands
-    <strong>before</strong> segment rotation, not after. Shipping rotation onto a
-    position-independent chain would be shipping the stale-replay bug deliberately.
+    Format v3 now carries the log-global position inside each frame's checksum, along with the
+    term that originated it. Recovery rejects a complete, valid frame whose position belongs to a
+    different history. That authority is what makes segment rotation, follower healing, and
+    divergent-tail repair safe.
   </p>
 
   <p>
@@ -2196,113 +2193,68 @@ native_handle_closed
   <h2 id="clustering">Surviving the host, not just the process</h2>
 
   <p>
-    Everything so far is <em>local</em> durability, and local durability has a hard edge: it
-    survives the process, the OS and the power cable, and it does not survive the machine. For
-    that a record has to be durable somewhere else before the caller is told yes.
-  </p>
-
-  <p>
-    Hey has a distributed substrate, and the interesting part of building on it was that its
-    documentation is honest enough to constrain the design. <code>Remote.send</code> is
-    at-most-once, and success means &ldquo;accepted for transport&rdquo;, explicitly <em>not</em>
-    &ldquo;processed remotely&rdquo;. Monitors report <em>suspicion</em> of loss, because
-    partition and death are observationally indistinguishable. Both facts point the same way:
+    Local durability survives the process, the OS, and the power cable on one machine. It does
+    not survive the machine. Version 0.5.0 adds the missing product boundary as an opt-in layer:
+    <code>cluster.hey</code> uses Distributed Hey to replicate a locally durable record to real
+    peers before the caller receives a <code>quorum_durable</code> receipt.
   </p>
 
   <div class="callout">
-    <h2>A successful send is never durability</h2>
+    <h2>A transport acknowledgement is never a durability acknowledgement</h2>
     <p>
-      An acknowledgement counts only when a follower sends back an explicit receipt saying it
-      completed <em>its own</em> local barrier. A missing or late reply is a refusal, never an
-      optimistic success. Anything else would be acknowledging RAM again &mdash; just somebody
-      else&rsquo;s.
+      <code>Remote.send</code> means accepted for transport. The cluster layer waits for an explicit
+      follower receipt after that follower has appended, committed, and crossed its own storage
+      barrier. A missing or late reply is a refusal, never optimistic success.
     </p>
   </div>
 
   <p>
-    The rest follows. Local durability happens <em>first</em>, as in PostgreSQL, which never
-    substitutes a replica for the local flush &mdash; replicating first would let a node
-    acknowledge a record it cannot itself replay. A quorum is a majority <em>including this
-    node</em>; a quorum of one on a three-node cluster is a split brain with good manners. Every
-    append carries a term, and a higher term seen anywhere invalidates the write, because a
-    partitioned leader has no other way to learn it has been replaced.
+    The three-node gate uses real peer processes and real sockets. It reads each follower's own
+    bytes, proves a reachable majority, refuses a minority by name, heals a follower from the
+    position it reported, and checks that every node replays the same committed prefix. A follower
+    that continued the wrong history is rejected rather than spliced. The divergent tail is
+    recorded before repair.
   </p>
 
   <p>
-    The part worth stating loudest is what happens when the majority is unreachable: the append
-    <strong>fails</strong>, with <code>durable_log_quorum_unavailable</code>. It does not quietly
-    hand back a <code>local_durable</code> receipt. The record really is on local disk, and
-    saying so would even be true &mdash; but returning success there would claim host durability
-    that does not exist, and silent degradation is exactly how a system comes to believe it
-    survives host loss when it does not.
+    Leadership is durable too. A follower can campaign for a higher term after the leader stops;
+    the majority grants the term only after recording it, the new leader writes, and the old leader
+    is fenced when it returns with stale state. A running-node partition gate uses an
+    <code>iptables</code> REJECT, so the test does not confuse “container stopped” with “network
+    split.” The majority commits, the minority cannot self-elect, and healing reconciles the
+    divergent record.
   </p>
 
   <p>
-    Two of the gates for this exist because I broke the code deliberately to check: counting a
-    transport-accepted-but-not-durable reply as an acknowledgement, and degrading to local
-    durability when the quorum is missing. Both go red. The network itself is <em>not</em> tested
-    here &mdash; the replication seam is injected, so what is proven is the decision, not the
-    transport. Whether TCP works is the substrate&rsquo;s problem; whether we acknowledge a write
-    a majority never confirmed is ours.
+    The guarantee is deliberately named. A missing majority returns
+    <code>durable_log_quorum_unavailable</code>; it does not silently return
+    <code>local_durable</code>. A stale term returns <code>durable_log_fenced</code>. This is the
+    line between a replicated log and a remote write that happened to receive a reply.
+  </p>
+
+  <h3>The remaining limit</h3>
+  <p>
+    <code>HEY_DURABLE_LOG_REPLICATION_TIMEOUT_MS</code> bounds the wait for a peer reply, but the
+    TCP connect ahead of it still follows <code>Net.connect</code> without a package-configured
+    connect timeout. A silently dropped peer can therefore hold the kernel connect timeout for
+    minutes. The gap is named and belongs in the Hey standard library; it is not hidden by the
+    durable-log receipt.
   </p>
 
 <h2 id="limits">The limits, stated plainly</h2>
 
-  <p>
-    A durability article that oversells is worse than no article, so here is everything this package
-    cannot currently do, without softening.
-  </p>
+  <p>A durability article that oversells is worse than no article, so here is what the current package still cannot claim.</p>
 
   <ul>
-    <li>
-      <strong>Local disk only.</strong> The guarantees are process crash, OS crash and power loss on
-      <em>this host</em>. Losing the host or losing the disk loses the journal. Quorum replication
-      before acknowledgement is not implemented, and until it is, nothing built on this package can
-      be described as surviving host loss because it has a journal.
-    </li>
-    <li>
-      <strong>No segment rotation.</strong> The journal grows. There is no manifest, no retirement,
-      no snapshot-and-truncate. A journal that cannot rotate is a journal that grows until the
-      filesystem fills, and we have not tested against a genuinely full filesystem &mdash; only a
-      mocked <code>ENOSPC</code> is not the same thing, and we have not claimed otherwise.
-    </li>
-    <li>
-      <strong>No position back-link.</strong> The v1 chain links CRC values and is
-      position-independent, so it provides no defence against replaying stale records from a reused
-      segment. This is scheduled as format v2 and must land before rotation.
-    </li>
-    <li>
-      <strong>The benchmark host was contaminated.</strong> Concurrent research subagents and C
-      builds ran on the same laptop throughout; every condition sped up by roughly 2&times; across
-      three rounds as that load drained. Absolute figures are a floor, not a measurement of the
-      hardware. Only the ratios within an interleaved round are being claimed.
-    </li>
-    <li>
-      <strong>No power-cut test has been performed on this hardware.</strong> That
-      <code>F_FULLFSYNC</code> is the right call to issue is documented by Apple. That this
-      particular drive honours it end to end is <em>asserted by that documentation, not by a test we
-      ran</em>. Nobody has pulled the plug on this laptop mid-write and checked.
-    </li>
-    <li>
-      <strong>Group-commit statistics are not reachable from Hey.</strong>
-      <code>hdl_broker_get_stats</code> exposes <code>records</code>, <code>durable_batches</code>,
-      <code>largest_batch</code> and <code>max_queue_depth</code>, and that is what lets the C
-      gate <em>prove</em> combining happened, and the queue bound hold, rather than assume either. From Hey you can infer it from shared <code>batch_id</code>
-      values, but you cannot query it.
-    </li>
-    <li>
-      <strong>The comparison is a source reading, not a bake-off.</strong> Only SQLite was
-      benchmarked alongside us. Everything said about Redis, Valkey, PostgreSQL, etcd and Kafka comes
-      from reading their source at a pinned tag. We did not run any of them.
-    </li>
-    <li>
-      <strong>Queue depth and backpressure under saturation are not measured</strong>, and neither is
-      replay lag while writers saturate the log. The bounded queue is asserted by the specs; its
-      behaviour at the limit is not instrumented.
-    </li>
+    <li><strong>Quorum is opt-in.</strong> A normal <code>DurableLog</code> receipt is local to its host. Only <code>DurableLogCluster</code> returns <code>quorum_durable</code>.</li>
+    <li><strong>Connect timeout is not complete.</strong> Reply waiting is bounded; the underlying connect can still follow the kernel timeout when packets are silently dropped.</li>
+    <li><strong>Power-cut coverage is platform evidence, not a live unplug experiment.</strong> The gates assert the selected barrier—<code>fdatasync</code> on Linux and <code>F_FULLFSYNC</code> on Darwin—but this laptop has not been physically unplugged during a write.</li>
+    <li><strong>The benchmark is not a universal bake-off.</strong> SQLite is the measured comparison; Redis, Valkey, PostgreSQL, etcd, and Kafka are source-based comparisons rather than runs from this checkout.</li>
+    <li><strong>Cluster observation is still incomplete.</strong> Terms, acknowledgements, healing, and replay are receipt-level facts; a finished cluster cockpit for actors, Jobs, queues, traffic, and supervision remains product work.</li>
+    <li><strong>Hey native distributed compilation is still closing.</strong> The durable-log cluster tests exercise the distributed substrate, while the Hey actor/Jobs compiler path still has its own strict zero-fallback frontier.</li>
   </ul>
 
-  <h2>What we would tell somebody building one of these</h2>
+<h2>What we would tell somebody building one of these</h2>
 
   <p>
     Four things, in the order we learned them.
@@ -2340,9 +2292,9 @@ native_handle_closed
 
   <ul>
     <li>
-      <strong>This package.</strong> <code>hey_durable_log</code> 0.2.0, published at
-      <code>jayteesf.github.io/packages/hey_durable_log/0.2.0/</code>, archive sha256
-      <code>f4a226e4789175145f8be931ba20d3abfb5cae54cce94bff50073816e1cf48ea</code>. The byte format and recovery
+      <strong>This package.</strong> <code>hey_durable_log</code> 0.5.0, published at
+      <code>jayteesf.github.io/packages/hey_durable_log/0.5.0/</code>, archive sha256
+      <code>067e95fca30f7b74e62f4a52b9d5e1b8d297e83bb87d5c243bdcd4c6a04e474c</code>. The byte format and recovery
       rules are <code>docs/FORMAT.md</code>; the acknowledgement boundary, group commit and cursor
       semantics are <code>docs/DESIGN.md</code>; the executable quick start is
       <code>docs/GETTING_STARTED.md</code>. Every Hey snippet above is copied from
@@ -2400,12 +2352,12 @@ native_handle_closed
 
   <footer>
     <p>
-      Written 4 September 2026 against <code>hey_durable_log</code> 0.2.0 on branch
-      <code>main_v2</code>. The package is not integrated as any system's acknowledgement authority
-      and should not be until the position back-link, atomic segment rotation, and real
-      filesystem-exhaustion tests land. The comparison is a reading of other projects' source at
-      pinned tags; only SQLite was measured alongside this one, and no power-cut test has been
-      performed on this hardware.
+      Written 5 September 2026 against <code>hey_durable_log</code> 0.5.0 on branch
+      <code>main</code>. Local durability and the opt-in real-peer quorum cluster are implemented and
+      gated; the package still needs a bounded standard-library connect timeout and a broader
+      observation surface before those should be treated as finished product ergonomics. The
+      comparison is a reading of other projects' source at pinned tags; only SQLite was measured
+      alongside this one, and no power-cut test has been performed on this hardware.
     </p>
   </footer>
 
