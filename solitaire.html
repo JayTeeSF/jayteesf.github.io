@@ -749,6 +749,17 @@
       background: rgba(0,0,0,0.3);
     }
 
+    .version-line {
+      margin-top: 16px;
+      text-align: right;
+      font-size: 0.7rem;
+      letter-spacing: 0.02em;
+      color: rgba(246, 244, 238, 0.45);
+      font-variant-numeric: tabular-nums;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
     .theme-hint {
       font-size: 0.8rem;
       color: rgba(246, 244, 238, 0.62);
@@ -1192,6 +1203,7 @@
           </div>
         </div>
         <p>Export writes a JSON file you can keep or carry to another device; Import restores one. Your game also autosaves in this browser without either.</p>
+        <div class="version-line" id="versionLine"></div>
         <div class="modal-actions">
           <button class="button secondary" data-close-modal="settingsModal" type="button">Done</button>
         </div>
@@ -1365,6 +1377,9 @@
       const CARD_SIZE_STORAGE_KEY = "jayteesf-solitaire-card-size-v1";
       const TOUR_STORAGE_KEY = "jayteesf-solitaire-tour-v1";
       const THEME_STORAGE_KEY = "jayteesf-solitaire-table-v1";
+      const APP_VERSION = "1.6.0";
+      const BUILD_DATE = "2026-09-07";
+      const BUILD_SHA = "92730d6";
       const SAVE_VERSION = 1;
       const HISTORY_LIMIT = 25;
       const PERSISTED_HISTORY_LIMIT = 8;
@@ -1417,6 +1432,7 @@
         scoringBtn: document.getElementById("scoringBtn"),
         scoringModal: document.getElementById("scoringModal"),
         settingsTourBtn: document.getElementById("settingsTourBtn"),
+        versionLine: document.getElementById("versionLine"),
         themeStrip: document.getElementById("themeStrip"),
         themePrevBtn: document.getElementById("themePrevBtn"),
         themeNextBtn: document.getElementById("themeNextBtn"),
@@ -2331,6 +2347,14 @@
         return `${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`;
       }
 
+      // "onto the 9 of hearts" but "into empty column 3"
+      function destinationPreposition(destination) {
+        if (!destination || destination.type !== "tableau") return "to";
+        const pile = state.tableau[destination.index] || [];
+        const top = pile[pile.length - 1];
+        return top && top.faceUp ? "onto" : "into";
+      }
+
       function destinationLabel(destination) {
         if (!destination) return "";
         if (destination.type === "foundation") return `${SUIT_NAME[destination.suit]} foundation`;
@@ -2539,7 +2563,7 @@
 
         const destPile = state.tableau[destination.index];
         const destEmpty = destPile.length === 0;
-        const runText = move.cards.length > 1 ? `${cardText} and the ${move.cards.length - 1} card${move.cards.length > 2 ? "s" : ""} on it` : cardText;
+        const runText = move.cards.length > 1 ? `${cardText} and the ${move.cards.length > 2 ? `${move.cards.length - 1} cards` : "card"} on it` : cardText;
 
         if (source.type === "waste") {
           if (destEmpty) {
@@ -2547,7 +2571,7 @@
               ? { score: HINT_WEIGHTS.wasteToEmptyKing, message: `Move ${cardText} from the waste into empty column ${destination.index + 1}. Kings are the only cards that can fill an empty column, so use it now.` }
               : { score: HINT_WEIGHTS.wasteToEmpty, message: `Move ${cardText} from the waste into empty column ${destination.index + 1}. It clears the waste, though spending a free column on a non-King is a real cost.` };
           }
-          return { score: HINT_WEIGHTS.wasteToCard, message: `Move ${cardText} from the waste onto ${destinationLabel(destination)} before the next draw buries it.` };
+          return { score: HINT_WEIGHTS.wasteToCard, message: `Move ${cardText} from the waste ${destinationPreposition(destination)} ${destinationLabel(destination)} before the next draw buries it.` };
         }
 
         const sourcePile = state.tableau[source.index];
@@ -2562,7 +2586,7 @@
         if (empties) {
           return {
             score: HINT_WEIGHTS.freeColumn,
-            message: `Move ${runText} from column ${source.index + 1} onto ${destinationLabel(destination)}. That empties column ${source.index + 1}, and a free column is the strongest thing you can own.`
+            message: `Move ${runText} from column ${source.index + 1} ${destinationPreposition(destination)} ${destinationLabel(destination)}. That empties column ${source.index + 1}, and a free column is the strongest thing you can own.`
           };
         }
 
@@ -2571,7 +2595,7 @@
           const tail = remaining > 0 ? ` (${remaining} more still buried there)` : " — that column is then all face up";
           return {
             score: HINT_WEIGHTS.flipBase + hiddenLeft * HINT_WEIGHTS.flipHiddenBonus - (destEmpty ? HINT_WEIGHTS.flipToEmptyPenalty : 0),
-            message: `Move ${runText} from column ${source.index + 1} onto ${destinationLabel(destination)} to turn over the face-down card underneath${tail}.`
+            message: `Move ${runText} from column ${source.index + 1} ${destinationPreposition(destination)} ${destinationLabel(destination)} to turn over the face-down card underneath${tail}.`
           };
         }
 
@@ -2589,7 +2613,7 @@
         if (!unlocked) return null;
         return {
           score: HINT_WEIGHTS.unlock,
-          message: `Move ${runText} from column ${source.index + 1} onto ${destinationLabel(destination)}. Nothing flips yet, but it sets up ${unlocked}.`
+          message: `Move ${runText} from column ${source.index + 1} ${destinationPreposition(destination)} ${destinationLabel(destination)}. Nothing flips yet, but it sets up ${unlocked}.`
         };
       }
 
@@ -3682,8 +3706,14 @@
         }, 2100);
       }
 
+      function showVersion() {
+        if (!els.versionLine) return;
+        els.versionLine.textContent = `v${APP_VERSION} · ${BUILD_DATE} · build ${BUILD_SHA}`;
+      }
+
       function init() {
         buildStaticPiles();
+        showVersion();
         loadTableTheme();
         buildThemeStrip();
         loadCardSizePreset();
