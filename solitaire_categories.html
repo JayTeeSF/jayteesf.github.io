@@ -4,21 +4,28 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>JayTeeSF Category Solitaire</title>
+  <!-- JayTeeSF Solitaire replacement iteration: pull-refresh + drag-cleanup fix -->
   <style>
+    /* Registered so getComputedStyle() resolves the clamp()/vw values to real pixels.
+       Without this the JS fan/spread readers fall back to hard-coded defaults. */
+    @property --fan-down { syntax: "<length>"; inherits: true; initial-value: 16px; }
+    @property --fan-up { syntax: "<length>"; inherits: true; initial-value: 24px; }
+    @property --waste-spread { syntax: "<length>"; inherits: true; initial-value: 22px; }
     :root {
-      --bg-1: #0d4a37;
-      --bg-2: #2f8f5e;
-      --bg-3: #0a2f25;
-      --text: #f8f7f2;
-      --muted: rgba(248, 247, 242, 0.76);
-      --shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
-      --shadow-soft: 0 10px 22px rgba(0, 0, 0, 0.16);
-      --card-w: clamp(70px, 12vw, 108px);
-      --card-h: calc(var(--card-w) * 1.42);
-      --fan-down: 14px;
-      --fan-up: 28px;
-      --tableau-gap: clamp(6px, 0.85vw, 10px);
-      --selected-ring: 0 0 0 3px rgba(255, 245, 182, 0.7), 0 16px 28px rgba(0, 0, 0, 0.18);
+      --bg-1: #0b3d31;
+      --bg-2: #0f5d4b;
+      --bg-3: #07261d;
+      --text: #f6f4ee;
+      --muted: rgba(246, 244, 238, 0.76);
+      --shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+      --shadow-soft: 0 10px 20px rgba(0, 0, 0, 0.18);
+      --top-card-w: clamp(66px, 13vw, 112px);
+      --top-card-h: calc(var(--top-card-w) * 1.42);
+      --fan-down: clamp(10px, 1.5vw, 18px);
+      --fan-up: clamp(40px, 4.8vw, 52px);
+      --tableau-gap: clamp(4px, 0.8vw, 10px);
+      --waste-spread: clamp(22px, 4vw, 30px);
+      --select-glow: 0 0 0 3px rgba(255, 233, 163, 0.65), 0 18px 28px rgba(0, 0, 0, 0.24);
       color-scheme: dark;
     }
 
@@ -26,22 +33,27 @@
 
     html, body {
       margin: 0;
+      width: 100%;
+      height: 100%;
       min-height: 100%;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at 12% 0%, rgba(255,255,255,0.12), transparent 24%),
-        radial-gradient(circle at 100% 0%, rgba(255, 236, 151, 0.16), transparent 18%),
-        linear-gradient(180deg, var(--bg-2), var(--bg-1) 28%, var(--bg-3));
+        radial-gradient(circle at 20% 0%, rgba(255,255,255,0.12), transparent 28%),
+        radial-gradient(circle at 100% 0%, rgba(246,216,143,0.14), transparent 24%),
+        linear-gradient(180deg, var(--bg-2), var(--bg-1) 30%, var(--bg-3));
       overflow: hidden;
+      overscroll-behavior: none;
     }
 
     body {
+      position: fixed;
+      inset: 0;
       -webkit-font-smoothing: antialiased;
-      -webkit-tap-highlight-color: transparent;
-      touch-action: manipulation;
       user-select: none;
       -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
     }
 
     body::before {
@@ -50,54 +62,58 @@
       inset: 0;
       pointer-events: none;
       background:
-        radial-gradient(circle at center, rgba(255,255,255,0.07), transparent 40%),
-        repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 12px);
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,0.08), transparent 44%),
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 10px);
       mix-blend-mode: soft-light;
-      opacity: 0.75;
+      opacity: 0.8;
     }
 
     .app {
+      position: relative;
+      touch-action: manipulation;
+      height: 100svh;
       min-height: 100svh;
-      padding: max(12px, env(safe-area-inset-top)) clamp(10px, 1.8vw, 22px) max(12px, env(safe-area-inset-bottom));
+      max-height: 100svh;
+      overflow: hidden;
+      overscroll-behavior: none;
+      padding: max(12px, env(safe-area-inset-top)) clamp(10px, 2vw, 22px) max(16px, env(safe-area-inset-bottom));
       display: flex;
       flex-direction: column;
       gap: 12px;
-      touch-action: manipulation;
     }
 
     .hero {
-      position: relative;
       display: flex;
       flex-wrap: wrap;
-      align-items: center;
       gap: 12px;
+      align-items: center;
       justify-content: space-between;
       padding: 12px 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+      border: 1px solid rgba(255,255,255,0.12);
       border-radius: 24px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.13), rgba(255,255,255,0.06));
-      border: 1px solid rgba(255,255,255,0.13);
       box-shadow: var(--shadow-soft);
-      backdrop-filter: blur(16px) saturate(130%);
-      -webkit-backdrop-filter: blur(16px) saturate(130%);
+      backdrop-filter: blur(18px) saturate(130%);
+      -webkit-backdrop-filter: blur(18px) saturate(130%);
+      z-index: 2;
     }
 
     .title-wrap {
-      flex: 1 1 260px;
       min-width: 0;
+      flex: 1 1 240px;
     }
 
     h1 {
       margin: 0;
-      font-size: clamp(1.45rem, 2.7vw, 2.2rem);
-      line-height: 1.05;
-      letter-spacing: -0.03em;
+      font-size: clamp(1.3rem, 2.5vw, 2rem);
+      letter-spacing: 0.02em;
+      font-weight: 800;
     }
 
     .subtitle {
-      margin: 5px 0 0;
+      margin: 4px 0 0;
+      font-size: 0.9rem;
       color: var(--muted);
-      font-size: 0.93rem;
-      max-width: 54ch;
     }
 
     .controls {
@@ -105,215 +121,191 @@
       flex-wrap: wrap;
       gap: 8px;
       align-items: center;
-      justify-content: flex-end;
-      flex: 1 1 320px;
+      justify-content: flex-start;
+      flex: 1 1 360px;
     }
 
     .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       padding: 10px 12px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.12);
       background: rgba(255,255,255,0.08);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text);
       font-size: 0.9rem;
-      font-variant-numeric: tabular-nums;
       white-space: nowrap;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+      font-variant-numeric: tabular-nums;
     }
 
     .button {
       appearance: none;
       border: 0;
-      border-radius: 999px;
+      color: #10251e;
+      background: linear-gradient(180deg, #fff4cc, #efd286);
       padding: 10px 14px;
       font-weight: 800;
       letter-spacing: 0.01em;
+      border-radius: 999px;
       cursor: pointer;
-      transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
-      box-shadow: 0 10px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.22);
+      box-shadow: 0 10px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.45);
+      transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
       touch-action: manipulation;
-    }
-
-    .button:active { transform: translateY(1px) scale(0.985); }
-    .button:disabled { opacity: 0.55; cursor: default; transform: none; }
-
-    .button.primary {
-      background: linear-gradient(180deg, #fff2c0, #f1d37e);
-      color: #173428;
     }
 
     .button.secondary {
       color: var(--text);
-      background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.08));
+      background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.08));
       border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
     }
+
+    .button:hover { transform: translateY(-1px); }
+    .button:active { transform: translateY(1px) scale(0.985); filter: brightness(0.98); }
+    .button:disabled {
+      opacity: 0.55;
+      cursor: default;
+      transform: none;
+      filter: none;
+    }
+
+    .meta-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .save-info {
+      color: var(--muted);
+      font-size: 0.88rem;
+      min-height: 1.2em;
+    }
+
+    .timer-info {
+      font-variant-numeric: tabular-nums;
+      min-width: 90px;
+      text-align: right;
+    }
+
+    .mini-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-left: auto;
+    }
+
+    .mini-button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.76rem;
+      line-height: 1;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .mini-button:active { transform: translateY(1px); }
 
     .board-shell {
       position: relative;
+      touch-action: pan-y;
       flex: 1;
       min-height: 0;
-      padding: clamp(10px, 1.2vw, 16px);
-      border-radius: 28px;
+      padding: clamp(10px, 1.4vw, 18px);
       background:
-        radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 34%),
+        radial-gradient(circle at top, rgba(255,255,255,0.09), transparent 36%),
         linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
       border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 28px;
+      backdrop-filter: blur(16px) saturate(115%);
+      -webkit-backdrop-filter: blur(16px) saturate(115%);
       box-shadow: var(--shadow);
-      backdrop-filter: blur(16px) saturate(120%);
-      -webkit-backdrop-filter: blur(16px) saturate(120%);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+      overflow: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .board-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 10% 10%, rgba(255,255,255,0.07), transparent 30%),
+        radial-gradient(circle at 90% 0%, rgba(246,216,143,0.09), transparent 24%);
     }
 
     .board {
       position: relative;
       z-index: 1;
-      min-height: 0;
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      flex: 1;
+      gap: 8px;
+      min-height: calc(100svh - 198px);
     }
 
     .top-row {
       display: flex;
-      gap: 12px;
-      justify-content: space-between;
       align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
       flex-wrap: wrap;
     }
 
-    .top-left,
-    .top-right {
+    .left-zone,
+    .right-zone {
       display: flex;
+      gap: 8px;
       flex-wrap: wrap;
-      gap: 10px;
       align-items: flex-start;
     }
 
     .pile {
       position: relative;
       border-radius: 18px;
-      touch-action: manipulation;
+      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+      touch-action: none;
     }
 
-    .stock-pile,
-    .waste-pile,
-    .category-pile {
-      width: var(--card-w);
-      height: var(--card-h);
-      border-radius: 20px;
-    }
-
-    .stock-pile,
-    .waste-pile {
+    .top-pile {
+      width: var(--top-card-w);
+      height: var(--top-card-h);
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
       border: 1px dashed rgba(255,255,255,0.18);
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+      overflow: visible;
     }
 
-    .stock-pile::before,
-    .waste-pile::before {
+    .top-pile::before {
       content: attr(data-label);
       position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 8px;
+      inset: auto 0 8px 0;
       text-align: center;
-      font-size: 0.72rem;
-      color: rgba(255,255,255,0.45);
+      font-size: 0.74rem;
+      color: rgba(255,255,255,0.42);
+      letter-spacing: 0.11em;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
       pointer-events: none;
     }
 
-    .stock-count {
+    .top-pile.empty-stock::after {
+      content: "↺";
       position: absolute;
-      top: 10px;
-      left: 10px;
-      z-index: 4;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: rgba(0,0,0,0.32);
-      font-size: 0.72rem;
-      font-weight: 700;
-    }
-
-    .category-pile {
-      padding: 8px;
-      border: 1px solid rgba(255,255,255,0.14);
-      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.05));
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-    }
-
-    .category-pile::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 24%);
-      opacity: 0.5;
-      pointer-events: none;
-    }
-
-    .category-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-      position: relative;
-      z-index: 1;
-    }
-
-    .category-title {
-      font-size: 0.8rem;
-      line-height: 1.1;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-
-    .category-icon {
+      inset: 8px 0 auto 0;
+      text-align: center;
       font-size: 1.2rem;
-      line-height: 1;
-    }
-
-    .category-progress {
-      position: relative;
-      z-index: 1;
-      font-size: 0.82rem;
-      font-weight: 800;
-      font-variant-numeric: tabular-nums;
-      opacity: 0.95;
-    }
-
-    .category-countbar {
-      position: relative;
-      z-index: 1;
-      height: 8px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.18);
-      overflow: hidden;
-    }
-
-    .category-countbar > span {
-      display: block;
-      height: 100%;
-      border-radius: inherit;
-      background: rgba(255,255,255,0.85);
-      width: 0%;
-      transition: width 180ms ease;
-    }
-
-    .category-pile.valid-target {
-      box-shadow: 0 0 0 3px rgba(255,245,182,0.65), 0 18px 32px rgba(0,0,0,0.16);
-      transform: translateY(-2px);
-    }
-
-    .category-pile.completed {
-      box-shadow: 0 0 0 2px rgba(171, 255, 167, 0.42), 0 0 36px rgba(171, 255, 167, 0.22);
-      filter: saturate(1.05) brightness(1.04);
+      color: rgba(255,255,255,0.45);
+      pointer-events: none;
     }
 
     .tableau {
@@ -321,43 +313,67 @@
       grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: var(--tableau-gap);
       align-items: start;
-      min-height: 0;
       flex: 1;
+      min-height: 0;
     }
 
-    .column {
+    .tableau-pile {
       position: relative;
-      min-height: 180px;
+      min-height: 148px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px dashed rgba(255,255,255,0.13);
       border-radius: 18px;
-      border: 1px dashed rgba(255,255,255,0.12);
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
       overflow: visible;
     }
 
-    .column.valid-target {
-      background: linear-gradient(180deg, rgba(255, 245, 182, 0.12), rgba(255,255,255,0.03));
-      box-shadow: 0 0 0 2px rgba(255,245,182,0.32), 0 14px 28px rgba(0,0,0,0.14);
+    .tableau-pile::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent 28%);
+      pointer-events: none;
+    }
+
+    .pile.valid-target {
+      background: linear-gradient(180deg, rgba(255, 246, 206, 0.12), rgba(255,255,255,0.04));
+      box-shadow: 0 0 0 2px rgba(255, 233, 163, 0.35), 0 18px 36px rgba(0,0,0,0.16);
+      transform: translateY(-2px);
+    }
+
+    .pile.drop-pulse { animation: pile-pulse 420ms ease; }
+
+    @keyframes pile-pulse {
+      0% { transform: scale(0.98); }
+      55% { transform: scale(1.03); }
+      100% { transform: scale(1); }
     }
 
     .card {
       position: absolute;
       left: 0;
       width: 100%;
-      height: var(--card-h);
-      border-radius: 16px;
-      overflow: hidden;
+      aspect-ratio: 5 / 7;
+      border-radius: 14px;
       border: 1px solid rgba(0,0,0,0.12);
-      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(245,244,238,0.97));
-      box-shadow: 0 10px 16px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.24);
-      transition: transform 120ms ease, box-shadow 140ms ease, opacity 140ms ease;
-      touch-action: manipulation;
+      box-shadow: 0 10px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.18);
+      overflow: hidden;
+      cursor: grab;
+      transition: transform 120ms ease, box-shadow 140ms ease, filter 140ms ease;
+      will-change: transform;
+      touch-action: none;
+    }
+
+    .card.face-up {
+      color: #171717;
+      background: radial-gradient(circle at top left, rgba(255,255,255,0.98), rgba(245,242,236,0.95) 46%, rgba(233,229,222,0.96));
     }
 
     .card.face-down {
       background:
-        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.1), transparent 20%),
-        linear-gradient(135deg, #3085f7, #2566bb 48%, #183b7f 100%);
-      border-color: rgba(255,255,255,0.12);
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), transparent 20%),
+        linear-gradient(135deg, #2858b8, #1b356d 48%, #132145 100%);
+      border-color: rgba(255,255,255,0.1);
     }
 
     .card.face-down::before,
@@ -365,114 +381,360 @@
       content: "";
       position: absolute;
       inset: 8px;
-      border-radius: 12px;
+      border-radius: 11px;
       border: 1px solid rgba(255,255,255,0.2);
     }
 
     .card.face-down::after {
       inset: 14px;
-      border: 0;
       background:
-        radial-gradient(circle at center, rgba(255,255,255,0.1), transparent 35%),
-        repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 8px, transparent 8px 16px),
-        repeating-linear-gradient(-45deg, rgba(255,255,255,0.06) 0 8px, transparent 8px 16px);
-    }
-
-    .card.selected {
-      box-shadow: var(--selected-ring);
-      z-index: 30 !important;
-    }
-
-    .card.hidden-source {
-      opacity: 0.05;
-      filter: blur(0.5px);
-    }
-
-    .card-topbar {
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      height: 8px;
+        radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 35%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 6px, transparent 6px 12px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px);
+      border: 0;
       opacity: 0.92;
     }
 
-    .card-body {
+    .card.red { color: #c53333; }
+    .card.black { color: #1d1e22; }
+
+    /* ---------- category cards ---------- */
+    .card-word-face {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 5px 4px 6px;
+      text-align: center;
+      z-index: 1;
+    }
+
+    .card-word {
+      font-weight: 750;
+      line-height: 1.06;
+      letter-spacing: -0.015em;
+      color: #17202b;
+      overflow-wrap: break-word;
+      hyphens: auto;
+      max-height: 100%;
+    }
+
+    .card-word.len-1 { font-size: clamp(0.72rem, 3vw, 1.02rem); }
+    .card-word.len-2 { font-size: clamp(0.6rem, 2.5vw, 0.78rem); }
+    .card-word.len-3 { font-size: clamp(0.52rem, 2.1vw, 0.63rem); }
+    .card-word.len-4 { font-size: clamp(0.45rem, 1.82vw, 0.53rem); }
+
+    .card-cat-strip {
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 7px;
+      background: rgba(0,0,0,0.06);
+      z-index: 2;
+    }
+
+    .card-cat-chip {
+      position: absolute;
+      inset: auto 0 3px 0;
+      text-align: center;
+      font-size: 0.5rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(23,32,43,0.62);
+      z-index: 2;
+      pointer-events: none;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      padding: 0 3px;
+    }
+
+    .card.key-card.face-up {
+      background: radial-gradient(circle at top left, #fffbe8, #ffeeb5 48%, #f6d98a);
+      border-color: rgba(150, 112, 18, 0.36);
+    }
+
+    .card.key-card .card-word { color: #4a3405; }
+
+    .card-key-crown {
+      position: absolute;
+      top: 4px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: clamp(0.72rem, 3vw, 1.05rem);
+      line-height: 1;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .card-key-icon {
+      position: absolute;
+      bottom: 4px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: clamp(0.8rem, 3.2vw, 1.2rem);
+      line-height: 1;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .key-mark { opacity: 0.85; }
+
+    /* Covered waste cards keep the layered look without hiding the playable word. */
+    .waste-pile .card:not(:last-child) .card-word-face,
+    .waste-pile .card:not(:last-child) .card-cat-chip { opacity: 0; }
+
+    /* ---------- foundation slots ---------- */
+    .foundation-pile { overflow: hidden; }
+
+    .slot-face {
       position: absolute;
       inset: 0;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      padding: 12px 10px 10px;
-    }
-
-    .card-chip {
-      align-self: flex-start;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      max-width: 100%;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: rgba(0,0,0,0.05);
-      font-size: 0.66rem;
-      font-weight: 800;
-      line-height: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .card-emoji {
-      display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 1.9em;
-      font-size: clamp(1.45rem, 3vw, 2.15rem);
-      line-height: 1;
-      text-shadow: 0 5px 10px rgba(0,0,0,0.08);
+      gap: 2px;
+      padding: 4px 3px 5px;
+      text-align: center;
+      pointer-events: none;
+      z-index: 2;
     }
 
-    .card-label {
-      font-size: clamp(0.92rem, 1.4vw, 1.08rem);
-      font-weight: 800;
-      line-height: 1.08;
-      letter-spacing: -0.02em;
-      color: #4a3d3a;
-      text-align: center;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
+    .slot-icon { font-size: clamp(1.05rem, 4.2vw, 1.7rem); line-height: 1; }
+
+    .slot-title {
+      font-size: clamp(0.52rem, 2.1vw, 0.8rem);
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: 0.01em;
+      overflow-wrap: anywhere;
+    }
+
+    .slot-count {
+      font-size: clamp(0.48rem, 1.9vw, 0.72rem);
+      opacity: 0.72;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .slot-bar {
+      width: 76%;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.16);
       overflow: hidden;
     }
 
-    .empty-banner {
+    .slot-bar span {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: rgba(255, 236, 151, 0.9);
+      transition: width 240ms ease;
+    }
+
+    .foundation-pile.slot-open { border-style: solid; border-color: rgba(255,255,255,0.3); }
+    .foundation-pile.slot-done {
+      border-color: rgba(160, 255, 199, 0.6);
+      background: linear-gradient(180deg, rgba(120, 235, 175, 0.2), rgba(255,255,255,0.04));
+    }
+    .foundation-pile.slot-locked .slot-face { opacity: 0.5; }
+
+    .pile.miss-shake { animation: miss-shake 380ms ease; }
+
+    @keyframes miss-shake {
+      0%, 100% { transform: translateX(0); }
+      18% { transform: translateX(-5px); }
+      38% { transform: translateX(5px); }
+      58% { transform: translateX(-3px); }
+      78% { transform: translateX(3px); }
+    }
+
+    .practice-flag {
+      display: none;
+      background: rgba(255, 236, 151, 0.18);
+      border-color: rgba(255, 236, 151, 0.4);
+    }
+    body.assist-on .practice-flag { display: inline-flex; }
+
+    .card.movable:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 20px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.22);
+    }
+
+    .card.pressed {
+      transform: translateY(2px);
+      filter: brightness(0.99);
+      box-shadow: 0 6px 10px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.12);
+    }
+
+    .card.selected { box-shadow: var(--select-glow); }
+    .card.hint-source {
+      animation: hint-pulse 1.15s ease-in-out infinite;
+      box-shadow: 0 0 0 3px rgba(111, 220, 255, 0.68), 0 18px 30px rgba(0,0,0,0.24);
+    }
+    .pile.hint-source,
+    .pile.hint-target {
+      animation: hint-pulse 1.15s ease-in-out infinite;
+      box-shadow: 0 0 0 3px rgba(111, 220, 255, 0.56), 0 18px 36px rgba(0,0,0,0.18);
+    }
+    .pile.hint-target {
+      background: linear-gradient(180deg, rgba(111, 220, 255, 0.16), rgba(255,255,255,0.04));
+    }
+    .card.source-hidden { opacity: 0.05; filter: blur(0.6px); }
+    .card.unmovable { cursor: default; }
+
+    @keyframes hint-pulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.12); }
+    }
+
+    .card-face-minimal {
       position: absolute;
       inset: 0;
-      display: grid;
-      place-items: center;
-      color: rgba(255,255,255,0.32);
-      font-size: 0.78rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
+      z-index: 1;
+      padding: 0;
+    }
+
+    .card-topline {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      right: 8px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 4px;
+      z-index: 3;
       pointer-events: none;
+    }
+
+    .card-rank-large {
+      font-size: clamp(1.08rem, 4.5vw, 1.62rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      min-width: 0;
+      flex: 0 1 auto;
+      white-space: nowrap;
+    }
+
+    .card-rank-large.wide-rank {
+      font-size: clamp(0.95rem, 4vw, 1.34rem);
+      letter-spacing: -0.05em;
+    }
+
+    .card-suit-corner {
+      font-size: clamp(1.02rem, 4.2vw, 1.5rem);
+      font-weight: 700;
+      line-height: 1;
+      opacity: 0.96;
+      flex: 0 0 auto;
+      transform: translateY(1px);
+    }
+
+    .card-suit-hero {
+      position: absolute;
+      left: 50%;
+      top: 60%;
+      transform: translate(-50%, -50%);
+      font-size: clamp(1.9rem, 7vw, 3.4rem);
+      line-height: 1;
+      font-weight: 700;
+      opacity: 0.84;
+      text-shadow: 0 6px 12px rgba(255,255,255,0.18);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .card-gloss {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(145deg, rgba(255,255,255,0.28), transparent 20%, transparent 72%, rgba(0,0,0,0.04));
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    #drag-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .drag-group {
+      position: fixed;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      will-change: transform;
+      filter: drop-shadow(0 24px 28px rgba(0,0,0,0.28));
+    }
+
+    .drag-group .card { width: 100%; }
+
+    .deal-card,
+    .shuffle-card {
+      position: fixed;
+      width: var(--top-card-w);
+      aspect-ratio: 5 / 7;
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), transparent 20%),
+        linear-gradient(135deg, #2858b8, #1b356d 48%, #132145 100%);
+      box-shadow: 0 14px 20px rgba(0,0,0,0.24);
+      border: 1px solid rgba(255,255,255,0.12);
+      z-index: 650;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .deal-card::before,
+    .shuffle-card::before,
+    .deal-card::after,
+    .shuffle-card::after {
+      content: "";
+      position: absolute;
+      border-radius: 12px;
+    }
+
+    .deal-card::before,
+    .shuffle-card::before {
+      inset: 8px;
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+
+    .deal-card::after,
+    .shuffle-card::after {
+      inset: 14px;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,0.1), transparent 35%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 6px, transparent 6px 12px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px);
     }
 
     .toast {
       position: fixed;
       left: 50%;
-      bottom: max(16px, env(safe-area-inset-bottom));
+      bottom: max(18px, env(safe-area-inset-bottom));
       transform: translate(-50%, 18px);
-      border-radius: 999px;
       padding: 12px 16px;
-      background: rgba(10,16,14,0.8);
+      border-radius: 999px;
+      background: rgba(11, 19, 16, 0.78);
+      color: var(--text);
       border: 1px solid rgba(255,255,255,0.12);
       box-shadow: var(--shadow-soft);
       opacity: 0;
       transition: opacity 220ms ease, transform 220ms ease;
       pointer-events: none;
       z-index: 1200;
-      white-space: nowrap;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      max-width: min(92vw, 620px);
+      line-height: 1.35;
+      text-align: center;
     }
 
     .toast.show {
@@ -480,24 +742,24 @@
       transform: translate(-50%, 0);
     }
 
-    .modal {
+    .modal-shell {
       position: fixed;
       inset: 0;
       display: none;
       align-items: center;
       justify-content: center;
       padding: 18px;
-      background: rgba(5, 10, 8, 0.55);
-      z-index: 1300;
+      background: rgba(5, 10, 8, 0.52);
+      z-index: 1500;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
     }
 
-    .modal.show { display: flex; }
+    .modal-shell.show { display: flex; }
 
     .modal-card {
-      width: min(92vw, 640px);
-      max-height: min(86svh, 760px);
+      width: min(92vw, 720px);
+      max-height: min(84svh, 760px);
       overflow: auto;
       border-radius: 26px;
       background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
@@ -506,7 +768,7 @@
       padding: 18px;
     }
 
-    .modal-head {
+    .modal-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -514,9 +776,9 @@
       margin-bottom: 10px;
     }
 
-    .modal h2 {
+    .modal-title {
       margin: 0;
-      font-size: 1.25rem;
+      font-size: 1.15rem;
     }
 
     .modal-close {
@@ -531,95 +793,321 @@
       cursor: pointer;
     }
 
-    .modal p, .modal li {
-      color: var(--muted);
+    .modal-body {
+      color: var(--text);
+      font-size: 0.94rem;
       line-height: 1.45;
     }
 
-    .modal ul {
+    .modal-body p,
+    .modal-body li { color: var(--muted); }
+
+    .modal-body ol,
+    .modal-body ul {
       margin: 0 0 14px 18px;
       padding: 0;
     }
 
-    .tip-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       margin-top: 12px;
     }
 
-    .tip-card {
-      padding: 12px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.1);
+    .settings-group {
+      margin-top: 14px;
     }
 
-    .tip-card strong {
-      display: block;
-      margin-bottom: 6px;
+    .settings-label {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(246, 244, 238, 0.72);
+      margin-bottom: 8px;
     }
 
-    .footer-note {
+    .size-controls {
       display: flex;
-      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .size-option.is-active {
+      box-shadow: 0 0 0 2px rgba(255, 233, 163, 0.45), inset 0 1px 0 rgba(255,255,255,0.12);
+      border-color: rgba(255, 233, 163, 0.55);
+    }
+
+    .feedback-frame-wrap {
+      margin-top: 14px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      min-height: 320px;
+    }
+
+    .feedback-frame {
+      width: 100%;
+      height: 420px;
+      border: 0;
+      background: #fff;
+    }
+
+    .tour-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      z-index: 1600;
+      pointer-events: none;
+    }
+
+    .tour-overlay.show { display: block; }
+
+    .tour-hole {
+      position: absolute;
+      border-radius: 18px;
+      box-shadow: 0 0 0 9999px rgba(5,10,8,0.54);
+      border: 2px solid rgba(255,255,255,0.72);
+      pointer-events: none;
+      transition: all 180ms ease;
+    }
+
+    .tour-popover {
+      position: absolute;
+      width: min(86vw, 320px);
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08));
+      border: 1px solid rgba(255,255,255,0.18);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+      padding: 14px;
+      pointer-events: auto;
+    }
+
+    .tour-popover h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+    }
+
+    .tour-popover p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.4;
+    }
+
+    .tour-actions {
+      display: flex;
       justify-content: space-between;
-      gap: 10px;
-      color: rgba(248,247,242,0.74);
-      font-size: 0.84rem;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tour-highlight {
+      position: relative;
+      z-index: 1601 !important;
+    }
+
+    .win-overlay {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(5, 10, 8, 0.44);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 260ms ease;
+      z-index: 1300;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .win-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .win-card {
+      width: min(92vw, 460px);
+      padding: 24px;
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.07));
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+      text-align: center;
+    }
+
+    .win-card h2 {
+      margin: 0 0 8px;
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+    }
+
+    .win-score {
+      margin: 0 0 8px;
+      font-size: clamp(1.7rem, 4vw, 2.6rem);
+      font-weight: 900;
+      color: #fff4cc;
+      letter-spacing: -0.03em;
+    }
+
+    .win-meta {
+      margin: 0 0 14px;
+      color: rgba(246, 244, 238, 0.88);
       font-variant-numeric: tabular-nums;
+      font-size: 0.98rem;
     }
 
-    @media (max-width: 980px) {
-      .tableau { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .board-shell { overflow: auto; }
+    .win-card p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.45;
     }
 
-    @media (max-width: 720px) {
-      :root {
-        --card-w: 82px;
-        --fan-down: 11px;
-        --fan-up: 24px;
+    .win-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .confetti {
+      position: absolute;
+      width: 10px;
+      height: 18px;
+      border-radius: 999px;
+      opacity: 0.9;
+      animation: confetti-fall linear forwards;
+    }
+
+    .hidden-input { display: none; }
+
+    @keyframes confetti-fall {
+      0% { transform: translateY(-10vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 0.9; }
+      100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+
+    @media (max-width: 760px) {
+      .top-row {
+        flex-direction: column;
+        align-items: stretch;
       }
 
-      .app {
-        padding-left: 8px;
-        padding-right: 8px;
-        gap: 10px;
-      }
-
-      .hero {
-        padding: 10px 12px;
-        border-radius: 20px;
-      }
-
-      .subtitle { display: none; }
-      .controls { justify-content: flex-start; }
-      .pill, .button { min-height: 40px; }
-      .footer-note { font-size: 0.74rem; }
+      .right-zone { justify-content: space-between; }
+      .hero { padding: 10px 12px; }
+      .button, .pill { min-height: 40px; }
     }
 
     @media (max-width: 520px) {
       :root {
-        --card-w: 74px;
-        --card-h: calc(var(--card-w) * 1.4);
-        --fan-down: 10px;
-        --fan-up: 22px;
+        --top-card-w: 58px;
+        --tableau-gap: 3px;
+        --fan-down: 8px;
+        --fan-up: 40px;
+        --waste-spread: 26px;
       }
 
-      .app { padding-left: 4px; padding-right: 4px; }
-      .hero { gap: 8px; }
-      h1 { font-size: 1.18rem; }
-      .pill { font-size: 0.76rem; padding: 8px 10px; }
-      .button { padding: 8px 11px; font-size: 0.74rem; }
-      .stock-pile, .waste-pile, .category-pile { border-radius: 16px; }
-      .category-title { font-size: 0.7rem; }
-      .category-progress { font-size: 0.74rem; }
-      .card-body { padding: 10px 8px 8px; }
-      .card-chip { font-size: 0.6rem; padding: 4px 7px; }
-      .card-emoji { font-size: 1.55rem; }
-      .card-label { font-size: 0.92rem; }
-      .tip-grid { grid-template-columns: 1fr; }
+      .app {
+        padding-left: 2px;
+        padding-right: 2px;
+        gap: 8px;
+      }
+
+      .hero {
+        border-radius: 18px;
+        padding: 8px 10px 8px;
+        gap: 7px;
+      }
+
+      h1 { font-size: 1.06rem; }
+      .subtitle { display: none; }
+      .controls { gap: 6px; }
+      .pill {
+        padding: 8px 10px;
+        font-size: 0.77rem;
+      }
+
+      .button {
+        padding: 8px 11px;
+        font-size: 0.74rem;
+      }
+
+      .save-info {
+        font-size: 0.66rem;
+        line-height: 1.15;
+      }
+
+      .timer-info {
+        min-width: auto;
+        text-align: left;
+      }
+
+      .mini-actions {
+        width: 100%;
+        margin-left: 0;
+      }
+
+      .mini-button {
+        padding: 6px 9px;
+        font-size: 0.72rem;
+      }
+
+      .board-shell {
+        border-radius: 18px;
+        padding: 8px 6px 6px;
+      }
+
+      .board {
+        gap: 8px;
+        min-height: calc(100svh - 206px);
+      }
+
+      .left-zone,
+      .right-zone,
+      .top-row { gap: 8px; }
+
+      .top-pile::before {
+        font-size: 0.62rem;
+        bottom: 6px;
+      }
+
+      .tableau-pile { min-height: 148px; }
+      .card { border-radius: 12px; }
+
+      .card-topline {
+        top: 4px;
+        left: 6px;
+        right: 6px;
+        gap: 3px;
+      }
+
+      .card-rank-large {
+        font-size: clamp(1.15rem, 5.5vw, 1.42rem);
+        font-weight: 800;
+      }
+
+      .card-rank-large.wide-rank {
+        font-size: clamp(0.98rem, 4.8vw, 1.18rem);
+      }
+
+      .card-suit-corner {
+        font-size: clamp(1rem, 4.5vw, 1.18rem);
+      }
+
+      .card-suit-hero {
+        top: 60%;
+        font-size: clamp(1.45rem, 7vw, 2rem);
+        opacity: 0.8;
+      }
+
+      .modal-card {
+        width: 96vw;
+        max-height: 88svh;
+        padding: 14px;
+      }
+
+      .feedback-frame { height: 360px; }
     }
   </style>
 </head>
@@ -628,340 +1116,1145 @@
     <header class="hero">
       <div class="title-wrap">
         <h1>JayTeeSF Category Solitaire</h1>
-        <p class="subtitle">A colorful solitaire spin built from unexpected topics, icon cards, word cards, and category matching.</p>
+        <p class="subtitle">Solitaire where the suits are secret. Find each key card, then work out which words belong to it.</p>
       </div>
       <div class="controls">
-        <div class="pill" id="statusPill">Moves 0 • Score 0 • Collected 0/28</div>
-        <div class="pill" id="mixPill">Mix —</div>
+        <div class="pill" id="statusPill">Sorted 0/36 · Score 0 · Stock 15</div>
+        <div class="pill practice-flag" id="practicePill">Practice mode</div>
+        <button class="button secondary" id="drawToggleBtn" type="button">Draw 1</button>
+        <button class="button secondary" id="saveBtn" type="button">Save Here</button>
+        <button class="button secondary" id="exportBtn" type="button">Export File</button>
+        <button class="button secondary" id="importBtn" type="button">Import File</button>
         <button class="button secondary" id="undoBtn" type="button">Undo</button>
-        <button class="button secondary" id="helpBtn" type="button">Help</button>
-        <button class="button primary" id="newGameBtn" type="button">New Game</button>
+        <button class="button" id="newGameBtn" type="button">New Deal</button>
+      </div>
+      <div class="meta-bar">
+        <div class="save-info" id="saveInfo">Autosaves in this browser on this device.</div>
+        <div class="save-info timer-info" id="timeText">Time 00:00</div>
+        <div class="mini-actions">
+          <button class="mini-button" id="hintBtn" type="button">Hint</button>
+          <button class="mini-button" id="settingsBtn" type="button">⚙︎ Settings</button>
+          <button class="mini-button" id="helpBtn" type="button">Help</button>
+          <button class="mini-button" id="installBtn" type="button">Install</button>
+          <button class="mini-button" id="feedbackBtn" type="button">Feedback</button>
+        </div>
       </div>
     </header>
 
     <section class="board-shell">
       <div class="board" id="board">
         <div class="top-row">
-          <div class="top-left">
-            <div class="pile stock-pile" id="stockPile" data-label="Stock">
-              <div class="stock-count" id="stockCount">0</div>
-            </div>
-            <div class="pile waste-pile" id="wastePile" data-label="Waste"></div>
+          <div class="left-zone">
+            <div class="pile top-pile stock-pile" id="stockPile" data-pile-type="stock" data-label="Stock"></div>
+            <div class="pile top-pile waste-pile" id="wastePile" data-pile-type="waste" data-label="Waste"></div>
           </div>
-          <div class="top-right" id="foundationRow"></div>
+          <div class="right-zone" id="foundationRow"></div>
         </div>
         <div class="tableau" id="tableau"></div>
-      </div>
-      <div class="footer-note">
-        <div id="footerHint">Tap a visible card to select it. Double-tap to auto-place when possible.</div>
-        <div id="timerText">Time 00:00</div>
       </div>
     </section>
   </div>
 
+  <div id="drag-layer"></div>
   <div class="toast" id="toast"></div>
+  <input class="hidden-input" type="file" id="importFileInput" accept="application/json,.json" />
 
-  <div class="modal" id="helpModal" aria-hidden="true">
+  <div class="modal-shell" id="settingsModal" aria-hidden="true">
     <div class="modal-card">
-      <div class="modal-head">
-        <h2>How to play</h2>
-        <button class="modal-close" id="closeHelpBtn" type="button" aria-label="Close help">✕</button>
+      <div class="modal-header">
+        <h2 class="modal-title">Settings</h2>
+        <button class="modal-close" data-close-modal="settingsModal" aria-label="Close settings">✕</button>
       </div>
-      <p>Collect every visible topic card into the correct category targets across the top.</p>
-      <ul>
-        <li>Tap the stock to draw one card into the waste.</li>
-        <li>Tap a visible card to select it, then tap a valid target.</li>
-        <li>You can move a same-category run onto an empty tableau column or onto another top card of the same category.</li>
-        <li>Double-tap a card to auto-place it onto its category when that move is legal.</li>
-        <li>When a full category is complete, it glows and locks in.</li>
-      </ul>
-      <div class="tip-grid">
-        <div class="tip-card">
-          <strong>Unexpected mixes</strong>
-          Every game pulls from a large category library, so you may see planets next to breakfast, retro tech, mythology, gems, or circus props.
+      <div class="modal-body">
+        <p>Browser zoom is locked during play so taps do not resize the page. Use card size controls here instead.</p>
+        <div class="settings-group">
+          <div class="settings-label">Card size</div>
+          <div class="size-controls">
+            <button class="button secondary size-option" id="sizeCompactBtn" type="button">Compact</button>
+            <button class="button secondary size-option" id="sizeStandardBtn" type="button">Standard</button>
+            <button class="button secondary size-option" id="sizeLargeBtn" type="button">Large</button>
+          </div>
         </div>
-        <div class="tip-card">
-          <strong>Visual + word cards</strong>
-          Some cards are mostly text, some lean visual, and many use both so the board stays lively and surprising.
+        <p>The selected size is saved on this device and stays stable in portrait and landscape until you change it here.</p>
+        <div class="settings-group">
+          <div class="settings-label">Practice mode</div>
+          <div class="size-controls">
+            <button class="button secondary size-option" id="assistOffBtn" type="button">Hidden categories</button>
+            <button class="button secondary size-option" id="assistOnBtn" type="button">Show categories</button>
+          </div>
+        </div>
+        <p>Practice mode labels every card with its category, highlights legal targets, and stops charging for misses. Scores earned in practice mode are marked as practice.</p>
+        <div class="settings-group">
+          <div class="settings-label">Board tools</div>
+          <div class="size-controls">
+            <button class="button secondary" id="refreshLayoutBtn" type="button">Refresh Layout</button>
+            <button class="button secondary" id="settingsHintBtn" type="button">Find a Hint</button>
+          </div>
+        </div>
+        <p>Refresh Layout safely rebuilds the visible board if Safari ever leaves a card visually stuck, without changing your game, score, timer, save, or undo history.</p>
+        <div class="modal-actions">
+          <button class="button secondary" data-close-modal="settingsModal" type="button">Done</button>
         </div>
       </div>
-      <p>Progress is autosaved in this browser so you can leave and come back later.</p>
-      <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
-        <button class="button secondary" id="closeHelpBtn2" type="button">Got it</button>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="helpModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">How to play</h2>
+        <button class="modal-close" data-close-modal="helpModal" aria-label="Close help">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Every deal uses four secret categories. Word cards never tell you which one they belong to &mdash; that is the puzzle.</p>
+        <ol>
+          <li>Four <strong>key cards</strong> (gold, with a crown) are shuffled into the deck. Drop a key card on a locked slot to open that category.</li>
+          <li>Once a category is open, send its words to that slot &mdash; one card, or a whole stack at once.</li>
+          <li>In the tableau you may stack a card on another card <strong>only if they share a category</strong>. Use this to gather words while you wait for their key.</li>
+          <li>An <strong>empty column takes any card</strong>. Empty columns are the scarcest thing on the board.</li>
+          <li>Tap the stock to draw. Tap a card to pick it up, then tap where it should go. Dragging works too.</li>
+          <li>You get <strong>two passes</strong> through the stock. After that it is spent, so do not leave cards you can still place sitting in the waste.</li>
+        </ol>
+        <p><strong>Guessing costs you.</strong> Aiming a card at the wrong slot or the wrong stack is a miss: &minus;5 points, and the miss counter goes up. Nothing else is lost, so a considered guess is fine &mdash; brute force is not.</p>
+        <p>Finish with zero misses for a perfect-deduction bonus.</p>
+        <p>New to it? Turn on <strong>Practice mode</strong> in Settings to see every card&rsquo;s category and drop the miss penalty.</p>
+        <p>The game supports tap play, drag-and-drop, autosave, export/import, and up to 25 levels of undo.</p>
+        <p><strong>Hint</strong> names the best move and says why &mdash; it will spoil a category to do it, so use it when you are genuinely stuck.</p>
+        <p><strong>Keyboard:</strong> <kbd>D</kbd> draw &middot; <kbd>H</kbd> hint &middot; <kbd>Z</kbd> undo &middot; <kbd>N</kbd> new deal &middot; <kbd>E</kbd> export &middot; <kbd>Esc</kbd> close.</p>
+        <div class="modal-actions">
+          <button class="button secondary" id="startTourBtn" type="button">Show walkthrough</button>
+          <button class="button secondary" data-close-modal="helpModal" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="installModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Install on your phone</h2>
+        <button class="modal-close" data-close-modal="installModal" aria-label="Close install help">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>On iPhone or iPad, Safari still uses the Add to Home Screen flow for installing a web app.</p>
+        <ol>
+          <li>Open this game in Safari.</li>
+          <li>Tap the Share button.</li>
+          <li>Choose <strong>Add to Home Screen</strong>.</li>
+          <li>Rename it if you want.</li>
+          <li>Confirm the add action.</li>
+        </ol>
+        <p>Once added, it launches more like an app and will not keep opening normal browser tabs during play.</p>
+        <div class="modal-actions">
+          <button class="button secondary" data-close-modal="installModal" type="button">Got it</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="feedbackModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Send feedback</h2>
+        <button class="modal-close" data-close-modal="feedbackModal" aria-label="Close feedback">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Send bug reports, feature requests, or notes of appreciation without leaving the app.</p>
+        <p id="feedbackFormHint">Add your Google Form embed URL in <code>FEEDBACK_FORM_URL</code>. Use the embed link that ends with <code>?embedded=true</code>.</p>
+        <div class="feedback-frame-wrap" id="feedbackFrameWrap"></div>
+        <div class="modal-actions">
+          <a class="button secondary" id="feedbackOpenTab" href="#" target="_blank" rel="noopener">Open in new tab</a>
+          <button class="button secondary" data-close-modal="feedbackModal" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tour-overlay" id="tourOverlay" aria-hidden="true">
+    <div class="tour-hole" id="tourHole"></div>
+    <div class="tour-popover" id="tourPopover">
+      <h3 id="tourTitle">Welcome</h3>
+      <p id="tourText">This walkthrough highlights the important parts of the game.</p>
+      <div class="tour-actions">
+        <button class="button secondary" id="tourSkipBtn" type="button">Close</button>
+        <button class="button" id="tourNextBtn" type="button">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="confirmNewGameModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Start a new game?</h2>
+        <button class="modal-close" data-close-modal="confirmNewGameModal" aria-label="Cancel new game">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Your current game will be replaced.</p>
+        <div class="modal-actions">
+          <button class="button secondary" id="newGameCancelBtn" type="button">Cancel</button>
+          <button class="button" id="newGameConfirmBtn" type="button">New Game</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="autoCompleteModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">Every card is showing</h2>
+        <button class="modal-close" data-close-modal="autoCompleteModal" aria-label="Not yet">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>All four categories can be finished from here. Sort the rest automatically?</p>
+        <div class="modal-actions">
+          <button class="button secondary" id="autoCompleteNotYetBtn" type="button">Not Yet</button>
+          <button class="button" id="autoCompleteYesBtn" type="button">Auto-Complete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="win-overlay" id="winOverlay">
+    <div class="win-card">
+      <h2>You won ✨</h2>
+      <div class="win-score" id="winScore">Final score: 0</div>
+      <div class="win-meta" id="winMeta">Moves: 0 • Time: 00:00</div>
+      <p id="winNote">Every word found its category. The felt is glowing, and not a single tracker knows about it.</p>
+      <div class="win-actions">
+        <button class="button secondary" id="winDoneBtn" type="button">Done</button>
+        <button class="button" id="playAgainBtn" type="button">Play Again</button>
       </div>
     </div>
   </div>
 
   <script>
     (() => {
-      const STORAGE_KEY = "jayteesf-category-solitaire-save-v1";
-      const CARDS_PER_CATEGORY = 7;
-      const ACTIVE_CATEGORY_COUNT = 4;
-      const TABLEAU_COLUMNS = 6;
-      const HISTORY_LIMIT = 40;
-      const TOAST_MS = 1400;
-
-      const MASTER_CATEGORIES = [
-        { id: "colors", title: "Colors", color: "#4fc3f7", icon: "🎨", items: [
-          { label: "Azure", emoji: "🔵" }, { label: "Crimson", emoji: "🔴" }, { label: "Emerald", emoji: "🟢" }, { label: "Gold", emoji: "🟡" },
-          { label: "Violet", emoji: "🟣" }, { label: "Cyan", emoji: "💧" }, { label: "Coral", emoji: "🪸" }, { label: "Ivory", emoji: "🤍" }
-        ] },
-        { id: "planets", title: "Planets", color: "#ffd54f", icon: "🪐", items: [
-          { label: "Mercury", emoji: "☿️" }, { label: "Venus", emoji: "♀️" }, { label: "Earth", emoji: "🌍" }, { label: "Mars", emoji: "🔴" },
-          { label: "Jupiter", emoji: "🟠" }, { label: "Saturn", emoji: "🪐" }, { label: "Uranus", emoji: "🧊" }, { label: "Neptune", emoji: "🌊" }
-        ] },
-        { id: "breakfast", title: "Breakfast", color: "#ffb74d", icon: "🍳", items: [
-          { label: "Toast", emoji: "🍞" }, { label: "Bacon", emoji: "🥓" }, { label: "Cereal", emoji: "🥣" }, { label: "Bagel", emoji: "🥯" },
-          { label: "Pancakes", emoji: "🥞" }, { label: "Waffles", emoji: "🧇" }, { label: "Omelet", emoji: "🍳" }, { label: "Coffee", emoji: "☕" }
-        ] },
-        { id: "transport", title: "Transport", color: "#4dd0e1", icon: "🚁", items: [
-          { label: "Helicopter", emoji: "🚁" }, { label: "Airplane", emoji: "✈️" }, { label: "Bicycle", emoji: "🚲" }, { label: "Scooter", emoji: "🛴" },
-          { label: "Train", emoji: "🚆" }, { label: "Submarine", emoji: "🚤" }, { label: "Rocket", emoji: "🚀" }, { label: "Sailboat", emoji: "⛵" }
-        ] },
-        { id: "geometry", title: "Geometry", color: "#ba68c8", icon: "🔶", items: [
-          { label: "Circle", emoji: "⚪" }, { label: "Triangle", emoji: "🔺" }, { label: "Square", emoji: "🟥" }, { label: "Hexagon", emoji: "⬡" },
-          { label: "Oval", emoji: "🥚" }, { label: "Cube", emoji: "🧊" }, { label: "Sphere", emoji: "🔮" }, { label: "Diamond", emoji: "💎" }
-        ] },
-        { id: "retro-tech", title: "Retro Tech", color: "#90a4ae", icon: "📼", items: [
-          { label: "Cassette", emoji: "📼" }, { label: "Floppy Disk", emoji: "💾" }, { label: "Pager", emoji: "📟" }, { label: "Walkman", emoji: "🎧" },
-          { label: "Polaroid", emoji: "📷" }, { label: "CRT", emoji: "📺" }, { label: "Fax Machine", emoji: "📠" }, { label: "Game Boy", emoji: "🕹️" }
-        ] },
-        { id: "mythology", title: "Mythology", color: "#9575cd", icon: "⚡", items: [
-          { label: "Zeus", emoji: "⚡" }, { label: "Athena", emoji: "🦉" }, { label: "Thor", emoji: "🔨" }, { label: "Loki", emoji: "🃏" },
-          { label: "Medusa", emoji: "🐍" }, { label: "Pegasus", emoji: "🪽" }, { label: "Kraken", emoji: "🐙" }, { label: "Minotaur", emoji: "🐂" }
-        ] },
-        { id: "gems", title: "Gems", color: "#f06292", icon: "💎", items: [
-          { label: "Ruby", emoji: "♦️" }, { label: "Emerald", emoji: "💚" }, { label: "Sapphire", emoji: "💙" }, { label: "Diamond", emoji: "💎" },
-          { label: "Opal", emoji: "✨" }, { label: "Amethyst", emoji: "🔮" }, { label: "Topaz", emoji: "🟡" }, { label: "Quartz", emoji: "🪨" }
-        ] },
-        { id: "weather", title: "Weather", color: "#81d4fa", icon: "⛅", items: [
-          { label: "Clouds", emoji: "☁️" }, { label: "Thunder", emoji: "⛈️" }, { label: "Snow", emoji: "❄️" }, { label: "Rainbow", emoji: "🌈" },
-          { label: "Fog", emoji: "🌫️" }, { label: "Wind", emoji: "💨" }, { label: "Rain", emoji: "🌧️" }, { label: "Sunshine", emoji: "☀️" }
-        ] },
-        { id: "flowers", title: "Flowers", color: "#f48fb1", icon: "🌸", items: [
-          { label: "Rose", emoji: "🌹" }, { label: "Tulip", emoji: "🌷" }, { label: "Sunflower", emoji: "🌻" }, { label: "Lotus", emoji: "🪷" },
-          { label: "Daisy", emoji: "🌼" }, { label: "Lily", emoji: "🌺" }, { label: "Orchid", emoji: "🪻" }, { label: "Lavender", emoji: "🪻" }
-        ] },
-        { id: "ocean", title: "Ocean", color: "#4fc3f7", icon: "🌊", items: [
-          { label: "Coral", emoji: "🪸" }, { label: "Shark", emoji: "🦈" }, { label: "Jellyfish", emoji: "🎐" }, { label: "Crab", emoji: "🦀" },
-          { label: "Octopus", emoji: "🐙" }, { label: "Seahorse", emoji: "🐚" }, { label: "Lighthouse", emoji: "🗼" }, { label: "Wave", emoji: "🌊" }
-        ] },
-        { id: "body", title: "Face", color: "#ffcc80", icon: "🙂", items: [
-          { label: "Eyes", emoji: "👀" }, { label: "Nose", emoji: "👃" }, { label: "Mouth", emoji: "👄" }, { label: "Chin", emoji: "🙂" },
-          { label: "Brows", emoji: "🤨" }, { label: "Cheeks", emoji: "😊" }, { label: "Lips", emoji: "💋" }, { label: "Eyelashes", emoji: "✨" }
-        ] },
-        { id: "actors", title: "Actors", color: "#ce93d8", icon: "🎬", items: [
-          { label: "DiCaprio", emoji: "🎭" }, { label: "Streep", emoji: "🎭" }, { label: "Davis", emoji: "🎭" }, { label: "Yeoh", emoji: "🎭" },
-          { label: "Elba", emoji: "🎭" }, { label: "Blanchett", emoji: "🎭" }, { label: "Washington", emoji: "🎭" }, { label: "Hepburn", emoji: "🎭" }
-        ] },
-        { id: "math", title: "Math", color: "#a5d6a7", icon: "➗", items: [
-          { label: "Algebra", emoji: "📐" }, { label: "Calculus", emoji: "📘" }, { label: "Fraction", emoji: "➗" }, { label: "Equation", emoji: "🟰" },
-          { label: "Graph", emoji: "📈" }, { label: "Angle", emoji: "📐" }, { label: "Number Line", emoji: "↔️" }, { label: "Geometry", emoji: "🔷" }
-        ] },
-        { id: "desserts", title: "Desserts", color: "#ffab91", icon: "🍰", items: [
-          { label: "Cake", emoji: "🍰" }, { label: "Donut", emoji: "🍩" }, { label: "Cookie", emoji: "🍪" }, { label: "Brownie", emoji: "🟫" },
-          { label: "Pie", emoji: "🥧" }, { label: "Ice Cream", emoji: "🍨" }, { label: "Cupcake", emoji: "🧁" }, { label: "Macaron", emoji: "🍬" }
-        ] },
-        { id: "circus", title: "Circus", color: "#ff8a65", icon: "🎪", items: [
-          { label: "Clown", emoji: "🤡" }, { label: "Ringmaster", emoji: "🎩" }, { label: "Juggler", emoji: "🤹" }, { label: "Unicycle", emoji: "🚲" },
-          { label: "Tent", emoji: "🎪" }, { label: "Trapeze", emoji: "🎈" }, { label: "Cannonball", emoji: "💥" }, { label: "Tiger", emoji: "🐯" }
-        ] },
-        { id: "famous-scientists", title: "Scientists", color: "#80cbc4", icon: "🔬", items: [
-          { label: "Einstein", emoji: "🧠" }, { label: "Curie", emoji: "⚛️" }, { label: "Tesla", emoji: "⚡" }, { label: "Darwin", emoji: "🧬" },
-          { label: "Galileo", emoji: "🔭" }, { label: "Newton", emoji: "🍎" }, { label: "Hopper", emoji: "💻" }, { label: "Turing", emoji: "🔐" }
-        ] },
-        { id: "books", title: "Books", color: "#bcaaa4", icon: "📚", items: [
-          { label: "Novel", emoji: "📖" }, { label: "Poem", emoji: "📝" }, { label: "Atlas", emoji: "🗺️" }, { label: "Dictionary", emoji: "📘" },
-          { label: "Bookmark", emoji: "🔖" }, { label: "Library", emoji: "🏛️" }, { label: "Hardcover", emoji: "📕" }, { label: "Paperback", emoji: "📗" }
-        ] },
-        { id: "magic", title: "Magic", color: "#b39ddb", icon: "✨", items: [
-          { label: "Rabbit", emoji: "🐇" }, { label: "Top Hat", emoji: "🎩" }, { label: "Coin Vanish", emoji: "🪙" }, { label: "Levitation", emoji: "🪄" },
-          { label: "Silk Scarf", emoji: "🧣" }, { label: "Deck of Cards", emoji: "🃏" }, { label: "Assistant", emoji: "🎭" }, { label: "Wand", emoji: "🪄" }
-        ] },
-        { id: "trees", title: "Trees", color: "#81c784", icon: "🌳", items: [
-          { label: "Oak", emoji: "🌳" }, { label: "Pine", emoji: "🌲" }, { label: "Maple", emoji: "🍁" }, { label: "Palm", emoji: "🌴" },
-          { label: "Willow", emoji: "🌿" }, { label: "Birch", emoji: "🌱" }, { label: "Cedar", emoji: "🌲" }, { label: "Redwood", emoji: "🌳" }
-        ] },
-        { id: "fruits", title: "Fruits", color: "#aed581", icon: "🍓", items: [
-          { label: "Apple", emoji: "🍎" }, { label: "Banana", emoji: "🍌" }, { label: "Peach", emoji: "🍑" }, { label: "Lemon", emoji: "🍋" },
-          { label: "Kiwi", emoji: "🥝" }, { label: "Orange", emoji: "🍊" }, { label: "Mango", emoji: "🥭" }, { label: "Grapes", emoji: "🍇" }
-        ] },
-        { id: "music", title: "Music", color: "#7986cb", icon: "🎵", items: [
-          { label: "Piano", emoji: "🎹" }, { label: "Guitar", emoji: "🎸" }, { label: "Violin", emoji: "🎻" }, { label: "Trumpet", emoji: "🎺" },
-          { label: "Drums", emoji: "🥁" }, { label: "Flute", emoji: "🪈" }, { label: "Saxophone", emoji: "🎷" }, { label: "Microphone", emoji: "🎤" }
-        ] },
-        { id: "landmarks", title: "Landmarks", color: "#ffcc80", icon: "🗺️", items: [
-          { label: "Eiffel Tower", emoji: "🗼" }, { label: "Pyramids", emoji: "🛕" }, { label: "Colosseum", emoji: "🏟️" }, { label: "Taj Mahal", emoji: "🕌" },
-          { label: "Big Ben", emoji: "🕰️" }, { label: "Machu Picchu", emoji: "⛰️" }, { label: "Golden Gate", emoji: "🌉" }, { label: "Liberty", emoji: "🗽" }
-        ] },
-        { id: "birds", title: "Birds", color: "#90caf9", icon: "🪶", items: [
-          { label: "Owl", emoji: "🦉" }, { label: "Penguin", emoji: "🐧" }, { label: "Parrot", emoji: "🦜" }, { label: "Peacock", emoji: "🦚" },
-          { label: "Eagle", emoji: "🦅" }, { label: "Flamingo", emoji: "🦩" }, { label: "Robin", emoji: "🐦" }, { label: "Swan", emoji: "🦢" }
-        ] },
-        { id: "blue-things", title: "Blue", color: "#4fc3f7", icon: "🟦", items: [
-          { label: "Cyan", emoji: "🟦" }, { label: "Blueberry", emoji: "🫐" }, { label: "Navy", emoji: "🌌" }, { label: "Whale", emoji: "🐋" },
-          { label: "Blue Jay", emoji: "🐦" }, { label: "Sapphire", emoji: "💙" }, { label: "Ocean", emoji: "🌊" }, { label: "Ink", emoji: "🖋️" }
-        ] }
+      const STORAGE_KEY = "jayteesf-category-solitaire-save-v2";
+      const CARD_SIZE_STORAGE_KEY = "jayteesf-category-solitaire-card-size-v1";
+      const ASSIST_STORAGE_KEY = "jayteesf-category-solitaire-assist-v1";
+      const SAVE_VERSION = 2;
+      const HISTORY_LIMIT = 25;
+      const PERSISTED_HISTORY_LIMIT = 8;
+      const COLUMN_COUNT = 6;
+      const ITEMS_PER_CATEGORY = 8;
+      const CARDS_PER_CATEGORY = ITEMS_PER_CATEGORY + 1; // eight words plus the key card
+      const SLOT_ORDER = ["0", "1", "2", "3"];
+      const DECK_SIZE = SLOT_ORDER.length * CARDS_PER_CATEGORY;
+      const MISS_PENALTY = 5;
+      const MAX_RECYCLES = 2;
+      const FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScd3aaFsS48ntmoU2CGuv1VzyTKGaUj5XATQqIHYwZpSFCqzA/viewform?embedded=true"; // Paste your Google Form embed URL here, ending with ?embedded=true
+      // Categories are chosen fresh each deal. `avoid` keeps semantically overlapping
+      // sets out of the same deal, so every word has exactly one defensible answer.
+      const CATEGORIES = [
+        { id: "planets", title: "Planets", icon: "\ud83e\ude90", color: "#ffd54f", avoid: [], items: ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"] },
+        { id: "breakfast", title: "Breakfast", icon: "\ud83c\udf73", color: "#ffb74d", avoid: ["desserts"], items: ["Pancakes", "Bacon", "Cereal", "Bagel", "Omelet", "Waffles", "Oatmeal", "Croissant"] },
+        { id: "instruments", title: "Instruments", icon: "\ud83c\udfbb", color: "#7986cb", avoid: [], items: ["Piano", "Guitar", "Violin", "Trumpet", "Drums", "Flute", "Saxophone", "Cello"] },
+        { id: "birds", title: "Birds", icon: "\ud83e\udeb6", color: "#90caf9", avoid: ["sea-life"], items: ["Owl", "Penguin", "Parrot", "Peacock", "Eagle", "Flamingo", "Pelican", "Swan"] },
+        { id: "trees", title: "Trees", icon: "\ud83c\udf33", color: "#81c784", avoid: ["flowers"], items: ["Oak", "Pine", "Maple", "Willow", "Birch", "Cedar", "Redwood", "Aspen"] },
+        { id: "fruits", title: "Fruits", icon: "\ud83c\udf53", color: "#aed581", avoid: ["colors", "desserts"], items: ["Apple", "Banana", "Peach", "Kiwi", "Mango", "Papaya", "Apricot", "Plum"] },
+        { id: "gems", title: "Gems", icon: "\ud83d\udc8e", color: "#f06292", avoid: ["colors"], items: ["Ruby", "Sapphire", "Opal", "Amethyst", "Topaz", "Garnet", "Jade", "Pearl"] },
+        { id: "weather", title: "Weather", icon: "\u26c5", color: "#81d4fa", avoid: ["water"], items: ["Thunder", "Blizzard", "Drizzle", "Hailstorm", "Monsoon", "Sleet", "Heatwave", "Overcast"] },
+        { id: "landmarks", title: "Landmarks", icon: "\ud83d\uddfa\ufe0f", color: "#ffcc80", avoid: [], items: ["Eiffel Tower", "Colosseum", "Taj Mahal", "Big Ben", "Machu Picchu", "Golden Gate", "Stonehenge", "Great Wall"] },
+        { id: "sea-life", title: "Sea Life", icon: "\ud83d\udc19", color: "#4fc3f7", avoid: ["birds", "water"], items: ["Octopus", "Jellyfish", "Seahorse", "Barnacle", "Manta Ray", "Anemone", "Urchin", "Plankton"] },
+        { id: "tools", title: "Tools", icon: "\ud83d\udd27", color: "#b0bec5", avoid: ["kitchen"], items: ["Hammer", "Wrench", "Chisel", "Screwdriver", "Pliers", "Crowbar", "Mallet", "Clamp"] },
+        { id: "dances", title: "Dances", icon: "\ud83d\udc83", color: "#f48fb1", avoid: [], items: ["Tango", "Waltz", "Salsa", "Foxtrot", "Samba", "Flamenco", "Polka", "Rumba"] },
+        { id: "spices", title: "Spices", icon: "\ud83e\uddc2", color: "#d7a86e", avoid: ["kitchen"], items: ["Cinnamon", "Paprika", "Nutmeg", "Cumin", "Turmeric", "Oregano", "Saffron", "Cardamom"] },
+        { id: "mythology", title: "Mythology", icon: "\u26a1", color: "#9575cd", avoid: [], items: ["Zeus", "Athena", "Loki", "Medusa", "Pegasus", "Minotaur", "Odin", "Hades"] },
+        { id: "scientists", title: "Scientists", icon: "\ud83d\udd2c", color: "#80cbc4", avoid: [], items: ["Einstein", "Curie", "Darwin", "Galileo", "Newton", "Hopper", "Turing", "Pasteur"] },
+        { id: "desserts", title: "Desserts", icon: "\ud83c\udf70", color: "#ffab91", avoid: ["breakfast", "fruits"], items: ["Brownie", "Cupcake", "Macaron", "Tiramisu", "Cheesecake", "Sorbet", "Eclair", "Flan"] },
+        { id: "retro-tech", title: "Retro Tech", icon: "\ud83d\udcfc", color: "#90a4ae", avoid: [], items: ["Cassette", "Floppy Disk", "Pager", "Walkman", "Polaroid", "Fax Machine", "Rotary Phone", "Typewriter"] },
+        { id: "board-games", title: "Board Games", icon: "\ud83c\udfb2", color: "#a1887f", avoid: ["sports"], items: ["Chess", "Checkers", "Backgammon", "Scrabble", "Monopoly", "Dominoes", "Mahjong", "Cribbage"] },
+        { id: "currencies", title: "Currencies", icon: "\ud83d\udcb1", color: "#c5e1a5", avoid: [], items: ["Yen", "Peso", "Rupee", "Dinar", "Krona", "Franc", "Shekel", "Ruble"] },
+        { id: "dogs", title: "Dog Breeds", icon: "\ud83d\udc15", color: "#bcaaa4", avoid: [], items: ["Beagle", "Poodle", "Dachshund", "Corgi", "Husky", "Terrier", "Mastiff", "Whippet"] },
+        { id: "shapes", title: "Shapes", icon: "\ud83d\udd37", color: "#ba68c8", avoid: [], items: ["Trapezoid", "Rhombus", "Pentagon", "Hexagon", "Octagon", "Ellipse", "Cylinder", "Prism"] },
+        { id: "colors", title: "Colors", icon: "\ud83c\udfa8", color: "#4fc3f7", avoid: ["gems", "fruits", "flowers"], items: ["Crimson", "Magenta", "Turquoise", "Chartreuse", "Ochre", "Indigo", "Beige", "Maroon"] },
+        { id: "flowers", title: "Flowers", icon: "\ud83c\udf38", color: "#f8bbd0", avoid: ["trees", "colors"], items: ["Rose", "Tulip", "Sunflower", "Daffodil", "Peony", "Orchid", "Marigold", "Hyacinth"] },
+        { id: "kitchen", title: "Kitchen Gear", icon: "\ud83c\udf74", color: "#ffe082", avoid: ["tools", "spices"], items: ["Colander", "Whisk", "Spatula", "Ladle", "Grater", "Rolling Pin", "Skillet", "Tongs"] },
+        { id: "sports", title: "Sports", icon: "\ud83c\udfc5", color: "#ef9a9a", avoid: ["board-games"], items: ["Archery", "Fencing", "Rowing", "Curling", "Judo", "Lacrosse", "Badminton", "Bobsled"] },
+        { id: "water", title: "Bodies of Water", icon: "\ud83d\udca7", color: "#4dd0e1", avoid: ["sea-life", "weather"], items: ["Fjord", "Lagoon", "Estuary", "Delta", "Strait", "Bayou", "Reservoir", "Tributary"] }
       ];
 
+      const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((cat) => [cat.id, cat]));
+
       const els = {
-        stockPile: document.getElementById("stockPile"),
-        wastePile: document.getElementById("wastePile"),
-        stockCount: document.getElementById("stockCount"),
+        board: document.getElementById("board"),
+        stock: document.getElementById("stockPile"),
+        waste: document.getElementById("wastePile"),
         foundationRow: document.getElementById("foundationRow"),
         tableau: document.getElementById("tableau"),
-        statusPill: document.getElementById("statusPill"),
-        mixPill: document.getElementById("mixPill"),
-        timerText: document.getElementById("timerText"),
-        footerHint: document.getElementById("footerHint"),
-        undoBtn: document.getElementById("undoBtn"),
-        helpBtn: document.getElementById("helpBtn"),
-        newGameBtn: document.getElementById("newGameBtn"),
+        dragLayer: document.getElementById("drag-layer"),
         toast: document.getElementById("toast"),
+        statusPill: document.getElementById("statusPill"),
+        timeText: document.getElementById("timeText"),
+        saveInfo: document.getElementById("saveInfo"),
+        newGameBtn: document.getElementById("newGameBtn"),
+        drawToggleBtn: document.getElementById("drawToggleBtn"),
+        saveBtn: document.getElementById("saveBtn"),
+        exportBtn: document.getElementById("exportBtn"),
+        importBtn: document.getElementById("importBtn"),
+        undoBtn: document.getElementById("undoBtn"),
+        hintBtn: document.getElementById("hintBtn"),
+        helpBtn: document.getElementById("helpBtn"),
+        installBtn: document.getElementById("installBtn"),
+        feedbackBtn: document.getElementById("feedbackBtn"),
+        startTourBtn: document.getElementById("startTourBtn"),
         helpModal: document.getElementById("helpModal"),
-        closeHelpBtn: document.getElementById("closeHelpBtn"),
-        closeHelpBtn2: document.getElementById("closeHelpBtn2")
+        installModal: document.getElementById("installModal"),
+        feedbackModal: document.getElementById("feedbackModal"),
+        feedbackFrameWrap: document.getElementById("feedbackFrameWrap"),
+        feedbackOpenTab: document.getElementById("feedbackOpenTab"),
+        feedbackFormHint: document.getElementById("feedbackFormHint"),
+        tourOverlay: document.getElementById("tourOverlay"),
+        tourHole: document.getElementById("tourHole"),
+        tourPopover: document.getElementById("tourPopover"),
+        tourTitle: document.getElementById("tourTitle"),
+        tourText: document.getElementById("tourText"),
+        tourSkipBtn: document.getElementById("tourSkipBtn"),
+        tourNextBtn: document.getElementById("tourNextBtn"),
+        importFileInput: document.getElementById("importFileInput"),
+        winOverlay: document.getElementById("winOverlay"),
+        winScore: document.getElementById("winScore"),
+        winMeta: document.getElementById("winMeta"),
+        winDoneBtn: document.getElementById("winDoneBtn"),
+        settingsBtn: document.getElementById("settingsBtn"),
+        settingsModal: document.getElementById("settingsModal"),
+        sizeCompactBtn: document.getElementById("sizeCompactBtn"),
+        sizeStandardBtn: document.getElementById("sizeStandardBtn"),
+        sizeLargeBtn: document.getElementById("sizeLargeBtn"),
+        refreshLayoutBtn: document.getElementById("refreshLayoutBtn"),
+        settingsHintBtn: document.getElementById("settingsHintBtn"),
+        confirmNewGameModal: document.getElementById("confirmNewGameModal"),
+        newGameCancelBtn: document.getElementById("newGameCancelBtn"),
+        newGameConfirmBtn: document.getElementById("newGameConfirmBtn"),
+        autoCompleteModal: document.getElementById("autoCompleteModal"),
+        autoCompleteNotYetBtn: document.getElementById("autoCompleteNotYetBtn"),
+        autoCompleteYesBtn: document.getElementById("autoCompleteYesBtn"),
+        playAgainBtn: document.getElementById("playAgainBtn"),
+        practicePill: document.getElementById("practicePill"),
+        winNote: document.getElementById("winNote"),
+        assistOnBtn: document.getElementById("assistOnBtn"),
+        assistOffBtn: document.getElementById("assistOffBtn")
       };
 
       const state = {
-        activeCategoryIds: [],
         stock: [],
         waste: [],
-        foundations: {},
-        tableau: Array.from({ length: TABLEAU_COLUMNS }, () => []),
-        selected: null,
-        validTargets: new Set(),
+        foundations: { 0: [], 1: [], 2: [], 3: [] },
+        slotCategories: { 0: null, 1: null, 2: null, 3: null },
+        categoryIds: [],
+        tableau: Array.from({ length: COLUMN_COUNT }, () => []),
+        drawCount: 1,
         moveCount: 0,
+        misses: 0,
+        recycles: 0,
+        assistMode: false,
+        usedAssist: false,
         score: 0,
         startedAt: Date.now(),
         elapsedBeforeResumeMs: 0,
-        history: [],
-        lastTap: null,
+        selected: null,
+        validTargets: new Set(),
+        drag: null,
+        animating: false,
+        dropPulse: null,
+        justFlippedCardId: null,
+        pointerState: null,
         toastTimer: null,
-        tickTimer: null
+        confettiTimer: null,
+        autoSaveTimer: null,
+        tickTimer: null,
+        layoutRefreshTimer: null,
+        hint: null,
+        hintTimer: null,
+        lastSavedAt: null,
+        history: [],
+        tourIndex: -1,
+        cardSizePreset: "standard",
+        autoCompletePrompted: false,
+        autoCompleting: false,
+        gameWon: false,
+        winShownAt: 0,
+        ignoreWinClicksUntil: 0
       };
 
-      function categoryById(id) {
-        return MASTER_CATEGORIES.find((cat) => cat.id === id);
-      }
+      function buildStaticPiles() {
+        els.foundationRow.innerHTML = "";
+        SLOT_ORDER.forEach((slot) => {
+          const pile = document.createElement("div");
+          pile.className = "pile top-pile foundation-pile";
+          pile.dataset.pileType = "foundation";
+          pile.dataset.pileSlot = slot;
+          pile.dataset.label = "";
+          els.foundationRow.appendChild(pile);
+        });
 
-      function shuffle(array) {
-        const clone = [...array];
-        for (let i = clone.length - 1; i > 0; i -= 1) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [clone[i], clone[j]] = [clone[j], clone[i]];
+        els.tableau.innerHTML = "";
+        for (let i = 0; i < COLUMN_COUNT; i += 1) {
+          const pile = document.createElement("div");
+          pile.className = "pile tableau-pile";
+          pile.dataset.pileType = "tableau";
+          pile.dataset.pileIndex = String(i);
+          els.tableau.appendChild(pile);
         }
-        return clone;
       }
 
-      function pickCategories() {
-        return shuffle(MASTER_CATEGORIES).slice(0, ACTIVE_CATEGORY_COUNT).map((cat) => cat.id);
+      function categoryOf(card) {
+        return CATEGORY_BY_ID[card && card.categoryId] || null;
       }
 
-      function makeCard(categoryId, item, index) {
-        const category = categoryById(categoryId);
-        return {
-          id: `${categoryId}-${index}-${Math.random().toString(36).slice(2, 8)}`,
-          categoryId,
-          categoryTitle: category.title,
-          categoryColor: category.color,
-          label: item.label,
-          emoji: item.emoji || "",
-          faceUp: false
-        };
+      function categoryTitle(categoryId) {
+        const category = CATEGORY_BY_ID[categoryId];
+        return category ? category.title : "an unknown category";
       }
 
-      function createRunDeck(categoryIds) {
-        const cards = [];
+      // Four categories that do not share a word and are not listed as confusable with
+      // each other, so every card in a deal has exactly one right answer.
+      function pickCategoryIds() {
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+          const pool = shuffleArray(CATEGORIES);
+          const chosen = [];
+          for (const candidate of pool) {
+            if (chosen.length === SLOT_ORDER.length) break;
+            const clashes = chosen.some((picked) => {
+              if (picked.avoid.includes(candidate.id) || candidate.avoid.includes(picked.id)) return true;
+              const words = new Set(picked.items.map((item) => item.toLowerCase()));
+              return candidate.items.some((item) => words.has(item.toLowerCase()));
+            });
+            if (!clashes) chosen.push(candidate);
+          }
+          if (chosen.length === SLOT_ORDER.length) return chosen.map((cat) => cat.id);
+        }
+        return CATEGORIES.slice(0, SLOT_ORDER.length).map((cat) => cat.id);
+      }
+
+      function createDeck(categoryIds) {
+        let id = 0;
+        const deck = [];
         categoryIds.forEach((categoryId) => {
-          const category = categoryById(categoryId);
-          shuffle(category.items).slice(0, CARDS_PER_CATEGORY).forEach((item, idx) => {
-            cards.push(makeCard(categoryId, item, idx));
+          const category = CATEGORY_BY_ID[categoryId];
+          deck.push({ id: `card-${id++}`, categoryId, label: category.title, kind: "key", faceUp: false });
+          shuffleArray(category.items).slice(0, ITEMS_PER_CATEGORY).forEach((label) => {
+            deck.push({ id: `card-${id++}`, categoryId, label, kind: "word", faceUp: false });
           });
         });
-        return shuffle(cards);
+        return deck;
+      }
+
+      function slotForCategory(categoryId) {
+        return SLOT_ORDER.find((slot) => state.slotCategories[slot] === categoryId) ?? null;
+      }
+
+      function firstLockedSlot() {
+        return SLOT_ORDER.find((slot) => !state.slotCategories[slot]) ?? null;
+      }
+
+      function slotIsComplete(slot) {
+        return state.foundations[slot].length === CARDS_PER_CATEGORY;
+      }
+
+      function shuffleArray(array) {
+        const deck = [...array];
+        for (let i = deck.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+        return deck;
       }
 
       function nowElapsedMs() {
         return state.elapsedBeforeResumeMs + Math.max(0, Date.now() - state.startedAt);
       }
 
-      function formatTime(ms) {
-        const totalSeconds = Math.floor(ms / 1000);
+      function formatTime(totalMs) {
+        const totalSeconds = Math.floor(totalMs / 1000);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
         return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
       }
 
-      function showToast(message) {
-        clearTimeout(state.toastTimer);
-        els.toast.textContent = message;
-        els.toast.classList.add("show");
-        state.toastTimer = setTimeout(() => els.toast.classList.remove("show"), TOAST_MS);
+      function foundationCount() {
+        return SLOT_ORDER.reduce((sum, slot) => sum + state.foundations[slot].length, 0);
+      }
+
+      function touchSaveInfo(message) {
+        els.saveInfo.textContent = message;
+      }
+
+      function makeSnapshot() {
+        return {
+          stock: structuredClone(state.stock),
+          waste: structuredClone(state.waste),
+          foundations: structuredClone(state.foundations),
+          slotCategories: structuredClone(state.slotCategories),
+          categoryIds: structuredClone(state.categoryIds),
+          tableau: structuredClone(state.tableau),
+          drawCount: state.drawCount,
+          moveCount: state.moveCount,
+          misses: state.misses,
+          recycles: state.recycles,
+          usedAssist: state.usedAssist,
+          score: state.score,
+          elapsedMs: nowElapsedMs(),
+          gameWon: state.gameWon
+        };
+      }
+
+      function exportableSnapshot(reason = "manual") {
+        return {
+          app: "JayTeeSF Solitaire",
+          version: SAVE_VERSION,
+          reason,
+          savedAt: new Date().toISOString(),
+          state: {
+            ...makeSnapshot(),
+            history: structuredClone(state.history.slice(-PERSISTED_HISTORY_LIMIT))
+          }
+        };
+      }
+
+      function validateCard(card) {
+        return !!card
+          && typeof card.id === "string"
+          && typeof card.label === "string"
+          && (card.kind === "key" || card.kind === "word")
+          && !!CATEGORY_BY_ID[card.categoryId]
+          && typeof card.faceUp === "boolean";
+      }
+
+      function validateCoreState(data) {
+        if (!data || typeof data !== "object") return false;
+        if (!Array.isArray(data.stock) || !Array.isArray(data.waste) || !Array.isArray(data.tableau) || data.tableau.length !== COLUMN_COUNT) return false;
+        if (!data.foundations || typeof data.foundations !== "object") return false;
+        if (!data.slotCategories || typeof data.slotCategories !== "object") return false;
+
+        const allCards = [
+          ...data.stock,
+          ...data.waste,
+          ...data.tableau.flat(),
+          ...SLOT_ORDER.flatMap((slot) => data.foundations[slot] || [])
+        ];
+
+        if (allCards.length !== DECK_SIZE) return false;
+        const ids = new Set();
+        for (const card of allCards) {
+          if (!validateCard(card) || ids.has(card.id)) return false;
+          ids.add(card.id);
+        }
+        return true;
+      }
+
+      function validateSnapshot(payload) {
+        if (!payload || typeof payload !== "object") return false;
+        const data = payload.state || payload;
+        if (!validateCoreState(data)) return false;
+        if (data.history != null) {
+          if (!Array.isArray(data.history)) return false;
+          if (!data.history.every((entry) => validateCoreState(entry))) return false;
+        }
+        return true;
+      }
+
+      function persistState(manual = false) {
+        try {
+          const payload = exportableSnapshot(manual ? "manual" : "autosave");
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+          state.lastSavedAt = payload.savedAt;
+          touchSaveInfo(`Saved in this browser on this device · ${new Date(payload.savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${manual ? " · manual" : " · autosave"}`);
+          return true;
+        } catch (error) {
+          touchSaveInfo("Save failed in this browser session.");
+          return false;
+        }
+      }
+
+      function applySnapshot(data, { preserveHistory = false } = {}) {
+        state.stock = structuredClone(data.stock);
+        state.waste = structuredClone(data.waste);
+        state.foundations = structuredClone(data.foundations);
+        state.slotCategories = structuredClone(data.slotCategories || { 0: null, 1: null, 2: null, 3: null });
+        state.categoryIds = Array.isArray(data.categoryIds) ? structuredClone(data.categoryIds) : [];
+        state.tableau = structuredClone(data.tableau);
+        state.drawCount = data.drawCount === 3 ? 3 : 1;
+        state.moveCount = Number.isFinite(data.moveCount) ? data.moveCount : 0;
+        state.misses = Number.isFinite(data.misses) ? data.misses : 0;
+        state.recycles = Number.isFinite(data.recycles) ? data.recycles : 0;
+        state.usedAssist = data.usedAssist === true;
+        state.score = Number.isFinite(data.score) ? data.score : 0;
+        state.elapsedBeforeResumeMs = Number.isFinite(data.elapsedMs) ? data.elapsedMs : 0;
+        state.startedAt = Date.now();
+        state.selected = null;
+        state.validTargets = new Set();
+        state.drag = null;
+        state.animating = false;
+        state.dropPulse = null;
+        state.justFlippedCardId = null;
+        state.pointerState = null;
+        state.hint = null;
+        state.autoCompletePrompted = false;
+        state.autoCompleting = false;
+        state.gameWon = data.gameWon === true || foundationCount() === DECK_SIZE;
+        state.winShownAt = 0;
+        state.ignoreWinClicksUntil = 0;
+        els.dragLayer.innerHTML = "";
+        if (!preserveHistory) {
+          state.history = Array.isArray(data.history) ? structuredClone(data.history).slice(-HISTORY_LIMIT) : [];
+        }
+        hideWinOverlay();
+      }
+
+      function restoreFromSnapshot(payload, { silent = false } = {}) {
+        const data = payload.state || payload;
+        if (!validateSnapshot(payload)) throw new Error("Invalid save data");
+        applySnapshot(data);
+        render();
+        persistState(false);
+        if (!silent) showToast("Progress restored");
+      }
+
+      function loadLocalSave() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return false;
+          const payload = JSON.parse(raw);
+          if (!validateSnapshot(payload)) return false;
+          restoreFromSnapshot(payload, { silent: true });
+          touchSaveInfo(`Restored from this browser on this device · ${new Date(payload.savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
+          return true;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function pushHistoryEntry() {
+        state.history.push(makeSnapshot());
+        while (state.history.length > HISTORY_LIMIT) state.history.shift();
+      }
+
+      function undoLastAction() {
+        if (!state.history.length || state.animating) {
+          showToast("Nothing to undo");
+          return;
+        }
+        const previous = state.history.pop();
+        applySnapshot(previous, { preserveHistory: true });
+        render();
+        persistState(false);
+        vibrate([14, 24, 10]);
+        showToast(state.history.length ? `Undid last action · ${state.history.length} undo${state.history.length === 1 ? "" : "s"} left` : "Undid last action · no undos left");
+        checkAutoCompletePrompt();
+      }
+
+      async function downloadExport() {
+        const payload = exportableSnapshot("export");
+        const json = JSON.stringify(payload, null, 2);
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const filename = `jayteesf-solitaire-progress-${stamp}.json`;
+        const blob = new Blob([json], { type: "application/json" });
+
+        try {
+          if ("showSaveFilePicker" in window) {
+            const handle = await window.showSaveFilePicker({
+              suggestedName: filename,
+              types: [{ description: "JSON save file", accept: { "application/json": [".json"] } }]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            touchSaveInfo(`Exported file: ${filename}`);
+            showToast("Progress exported to a local file");
+            return;
+          }
+        } catch (error) {
+          if (error && error.name === "AbortError") return;
+        }
+
+        try {
+          if (typeof File !== "undefined" && navigator.share && navigator.canShare) {
+            const file = new File([blob], filename, { type: "application/json" });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                title: "JayTeeSF Solitaire Progress",
+                text: "Choose Save to Files to keep a local copy of this progress file.",
+                files: [file]
+              });
+              touchSaveInfo(`Shared export: ${filename}`);
+              showToast("Choose Save to Files in the share sheet");
+              return;
+            }
+          }
+        } catch (error) {
+          if (error && error.name === "AbortError") return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        anchor.rel = "noopener";
+        anchor.style.display = "none";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        touchSaveInfo(`Download requested: ${filename}`);
+        showToast("Browser download requested for the export file");
+      }
+
+      function schedulePeriodicAutosave() {
+        clearInterval(state.autoSaveTimer);
+        state.autoSaveTimer = setInterval(() => {
+          persistState(false);
+          updateStatus();
+        }, 10000);
+      }
+
+      function startTickingClock() {
+        clearInterval(state.tickTimer);
+        state.tickTimer = setInterval(updateStatus, 1000);
+      }
+
+      function prepareGameState() {
+        state.stock = [];
+        state.waste = [];
+        state.foundations = { 0: [], 1: [], 2: [], 3: [] };
+        state.slotCategories = { 0: null, 1: null, 2: null, 3: null };
+        state.tableau = Array.from({ length: COLUMN_COUNT }, () => []);
+        state.moveCount = 0;
+        state.misses = 0;
+        state.recycles = 0;
+        state.usedAssist = state.assistMode;
+        state.score = 0;
+        state.startedAt = Date.now();
+        state.elapsedBeforeResumeMs = 0;
+        state.selected = null;
+        state.validTargets = new Set();
+        state.drag = null;
+        state.pointerState = null;
+        state.dropPulse = null;
+        state.justFlippedCardId = null;
+        state.hint = null;
+        state.autoCompletePrompted = false;
+        state.autoCompleting = false;
+        state.gameWon = false;
+        state.winShownAt = 0;
+        state.ignoreWinClicksUntil = 0;
+        state.history = [];
+        els.dragLayer.innerHTML = "";
+        hideWinOverlay();
+
+        state.categoryIds = pickCategoryIds();
+        const deck = shuffleArray(createDeck(state.categoryIds));
+        for (let col = 0; col < COLUMN_COUNT; col += 1) {
+          for (let row = 0; row <= col; row += 1) {
+            const card = deck.pop();
+            card.faceUp = row === col;
+            state.tableau[col].push(card);
+          }
+        }
+        state.stock = deck.map((card) => ({ ...card, faceUp: false }));
+        persistState(false);
+      }
+
+      function adjustScore(delta) {
+        state.score = Math.max(0, state.score + delta);
       }
 
       function vibrate(pattern = 12) {
         if (navigator.vibrate) navigator.vibrate(pattern);
       }
 
-      function totalCollected() {
-        return state.activeCategoryIds.reduce((sum, id) => sum + (state.foundations[id]?.length || 0), 0);
+      function showToast(message, duration = 1400) {
+        clearTimeout(state.toastTimer);
+        els.toast.textContent = message;
+        els.toast.classList.add("show");
+        state.toastTimer = setTimeout(() => els.toast.classList.remove("show"), duration);
       }
 
-      function mixLabel() {
-        return state.activeCategoryIds.map((id) => categoryById(id)?.title).join(" • ");
+      function clearPressedCards() {
+        document.querySelectorAll(".card.pressed").forEach((card) => card.classList.remove("pressed"));
       }
 
-      function makeSnapshot() {
+      function clearDragVisualState() {
+        document.querySelectorAll(".drag-source-hidden").forEach((card) => {
+          card.classList.remove("drag-source-hidden", "source-hidden");
+        });
+        document.querySelectorAll(".drag-valid-target").forEach((pile) => {
+          pile.classList.remove("drag-valid-target", "valid-target");
+        });
+        document.querySelectorAll(".drag-selected").forEach((card) => {
+          card.classList.remove("drag-selected", "selected");
+        });
+      }
+
+      function pileElementForKey(key) {
+        if (key === "stock") return els.stock;
+        if (key === "waste") return els.waste;
+        if (key.startsWith("foundation-")) {
+          const slot = key.slice("foundation-".length);
+          return els.foundationRow.querySelector(`[data-pile-slot="${slot}"]`);
+        }
+        if (key.startsWith("tableau-")) {
+          const index = key.slice("tableau-".length);
+          return els.tableau.querySelector(`[data-pile-index="${index}"]`);
+        }
+        return null;
+      }
+
+      function applyDragVisualState() {
+        clearDragVisualState();
+        if (!state.drag) return;
+
+        state.drag.hiddenIds.forEach((id) => {
+          const card = document.querySelector(`[data-card-id="${id}"]`);
+          if (card) card.classList.add("source-hidden", "drag-source-hidden");
+        });
+
+        state.drag.validTargets.forEach((key) => {
+          const pile = pileElementForKey(key);
+          if (pile) pile.classList.add("valid-target", "drag-valid-target");
+        });
+
+        const sourceCard = document.querySelector(`[data-card-id="${state.drag.cards[0]?.id}"]`);
+        if (sourceCard) sourceCard.classList.add("selected", "drag-selected");
+      }
+
+      function cleanupInteractionState({ clearSelected = true } = {}) {
+        clearPressedCards();
+        clearDragVisualState();
+        els.dragLayer.innerHTML = "";
+        state.drag = null;
+        state.pointerState = null;
+        if (clearSelected) clearSelection();
+      }
+
+      function refreshLayout({ silent = false } = {}) {
+        cleanupInteractionState({ clearSelected: false });
+        state.dropPulse = null;
+        state.justFlippedCardId = null;
+        applyCardSizePreset();
+        buildStaticPiles();
+        render();
+        requestAnimationFrame(() => render());
+        if (!silent) {
+          vibrate([8, 18, 8]);
+          showToast("Layout refreshed without changing your game", 2200);
+        }
+      }
+
+      function scheduleSafeLayoutRefresh() {
+        clearTimeout(state.layoutRefreshTimer);
+        state.layoutRefreshTimer = setTimeout(() => refreshLayout({ silent: true }), 80);
+      }
+
+      function cardSizePresets() {
         return {
-          activeCategoryIds: structuredClone(state.activeCategoryIds),
-          stock: structuredClone(state.stock),
-          waste: structuredClone(state.waste),
-          foundations: structuredClone(state.foundations),
-          tableau: structuredClone(state.tableau),
-          moveCount: state.moveCount,
-          score: state.score,
-          elapsedMs: nowElapsedMs()
+          compact: {
+            portrait: { topCardW: 56, fanDown: 7, fanUp: 36, wasteSpread: 24 },
+            landscape: { topCardW: 62, fanDown: 7, fanUp: 34, wasteSpread: 24 }
+          },
+          standard: {
+            portrait: { topCardW: 62, fanDown: 8, fanUp: 40, wasteSpread: 26 },
+            landscape: { topCardW: 70, fanDown: 8, fanUp: 37, wasteSpread: 26 }
+          },
+          large: {
+            portrait: { topCardW: 68, fanDown: 9, fanUp: 44, wasteSpread: 28 },
+            landscape: { topCardW: 78, fanDown: 9, fanUp: 40, wasteSpread: 28 }
+          }
         };
       }
 
-      function applySnapshot(snapshot, preserveHistory = false) {
-        state.activeCategoryIds = structuredClone(snapshot.activeCategoryIds);
-        state.stock = structuredClone(snapshot.stock);
-        state.waste = structuredClone(snapshot.waste);
-        state.foundations = structuredClone(snapshot.foundations);
-        state.tableau = structuredClone(snapshot.tableau);
-        state.moveCount = snapshot.moveCount || 0;
-        state.score = snapshot.score || 0;
-        state.elapsedBeforeResumeMs = snapshot.elapsedMs || 0;
-        state.startedAt = Date.now();
-        state.selected = null;
-        state.validTargets = new Set();
-        if (!preserveHistory) state.history = [];
+      function updateCardSizeButtons() {
+        const pairs = [
+          [els.sizeCompactBtn, "compact"],
+          [els.sizeStandardBtn, "standard"],
+          [els.sizeLargeBtn, "large"]
+        ];
+        pairs.forEach(([button, preset]) => {
+          button.classList.toggle("is-active", state.cardSizePreset === preset);
+        });
       }
 
-      function pushHistory() {
-        state.history.push(makeSnapshot());
-        if (state.history.length > HISTORY_LIMIT) state.history.shift();
-      }
+      function applyCardSizePreset() {
+        const root = document.documentElement;
+        ["--top-card-w", "--fan-down", "--fan-up", "--waste-spread"].forEach((prop) => root.style.removeProperty(prop));
 
-      function saveGame() {
-        const payload = { version: 1, savedAt: new Date().toISOString(), state: { ...makeSnapshot(), history: structuredClone(state.history) } };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-      }
-
-      function loadGame() {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (!raw) return false;
-          const payload = JSON.parse(raw);
-          if (!payload?.state?.activeCategoryIds?.length) return false;
-          applySnapshot(payload.state, true);
-          state.history = Array.isArray(payload.state.history) ? payload.state.history.slice(-HISTORY_LIMIT) : [];
-          return true;
-        } catch {
-          return false;
+        if (window.innerWidth > 900) {
+          updateCardSizeButtons();
+          return;
         }
+
+        const presets = cardSizePresets();
+        const preset = presets[state.cardSizePreset] || presets.standard;
+        const mode = window.matchMedia("(orientation: landscape)").matches ? preset.landscape : preset.portrait;
+        root.style.setProperty("--top-card-w", `${mode.topCardW}px`);
+        root.style.setProperty("--fan-down", `${mode.fanDown}px`);
+        root.style.setProperty("--fan-up", `${mode.fanUp}px`);
+        root.style.setProperty("--waste-spread", `${mode.wasteSpread}px`);
+        updateCardSizeButtons();
+      }
+
+      function setCardSizePreset(preset, { silent = false } = {}) {
+        const presets = cardSizePresets();
+        state.cardSizePreset = presets[preset] ? preset : "standard";
+        localStorage.setItem(CARD_SIZE_STORAGE_KEY, state.cardSizePreset);
+        applyCardSizePreset();
+        render();
+        if (!silent) {
+          vibrate(10);
+          showToast(`Card size: ${state.cardSizePreset}`);
+        }
+      }
+
+      function updateAssistButtons() {
+        if (els.assistOnBtn) els.assistOnBtn.classList.toggle("is-active", state.assistMode);
+        if (els.assistOffBtn) els.assistOffBtn.classList.toggle("is-active", !state.assistMode);
+        document.body.classList.toggle("assist-on", state.assistMode);
+      }
+
+      function setAssistMode(on, { silent = false } = {}) {
+        state.assistMode = !!on;
+        if (state.assistMode) state.usedAssist = true;
+        try { localStorage.setItem(ASSIST_STORAGE_KEY, state.assistMode ? "on" : "off"); } catch (error) {}
+        updateAssistButtons();
+        if (state.selected) state.validTargets = computeValidTargets(state.selected);
+        render();
+        if (!silent) {
+          vibrate(10);
+          showToast(state.assistMode
+            ? "Practice mode on — categories shown, misses are free"
+            : "Practice mode off — categories hidden, misses cost points", 2400);
+        }
+      }
+
+      function loadAssistMode() {
+        let saved = null;
+        try { saved = localStorage.getItem(ASSIST_STORAGE_KEY); } catch (error) {}
+        state.assistMode = saved === "on";
+        updateAssistButtons();
+      }
+
+      function loadCardSizePreset() {
+        const saved = localStorage.getItem(CARD_SIZE_STORAGE_KEY);
+        state.cardSizePreset = saved && cardSizePresets()[saved] ? saved : "standard";
+        applyCardSizePreset();
+      }
+
+      function openModal(modal) {
+        closeAllModals();
+        if (!modal) return;
+        modal.classList.add("show");
+        modal.setAttribute("aria-hidden", "false");
+      }
+
+      function closeModal(modal) {
+        if (!modal) return;
+        modal.classList.remove("show");
+        modal.setAttribute("aria-hidden", "true");
+      }
+
+      function closeAllModals() {
+        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal, els.confirmNewGameModal, els.autoCompleteModal].forEach(closeModal);
+      }
+
+      function setupFeedbackModal() {
+        const rawUrl = (FEEDBACK_FORM_URL || "").trim();
+        els.feedbackFrameWrap.innerHTML = "";
+        if (!rawUrl) {
+          els.feedbackFormHint.hidden = false;
+          els.feedbackOpenTab.href = "#";
+          els.feedbackOpenTab.style.opacity = "0.55";
+          return;
+        }
+
+        els.feedbackFormHint.hidden = true;
+        els.feedbackOpenTab.href = rawUrl;
+        els.feedbackOpenTab.style.opacity = "1";
+
+        const iframe = document.createElement("iframe");
+        iframe.className = "feedback-frame";
+        iframe.src = rawUrl;
+        iframe.loading = "lazy";
+        iframe.title = "Feedback form";
+        els.feedbackFrameWrap.appendChild(iframe);
+      }
+
+      function tourSteps() {
+        return [
+          { selector: "#stockPile", title: "Draw from the stock", text: "Tap the face-down deck to turn up the next card. Only the top waste card can be played." },
+          { selector: "#wastePile", title: "Use the waste pile", text: "Play the top waste card before the next draw buries it, or park it in the tableau." },
+          { selector: "#foundationRow", title: "Unlock the four slots", text: "Slots start locked. Drop a gold key card on one to reveal its category, then send that category's words here." },
+          { selector: "#tableau", title: "Gather words", text: "A card only stacks on another card of the same secret category. Empty columns take anything — and they are scarce." },
+          { selector: ".controls", title: "Use the controls", text: "Draw mode, save, export, import, undo and a fresh deal all live here. Settings has Practice mode." }
+        ];
+      }
+
+      function clearTourHighlight() {
+        document.querySelectorAll(".tour-highlight").forEach((node) => node.classList.remove("tour-highlight"));
+      }
+
+      function endTour() {
+        state.tourIndex = -1;
+        clearTourHighlight();
+        els.tourOverlay.classList.remove("show");
+        els.tourOverlay.setAttribute("aria-hidden", "true");
+      }
+
+      function positionTourStep() {
+        const steps = tourSteps();
+        const step = steps[state.tourIndex];
+        if (!step) return endTour();
+        const target = document.querySelector(step.selector);
+        if (!target) return endTour();
+
+        clearTourHighlight();
+        target.classList.add("tour-highlight");
+        const rect = target.getBoundingClientRect();
+        const pad = 8;
+        els.tourHole.style.left = `${Math.max(8, rect.left - pad)}px`;
+        els.tourHole.style.top = `${Math.max(8, rect.top - pad)}px`;
+        els.tourHole.style.width = `${Math.max(44, rect.width + pad * 2)}px`;
+        els.tourHole.style.height = `${Math.max(44, rect.height + pad * 2)}px`;
+        els.tourTitle.textContent = step.title;
+        els.tourText.textContent = step.text;
+        els.tourNextBtn.textContent = state.tourIndex === steps.length - 1 ? "Done" : "Next";
+
+        const popoverRect = els.tourPopover.getBoundingClientRect();
+        let top = rect.bottom + 14;
+        if (top + popoverRect.height > window.innerHeight - 12) top = Math.max(12, rect.top - popoverRect.height - 14);
+        const centeredLeft = rect.left + (rect.width / 2) - (popoverRect.width / 2);
+        const left = Math.min(window.innerWidth - popoverRect.width - 12, Math.max(12, centeredLeft));
+        els.tourPopover.style.top = `${top}px`;
+        els.tourPopover.style.left = `${left}px`;
+      }
+
+      function startTour() {
+        closeAllModals();
+        state.tourIndex = 0;
+        els.tourOverlay.classList.add("show");
+        els.tourOverlay.setAttribute("aria-hidden", "false");
+        positionTourStep();
+      }
+
+      function nextTourStep() {
+        state.tourIndex += 1;
+        if (state.tourIndex >= tourSteps().length) return endTour();
+        positionTourStep();
+      }
+
+      function sourceKey(source) {
+        if (!source) return "";
+        if (source.type === "tableau") return `tableau-${source.index}-${source.cardIndex}`;
+        if (source.type === "foundation") return `foundation-${source.slot}`;
+        return source.type;
+      }
+
+      function pileKey(dest) {
+        if (!dest) return "";
+        if (dest.type === "tableau") return `tableau-${dest.index}`;
+        if (dest.type === "foundation") return `foundation-${dest.slot}`;
+        return dest.type;
+      }
+
+      function sameMoveSource(a, b) {
+        return sourceKey(a) === sourceKey(b);
+      }
+
+      function pileFromElement(element) {
+        if (!element) return null;
+        const pileEl = element.classList.contains("pile") ? element : element.closest(".pile");
+        if (!pileEl) return null;
+        const type = pileEl.dataset.pileType;
+        if (type === "tableau") return { type, index: Number(pileEl.dataset.pileIndex) };
+        if (type === "foundation") return { type, slot: pileEl.dataset.pileSlot };
+        return { type };
+      }
+
+      function sourceFromCard(cardEl) {
+        const type = cardEl.dataset.sourceType;
+        if (type === "tableau") return { type, index: Number(cardEl.dataset.sourceIndex), cardIndex: Number(cardEl.dataset.cardIndex) };
+        if (type === "foundation") return { type, slot: cardEl.dataset.sourceSlot };
+        return { type };
+      }
+
+      function getCardsForSource(source) {
+        if (!source) return [];
+        if (source.type === "waste") return state.waste.length ? [state.waste[state.waste.length - 1]] : [];
+        if (source.type === "foundation") return [];
+        if (source.type === "tableau") {
+          const pile = state.tableau[source.index] || [];
+          const start = pile[source.cardIndex];
+          if (!start || !start.faceUp) return [];
+          const run = [start];
+          for (let i = source.cardIndex + 1; i < pile.length; i += 1) {
+            const card = pile[i];
+            if (!card.faceUp || card.categoryId !== start.categoryId) break;
+            run.push(card);
+          }
+          return run;
+        }
+        return [];
+      }
+
+      function isMovableSource(source) {
+        if (!source) return false;
+        if (source.type === "waste") return state.waste.length > 0;
+        if (source.type === "foundation") return false; // banked cards stay banked
+        if (source.type === "tableau") {
+          const pile = state.tableau[source.index] || [];
+          const card = pile[source.cardIndex];
+          return !!card && card.faceUp;
+        }
+        return false;
+      }
+
+      function canPlaceOnFoundation(cards, slot) {
+        if (!cards.length) return false;
+        const category = state.slotCategories[slot];
+        if (!category) {
+          // A locked slot only opens for a key card whose category is not open elsewhere.
+          return cards.length === 1 && cards[0].kind === "key" && slotForCategory(cards[0].categoryId) === null;
+        }
+        return cards.every((card) => card.categoryId === category);
+      }
+
+      function canPlaceOnTableau(cards, index) {
+        if (!cards.length) return false;
+        const pile = state.tableau[index];
+        if (!pile.length) return true; // an empty column parks anything
+        const topCard = pile[pile.length - 1];
+        if (!topCard.faceUp) return false;
+        return topCard.categoryId === cards[0].categoryId;
+      }
+
+      function canMoveToDestination(source, destination) {
+        if (!source || !destination) return false;
+        const cards = getCardsForSource(source);
+        if (!cards.length) return false;
+        if (destination.type === "foundation") return canPlaceOnFoundation(cards, destination.slot);
+        if (destination.type === "tableau") return canPlaceOnTableau(cards, destination.index);
+        return false;
+      }
+
+      // Highlighting only ever shows what the player could already know: empty columns
+      // take anything, and a key card announces its own category. Practice mode shows all.
+      function computeValidTargets(source) {
+        const targets = new Set();
+        if (!source) return targets;
+        const cards = getCardsForSource(source);
+        if (!cards.length) return targets;
+
+        for (let i = 0; i < COLUMN_COUNT; i += 1) {
+          const dest = { type: "tableau", index: i };
+          if (pileKey(dest) === pileKey(source)) continue;
+          if (!canMoveToDestination(source, dest)) continue;
+          if (state.assistMode || !state.tableau[i].length) targets.add(pileKey(dest));
+        }
+        for (const slot of SLOT_ORDER) {
+          const dest = { type: "foundation", slot };
+          if (!canMoveToDestination(source, dest)) continue;
+          if (state.assistMode || !state.slotCategories[slot]) targets.add(pileKey(dest));
+        }
+        return targets;
       }
 
       function clearSelection() {
@@ -969,341 +2262,873 @@
         state.validTargets = new Set();
       }
 
-      function foundationKey(categoryId) {
-        return `foundation:${categoryId}`;
+      function setSelection(source) {
+        if (!isMovableSource(source)) return;
+        state.selected = { ...source };
+        state.validTargets = computeValidTargets(state.selected);
+        vibrate(10);
+        render();
       }
 
-      function columnKey(index) {
-        return `column:${index}`;
-      }
+      // Double-tap never guesses for you: it only plays moves that give nothing away.
+      function autoTargetFor(source) {
+        const cards = getCardsForSource(source);
+        if (!cards.length) return null;
 
-      function selectedRun(source = state.selected) {
-        if (!source) return [];
-        if (source.type === "waste") {
-          const card = state.waste[state.waste.length - 1];
-          return card ? [card] : [];
+        if (cards.length === 1 && cards[0].kind === "key") {
+          const open = slotForCategory(cards[0].categoryId);
+          const slot = open !== null ? open : firstLockedSlot();
+          if (slot !== null && canMoveToDestination(source, { type: "foundation", slot })) {
+            return { type: "foundation", slot };
+          }
         }
-        const column = state.tableau[source.column] || [];
-        const run = column.slice(source.index);
-        if (!run.length || run.some((card) => !card.faceUp)) return [];
-        const categoryId = run[0].categoryId;
-        if (!run.every((card) => card.categoryId === categoryId)) return [];
+        if (!state.assistMode) return null;
+
+        const open = slotForCategory(cards[0].categoryId);
+        if (open !== null && canMoveToDestination(source, { type: "foundation", slot: open })) {
+          return { type: "foundation", slot: open };
+        }
+        let candidate = null;
+        for (let i = 0; i < COLUMN_COUNT; i += 1) {
+          const dest = { type: "tableau", index: i };
+          if (pileKey(dest) === pileKey(source)) continue;
+          if (!canMoveToDestination(source, dest)) continue;
+          if (!candidate || (state.tableau[i].length && !state.tableau[candidate.index].length)) candidate = dest;
+        }
+        return candidate;
+      }
+
+      function cardLabel(card) {
+        if (!card) return "";
+        return card.kind === "key" ? `the ${card.label} key card` : `“${card.label}”`;
+      }
+
+      function slotLabel(slot) {
+        const category = state.slotCategories[slot];
+        const position = SLOT_ORDER.indexOf(String(slot)) + 1;
+        return category ? `the ${categoryTitle(category)} slot` : `locked slot ${position}`;
+      }
+
+      function destinationLabel(destination) {
+        if (!destination) return "";
+        if (destination.type === "foundation") return slotLabel(destination.slot);
+        if (destination.type === "tableau") {
+          const pile = state.tableau[destination.index] || [];
+          const top = pile[pile.length - 1];
+          return top && top.faceUp ? `${cardLabel(top)} in column ${destination.index + 1}` : `empty column ${destination.index + 1}`;
+        }
+        if (destination.type === "waste") return "the waste";
+        if (destination.type === "stock") return "the stock";
+        return destination.type;
+      }
+
+      function sourceLabel(source) {
+        if (!source) return "";
+        if (source.type === "waste") return "the waste";
+        if (source.type === "foundation") return slotLabel(source.slot);
+        if (source.type === "tableau") return `column ${source.index + 1}`;
+        if (source.type === "stock") return "the stock";
+        return source.type;
+      }
+
+      function allLegalMoves() {
+        const moves = [];
+        const addMoves = (source) => {
+          if (!isMovableSource(source)) return;
+          const cards = getCardsForSource(source);
+          if (!cards.length) return;
+          for (const slot of SLOT_ORDER) {
+            const destination = { type: "foundation", slot };
+            if (canMoveToDestination(source, destination)) {
+              moves.push({ source, destination, cards, sourceCardId: cards[0].id, sourcePileKey: pileKey(source), targetPileKey: pileKey(destination) });
+            }
+          }
+          for (let index = 0; index < COLUMN_COUNT; index += 1) {
+            const destination = { type: "tableau", index };
+            if (pileKey(destination) !== pileKey(source) && canMoveToDestination(source, destination)) {
+              moves.push({ source, destination, cards, sourceCardId: cards[0].id, sourcePileKey: pileKey(source), targetPileKey: pileKey(destination) });
+            }
+          }
+        };
+
+        if (state.waste.length) addMoves({ type: "waste" });
+        state.tableau.forEach((pile, index) => {
+          pile.forEach((card, cardIndex) => {
+            if (card.faceUp) addMoves({ type: "tableau", index, cardIndex });
+          });
+        });
+        return moves;
+      }
+
+      // ---------- hint engine ----------
+      // Lightweight board copy used only for one-move lookahead.
+      function hintSnapshot() {
+        return {
+          tableau: state.tableau.map((pile) => pile.map((card) => ({ id: card.id, categoryId: card.categoryId, kind: card.kind, label: card.label, faceUp: card.faceUp }))),
+          slots: { ...state.slotCategories },
+          wasteTop: state.waste.length ? { ...state.waste[state.waste.length - 1] } : null
+        };
+      }
+
+      function snapRunFrom(pile, cardIndex) {
+        const start = pile[cardIndex];
+        if (!start || !start.faceUp) return [];
+        const run = [start];
+        for (let i = cardIndex + 1; i < pile.length; i += 1) {
+          const card = pile[i];
+          if (!card.faceUp || card.categoryId !== start.categoryId) break;
+          run.push(card);
+        }
         return run;
       }
 
-      function topCardOfColumn(index) {
-        const column = state.tableau[index];
-        return column[column.length - 1] || null;
+      function snapSlotFor(snap, categoryId) {
+        return SLOT_ORDER.find((slot) => snap.slots[slot] === categoryId) ?? null;
       }
 
-      function canMoveRunToFoundation(run, categoryId) {
-        return run.length > 0 && run.every((card) => card.categoryId === categoryId);
-      }
-
-      function canMoveRunToColumn(run, destIndex) {
-        if (!run.length) return false;
-        const destinationTop = topCardOfColumn(destIndex);
-        if (!destinationTop) return true;
-        return destinationTop.faceUp && destinationTop.categoryId === run[0].categoryId;
-      }
-
-      function computeValidTargets(source) {
-        const run = selectedRun(source);
-        const valid = new Set();
-        if (!run.length) return valid;
-
-        state.activeCategoryIds.forEach((categoryId) => {
-          if (canMoveRunToFoundation(run, categoryId)) valid.add(foundationKey(categoryId));
+      function snapMoves(snap) {
+        const moves = [];
+        const consider = (source, cards) => {
+          if (!cards.length) return;
+          const lead = cards[0];
+          const open = snapSlotFor(snap, lead.categoryId);
+          if (open !== null) moves.push({ source, cards, destination: { type: "foundation", slot: open } });
+          else if (cards.length === 1 && lead.kind === "key") {
+            const locked = SLOT_ORDER.find((slot) => !snap.slots[slot]);
+            if (locked !== undefined) moves.push({ source, cards, destination: { type: "foundation", slot: locked } });
+          }
+          for (let index = 0; index < COLUMN_COUNT; index += 1) {
+            if (source.type === "tableau" && source.index === index) continue;
+            const pile = snap.tableau[index];
+            if (!pile.length) { moves.push({ source, cards, destination: { type: "tableau", index } }); continue; }
+            const top = pile[pile.length - 1];
+            if (top.faceUp && top.categoryId === lead.categoryId) moves.push({ source, cards, destination: { type: "tableau", index } });
+          }
+        };
+        if (snap.wasteTop) consider({ type: "waste" }, [snap.wasteTop]);
+        snap.tableau.forEach((pile, index) => {
+          pile.forEach((card, cardIndex) => {
+            if (card.faceUp) consider({ type: "tableau", index, cardIndex }, snapRunFrom(pile, cardIndex));
+          });
         });
+        return moves;
+      }
 
-        state.tableau.forEach((_, index) => {
-          if (source.type === "tableau" && source.column === index) return;
-          if (canMoveRunToColumn(run, index)) valid.add(columnKey(index));
+      function applySnapMove(snap, move) {
+        const next = {
+          tableau: snap.tableau.map((pile) => pile.map((card) => ({ ...card }))),
+          slots: { ...snap.slots },
+          wasteTop: snap.wasteTop ? { ...snap.wasteTop } : null
+        };
+        let cards;
+        if (move.source.type === "waste") {
+          cards = [next.wasteTop];
+          next.wasteTop = null;
+        } else {
+          const pile = next.tableau[move.source.index];
+          cards = pile.splice(move.source.cardIndex, move.cards.length);
+          const below = pile[pile.length - 1];
+          if (below && !below.faceUp) below.faceUp = true;
+        }
+        if (move.destination.type === "foundation") {
+          if (!next.slots[move.destination.slot]) next.slots[move.destination.slot] = cards[0].categoryId;
+        } else {
+          next.tableau[move.destination.index].push(...cards);
+        }
+        return next;
+      }
+
+      function snapGains(snap) {
+        const gains = new Map();
+        snapMoves(snap).forEach((move) => {
+          const lead = move.cards[0];
+          if (move.destination.type === "foundation") {
+            const key = snap.slots[move.destination.slot] ? `bank:${lead.id}` : `open:${lead.categoryId}`;
+            gains.set(key, snap.slots[move.destination.slot]
+              ? `${cardLabel(lead)} going to ${categoryTitle(lead.categoryId)}`
+              : `${categoryTitle(lead.categoryId)} being unlocked`);
+            return;
+          }
+          if (move.source.type === "waste") {
+            gains.set(`waste:${lead.id}:${move.destination.index}`, `the waste card joining column ${move.destination.index + 1}`);
+            return;
+          }
+          const pile = snap.tableau[move.source.index];
+          const below = pile[move.source.cardIndex - 1];
+          if (below && !below.faceUp) {
+            gains.set(`flip:${below.id}`, `a face-down card in column ${move.source.index + 1} turning over`);
+          } else if (move.source.cardIndex === 0 && snap.tableau[move.destination.index].length) {
+            gains.set(`empty:${move.source.index}`, `column ${move.source.index + 1} emptying out`);
+          }
         });
-        return valid;
+        return gains;
       }
 
-      function revealColumnTop(index) {
-        const column = state.tableau[index];
-        if (!column.length) return;
-        const top = column[column.length - 1];
-        if (!top.faceUp) top.faceUp = true;
-      }
+      function rateHintMove(move, base, baseGains) {
+        const source = move.source;
+        const destination = move.destination;
+        const lead = move.cards[0];
+        const from = sourceLabel(source);
+        const groupText = move.cards.length > 1
+          ? `${cardLabel(lead)} and the ${move.cards.length - 1} card${move.cards.length > 2 ? "s" : ""} stacked on it`
+          : cardLabel(lead);
 
-      function checkWin() {
-        if (totalCollected() !== ACTIVE_CATEGORY_COUNT * CARDS_PER_CATEGORY) return;
-        vibrate([18, 30, 18, 30, 24]);
-        showToast("Everything sorted. You win ✨");
-      }
-
-      function moveRunToFoundation(categoryId) {
-        const run = selectedRun();
-        if (!run.length || !canMoveRunToFoundation(run, categoryId)) return false;
-        pushHistory();
-
-        if (state.selected.type === "waste") {
-          state.waste.pop();
-        } else {
-          state.tableau[state.selected.column].splice(state.selected.index, run.length);
-          revealColumnTop(state.selected.column);
+        if (destination.type === "foundation") {
+          const open = state.slotCategories[destination.slot];
+          if (!open) {
+            return {
+              score: 950,
+              message: `Play ${cardLabel(lead)} from ${from} into ${slotLabel(destination.slot)}. That unlocks ${lead.label}, so every ${lead.label} word on the board can start going home.`
+            };
+          }
+          const sourcePile = source.type === "tableau" ? state.tableau[source.index] : null;
+          const below = sourcePile ? sourcePile[source.cardIndex - 1] : null;
+          const uncovers = !!below && !below.faceUp;
+          const clears = source.type === "tableau" && source.cardIndex === 0;
+          const extra = uncovers ? " It also turns over the face-down card underneath." : (clears ? ` It also empties column ${source.index + 1}.` : "");
+          return {
+            score: 800 + move.cards.length * 12 + (uncovers ? 60 : 0) + (clears ? 40 : 0),
+            message: `Send ${groupText} from ${from} to ${slotLabel(destination.slot)}.${extra}`
+          };
         }
 
-        state.foundations[categoryId].push(...run);
-        state.moveCount += 1;
-        state.score += run.length * 10;
-        clearSelection();
-        vibrate([10, 18]);
-        render();
-        saveGame();
-        checkWin();
-        return true;
-      }
+        const destPile = state.tableau[destination.index];
+        const destEmpty = destPile.length === 0;
 
-      function moveRunToColumn(destIndex) {
-        const run = selectedRun();
-        if (!run.length || !canMoveRunToColumn(run, destIndex)) return false;
-        pushHistory();
-
-        if (state.selected.type === "waste") {
-          state.waste.pop();
-        } else {
-          state.tableau[state.selected.column].splice(state.selected.index, run.length);
-          revealColumnTop(state.selected.column);
+        if (source.type === "waste") {
+          if (destEmpty) {
+            return {
+              score: 300,
+              message: `Park ${cardLabel(lead)} from the waste in empty column ${destination.index + 1}. Its category is not open yet, and an empty column is the only place that takes anything — spend it knowingly.`
+            };
+          }
+          return {
+            score: 430,
+            message: `Move ${cardLabel(lead)} from the waste onto ${destinationLabel(destination)} — same category, so it joins that group instead of being buried by the next draw.`
+          };
         }
 
-        state.tableau[destIndex].push(...run);
-        state.moveCount += 1;
-        clearSelection();
-        vibrate(10);
-        render();
-        saveGame();
-        return true;
-      }
+        const sourcePile = state.tableau[source.index];
+        const below = sourcePile[source.cardIndex - 1];
+        const flips = !!below && !below.faceUp;
+        const empties = source.cardIndex === 0;
+        const hiddenLeft = sourcePile.slice(0, source.cardIndex).filter((card) => !card.faceUp).length;
 
-      function autoPlace(source) {
-        const run = selectedRun(source);
-        if (!run.length) return false;
-        const categoryId = run[0].categoryId;
-        if (!state.activeCategoryIds.includes(categoryId)) return false;
-        state.selected = source;
-        state.validTargets = computeValidTargets(source);
-        if (!state.validTargets.has(foundationKey(categoryId))) {
-          clearSelection();
-          return false;
-        }
-        return moveRunToFoundation(categoryId);
-      }
+        if (empties && destEmpty) return null; // sliding a column sideways changes nothing
 
-      function selectSource(source) {
-        const run = selectedRun(source);
-        if (!run.length) return false;
-        state.selected = source;
-        state.validTargets = computeValidTargets(source);
-        vibrate(8);
-        render();
-        return true;
-      }
-
-      function handleCardTap(source) {
-        const now = Date.now();
-        const run = selectedRun(source);
-        if (!run.length) return;
-        const tapId = run[0].id;
-
-        if (state.lastTap && state.lastTap.id === tapId && now - state.lastTap.at < 280) {
-          state.lastTap = null;
-          if (autoPlace(source)) return;
-        } else {
-          state.lastTap = { id: tapId, at: now };
+        if (empties) {
+          return {
+            score: 620,
+            message: `Move ${groupText} from column ${source.index + 1} onto ${destinationLabel(destination)}. That empties column ${source.index + 1}, and a free column is the only place an unmatched card can go.`
+          };
         }
 
-        if (state.selected && state.selected.type === source.type && state.selected.column === source.column && state.selected.index === source.index) {
-          clearSelection();
+        if (flips) {
+          const remaining = hiddenLeft - 1;
+          const tail = remaining > 0 ? ` (${remaining} more still buried there)` : " — that column is then all face up";
+          return {
+            score: 700 + hiddenLeft * 25 - (destEmpty ? 40 : 0),
+            message: `Move ${groupText} from column ${source.index + 1} onto ${destinationLabel(destination)} to turn over the face-down card underneath${tail}.`
+          };
+        }
+
+        const after = applySnapMove(base, { source, destination, cards: move.cards });
+        const afterGains = snapGains(after);
+        for (const key of baseGains.keys()) {
+          if (!afterGains.has(key)) return null;
+        }
+        let unlocked = null;
+        for (const [key, label] of afterGains) {
+          if (!baseGains.has(key)) { unlocked = label; break; }
+        }
+        if (!unlocked) return null;
+        return {
+          score: 220,
+          message: `Move ${groupText} from column ${source.index + 1} onto ${destinationLabel(destination)}. Nothing flips yet, but it sets up ${unlocked}.`
+        };
+      }
+
+      function stockOrWasteHasPlayableCard() {
+        return state.stock.concat(state.waste).some((card) => {
+          if (card.kind === "key" && firstLockedSlot() !== null && slotForCategory(card.categoryId) === null) return true;
+          if (slotForCategory(card.categoryId) !== null) return true;
+          return state.tableau.some((pile) => {
+            if (!pile.length) return true;
+            const top = pile[pile.length - 1];
+            return top.faceUp && top.categoryId === card.categoryId;
+          });
+        });
+      }
+
+      function hintFromMove(move) {
+        return {
+          source: move.source,
+          destination: move.destination,
+          cards: move.cards,
+          sourceCardId: move.cards[0].id,
+          sourcePileKey: pileKey(move.source),
+          targetPileKey: pileKey(move.destination),
+          message: move.message
+        };
+      }
+
+      function findBestHint() {
+        if (state.gameWon || foundationCount() === DECK_SIZE) {
+          return { message: "This deal is already complete. Choose Play Again when you want a fresh set of categories." };
+        }
+
+        if (canAutoCompleteNow()) {
+          return {
+            offerAutoComplete: true,
+            message: "Every card is face up and the stock is empty — this deal is already solved. Use Sort the rest to finish it."
+          };
+        }
+
+        const base = hintSnapshot();
+        const baseGains = snapGains(base);
+        let best = null;
+
+        for (const move of allLegalMoves()) {
+          const rated = rateHintMove(move, base, baseGains);
+          if (!rated) continue;
+          rated.score += snapGains(applySnapMove(base, { source: move.source, destination: move.destination, cards: move.cards })).size * 3;
+          const scored = { ...move, ...rated };
+          if (!best || rated.score > best.score) best = scored;
+        }
+
+        if (best && best.score >= 300) return hintFromMove(best);
+
+        if (state.stock.length) {
+          const left = state.stock.length;
+          return {
+            sourcePileKey: "stock",
+            targetPileKey: "waste",
+            message: `Nothing on the board moves you forward yet — draw from the stock. ${left} card${left === 1 ? "" : "s"} left before it recycles.`
+          };
+        }
+
+        if (best) return hintFromMove(best);
+
+        if (state.waste.length) {
+          if (state.recycles >= MAX_RECYCLES) {
+            return { stuck: true, message: `The stock is spent and ${state.waste.length} card${state.waste.length === 1 ? " is" : "s are"} stranded in the waste. Undo back to where you could still place them, or start a new deal.` };
+          }
+          if (stockOrWasteHasPlayableCard()) {
+            const left = MAX_RECYCLES - state.recycles;
+            return {
+              sourcePileKey: "stock",
+              targetPileKey: "waste",
+              message: `Recycle the waste and run its ${state.waste.length} card${state.waste.length === 1 ? "" : "s"} past again — one of them still has a home. Costs 20 points and one of your ${left} remaining pass${left === 1 ? "" : "es"}.`
+            };
+          }
+          return { stuck: true, message: "Nothing in the waste has anywhere to go and the tableau will not rearrange. Undo a few moves to try a different line, or start a new deal." };
+        }
+
+        return { stuck: true, message: "No legal moves are left. Undo a few moves to try another line, or start a new deal." };
+      }
+
+      function showHint() {
+        if (state.animating && !state.autoCompleting) return;
+        closeAllModals();
+        cleanupInteractionState({ clearSelected: true });
+        const hint = findBestHint();
+
+        // The deal is already won: re-offer Auto-finish even if it was dismissed earlier.
+        if (hint.offerAutoComplete) {
+          state.hint = null;
           render();
+          showToast(hint.message, 4200);
+          state.autoCompletePrompted = false;
+          checkAutoCompletePrompt();
+          vibrate([8, 20, 8]);
           return;
         }
-        selectSource(source);
+
+        state.hint = hint;
+        render();
+        clearTimeout(state.hintTimer);
+        const duration = Math.min(9000, Math.max(3600, 1500 + hint.message.length * 45));
+        state.hintTimer = setTimeout(() => {
+          state.hint = null;
+          render();
+        }, duration);
+        showToast(hint.message, duration);
+        vibrate([8, 20, 8]);
+      }
+
+      function allTableauCardsFaceUp() {
+        return state.tableau.every((pile) => pile.every((card) => card.faceUp));
+      }
+
+      function canAutoCompleteNow() {
+        if (state.gameWon || foundationCount() === DECK_SIZE) return false;
+        if (!allTableauCardsFaceUp()) return false;
+        if (state.stock.length || state.waste.length) return false;
+
+        const slots = { ...state.slotCategories };
+        const tableau = state.tableau.map((pile) => pile.map((card) => ({ ...card })));
+        let moved = true;
+        let guard = 0;
+        while (moved && guard < 200) {
+          moved = false;
+          guard += 1;
+          for (const pile of tableau) {
+            const top = pile[pile.length - 1];
+            if (!top) continue;
+            if (SLOT_ORDER.some((slot) => slots[slot] === top.categoryId)) {
+              pile.pop();
+              moved = true;
+              continue;
+            }
+            if (top.kind === "key") {
+              const locked = SLOT_ORDER.find((slot) => !slots[slot]);
+              if (locked !== undefined) {
+                slots[locked] = top.categoryId;
+                pile.pop();
+                moved = true;
+              }
+            }
+          }
+        }
+        return tableau.every((pile) => pile.length === 0);
+      }
+
+      function checkAutoCompletePrompt() {
+        if (state.autoCompleting || state.autoCompletePrompted || state.gameWon || state.animating) return;
+        if (document.querySelector(".modal-shell.show")) return;
+        if (!canAutoCompleteNow()) return;
+        state.autoCompletePrompted = true;
+        openModal(els.autoCompleteModal);
+        vibrate([10, 24, 10]);
+      }
+
+      function nextAutoCompleteMove() {
+        for (let index = 0; index < COLUMN_COUNT; index += 1) {
+          const pile = state.tableau[index];
+          const card = pile[pile.length - 1];
+          if (!card) continue;
+          const open = slotForCategory(card.categoryId);
+          if (open !== null) {
+            return { source: { type: "tableau", index, cardIndex: pile.length - 1 }, destination: { type: "foundation", slot: open }, card };
+          }
+          if (card.kind === "key") {
+            const locked = firstLockedSlot();
+            if (locked !== null) {
+              return { source: { type: "tableau", index, cardIndex: pile.length - 1 }, destination: { type: "foundation", slot: locked }, card };
+            }
+          }
+        }
+        return null;
+      }
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function runAutoComplete() {
+        closeModal(els.autoCompleteModal);
+        if (!canAutoCompleteNow()) {
+          showToast("The board cannot be sorted automatically yet", 2200);
+          return;
+        }
+
+        pushHistoryEntry();
+        cleanupInteractionState({ clearSelected: true });
+        state.autoCompleting = true;
+        state.animating = true;
+        showToast("Sorting the rest...", 1800);
+
+        while (canAutoCompleteNow()) {
+          const move = nextAutoCompleteMove();
+          if (!move) break;
+          state.tableau[move.source.index].pop();
+          if (!state.slotCategories[move.destination.slot]) state.slotCategories[move.destination.slot] = move.card.categoryId;
+          state.foundations[move.destination.slot].push(move.card);
+          state.moveCount += 1;
+          adjustScore(move.card.kind === "key" ? 25 : 10);
+          if (slotIsComplete(move.destination.slot)) adjustScore(50);
+          pulsePile(pileKey(move.destination));
+          render();
+          await wait(95);
+        }
+
+        state.animating = false;
+        state.autoCompleting = false;
+        render();
+        persistState(false);
+        checkWin();
+        if (!state.gameWon) showToast("Sorting paused because a card is blocked", 2600);
+      }
+
+      function revealTableauTop(index) {
+        const pile = state.tableau[index];
+        if (!pile.length) return;
+        const top = pile[pile.length - 1];
+        if (!top.faceUp) {
+          top.faceUp = true;
+          state.justFlippedCardId = top.id;
+          adjustScore(5);
+          vibrate(8);
+        }
+      }
+
+      function pulsePile(key) {
+        state.dropPulse = key;
+        setTimeout(() => {
+          if (state.dropPulse === key) state.dropPulse = null;
+          render();
+        }, 430);
+      }
+
+      // A wrong aim is a guess, and guesses cost something. That is the whole game.
+      function registerMiss(source, destination, cards) {
+        if (!destination || pileKey(destination) === pileKey(source)) return;
+        const lead = cards[0];
+
+        if (destination.type === "foundation") {
+          const category = state.slotCategories[destination.slot];
+          if (!category) {
+            pulseMiss(destination, lead.kind === "key"
+              ? `${lead.label} is already open in another slot.`
+              : "That slot is still locked. A gold key card has to open it first.", false);
+            return;
+          }
+          pulseMiss(destination, `${cardLabel(lead)} is not ${categoryTitle(category)}.`, true);
+          return;
+        }
+
+        if (destination.type === "tableau") {
+          const pile = state.tableau[destination.index] || [];
+          const top = pile[pile.length - 1];
+          if (!top || !top.faceUp) return;
+          pulseMiss(destination, `${cardLabel(lead)} and ${cardLabel(top)} are not in the same category.`, true);
+        }
+      }
+
+      function pulseMiss(destination, message, charged) {
+        const pileEl = pileElementForKey(pileKey(destination));
+        if (pileEl) {
+          pileEl.classList.remove("miss-shake");
+          void pileEl.offsetWidth;
+          pileEl.classList.add("miss-shake");
+          setTimeout(() => pileEl.classList.remove("miss-shake"), 460);
+        }
+        if (charged && !state.assistMode) {
+          state.misses += 1;
+          adjustScore(-MISS_PENALTY);
+          showToast(`${message} −${MISS_PENALTY} points`, 2400);
+        } else {
+          showToast(message, 2400);
+        }
+        vibrate([18, 40, 18]);
+        updateStatus();
+        persistState(false);
+      }
+
+      function moveSelectedTo(destination) {
+        if (!state.selected) return false;
+        const source = { ...state.selected };
+        const cards = getCardsForSource(source);
+        if (!cards.length) return false;
+        if (!canMoveToDestination(source, destination)) {
+          registerMiss(source, destination, cards);
+          return false;
+        }
+        pushHistoryEntry();
+
+        if (source.type === "waste") {
+          state.waste.pop();
+        } else if (source.type === "tableau") {
+          state.tableau[source.index].splice(source.cardIndex, cards.length);
+          revealTableauTop(source.index);
+        }
+
+        if (destination.type === "foundation") {
+          const slot = destination.slot;
+          const opening = !state.slotCategories[slot];
+          if (opening) state.slotCategories[slot] = cards[0].categoryId;
+          state.foundations[slot].push(...cards);
+          adjustScore(cards.reduce((sum, card) => sum + (card.kind === "key" ? 25 : 10), 0));
+          if (opening) showToast(`${categoryTitle(state.slotCategories[slot])} unlocked`, 1900);
+          else if (slotIsComplete(slot)) {
+            adjustScore(50);
+            showToast(`${categoryTitle(state.slotCategories[slot])} complete ✨`, 2100);
+          }
+        } else if (destination.type === "tableau") {
+          state.tableau[destination.index].push(...cards);
+          if (source.type === "waste") adjustScore(5);
+        }
+
+        state.moveCount += 1;
+        clearSelection();
+        vibrate([12, 20]);
+        pulsePile(pileKey(destination));
+        render();
+        persistState(false);
+        checkWin();
+        checkAutoCompletePrompt();
+        return true;
+      }
+
+      function tryAutoMove(source) {
+        clearSelection();
+        state.selected = { ...source };
+        state.validTargets = computeValidTargets(state.selected);
+        const destination = autoTargetFor(source);
+        if (!destination) {
+          clearSelection();
+          render();
+          return false;
+        }
+        return moveSelectedTo(destination);
       }
 
       function drawFromStock() {
-        pushHistory();
+        if (state.animating) return;
         clearSelection();
+        state.justFlippedCardId = null;
+
         if (state.stock.length) {
-          const card = state.stock.pop();
-          card.faceUp = true;
-          state.waste.push(card);
-          vibrate([10, 16, 8]);
-        } else if (state.waste.length) {
+          pushHistoryEntry();
+          const count = Math.min(state.drawCount, state.stock.length);
+          for (let i = 0; i < count; i += 1) {
+            const card = state.stock.pop();
+            card.faceUp = true;
+            state.waste.push(card);
+          }
+          vibrate([12, 18, 10]);
+          pulsePile("waste");
+        } else if (state.waste.length && state.recycles < MAX_RECYCLES) {
+          pushHistoryEntry();
+          state.recycles += 1;
           state.stock = state.waste.reverse().map((card) => ({ ...card, faceUp: false }));
           state.waste = [];
-          state.score = Math.max(0, state.score - 5);
+          adjustScore(-20);
           vibrate([8, 8, 12]);
-          showToast("Waste recycled into the stock");
+          pulsePile("stock");
+          const left = MAX_RECYCLES - state.recycles;
+          showToast(`Waste recycled (−20) · ${left} pass${left === 1 ? "" : "es"} left`, 2200);
+        } else if (state.waste.length) {
+          showToast("The stock is spent — no passes left. Everything now has to come out of the tableau.", 2800);
+          pulsePile("stock");
         } else {
-          showToast("Nothing left to draw");
-          state.history.pop();
-          return;
+          showToast("No cards left to draw");
+          pulsePile("stock");
         }
+
         render();
-        saveGame();
+        persistState(false);
+        checkAutoCompletePrompt();
       }
 
-      function newGame() {
-        const categoryIds = pickCategories();
-        const deck = createRunDeck(categoryIds);
-        state.activeCategoryIds = categoryIds;
-        state.foundations = Object.fromEntries(categoryIds.map((id) => [id, []]));
-        state.tableau = Array.from({ length: TABLEAU_COLUMNS }, () => []);
-        state.stock = [];
-        state.waste = [];
-        state.moveCount = 0;
-        state.score = 0;
-        state.startedAt = Date.now();
-        state.elapsedBeforeResumeMs = 0;
-        state.history = [];
-        clearSelection();
-
-        for (let col = 0; col < TABLEAU_COLUMNS; col += 1) {
-          for (let depth = 0; depth < 3; depth += 1) {
-            const card = deck.pop();
-            card.faceUp = depth === 2;
-            state.tableau[col].push(card);
-          }
-        }
-
-        state.stock = deck.map((card) => ({ ...card, faceUp: false }));
-        render();
-        saveGame();
-        showToast("Fresh category mix dealt");
+      function updateStatus() {
+        const passesLeft = MAX_RECYCLES - state.recycles;
+        els.statusPill.textContent = `Sorted ${foundationCount()}/${DECK_SIZE} · Score ${state.score} · Stock ${state.stock.length} · Passes ${passesLeft} · Misses ${state.misses}`;
+        els.drawToggleBtn.textContent = `Draw ${state.drawCount}`;
+        els.timeText.textContent = `Time ${formatTime(nowElapsedMs())}`;
+        els.undoBtn.disabled = state.history.length === 0 || state.animating;
+        els.undoBtn.textContent = state.history.length ? `Undo (${state.history.length})` : "Undo";
       }
 
-      function undo() {
-        if (!state.history.length) {
-          showToast("Nothing to undo");
-          return;
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+      }
+
+      // Sized by the longest single word: multi-word labels wrap at the space, so only
+      // genuinely long words need to shrink.
+      function wordSizeClass(label, step = 0) {
+        const longest = String(label).split(/\s+/).reduce((max, word) => Math.max(max, word.length), 0);
+        const bucket = longest >= 10 ? 4 : longest >= 8 ? 3 : longest >= 6 ? 2 : 1;
+        return `len-${Math.min(4, bucket + step)}`;
+      }
+
+      function createCardElement(card, options = {}) {
+        const { sourceType = "", sourceIndex = "", sourceSlot = "", cardIndex = "", movable = false, hidden = false, width = "100%" } = options;
+        const category = categoryOf(card);
+        const el = document.createElement("div");
+        el.className = `card ${card.faceUp ? "face-up" : "face-down"} ${card.kind === "key" ? "key-card" : "word-card"} ${movable ? "movable" : "unmovable"}`;
+        if (hidden) el.classList.add("source-hidden");
+        el.dataset.cardId = card.id;
+        el.dataset.sourceType = sourceType;
+        if (sourceIndex !== "") el.dataset.sourceIndex = String(sourceIndex);
+        if (sourceSlot !== "") el.dataset.sourceSlot = String(sourceSlot);
+        if (cardIndex !== "") el.dataset.cardIndex = String(cardIndex);
+        el.dataset.faceUp = String(card.faceUp);
+        el.style.width = width;
+        el.setAttribute("aria-label", card.faceUp
+          ? (card.kind === "key" ? `${card.label} key card` : card.label)
+          : "Face-down card");
+
+        if (card.faceUp) {
+          const showCategory = state.assistMode && card.kind !== "key";
+          const strip = showCategory && category ? `<div class="card-cat-strip" style="background:${category.color}"></div>` : "";
+          const chip = showCategory && category ? `<div class="card-cat-chip">${escapeHtml(category.title)}</div>` : "";
+          const text = card.kind === "key"
+            ? `<span class="key-mark">♛</span> ${escapeHtml(card.label)} <span class="key-mark">${category ? category.icon : ""}</span>`
+            : escapeHtml(card.label);
+          el.innerHTML = `
+            ${strip}
+            <div class="card-word-face">
+              <div class="card-word ${wordSizeClass(card.label, card.kind === "key" ? 1 : 0)}">${text}</div>
+            </div>
+            ${chip}
+            <div class="card-gloss"></div>
+          `;
         }
-        const snapshot = state.history.pop();
-        applySnapshot(snapshot, true);
-        render();
-        saveGame();
-        vibrate([12, 22, 10]);
+        return el;
+      }
+
+      function createGhostCard(card, width, topOffset) {
+        const el = createCardElement(card, { width: `${width}px`, movable: false });
+        el.style.position = "absolute";
+        el.style.left = "0px";
+        el.style.top = `${topOffset}px`;
+        return el;
+      }
+
+      // getComputedStyle only yields a number for custom properties that resolve to a
+      // length; measure through a probe element when it hands back a raw clamp()/calc().
+      const cssLengthCache = new Map();
+
+      function cssLength(name, fallback) {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        const direct = parseFloat(raw);
+        if (Number.isFinite(direct) && /^-?[\d.]+px$/.test(raw)) return direct;
+
+        const cacheKey = `${name}|${raw}|${window.innerWidth}x${window.innerHeight}`;
+        if (cssLengthCache.has(cacheKey)) return cssLengthCache.get(cacheKey);
+
+        let value = fallback;
+        try {
+          const probe = document.createElement("div");
+          probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;width:var(${name});height:0;`;
+          document.body.appendChild(probe);
+          const measured = probe.getBoundingClientRect().width;
+          probe.remove();
+          if (Number.isFinite(measured) && measured > 0) value = measured;
+        } catch (error) {}
+
+        if (cssLengthCache.size > 40) cssLengthCache.clear();
+        cssLengthCache.set(cacheKey, value);
+        return value;
+      }
+
+      function getFanDown() {
+        return cssLength("--fan-down", 16);
+      }
+
+      function getFanUp() {
+        return cssLength("--fan-up", 24);
+      }
+
+      function getWasteSpread() {
+        return cssLength("--waste-spread", 22);
       }
 
       function renderStock() {
-        els.stockPile.querySelectorAll(".card").forEach((node) => node.remove());
-        els.stockCount.textContent = state.stock.length;
+        els.stock.innerHTML = "";
+        els.stock.classList.toggle("empty-stock", state.stock.length === 0 && state.waste.length > 0);
+        els.stock.classList.toggle("drop-pulse", state.dropPulse === "stock");
+        els.stock.classList.toggle("hint-source", state.hint?.sourcePileKey === "stock");
+        els.stock.classList.toggle("hint-target", state.hint?.targetPileKey === "stock");
         const visible = state.stock.slice(-3);
         visible.forEach((card, idx) => {
-          const node = createCardNode(card, true);
-          node.style.left = `${idx * 2}px`;
-          node.style.top = `${-idx}px`;
-          els.stockPile.appendChild(node);
+          const back = createCardElement(card, { sourceType: "stock", movable: false });
+          back.style.left = `${idx * 2}px`;
+          back.style.top = `${-idx}px`;
+          els.stock.appendChild(back);
         });
       }
 
       function renderWaste() {
-        els.wastePile.innerHTML = "";
+        els.waste.innerHTML = "";
+        els.waste.classList.toggle("drop-pulse", state.dropPulse === "waste");
+        els.waste.classList.toggle("hint-source", state.hint?.sourcePileKey === "waste");
+        els.waste.classList.toggle("hint-target", state.hint?.targetPileKey === "waste");
         const visible = state.waste.slice(-3);
         visible.forEach((card, idx) => {
           const absoluteIndex = state.waste.length - visible.length + idx;
-          const isTop = absoluteIndex === state.waste.length - 1;
-          const node = createCardNode(card, false);
-          node.dataset.sourceType = "waste";
-          node.style.left = `${idx * 24}px`;
-          node.style.top = "0px";
-          if (isTop) node.addEventListener("click", () => handleCardTap({ type: "waste" }));
-          if (!isTop) node.style.pointerEvents = "none";
-          if (state.selected?.type === "waste" && isTop) node.classList.add("selected");
-          els.wastePile.appendChild(node);
+          const movable = absoluteIndex === state.waste.length - 1;
+          const hidden = !!(state.drag && state.drag.hiddenIds.has(card.id));
+          const el = createCardElement(card, { sourceType: "waste", cardIndex: 0, movable, hidden });
+          el.style.left = `${idx * getWasteSpread()}px`;
+          el.style.top = "0px";
+          if (state.selected && sameMoveSource(state.selected, { type: "waste" }) && movable) el.classList.add("selected");
+          if (state.hint?.sourceCardId === card.id) el.classList.add("hint-source");
+          els.waste.appendChild(el);
         });
       }
 
       function renderFoundations() {
-        els.foundationRow.innerHTML = "";
-        state.activeCategoryIds.forEach((categoryId) => {
-          const category = categoryById(categoryId);
-          const count = state.foundations[categoryId].length;
-          const pile = document.createElement("button");
-          pile.className = "pile category-pile";
-          pile.type = "button";
-          pile.style.background = `linear-gradient(180deg, ${hexToRgba(category.color, 0.34)}, ${hexToRgba(category.color, 0.18)})`;
-          if (state.validTargets.has(foundationKey(categoryId))) pile.classList.add("valid-target");
-          if (count === CARDS_PER_CATEGORY) pile.classList.add("completed");
-          pile.innerHTML = `
-            <div class="category-top">
-              <div class="category-title">${category.title}</div>
-              <div class="category-icon">${category.icon}</div>
-            </div>
-            <div class="category-progress">${count}/${CARDS_PER_CATEGORY}</div>
-            <div class="category-countbar"><span style="width:${(count / CARDS_PER_CATEGORY) * 100}%"></span></div>
-          `;
-          pile.addEventListener("click", () => {
-            if (!state.selected) return;
-            moveRunToFoundation(categoryId);
-          });
-          els.foundationRow.appendChild(pile);
+        [...els.foundationRow.children].forEach((pileEl, index) => {
+          const slot = pileEl.dataset.pileSlot;
+          const categoryId = state.slotCategories[slot];
+          const category = categoryId ? CATEGORY_BY_ID[categoryId] : null;
+          const count = state.foundations[slot].length;
+          const done = count === CARDS_PER_CATEGORY;
+
+          pileEl.innerHTML = "";
+          pileEl.classList.toggle("valid-target", state.validTargets.has(`foundation-${slot}`));
+          pileEl.classList.toggle("drop-pulse", state.dropPulse === `foundation-${slot}`);
+          pileEl.classList.toggle("hint-source", state.hint?.sourcePileKey === `foundation-${slot}`);
+          pileEl.classList.toggle("hint-target", state.hint?.targetPileKey === `foundation-${slot}`);
+          pileEl.classList.toggle("slot-open", !!category);
+          pileEl.classList.toggle("slot-locked", !category);
+          pileEl.classList.toggle("slot-done", done);
+          pileEl.dataset.label = "";
+
+          const face = document.createElement("div");
+          face.className = "slot-face";
+          face.innerHTML = category
+            ? `<div class="slot-icon">${category.icon}</div>
+               <div class="slot-title">${escapeHtml(category.title)}</div>
+               <div class="slot-count">${count}/${CARDS_PER_CATEGORY}</div>
+               <div class="slot-bar"><span style="width:${Math.round((count / CARDS_PER_CATEGORY) * 100)}%"></span></div>`
+            : `<div class="slot-icon">🔒</div><div class="slot-title">Slot ${index + 1}</div><div class="slot-count">needs a key</div>`;
+          pileEl.appendChild(face);
         });
       }
 
       function renderTableau() {
-        els.tableau.innerHTML = "";
-        state.tableau.forEach((columnCards, colIndex) => {
-          const column = document.createElement("div");
-          column.className = "pile column";
-          if (state.validTargets.has(columnKey(colIndex))) column.classList.add("valid-target");
-          if (!columnCards.length) {
-            const empty = document.createElement("div");
-            empty.className = "empty-banner";
-            empty.textContent = "Open";
-            column.appendChild(empty);
-          }
+        [...els.tableau.children].forEach((pileEl, index) => {
+          pileEl.innerHTML = "";
+          pileEl.classList.toggle("valid-target", state.validTargets.has(`tableau-${index}`));
+          pileEl.classList.toggle("drop-pulse", state.dropPulse === `tableau-${index}`);
+          pileEl.classList.toggle("hint-source", state.hint?.sourcePileKey === `tableau-${index}`);
+          pileEl.classList.toggle("hint-target", state.hint?.targetPileKey === `tableau-${index}`);
+          const pile = state.tableau[index];
           let offset = 0;
-          const cardHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--card-h")) || 100;
-          columnCards.forEach((card, cardIndex) => {
-            const node = createCardNode(card, false);
-            node.style.top = `${offset}px`;
-            node.style.zIndex = String(cardIndex + 1);
-            if (card.faceUp) {
-              node.addEventListener("click", () => handleCardTap({ type: "tableau", column: colIndex, index: cardIndex }));
+          const pileWidth = Math.max(pileEl.getBoundingClientRect().width || 60, 42);
+          const cardHeight = pileWidth * 1.42;
+
+          pile.forEach((card, cardIndex) => {
+            const hidden = !!(state.drag && state.drag.hiddenIds.has(card.id));
+            const el = createCardElement(card, {
+              sourceType: "tableau",
+              sourceIndex: index,
+              cardIndex,
+              movable: card.faceUp,
+              hidden
+            });
+            el.style.top = `${offset}px`;
+            el.style.zIndex = String(cardIndex + 1);
+            if (state.selected && sameMoveSource(state.selected, { type: "tableau", index, cardIndex })) el.classList.add("selected");
+            if (state.hint?.sourceCardId === card.id) el.classList.add("hint-source");
+            if (state.justFlippedCardId === card.id) {
+              el.animate(
+                [{ transform: "rotateY(90deg) scale(0.98)", opacity: 0.6 }, { transform: "rotateY(0deg) scale(1)", opacity: 1 }],
+                { duration: 260, easing: "cubic-bezier(.2,.7,.2,1)" }
+              );
             }
-            if (state.selected?.type === "tableau" && state.selected.column === colIndex && state.selected.index === cardIndex) {
-              node.classList.add("selected");
-            }
-            column.appendChild(node);
-            const next = columnCards[cardIndex + 1];
-            if (next) offset += card.faceUp ? 28 : 14;
+            pileEl.appendChild(el);
+
+            const nextCard = pile[cardIndex + 1];
+            if (!nextCard) return;
+            offset += card.faceUp ? getFanUp() : getFanDown();
           });
-          column.style.height = `${Math.max(170, offset + cardHeight + 6)}px`;
-          column.addEventListener("click", (event) => {
-            if (event.target !== column && !event.target.classList.contains("empty-banner")) return;
-            if (!state.selected) return;
-            moveRunToColumn(colIndex);
-          });
-          els.tableau.appendChild(column);
+
+          pileEl.style.height = `${Math.max(cardHeight + 10, offset + cardHeight + 6)}px`;
         });
-      }
-
-      function createCardNode(card, faceDownOnly = false) {
-        const node = document.createElement("div");
-        node.className = `card ${faceDownOnly || !card.faceUp ? "face-down" : "face-up"}`;
-        if (faceDownOnly || !card.faceUp) return node;
-        const category = categoryById(card.categoryId);
-        node.innerHTML = `
-          <div class="card-topbar" style="background:${category.color}"></div>
-          <div class="card-body">
-            <div class="card-chip">${category.icon} ${category.title}</div>
-            <div class="card-emoji">${card.emoji || ""}</div>
-            <div class="card-label">${card.label}</div>
-          </div>
-        `;
-        return node;
-      }
-
-      function updateStatus() {
-        els.statusPill.textContent = `Moves ${state.moveCount} • Score ${state.score} • Collected ${totalCollected()}/${ACTIVE_CATEGORY_COUNT * CARDS_PER_CATEGORY}`;
-        els.mixPill.textContent = `Mix — ${mixLabel()}`;
-        els.timerText.textContent = `Time ${formatTime(nowElapsedMs())}`;
-        els.undoBtn.disabled = state.history.length === 0;
       }
 
       function render() {
@@ -1314,55 +3139,606 @@
         renderTableau();
       }
 
-      function hexToRgba(hex, alpha) {
-        const normalized = hex.replace("#", "");
-        const value = normalized.length === 3
-          ? normalized.split("").map((ch) => ch + ch).join("")
-          : normalized;
-        const number = parseInt(value, 16);
-        const r = (number >> 16) & 255;
-        const g = (number >> 8) & 255;
-        const b = number & 255;
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      function boardCardAtPoint(x, y) {
+        const element = document.elementFromPoint(x, y);
+        return element ? element.closest(".card") : null;
       }
 
-      function attachEvents() {
-        els.stockPile.addEventListener("click", drawFromStock);
-        els.undoBtn.addEventListener("click", undo);
-        els.newGameBtn.addEventListener("click", newGame);
-        els.helpBtn.addEventListener("click", () => els.helpModal.classList.add("show"));
-        els.closeHelpBtn.addEventListener("click", () => els.helpModal.classList.remove("show"));
-        els.closeHelpBtn2.addEventListener("click", () => els.helpModal.classList.remove("show"));
-        els.helpModal.addEventListener("click", (event) => {
-          if (event.target === els.helpModal) els.helpModal.classList.remove("show");
+      function boardPileAtPoint(x, y) {
+        const element = document.elementFromPoint(x, y);
+        return element ? element.closest(".pile") : null;
+      }
+
+      function startPointerTracking(event) {
+        const cardEl = event.target.closest(".card");
+        const pileEl = event.target.closest(".pile");
+        if (!cardEl && !pileEl) return;
+        if (state.animating) return;
+
+        const pointerState = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          lastX: event.clientX,
+          lastY: event.clientY,
+          moved: false,
+          dragged: false,
+          cardEl,
+          pileEl,
+          pressCleanup: null
+        };
+
+        if (cardEl) {
+          cardEl.classList.add("pressed");
+          pointerState.pressCleanup = () => cardEl.classList.remove("pressed");
+        }
+        try { event.target.setPointerCapture?.(event.pointerId); } catch (error) {}
+        state.pointerState = pointerState;
+      }
+
+      function beginDrag(pointerState) {
+        const { cardEl } = pointerState;
+        if (!cardEl) return;
+        const source = sourceFromCard(cardEl);
+        if (!isMovableSource(source)) return;
+
+        const cards = getCardsForSource(source);
+        const sourceRect = cardEl.getBoundingClientRect();
+        const cardRects = cards.map((card) => document.querySelector(`[data-card-id="${card.id}"]`)?.getBoundingClientRect() || sourceRect);
+        const firstRect = cardRects[0] || sourceRect;
+        const hiddenIds = new Set(cards.map((card) => card.id));
+        const offsetX = pointerState.startX - firstRect.left;
+        const offsetY = pointerState.startY - firstRect.top;
+
+        const ghost = document.createElement("div");
+        ghost.className = "drag-group";
+        ghost.style.width = `${sourceRect.width}px`;
+        ghost.style.height = `${cardRects[cardRects.length - 1].bottom - firstRect.top}px`;
+
+        cardRects.forEach((rect, idx) => {
+          ghost.appendChild(createGhostCard(cards[idx], sourceRect.width, rect.top - firstRect.top));
         });
-        document.addEventListener("keydown", (event) => {
-          const key = event.key.toLowerCase();
-          if (key === "escape") {
-            els.helpModal.classList.remove("show");
+
+        els.dragLayer.innerHTML = "";
+        els.dragLayer.appendChild(ghost);
+
+        state.drag = { source, cards, ghost, hiddenIds, offsetX, offsetY, validTargets: computeValidTargets(source) };
+        state.selected = { ...source };
+        state.validTargets = new Set(state.drag.validTargets);
+        pointerState.dragged = true;
+        applyDragVisualState();
+        updateGhost(pointerState.lastX, pointerState.lastY);
+        vibrate(8);
+      }
+
+      function updateGhost(x, y) {
+        if (!state.drag) return;
+        state.drag.ghost.style.transform = `translate(${x - state.drag.offsetX}px, ${y - state.drag.offsetY}px)`;
+      }
+
+      function finishDrag(clientX, clientY) {
+        const drag = state.drag;
+        if (!drag) return false;
+        const pileEl = boardPileAtPoint(clientX, clientY);
+        const destination = pileFromElement(pileEl);
+
+        // Clear transient drag DOM before mutating/rendering the board. Rendering while
+        // drag classes or the drag ghost are still active can leave stale layers on
+        // mobile Safari until a later repaint.
+        clearDragVisualState();
+        els.dragLayer.innerHTML = "";
+        state.drag = null;
+        state.selected = { ...drag.source };
+        state.validTargets = new Set(drag.validTargets || computeValidTargets(drag.source));
+
+        const didMove = destination ? moveSelectedTo(destination) : false;
+        if (!didMove) {
+          clearSelection();
+          render();
+        }
+        return didMove;
+      }
+
+      function handleCardTap(cardEl) {
+        if (!cardEl) return;
+        const source = sourceFromCard(cardEl);
+        if (source.type === "stock") {
+          drawFromStock();
+          return;
+        }
+        if (cardEl.dataset.faceUp !== "true") {
+          // Aiming at a buried card still means "this column".
+          if (state.selected) {
+            const pileTarget = pileFromElement(cardEl);
+            if (!pileTarget || !moveSelectedTo(pileTarget)) {
+              clearSelection();
+              render();
+            }
+          }
+          return;
+        }
+        if (!isMovableSource(source)) return;
+
+        if (state.selected) {
+          if (sameMoveSource(state.selected, source)) {
+            if (!tryAutoMove(source)) {
+              clearSelection();
+              render();
+            }
+            return;
+          }
+          const destination = pileFromElement(cardEl);
+          if (destination && moveSelectedTo(destination)) return;
+          setSelection(source);
+          return;
+        }
+
+        if (tryAutoMove(source)) return;
+        setSelection(source);
+      }
+
+      function handlePileTap(pileEl) {
+        const destination = pileFromElement(pileEl);
+        if (!destination) return;
+        if (destination.type === "stock") {
+          drawFromStock();
+          return;
+        }
+        if (state.selected) {
+          if (!moveSelectedTo(destination)) {
             clearSelection();
             render();
           }
-          if (key === "n") newGame();
-          if (key === "u") undo();
-          if (key === "d") drawFromStock();
-        });
-        window.addEventListener("beforeunload", saveGame);
+          return;
+        }
+        if (destination.type === "waste" && state.waste.length) {
+          handleCardTap(els.waste.querySelector(".card:last-child"));
+          return;
+        }
       }
 
-      function startTimer() {
-        clearInterval(state.tickTimer);
-        state.tickTimer = setInterval(updateStatus, 1000);
+      function endPointerTracking(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        if (pointerState.pressCleanup) pointerState.pressCleanup();
+
+        const wasDragged = pointerState.dragged;
+        const cardEl = boardCardAtPoint(event.clientX, event.clientY) || pointerState.cardEl;
+        const pileEl = boardPileAtPoint(event.clientX, event.clientY) || pointerState.pileEl;
+
+        if (wasDragged) {
+          finishDrag(event.clientX, event.clientY);
+        } else if (cardEl) {
+          handleCardTap(cardEl);
+        } else if (pileEl) {
+          handlePileTap(pileEl);
+        } else {
+          clearSelection();
+          render();
+        }
+        state.pointerState = null;
+      }
+
+      function handlePointerMove(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        pointerState.lastX = event.clientX;
+        pointerState.lastY = event.clientY;
+
+        const movedEnough = Math.hypot(event.clientX - pointerState.startX, event.clientY - pointerState.startY) > 8;
+        if (!pointerState.moved && movedEnough) pointerState.moved = true;
+        if (pointerState.cardEl && pointerState.moved && !pointerState.dragged) {
+          const source = sourceFromCard(pointerState.cardEl);
+          if (isMovableSource(source)) beginDrag(pointerState);
+        }
+        if (pointerState.dragged) updateGhost(event.clientX, event.clientY);
+      }
+
+      function handlePointerCancel(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        if (pointerState.pressCleanup) pointerState.pressCleanup();
+        cleanupInteractionState({ clearSelected: true });
+        render();
+      }
+
+      function animateDeal() {
+        state.animating = true;
+        clearSelection();
+        render();
+        els.dragLayer.innerHTML = "";
+
+        const originRect = els.stock.getBoundingClientRect();
+        const jobs = [];
+        let sequence = 0;
+        for (let col = 0; col < COLUMN_COUNT; col += 1) {
+          let offset = 0;
+          const pileRect = els.tableau.children[col].getBoundingClientRect();
+          for (let row = 0; row <= col; row += 1) {
+            jobs.push({ delay: sequence * 44, finalX: pileRect.left, finalY: pileRect.top + offset, rotate: (Math.random() - 0.5) * 10 });
+            offset += row === col ? getFanUp() : getFanDown();
+            sequence += 1;
+          }
+        }
+
+        jobs.forEach((job) => {
+          const temp = document.createElement("div");
+          temp.className = "deal-card";
+          temp.style.left = `${originRect.left}px`;
+          temp.style.top = `${originRect.top}px`;
+          temp.style.opacity = "0";
+          temp.style.transform = "translate(0,0) rotate(0deg)";
+          temp.style.transition = "transform 420ms cubic-bezier(.2,.78,.2,1), opacity 220ms ease";
+          els.dragLayer.appendChild(temp);
+          setTimeout(() => {
+            temp.style.opacity = "1";
+            temp.style.transform = `translate(${job.finalX - originRect.left}px, ${job.finalY - originRect.top}px) rotate(${job.rotate}deg)`;
+          }, job.delay + 20);
+          setTimeout(() => { temp.style.opacity = "0"; }, job.delay + 420);
+          setTimeout(() => temp.remove(), job.delay + 620);
+        });
+
+        setTimeout(() => {
+          state.animating = false;
+          render();
+          persistState(false);
+        }, jobs[jobs.length - 1].delay + 520);
+      }
+
+      function animateShuffleThenDeal() {
+        if (state.animating) return;
+        state.animating = true;
+        clearSelection();
+        render();
+        hideWinOverlay();
+        els.dragLayer.innerHTML = "";
+
+        const boardRect = els.board.getBoundingClientRect();
+        const stockRect = els.stock.getBoundingClientRect();
+        const centerX = boardRect.left + (boardRect.width / 2) - (stockRect.width / 2);
+        const centerY = boardRect.top + Math.min(120, boardRect.height * 0.28);
+        const cards = [];
+
+        for (let i = 0; i < 18; i += 1) {
+          const card = document.createElement("div");
+          card.className = "shuffle-card";
+          card.style.left = `${centerX}px`;
+          card.style.top = `${centerY}px`;
+          card.style.opacity = "0";
+          card.style.transform = `translate(0,0) rotate(${(Math.random() - 0.5) * 16}deg)`;
+          card.style.transition = "transform 560ms cubic-bezier(.2,.8,.2,1), opacity 200ms ease";
+          els.dragLayer.appendChild(card);
+          cards.push(card);
+        }
+
+        requestAnimationFrame(() => {
+          cards.forEach((card, index) => {
+            const spreadX = (Math.random() - 0.5) * Math.min(260, boardRect.width * 0.46);
+            const spreadY = (Math.random() - 0.5) * 80;
+            const rotate = (Math.random() - 0.5) * 80;
+            setTimeout(() => {
+              card.style.opacity = "1";
+              card.style.transform = `translate(${spreadX}px, ${spreadY}px) rotate(${rotate}deg)`;
+            }, index * 18);
+          });
+        });
+
+        setTimeout(() => {
+          cards.forEach((card, index) => {
+            const stackOffset = Math.min(index, 4) * 2;
+            card.style.transform = `translate(${stockRect.left - centerX + stackOffset}px, ${stockRect.top - centerY - stackOffset}px) rotate(${(Math.random() - 0.5) * 10}deg)`;
+            card.style.opacity = "1";
+          });
+        }, 520);
+
+        setTimeout(() => {
+          cards.forEach((card) => card.remove());
+          prepareGameState();
+          animateDeal();
+          showToast("Fresh shuffle, fresh felt");
+        }, 1180);
+      }
+
+      function spawnConfetti() {
+        clearInterval(state.confettiTimer);
+        state.confettiTimer = setInterval(() => {
+          const piece = document.createElement("div");
+          piece.className = "confetti";
+          piece.style.left = `${Math.random() * 100}vw`;
+          piece.style.background = ["#f6d88f", "#ff6b6b", "#4ecdc4", "#ffffff", "#4d96ff"][Math.floor(Math.random() * 5)];
+          piece.style.animationDuration = `${3 + Math.random() * 2.8}s`;
+          document.body.appendChild(piece);
+          setTimeout(() => piece.remove(), 6000);
+        }, 110);
+        setTimeout(() => clearInterval(state.confettiTimer), 2600);
+      }
+
+      function updateWinOverlaySummary() {
+        els.winScore.textContent = `Final score: ${state.score}`;
+        els.winMeta.textContent = `Moves: ${state.moveCount} • Misses: ${state.misses} • Time: ${formatTime(nowElapsedMs())}`;
+        if (els.winNote) {
+          els.winNote.textContent = state.usedAssist
+            ? `Sorted in practice mode — categories were on screen the whole time. Try it with them hidden: ${state.categoryIds.map(categoryTitle).join(", ")}.`
+            : (state.misses === 0
+              ? `Every word placed first time — perfect deduction bonus awarded. The categories were ${state.categoryIds.map(categoryTitle).join(", ")}.`
+              : `Every word found its category, with ${state.misses} miss${state.misses === 1 ? "" : "es"} along the way. They were ${state.categoryIds.map(categoryTitle).join(", ")}.`);
+        }
+      }
+
+      function showWinOverlay() {
+        state.winShownAt = Date.now();
+        state.ignoreWinClicksUntil = state.winShownAt + 700;
+        updateWinOverlaySummary();
+        els.playAgainBtn.disabled = true;
+        els.winOverlay.classList.add("show");
+        setTimeout(() => {
+          if (els.winOverlay.classList.contains("show")) els.playAgainBtn.disabled = false;
+        }, 700);
+        spawnConfetti();
+        vibrate([24, 50, 24]);
+      }
+
+      function hideWinOverlay() {
+        els.winOverlay.classList.remove("show");
+      }
+
+      function checkWin() {
+        if (foundationCount() === DECK_SIZE && !state.gameWon) {
+          state.gameWon = true;
+          state.autoCompletePrompted = true;
+          closeModal(els.autoCompleteModal);
+          cleanupInteractionState({ clearSelected: true });
+          adjustScore(100);
+          if (state.misses === 0 && !state.usedAssist) adjustScore(150);
+          render();
+          persistState(false);
+          requestAnimationFrame(showWinOverlay);
+        }
+      }
+
+      function hasMeaningfulProgress() {
+        if (state.gameWon || foundationCount() === DECK_SIZE) return false;
+        if (state.moveCount > 0 || state.waste.length > 0 || foundationCount() > 0) return true;
+        const dealt = (COLUMN_COUNT * (COLUMN_COUNT + 1)) / 2;
+        if (state.stock.length !== DECK_SIZE - dealt) return true;
+        const faceUpCount = state.tableau.flat().filter((card) => card.faceUp).length;
+        if (faceUpCount > COLUMN_COUNT) return true;
+        return state.tableau.some((pile, index) => pile.length !== index + 1);
+      }
+
+      function startFreshDeal() {
+        if (state.animating) return;
+        closeAllModals();
+        hideWinOverlay();
+        animateShuffleThenDeal();
+      }
+
+      function newDeal() {
+        if (state.animating) return;
+        if (hasMeaningfulProgress()) {
+          openModal(els.confirmNewGameModal);
+          return;
+        }
+        startFreshDeal();
+      }
+
+      function toggleDrawMode() {
+        pushHistoryEntry();
+        state.drawCount = state.drawCount === 1 ? 3 : 1;
+        updateStatus();
+        persistState(false);
+        vibrate(10);
+        showToast(`Draw mode: ${state.drawCount}`);
+      }
+
+      function recoverActiveInteraction({ rerender = true } = {}) {
+        if (!state.drag && !state.pointerState) return;
+        cleanupInteractionState({ clearSelected: true });
+        if (rerender) render();
+      }
+
+      function handleLostPointerCapture(event) {
+        const pointerState = state.pointerState;
+        if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+        setTimeout(() => {
+          if (state.pointerState && state.pointerState.pointerId === event.pointerId && state.drag) {
+            recoverActiveInteraction();
+          }
+        }, 0);
+      }
+
+      function nearestScrollGuardElement(target) {
+        if (!(target instanceof Element)) return null;
+        return target.closest(".modal-card, .board-shell");
+      }
+
+      function installBrowserRefreshGuards() {
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        document.addEventListener("touchstart", (event) => {
+          const touch = event.touches && event.touches[0];
+          if (!touch) return;
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+        }, { passive: true });
+
+        document.addEventListener("touchmove", (event) => {
+          if (event.touches.length !== 1) {
+            event.preventDefault();
+            return;
+          }
+
+          const target = event.target;
+          if (target instanceof Element && target.closest("input, textarea, select")) return;
+
+          const touch = event.touches[0];
+          const dx = touch.clientX - touchStartX;
+          const dy = touch.clientY - touchStartY;
+
+          if (state.drag || state.pointerState) {
+            event.preventDefault();
+            return;
+          }
+
+          const scroller = nearestScrollGuardElement(target);
+          if (!scroller) {
+            event.preventDefault();
+            return;
+          }
+
+          const canScroll = scroller.scrollHeight > scroller.clientHeight + 1;
+          if (!canScroll) {
+            event.preventDefault();
+            return;
+          }
+
+          const mostlyVertical = Math.abs(dy) >= Math.abs(dx);
+          if (!mostlyVertical) return;
+
+          const atTop = scroller.scrollTop <= 0;
+          const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+          if ((atTop && dy > 0) || (atBottom && dy < 0)) {
+            event.preventDefault();
+          }
+        }, { passive: false });
+      }
+
+      function attachEvents() {
+        els.board.addEventListener("pointerdown", (event) => {
+          if (event.target.closest("button")) return;
+          startPointerTracking(event);
+        });
+
+        window.addEventListener("pointermove", handlePointerMove, { passive: true });
+        window.addEventListener("pointerup", endPointerTracking);
+        window.addEventListener("pointercancel", handlePointerCancel);
+        document.addEventListener("lostpointercapture", handleLostPointerCapture);
+        window.addEventListener("resize", () => {
+          applyCardSizePreset();
+          if (state.drag || state.pointerState) cleanupInteractionState({ clearSelected: true });
+          if (!state.animating) scheduleSafeLayoutRefresh();
+          if (state.tourIndex >= 0) positionTourStep();
+        });
+        window.addEventListener("orientationchange", () => {
+          applyCardSizePreset();
+          if (state.drag || state.pointerState) cleanupInteractionState({ clearSelected: true });
+          if (!state.animating) scheduleSafeLayoutRefresh();
+        });
+        window.addEventListener("blur", () => recoverActiveInteraction());
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") recoverActiveInteraction();
+        });
+        window.addEventListener("pagehide", () => {
+          recoverActiveInteraction({ rerender: false });
+          persistState(false);
+        });
+        ["gesturestart", "gesturechange", "gestureend"].forEach((eventName) => {
+          document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+        });
+        window.addEventListener("beforeunload", () => persistState(false));
+
+        [els.settingsModal, els.helpModal, els.installModal, els.feedbackModal, els.confirmNewGameModal, els.autoCompleteModal].forEach((modal) => {
+          modal.addEventListener("click", (event) => {
+            if (event.target === modal) closeModal(modal);
+          });
+        });
+
+        document.querySelectorAll("[data-close-modal]").forEach((button) => {
+          button.addEventListener("click", () => closeModal(document.getElementById(button.dataset.closeModal)));
+        });
+
+        els.newGameBtn.addEventListener("click", newDeal);
+        els.hintBtn.addEventListener("click", showHint);
+        els.settingsBtn.addEventListener("click", () => openModal(els.settingsModal));
+        els.refreshLayoutBtn.addEventListener("click", () => refreshLayout());
+        els.settingsHintBtn.addEventListener("click", showHint);
+        els.sizeCompactBtn.addEventListener("click", () => setCardSizePreset("compact"));
+        els.sizeStandardBtn.addEventListener("click", () => setCardSizePreset("standard"));
+        els.sizeLargeBtn.addEventListener("click", () => setCardSizePreset("large"));
+        if (els.assistOnBtn) els.assistOnBtn.addEventListener("click", () => setAssistMode(true));
+        if (els.assistOffBtn) els.assistOffBtn.addEventListener("click", () => setAssistMode(false));
+        els.drawToggleBtn.addEventListener("click", toggleDrawMode);
+        els.saveBtn.addEventListener("click", () => {
+          persistState(true);
+          showToast("Progress saved in local storage on this device");
+        });
+        els.exportBtn.addEventListener("click", downloadExport);
+        els.importBtn.addEventListener("click", () => els.importFileInput.click());
+        els.undoBtn.addEventListener("click", undoLastAction);
+        els.helpBtn.addEventListener("click", () => openModal(els.helpModal));
+        els.installBtn.addEventListener("click", () => openModal(els.installModal));
+        els.feedbackBtn.addEventListener("click", () => {
+          setupFeedbackModal();
+          openModal(els.feedbackModal);
+        });
+        els.startTourBtn.addEventListener("click", startTour);
+        els.tourSkipBtn.addEventListener("click", endTour);
+        els.tourNextBtn.addEventListener("click", nextTourStep);
+        els.newGameCancelBtn.addEventListener("click", () => closeModal(els.confirmNewGameModal));
+        els.newGameConfirmBtn.addEventListener("click", startFreshDeal);
+        els.autoCompleteNotYetBtn.addEventListener("click", () => closeModal(els.autoCompleteModal));
+        els.autoCompleteYesBtn.addEventListener("click", runAutoComplete);
+
+        els.importFileInput.addEventListener("change", async (event) => {
+          const [file] = event.target.files || [];
+          if (!file) return;
+          try {
+            const text = await file.text();
+            restoreFromSnapshot(JSON.parse(text));
+          } catch (error) {
+            showToast("That save file could not be restored");
+          } finally {
+            event.target.value = "";
+          }
+        });
+
+        els.winDoneBtn.addEventListener("click", hideWinOverlay);
+
+        els.playAgainBtn.addEventListener("click", () => {
+          if (Date.now() < state.ignoreWinClicksUntil) return;
+          hideWinOverlay();
+          startFreshDeal();
+        });
+
+        document.addEventListener("keydown", (event) => {
+          const key = event.key.toLowerCase();
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          if (key === "escape") {
+            closeAllModals();
+            endTour();
+            hideWinOverlay();
+            clearSelection();
+            render();
+            return;
+          }
+          // Anything behind a modal, the tour or the win overlay stays untouchable.
+          if (document.querySelector(".modal-shell.show") || state.tourIndex >= 0 || els.winOverlay.classList.contains("show")) return;
+          if (key === "z") { undoLastAction(); return; }
+          if (key === "n") newDeal();
+          if (key === "d") drawFromStock();
+          if (key === "e") downloadExport();
+          if (key === "h") showHint();
+        });
       }
 
       function init() {
+        buildStaticPiles();
+        loadCardSizePreset();
+        loadAssistMode();
         attachEvents();
-        startTimer();
-        if (!loadGame()) {
-          newGame();
+        installBrowserRefreshGuards();
+        setupFeedbackModal();
+        updateCardSizeButtons();
+        updateAssistButtons();
+        schedulePeriodicAutosave();
+        startTickingClock();
+        if (!loadLocalSave()) {
+          prepareGameState();
+          animateDeal();
         } else {
           render();
-          showToast("Saved run restored");
+          showToast("Saved deal restored");
         }
       }
 

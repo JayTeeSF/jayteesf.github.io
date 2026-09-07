@@ -6,6 +6,11 @@
   <title>JayTeeSF Solitaire</title>
   <!-- JayTeeSF Solitaire replacement iteration: pull-refresh + drag-cleanup fix -->
   <style>
+    /* Registered so getComputedStyle() resolves the clamp()/vw values to real pixels.
+       Without this the JS fan/spread readers fall back to hard-coded defaults. */
+    @property --fan-down { syntax: "<length>"; inherits: true; initial-value: 16px; }
+    @property --fan-up { syntax: "<length>"; inherits: true; initial-value: 24px; }
+    @property --waste-spread { syntax: "<length>"; inherits: true; initial-value: 22px; }
     :root {
       --bg-1: #0b3d31;
       --bg-2: #0f5d4b;
@@ -1039,7 +1044,9 @@
           <li>Move Aces to the foundations, then continue upward in the same suit.</li>
           <li>Tap or double-tap a movable card to auto-place it when there is an obvious legal move.</li>
         </ol>
-        <p>The game supports tap play, drag-and-drop, autosave, export/import, and undo.</p>
+        <p>The game supports tap play, drag-and-drop, autosave, export/import, and up to 25 levels of undo.</p>
+        <p><strong>Hint</strong> explains the best move and why it is best &mdash; it never suggests taking a card back off a foundation, and it tells you plainly when a deal has run out of moves.</p>
+        <p><strong>Keyboard:</strong> <kbd>D</kbd> draw &middot; <kbd>H</kbd> hint &middot; <kbd>Z</kbd> undo &middot; <kbd>N</kbd> new deal &middot; <kbd>E</kbd> export &middot; <kbd>Esc</kbd> close.</p>
         <div class="modal-actions">
           <button class="button secondary" id="startTourBtn" type="button">Show walkthrough</button>
           <button class="button secondary" data-close-modal="helpModal" type="button">Close</button>
@@ -1151,6 +1158,8 @@
       const STORAGE_KEY = "jayteesf-solitaire-save-v1";
       const CARD_SIZE_STORAGE_KEY = "jayteesf-solitaire-card-size-v1";
       const SAVE_VERSION = 1;
+      const HISTORY_LIMIT = 25;
+      const PERSISTED_HISTORY_LIMIT = 8;
       const FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScd3aaFsS48ntmoU2CGuv1VzyTKGaUj5XATQqIHYwZpSFCqzA/viewform?embedded=true"; // Paste your Google Form embed URL here, ending with ?embedded=true
       const SUIT_ORDER = ["S", "H", "D", "C"];
       const SUIT_SYMBOL = { S: "♠", H: "♥", D: "♦", C: "♣" };
@@ -1337,7 +1346,7 @@
           savedAt: new Date().toISOString(),
           state: {
             ...makeSnapshot(),
-            history: structuredClone(state.history)
+            history: structuredClone(state.history.slice(-PERSISTED_HISTORY_LIMIT))
           }
         };
       }
@@ -1416,7 +1425,7 @@
         state.ignoreWinClicksUntil = 0;
         els.dragLayer.innerHTML = "";
         if (!preserveHistory) {
-          state.history = Array.isArray(data.history) ? structuredClone(data.history).slice(-3) : [];
+          state.history = Array.isArray(data.history) ? structuredClone(data.history).slice(-HISTORY_LIMIT) : [];
         }
         hideWinOverlay();
       }
@@ -1446,7 +1455,7 @@
 
       function pushHistoryEntry() {
         state.history.push(makeSnapshot());
-        if (state.history.length > 3) state.history.shift();
+        while (state.history.length > HISTORY_LIMIT) state.history.shift();
       }
 
       function undoLastAction() {
@@ -1459,7 +1468,7 @@
         render();
         persistState(false);
         vibrate([14, 24, 10]);
-        showToast("Undid last action");
+        showToast(state.history.length ? `Undid last action · ${state.history.length} undo${state.history.length === 1 ? "" : "s"} left` : "Undid last action · no undos left");
         checkAutoCompletePrompt();
       }
 
@@ -1974,24 +1983,11 @@
 
       function sourceLabel(source) {
         if (!source) return "";
-        if (source.type === "waste") return "waste";
+        if (source.type === "waste") return "the waste";
         if (source.type === "foundation") return `${SUIT_NAME[source.suit]} foundation`;
         if (source.type === "tableau") return `column ${source.index + 1}`;
         if (source.type === "stock") return "stock";
         return source.type;
-      }
-
-      function moveRevealsHiddenCard(move) {
-        if (!move || move.source.type !== "tableau") return false;
-        if (move.source.cardIndex <= 0) return false;
-        const below = state.tableau[move.source.index][move.source.cardIndex - 1];
-        return !!below && !below.faceUp;
-      }
-
-      function moveMessage(move, reason = "") {
-        const lead = move.cards.length > 1 ? `${cardLabel(move.cards[0])} stack` : cardLabel(move.cards[0]);
-        const suffix = reason ? ` ${reason}` : ".";
-        return `Hint: move ${lead} from ${sourceLabel(move.source)} to ${destinationLabel(move.destination)}${suffix}`;
       }
 
       function allLegalMoves({ includeFoundationSources = true } = {}) {
@@ -2026,34 +2022,283 @@
         return moves;
       }
 
+      function foundationTopRank(suit) {
+        const pile = state.foundations[suit];
+        return pile.length ? pile[pile.length - 1].rank : 0;
+      }
+
+      function oppositeColorSuits(suit) {
+        return suit === "S" || suit === "C" ? ["H", "D"] : ["S", "C"];
+      }
+
+      function endgameIsOpen() {
+        return !state.stock.length && !state.waste.length && allTableauCardsFaceUp();
+      }
+
+      // A card is safe to bank when no card still in play can ever need it as a landing spot.
+      function isSafeFoundationPlay(card) {
+        if (card.rank <= 2) return true;
+        if (endgameIsOpen()) return true;
+        const [a, b] = oppositeColorSuits(card.suit);
+        return Math.min(foundationTopRank(a), foundationTopRank(b)) >= card.rank - 1;
+      }
+
+      // Lightweight board copy used only for one-move lookahead inside the hint engine.
+      function hintSnapshot() {
+        return {
+          tableau: state.tableau.map((pile) => pile.map((card) => ({ id: card.id, rank: card.rank, suit: card.suit, color: card.color, faceUp: card.faceUp }))),
+          top: Object.fromEntries(SUIT_ORDER.map((suit) => [suit, foundationTopRank(suit)])),
+          wasteTop: state.waste.length ? { ...state.waste[state.waste.length - 1] } : null
+        };
+      }
+
+      function snapCanStack(cards, pile) {
+        if (!cards.length) return false;
+        if (!pile.length) return cards[0].rank === 13;
+        const top = pile[pile.length - 1];
+        return top.faceUp && top.color !== cards[0].color && top.rank === cards[0].rank + 1;
+      }
+
+      function snapMoves(snap) {
+        const moves = [];
+        const consider = (source, cards) => {
+          if (!cards.length) return;
+          const lead = cards[0];
+          if (cards.length === 1 && snap.top[lead.suit] === lead.rank - 1) {
+            moves.push({ source, cards, destination: { type: "foundation", suit: lead.suit } });
+          }
+          for (let index = 0; index < 7; index += 1) {
+            if (source.type === "tableau" && source.index === index) continue;
+            if (snapCanStack(cards, snap.tableau[index])) moves.push({ source, cards, destination: { type: "tableau", index } });
+          }
+        };
+        if (snap.wasteTop) consider({ type: "waste" }, [snap.wasteTop]);
+        snap.tableau.forEach((pile, index) => {
+          pile.forEach((card, cardIndex) => {
+            if (card.faceUp) consider({ type: "tableau", index, cardIndex }, pile.slice(cardIndex));
+          });
+        });
+        return moves;
+      }
+
+      function applySnapMove(snap, move) {
+        const next = {
+          tableau: snap.tableau.map((pile) => pile.map((card) => ({ ...card }))),
+          top: { ...snap.top },
+          wasteTop: snap.wasteTop ? { ...snap.wasteTop } : null
+        };
+        let cards;
+        if (move.source.type === "waste") {
+          cards = [next.wasteTop];
+          next.wasteTop = null;
+        } else {
+          const pile = next.tableau[move.source.index];
+          cards = pile.splice(move.source.cardIndex);
+          const below = pile[pile.length - 1];
+          if (below && !below.faceUp) below.faceUp = true;
+        }
+        if (move.destination.type === "foundation") next.top[move.destination.suit] = cards[cards.length - 1].rank;
+        else next.tableau[move.destination.index].push(...cards);
+        return next;
+      }
+
+      // Opportunities that actually advance the deal, keyed so two positions can be compared.
+      function snapGains(snap) {
+        const gains = new Map();
+        snapMoves(snap).forEach((move) => {
+          const lead = move.cards[0];
+          if (move.destination.type === "foundation") {
+            gains.set(`up:${lead.suit}${lead.rank}`, `${rankLabel(lead.rank)}${SUIT_SYMBOL[lead.suit]} going up to the foundation`);
+            return;
+          }
+          if (move.source.type === "waste") {
+            gains.set(`waste:${lead.id}:${move.destination.index}`, `the waste card landing in column ${move.destination.index + 1}`);
+            return;
+          }
+          const pile = snap.tableau[move.source.index];
+          const below = pile[move.source.cardIndex - 1];
+          if (below && !below.faceUp) {
+            gains.set(`flip:${below.id}`, `a face-down card in column ${move.source.index + 1} turning over`);
+          } else if (move.source.cardIndex === 0 && snap.tableau[move.destination.index].length) {
+            gains.set(`empty:${move.source.index}`, `column ${move.source.index + 1} emptying out`);
+          }
+        });
+        return gains;
+      }
+
+      function bankReason(card) {
+        if (card.rank === 1) return "Aces go up the moment you see them.";
+        if (card.rank === 2) return "Twos are always safe to bank.";
+        const [a, b] = oppositeColorSuits(card.suit);
+        if (endgameIsOpen()) return "Every card is face up, so nothing can be stranded.";
+        return `Both ${SUIT_NAME[a].toLowerCase()} and ${SUIT_NAME[b].toLowerCase()} are up to ${rankLabel(card.rank - 1)}, so no card still needs it as a landing spot.`;
+      }
+
+      function rateHintMove(move, base, baseGains) {
+        const source = move.source;
+        const destination = move.destination;
+        const lead = move.cards[0];
+        const from = sourceLabel(source);
+        const cardText = cardLabel(lead);
+
+        if (destination.type === "foundation") {
+          if (isSafeFoundationPlay(lead)) {
+            return {
+              score: 900 - lead.rank * 4 + (source.type === "waste" ? 6 : 0),
+              message: `Play ${cardText} from ${from} to the ${SUIT_NAME[lead.suit]} foundation. ${bankReason(lead)}`
+            };
+          }
+          const [a, b] = oppositeColorSuits(lead.suit);
+          const behind = Math.min(foundationTopRank(a), foundationTopRank(b));
+          return {
+            score: 60 - lead.rank,
+            message: `Only ${cardText} from ${from} will move, so send it to the ${SUIT_NAME[lead.suit]} foundation — but note the opposite colours are only up to ${behind === 0 ? "nothing" : rankLabel(behind)}, so you are giving up a landing spot.`
+          };
+        }
+
+        const destPile = state.tableau[destination.index];
+        const destEmpty = destPile.length === 0;
+        const runText = move.cards.length > 1 ? `${cardText} and the ${move.cards.length - 1} card${move.cards.length > 2 ? "s" : ""} on it` : cardText;
+
+        if (source.type === "waste") {
+          if (destEmpty) {
+            return lead.rank === 13
+              ? { score: 520, message: `Move ${cardText} from the waste into empty column ${destination.index + 1}. Kings are the only cards that can fill an empty column, so use it now.` }
+              : { score: 330, message: `Move ${cardText} from the waste into empty column ${destination.index + 1}. It clears the waste, though spending a free column on a non-King is a real cost.` };
+          }
+          return { score: 430, message: `Move ${cardText} from the waste onto ${destinationLabel(destination)} before the next draw buries it.` };
+        }
+
+        const sourcePile = state.tableau[source.index];
+        const below = sourcePile[source.cardIndex - 1];
+        const flips = !!below && !below.faceUp;
+        const empties = source.cardIndex === 0;
+        const hiddenLeft = sourcePile.slice(0, source.cardIndex).filter((card) => !card.faceUp).length;
+
+        // Sliding a column onto an empty column changes nothing.
+        if (empties && destEmpty) return null;
+
+        if (empties) {
+          return {
+            score: 640,
+            message: `Move ${runText} from column ${source.index + 1} onto ${destinationLabel(destination)}. That empties column ${source.index + 1}, and a free column is the strongest thing you can own.`
+          };
+        }
+
+        if (flips) {
+          const remaining = hiddenLeft - 1;
+          const tail = remaining > 0 ? ` (${remaining} more still buried there)` : " — that column is then all face up";
+          return {
+            score: 700 + hiddenLeft * 25 - (destEmpty ? 40 : 0),
+            message: `Move ${runText} from column ${source.index + 1} onto ${destinationLabel(destination)} to turn over the face-down card underneath${tail}.`
+          };
+        }
+
+        // Pure reshuffling is only worth suggesting when it unlocks something that was not there before.
+        const after = applySnapMove(base, { source, destination, cards: move.cards });
+        const afterGains = snapGains(after);
+        // Strictly more to do afterwards, or it is just shuffling a card back and forth.
+        for (const key of baseGains.keys()) {
+          if (!afterGains.has(key)) return null;
+        }
+        let unlocked = null;
+        for (const [key, label] of afterGains) {
+          if (!baseGains.has(key)) { unlocked = label; break; }
+        }
+        if (!unlocked) return null;
+        return {
+          score: 220,
+          message: `Move ${runText} from column ${source.index + 1} onto ${destinationLabel(destination)}. Nothing flips yet, but it sets up ${unlocked}.`
+        };
+      }
+
+      // Is another lap of the stock worth it? Only cards this engine would actually recommend count.
+      function stockOrWasteHasPlayableCard() {
+        const pool = state.stock.concat(state.waste);
+        return pool.some((card) => {
+          if (foundationTopRank(card.suit) === card.rank - 1 && isSafeFoundationPlay(card)) return true;
+          return state.tableau.some((pile) => {
+            if (!pile.length) return card.rank === 13;
+            const top = pile[pile.length - 1];
+            return top.faceUp && top.color !== card.color && top.rank === card.rank + 1;
+          });
+        });
+      }
+
+      function hintFromMove(move) {
+        return {
+          source: move.source,
+          destination: move.destination,
+          cards: move.cards,
+          sourceCardId: move.cards[0].id,
+          sourcePileKey: pileKey(move.source),
+          targetPileKey: pileKey(move.destination),
+          message: move.message
+        };
+      }
+
       function findBestHint() {
         if (state.gameWon || foundationCount() === 52) {
           return { message: "This game is already complete. Choose Play Again when you want a fresh deal." };
         }
 
-        const primaryMoves = allLegalMoves({ includeFoundationSources: false });
-        const foundationMove = primaryMoves.find((move) => move.destination.type === "foundation");
-        if (foundationMove) return { ...foundationMove, message: moveMessage(foundationMove, "to build the foundation.") };
+        if (canAutoCompleteNow()) {
+          return {
+            offerAutoComplete: true,
+            message: "Every card is face up and the stock is empty — this deal is already won. Use Auto-finish to bank the rest."
+          };
+        }
 
-        const revealMove = primaryMoves.find((move) => move.destination.type === "tableau" && moveRevealsHiddenCard(move));
-        if (revealMove) return { ...revealMove, message: moveMessage(revealMove, "to reveal a hidden card.") };
+        const base = hintSnapshot();
+        const baseGains = snapGains(base);
+        let best = null;
+        let bestUnsafeBank = null;
 
-        const wasteMove = primaryMoves.find((move) => move.source.type === "waste");
-        if (wasteMove) return { ...wasteMove, message: moveMessage(wasteMove, "to free the waste pile.") };
+        for (const move of allLegalMoves({ includeFoundationSources: false })) {
+          const rated = rateHintMove(move, base, baseGains);
+          if (!rated) continue;
+          // Tie-break equally-ranked moves by how much the resulting position opens up.
+          if (rated.score >= 100) {
+            rated.score += snapGains(applySnapMove(base, { source: move.source, destination: move.destination, cards: move.cards })).size * 3;
+          }
+          const scored = { ...move, ...rated };
+          if (rated.score < 100) {
+            if (!bestUnsafeBank || rated.score > bestUnsafeBank.score) bestUnsafeBank = scored;
+            continue;
+          }
+          if (!best || rated.score > best.score) best = scored;
+        }
 
-        const tableauMove = primaryMoves.find((move) => move.destination.type === "tableau");
-        if (tableauMove) return { ...tableauMove, message: moveMessage(tableauMove, "to improve the tableau.") };
-
-        const fallbackMove = allLegalMoves({ includeFoundationSources: true }).find((move) => move.destination.type === "tableau");
-        if (fallbackMove) return { ...fallbackMove, message: moveMessage(fallbackMove, "as a legal fallback move.") };
+        // Anything that flips a card, frees a column, banks safely or clears the waste beats drawing.
+        if (best && best.score >= 300) return hintFromMove(best);
 
         if (state.stock.length) {
-          return { sourcePileKey: "stock", targetPileKey: "waste", message: "Hint: draw from the stock to look for a playable card." };
+          const left = state.stock.length;
+          return {
+            sourcePileKey: "stock",
+            targetPileKey: "waste",
+            message: `Nothing on the board moves you forward yet — draw from the stock. ${left} card${left === 1 ? "" : "s"} left before it recycles.`
+          };
         }
-        if (!state.stock.length && state.waste.length) {
-          return { sourcePileKey: "stock", targetPileKey: "waste", message: "Hint: recycle the waste back into the stock to keep searching." };
+
+        // Stock is empty: a tidy-up move is now worth more than another lap of the waste.
+        if (best) return hintFromMove(best);
+
+        if (state.waste.length) {
+          if (stockOrWasteHasPlayableCard()) {
+            return {
+              sourcePileKey: "stock",
+              targetPileKey: "waste",
+              message: `Recycle the waste and run its ${state.waste.length} card${state.waste.length === 1 ? "" : "s"} past again — one of them still fits. Recycling costs 20 points.`
+            };
+          }
+          if (bestUnsafeBank) return hintFromMove(bestUnsafeBank);
+          return { stuck: true, message: "Nothing in the waste fits anywhere and the tableau will not rearrange. Undo a few moves to try a different line, or start a new deal." };
         }
-        return { message: "No legal moves are visible. This deal may be stuck unless an undo reveals another path." };
+
+        if (bestUnsafeBank) return hintFromMove(bestUnsafeBank);
+
+        return { stuck: true, message: "No legal moves are left. Undo a few moves to try another line, or start a new deal." };
       }
 
       function showHint() {
@@ -2061,14 +2306,27 @@
         closeAllModals();
         cleanupInteractionState({ clearSelected: true });
         const hint = findBestHint();
+
+        // The deal is already won: re-offer Auto-finish even if it was dismissed earlier.
+        if (hint.offerAutoComplete) {
+          state.hint = null;
+          render();
+          showToast(hint.message, 4200);
+          state.autoCompletePrompted = false;
+          checkAutoCompletePrompt();
+          vibrate([8, 20, 8]);
+          return;
+        }
+
         state.hint = hint;
         render();
         clearTimeout(state.hintTimer);
+        const duration = Math.min(9000, Math.max(3600, 1500 + hint.message.length * 45));
         state.hintTimer = setTimeout(() => {
           state.hint = null;
           render();
-        }, 3600);
-        showToast(hint.message, 3400);
+        }, duration);
+        showToast(hint.message, duration);
         vibrate([8, 20, 8]);
       }
 
@@ -2267,6 +2525,7 @@
         els.drawToggleBtn.textContent = `Draw ${state.drawCount}`;
         els.timeText.textContent = `Time ${formatTime(nowElapsedMs())}`;
         els.undoBtn.disabled = state.history.length === 0 || state.animating;
+        els.undoBtn.textContent = state.history.length ? `Undo (${state.history.length})` : "Undo";
       }
 
       function createCardElement(card, options = {}) {
@@ -2307,16 +2566,43 @@
         return el;
       }
 
+      // getComputedStyle only yields a number for custom properties that resolve to a
+      // length; measure through a probe element when it hands back a raw clamp()/calc().
+      const cssLengthCache = new Map();
+
+      function cssLength(name, fallback) {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        const direct = parseFloat(raw);
+        if (Number.isFinite(direct) && /^-?[\d.]+px$/.test(raw)) return direct;
+
+        const cacheKey = `${name}|${raw}|${window.innerWidth}x${window.innerHeight}`;
+        if (cssLengthCache.has(cacheKey)) return cssLengthCache.get(cacheKey);
+
+        let value = fallback;
+        try {
+          const probe = document.createElement("div");
+          probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;width:var(${name});height:0;`;
+          document.body.appendChild(probe);
+          const measured = probe.getBoundingClientRect().width;
+          probe.remove();
+          if (Number.isFinite(measured) && measured > 0) value = measured;
+        } catch (error) {}
+
+        if (cssLengthCache.size > 40) cssLengthCache.clear();
+        cssLengthCache.set(cacheKey, value);
+        return value;
+      }
+
       function getFanDown() {
-        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fan-down")) || 16;
+        return cssLength("--fan-down", 16);
       }
 
       function getFanUp() {
-        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fan-up")) || 24;
+        return cssLength("--fan-up", 24);
       }
 
       function getWasteSpread() {
-        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--waste-spread")) || 22;
+        return cssLength("--waste-spread", 22);
       }
 
       function renderStock() {
@@ -2970,17 +3256,22 @@
 
         document.addEventListener("keydown", (event) => {
           const key = event.key.toLowerCase();
-          if (key === "n") newDeal();
-          if (key === "d") drawFromStock();
-          if (key === "e") downloadExport();
-          if (key === "h") showHint();
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
           if (key === "escape") {
             closeAllModals();
             endTour();
             hideWinOverlay();
             clearSelection();
             render();
+            return;
           }
+          // Anything behind a modal, the tour or the win overlay stays untouchable.
+          if (document.querySelector(".modal-shell.show") || state.tourIndex >= 0 || els.winOverlay.classList.contains("show")) return;
+          if (key === "z") { undoLastAction(); return; }
+          if (key === "n") newDeal();
+          if (key === "d") drawFromStock();
+          if (key === "e") downloadExport();
+          if (key === "h") showHint();
         });
       }
 
