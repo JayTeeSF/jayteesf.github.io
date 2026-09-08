@@ -1377,9 +1377,9 @@
       const CARD_SIZE_STORAGE_KEY = "jayteesf-solitaire-card-size-v1";
       const TOUR_STORAGE_KEY = "jayteesf-solitaire-tour-v1";
       const THEME_STORAGE_KEY = "jayteesf-solitaire-table-v1";
-      const APP_VERSION = "1.6.0";
+      const APP_VERSION = "1.7.0";
       const BUILD_DATE = "2026-09-07";
-      const BUILD_SHA = "92730d6";
+      const BUILD_SHA = "b4f321c";
       const SAVE_VERSION = 1;
       const HISTORY_LIMIT = 25;
       const PERSISTED_HISTORY_LIMIT = 8;
@@ -2618,9 +2618,166 @@
       }
 
       // Is another lap of the stock worth it? Only cards this engine would actually recommend count.
+      // ---------------------------------------------------------------------------
+      // Playout engine. A self-contained copy of the rules used only to answer "where
+      // does this move lead?". It never touches game state, the DOM or storage, so it
+      // cannot disturb the game in progress.
+      // ---------------------------------------------------------------------------
+      const PLAYOUT = { enabled: true, topK: 3, margin: 600, steps: 140, recycles: 2 };
+
+      function playoutState() {
+        return {
+          tableau: state.tableau.map((pile) => pile.map((card) => ({ id: card.id, rank: card.rank, suit: card.suit, color: card.color, faceUp: card.faceUp }))),
+          stock: state.stock.map((card) => ({ id: card.id, rank: card.rank, suit: card.suit, color: card.color })),
+          waste: state.waste.map((card) => ({ id: card.id, rank: card.rank, suit: card.suit, color: card.color })),
+          top: Object.fromEntries(SUIT_ORDER.map((suit) => [suit, foundationTopRank(suit)])),
+          banked: foundationCount(),
+          drawCount: state.drawCount,
+          recycles: 0
+        };
+      }
+
+      function playoutSafeBank(ps, card) {
+        if (card.rank <= 2) return true;
+        const [a, b] = oppositeColorSuits(card.suit);
+        return Math.min(ps.top[a], ps.top[b]) >= card.rank - 1;
+      }
+
+      function playoutFits(pile, lead) {
+        if (!pile.length) return lead.rank === 13;
+        const top = pile[pile.length - 1];
+        return top.faceUp && top.color !== lead.color && top.rank === lead.rank + 1;
+      }
+
+      // Same tier ordering the live hint uses, scored without the explanatory text.
+      function playoutBestMove(ps) {
+        let best = null;
+        let bestScore = -1;
+        const consider = (source, cards) => {
+          const lead = cards[0];
+          if (cards.length === 1 && ps.top[lead.suit] === lead.rank - 1 && playoutSafeBank(ps, lead)) {
+            const score = HINT_WEIGHTS.bankBase - lead.rank * HINT_WEIGHTS.bankRankPenalty;
+            if (score > bestScore) { bestScore = score; best = { source, cards, destination: { type: "foundation", suit: lead.suit } }; }
+          }
+          for (let index = 0; index < 7; index += 1) {
+            if (source.type === "tableau" && source.index === index) continue;
+            const pile = ps.tableau[index];
+            if (!playoutFits(pile, lead)) continue;
+            let score;
+            if (source.type === "waste") {
+              score = pile.length ? HINT_WEIGHTS.wasteToCard : (lead.rank === 13 ? HINT_WEIGHTS.wasteToEmptyKing : HINT_WEIGHTS.wasteToEmpty);
+            } else {
+              const from = ps.tableau[source.index];
+              const below = from[source.cardIndex - 1];
+              const flips = !!below && !below.faceUp;
+              const empties = source.cardIndex === 0;
+              if (empties && !pile.length) continue;
+              if (flips) {
+                const hidden = from.slice(0, source.cardIndex).filter((card) => !card.faceUp).length;
+                score = HINT_WEIGHTS.flipBase + hidden * HINT_WEIGHTS.flipHiddenBonus - (pile.length ? 0 : HINT_WEIGHTS.flipToEmptyPenalty);
+              } else if (empties) {
+                score = HINT_WEIGHTS.freeColumn;
+              } else continue;
+            }
+            if (score > bestScore) { bestScore = score; best = { source, cards, destination: { type: "tableau", index } }; }
+          }
+        };
+
+        if (ps.waste.length) consider({ type: "waste" }, [ps.waste[ps.waste.length - 1]]);
+        ps.tableau.forEach((pile, index) => pile.forEach((card, cardIndex) => {
+          if (card.faceUp) consider({ type: "tableau", index, cardIndex }, pile.slice(cardIndex));
+        }));
+        return bestScore >= HINT_WEIGHTS.playThreshold ? best : null;
+      }
+
+      function playoutApply(ps, move) {
+        let cards;
+        if (move.source.type === "waste") cards = [ps.waste.pop()];
+        else {
+          const pile = ps.tableau[move.source.index];
+          cards = pile.splice(move.source.cardIndex);
+          const below = pile[pile.length - 1];
+          if (below && !below.faceUp) below.faceUp = true;
+        }
+        if (move.destination.type === "foundation") {
+          ps.top[move.destination.suit] = cards[cards.length - 1].rank;
+          ps.banked += cards.length;
+        } else {
+          ps.tableau[move.destination.index].push(...cards);
+        }
+      }
+
+      function playoutDraw(ps) {
+        if (ps.stock.length) {
+          const count = Math.min(ps.drawCount, ps.stock.length);
+          for (let i = 0; i < count; i += 1) ps.waste.push(Object.assign(ps.stock.pop(), { faceUp: true }));
+          return true;
+        }
+        if (ps.waste.length && ps.recycles < PLAYOUT.recycles) {
+          ps.recycles += 1;
+          ps.stock = ps.waste.reverse();
+          ps.waste = [];
+          return true;
+        }
+        return false;
+      }
+
+      // How far the plain policy gets from here. Higher is a better line.
+      function runPlayout(ps) {
+        for (let step = 0; step < PLAYOUT.steps; step += 1) {
+          if (ps.banked === 52) return 52;
+          const move = playoutBestMove(ps);
+          if (move) { playoutApply(ps, move); continue; }
+          if (!playoutDraw(ps)) break;
+        }
+        return ps.banked;
+      }
+
+      // Pick between near-equal moves by playing each line out to the end. Only ever
+      // reorders moves the tiers already endorse, so the reason printed stays true.
+      function preferByPlayout(candidates, best) {
+        if (!PLAYOUT.enabled || !best || candidates.length < 2) return best;
+        const head = candidates
+          .filter((move) => move.score >= best.score - PLAYOUT.margin)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, PLAYOUT.topK);
+        if (head.length < 2) return best;
+
+        let choice = head[0];
+        let bestValue = -1;
+        for (const candidate of head) {
+          const ps = playoutState();
+          playoutApply(ps, { source: candidate.source, destination: candidate.destination, cards: candidate.cards });
+          const value = runPlayout(ps);
+          if (value > bestValue) { bestValue = value; choice = candidate; }
+        }
+        return choice;
+      }
+
+      // With Draw 3 only every third card ever reaches the top of the waste, and
+      // recycling restores the original stock order, so the same cards surface on every
+      // pass. A card being playable is therefore not enough — it has to be reachable.
+      function reachableWasteTops() {
+        const tops = [];
+        let stock = state.stock.slice();
+        let waste = state.waste.slice();
+        if (waste.length) tops.push(waste[waste.length - 1]);
+
+        for (let pass = 0; pass < 2; pass += 1) {
+          while (stock.length) {
+            const count = Math.min(state.drawCount, stock.length);
+            for (let i = 0; i < count; i += 1) waste.push(stock.pop());
+            tops.push(waste[waste.length - 1]);
+          }
+          if (!waste.length) break;
+          stock = waste.reverse();
+          waste = [];
+        }
+        return tops;
+      }
+
       function stockOrWasteHasPlayableCard() {
-        const pool = state.stock.concat(state.waste);
-        return pool.some((card) => {
+        return reachableWasteTops().some((card) => {
           if (foundationTopRank(card.suit) === card.rank - 1 && isSafeFoundationPlay(card)) return true;
           return state.tableau.some((pile) => {
             if (!pile.length) return card.rank === 13;
@@ -2656,6 +2813,7 @@
 
         const base = hintSnapshot();
         const baseGains = snapGains(base);
+        const candidates = [];
         let best = null;
         let bestUnsafeBank = null;
 
@@ -2671,11 +2829,13 @@
             if (!bestUnsafeBank || rated.score > bestUnsafeBank.score) bestUnsafeBank = scored;
             continue;
           }
+          candidates.push(scored);
           if (!best || rated.score > best.score) best = scored;
         }
+        const preferred = preferByPlayout(candidates, best);
 
         // Anything that flips a card, frees a column, banks safely or clears the waste beats drawing.
-        if (best && best.score >= HINT_WEIGHTS.playThreshold) return hintFromMove(best);
+        if (best && best.score >= HINT_WEIGHTS.playThreshold) return hintFromMove(preferred);
 
         if (state.stock.length) {
           const left = state.stock.length;
@@ -2687,7 +2847,7 @@
         }
 
         // Stock is empty: a tidy-up move is now worth more than another lap of the waste.
-        if (best) return hintFromMove(best);
+        if (best) return hintFromMove(preferred);
 
         if (state.waste.length) {
           if (stockOrWasteHasPlayableCard()) {
