@@ -1357,9 +1357,11 @@
           <div class="size-controls">
             <button class="button secondary" id="refreshLayoutBtn" type="button">Refresh Layout</button>
             <button class="button secondary" id="settingsHintBtn" type="button">Find a Hint</button>
+            <button class="button secondary" id="reshuffleBtn" type="button">Reshuffle</button>
           </div>
         </div>
         <p>Refresh Layout safely rebuilds the visible board if Safari ever leaves a card visually stuck, without changing your game, score, timer, save, or undo history.</p>
+        <p><strong>Reshuffle</strong> is the way out of a dead deal. Once your passes are spent, anything still sitting in the waste is out of reach for good &mdash; and if a key card is among it, that whole category is locked out. Reshuffle shuffles only the cards you cannot see, leaving every face-up card and everything already sorted exactly where it is. It costs 25 points and unlocks only when you genuinely need it.</p>
         <div class="settings-group">
           <div class="settings-label">Walkthrough &amp; more</div>
           <div class="size-controls">
@@ -1400,6 +1402,7 @@
           <li>An <strong>empty column takes any card</strong>. Empty columns are the scarcest thing on the board.</li>
           <li>Tap the stock to draw. Tap a card to pick it up, then tap where it should go. Dragging works too.</li>
           <li>You get <strong>two passes</strong> through the stock. After that it is spent, so do not leave cards you can still place sitting in the waste.</li>
+          <li>Every deal starts with at least one key card showing, and if the board ever jams completely you can <strong>Reshuffle</strong> the face-down cards from Settings for 25 points.</li>
         </ol>
         <p><strong>Guessing costs you.</strong> Aiming a card at the wrong slot or the wrong stack is a miss: &minus;5 points, and the miss counter goes up. Nothing else is lost, so a considered guess is fine &mdash; brute force is not.</p>
         <p>Finish with zero misses for a perfect-deduction bonus.</p>
@@ -1475,6 +1478,7 @@
             <tr><td>Waste card played into the tableau</td><td class="points plus">+5</td></tr>
             <tr><td>A miss &mdash; wrong slot or wrong stack</td><td class="points minus">&minus;5</td></tr>
             <tr><td>Recycling the waste back into the stock</td><td class="points minus">&minus;20</td></tr>
+            <tr><td>Reshuffling the face-down cards</td><td class="points minus">&minus;25</td></tr>
             <tr><td>Sorting all 36 cards</td><td class="points plus">+100</td></tr>
             <tr><td>Finishing with zero misses</td><td class="points plus">+150</td></tr>
           </tbody>
@@ -1558,9 +1562,9 @@
       const TOUR_STORAGE_KEY = "jayteesf-category-solitaire-tour-v1";
       const THEME_STORAGE_KEY = "jayteesf-category-solitaire-table-v1";
       const ASSIST_STORAGE_KEY = "jayteesf-category-solitaire-assist-v1";
-      const APP_VERSION = "2.0.0";
+      const APP_VERSION = "2.1.0";
       const BUILD_DATE = "2026-09-07";
-      const BUILD_SHA = "92730d6";
+      const BUILD_SHA = "c8a0118";
       const SAVE_VERSION = 2;
       const HISTORY_LIMIT = 25;
       const PERSISTED_HISTORY_LIMIT = 8;
@@ -1687,6 +1691,7 @@
         sizeLargeBtn: document.getElementById("sizeLargeBtn"),
         refreshLayoutBtn: document.getElementById("refreshLayoutBtn"),
         settingsHintBtn: document.getElementById("settingsHintBtn"),
+        reshuffleBtn: document.getElementById("reshuffleBtn"),
         confirmNewGameModal: document.getElementById("confirmNewGameModal"),
         newGameCancelBtn: document.getElementById("newGameCancelBtn"),
         newGameConfirmBtn: document.getElementById("newGameConfirmBtn"),
@@ -1711,6 +1716,7 @@
         moveCount: 0,
         misses: 0,
         recycles: 0,
+        reshuffles: 0,
         assistMode: false,
         usedAssist: false,
         score: 0,
@@ -1864,6 +1870,7 @@
           moveCount: state.moveCount,
           misses: state.misses,
           recycles: state.recycles,
+          reshuffles: state.reshuffles,
           usedAssist: state.usedAssist,
           score: state.score,
           elapsedMs: nowElapsedMs(),
@@ -1950,6 +1957,7 @@
         state.moveCount = Number.isFinite(data.moveCount) ? data.moveCount : 0;
         state.misses = Number.isFinite(data.misses) ? data.misses : 0;
         state.recycles = Number.isFinite(data.recycles) ? data.recycles : 0;
+        state.reshuffles = Number.isFinite(data.reshuffles) ? data.reshuffles : 0;
         state.usedAssist = data.usedAssist === true;
         state.score = Number.isFinite(data.score) ? data.score : 0;
         state.elapsedBeforeResumeMs = Number.isFinite(data.elapsedMs) ? data.elapsedMs : 0;
@@ -2094,6 +2102,7 @@
         state.moveCount = 0;
         state.misses = 0;
         state.recycles = 0;
+        state.reshuffles = 0;
         state.usedAssist = state.assistMode;
         state.score = 0;
         state.startedAt = Date.now();
@@ -2124,7 +2133,37 @@
           }
         }
         state.stock = deck.map((card) => ({ ...card, faceUp: false }));
+        ensureVisibleKeyCard();
         persistState(false);
+      }
+
+      // A deal with no key card showing gives the player nothing to unlock and nowhere
+      // to put anything, which is where the board jams. Guarantee one is visible.
+      function ensureVisibleKeyCard() {
+        const tops = [];
+        state.tableau.forEach((pile, index) => {
+          const card = pile[pile.length - 1];
+          if (card && card.faceUp) tops.push({ index, position: pile.length - 1, card });
+        });
+        if (!tops.length || tops.some((entry) => entry.card.kind === "key")) return;
+
+        const pool = [];
+        state.stock.forEach((card, i) => { if (card.kind === "key") pool.push({ where: "stock", i }); });
+        state.tableau.forEach((pile, index) => pile.forEach((card, i) => {
+          if (card.kind === "key" && !card.faceUp) pool.push({ where: "tableau", index, i });
+        }));
+        if (!pool.length) return;
+
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        const target = tops[Math.floor(Math.random() * tops.length)];
+        const keyCard = pick.where === "stock" ? state.stock[pick.i] : state.tableau[pick.index][pick.i];
+        const displaced = target.card;
+
+        keyCard.faceUp = true;
+        displaced.faceUp = false;
+        state.tableau[target.index][target.position] = keyCard;
+        if (pick.where === "stock") state.stock[pick.i] = displaced;
+        else state.tableau[pick.index][pick.i] = displaced;
       }
 
       function adjustScore(delta) {
@@ -2646,6 +2685,10 @@
 
       function canMoveToDestination(source, destination) {
         if (!source || !destination) return false;
+        // Dropping a card back on the pile it came from is not a move. Without this the
+        // run is spliced out, the card underneath is flipped, and the run is pushed
+        // straight back — a free reveal for wiggling a card in a circle.
+        if (pileKey(destination) === pileKey(source)) return false;
         const cards = getCardsForSource(source);
         if (!cards.length) return false;
         if (destination.type === "foundation") return canPlaceOnFoundation(cards, destination.slot);
@@ -2974,6 +3017,67 @@
         };
       }
 
+      // A legal move always exists here: six columns share only four categories, so two
+      // tops must match. "Stuck" therefore means nothing on the board can make progress —
+      // no card can be banked, no key placed, no face-down card turned, no column freed.
+      function isStuck() {
+        if (state.gameWon || foundationCount() === DECK_SIZE) return false;
+        if (state.stock.length) return false;
+        if (state.waste.length && state.recycles < MAX_RECYCLES) return false;
+        if (state.waste.length && stockOrWasteHasPlayableCard()) return false;
+        return snapGains(hintSnapshot()).size === 0;
+      }
+
+      // The board cannot deadlock, but a deal can still become unwinnable: once the
+      // passes are gone, anything left in the waste is unreachable, and a key card
+      // stranded there locks its whole category out.
+      function canReshuffle() {
+        if (state.gameWon || foundationCount() === DECK_SIZE) return false;
+        if (closedCardCount() < 2) return false;
+        const strandedWaste = state.waste.length > 0 && !state.stock.length && state.recycles >= MAX_RECYCLES;
+        return strandedWaste || isStuck();
+      }
+
+      function closedCardCount() {
+        return state.tableau.flat().filter((card) => !card.faceUp).length + state.stock.length + state.waste.length;
+      }
+
+      // Reshuffles only what the player cannot see. Face-up cards and everything already
+      // banked stay exactly where they are.
+      function reshuffleClosedCards() {
+        if (state.animating) return;
+        if (!canReshuffle()) {
+          showToast(closedCardCount() < 2
+            ? "Nothing is face down to reshuffle."
+            : "Reshuffle unlocks once your passes are spent and cards are stranded.", 2800);
+          return;
+        }
+
+        pushHistoryEntry();
+        closeAllModals();
+        cleanupInteractionState({ clearSelected: true });
+
+        const closed = [];
+        state.tableau.forEach((pile) => pile.forEach((card) => { if (!card.faceUp) closed.push(card); }));
+        state.stock.forEach((card) => closed.push(card));
+        state.waste.forEach((card) => closed.push(card));
+
+        const shuffled = shuffleArray(closed);
+        let at = 0;
+        state.tableau.forEach((pile) => pile.forEach((card, i) => {
+          if (!card.faceUp) pile[i] = { ...shuffled[at], faceUp: false }, at += 1;
+        }));
+        state.stock = shuffled.slice(at).map((card) => ({ ...card, faceUp: false }));
+        state.waste = [];
+        state.reshuffles += 1;
+        adjustScore(-25);
+        state.hint = null;
+        vibrate([12, 26, 12]);
+        render();
+        persistState(false);
+        showToast(`Face-down cards reshuffled (−25). ${state.stock.length} back in the stock.`, 2800);
+      }
+
       function stockOrWasteHasPlayableCard() {
         return state.stock.concat(state.waste).some((card) => {
           if (card.kind === "key" && firstLockedSlot() !== null && slotForCategory(card.categoryId) === null) return true;
@@ -3037,7 +3141,7 @@
 
         if (state.waste.length) {
           if (state.recycles >= MAX_RECYCLES) {
-            return { stuck: true, message: `The stock is spent and ${state.waste.length} card${state.waste.length === 1 ? " is" : "s are"} stranded in the waste. Undo back to where you could still place them, or start a new deal.` };
+            return lastResortHint(`The stock is spent and ${state.waste.length} card${state.waste.length === 1 ? " is" : "s are"} stranded in the waste.`);
           }
           if (stockOrWasteHasPlayableCard()) {
             const left = MAX_RECYCLES - state.recycles;
@@ -3047,10 +3151,39 @@
               message: `Recycle the waste and run its ${state.waste.length} card${state.waste.length === 1 ? "" : "s"} past again — one of them still has a home. Costs 20 points and one of your ${left} remaining pass${left === 1 ? "" : "es"}.`
             };
           }
-          return { stuck: true, message: "Nothing in the waste has anywhere to go and the tableau will not rearrange. Undo a few moves to try a different line, or start a new deal." };
+          return lastResortHint("Nothing in the waste has anywhere to go.");
         }
 
-        return { stuck: true, message: "No legal moves are left. Undo a few moves to try another line, or start a new deal." };
+        return lastResortHint("Nothing on the board gains you anything right now.");
+      }
+
+      // There is always something legal to play, so say what it is rather than giving up.
+      function lastResortHint(lead) {
+        const moves = allLegalMoves();
+        const escape = canReshuffle()
+          ? " Your passes are gone, so Reshuffle the face-down cards from Settings (−25) to get another run at what is left."
+          : "";
+
+        if (!moves.length) {
+          return { stuck: true, message: `${lead} Undo a few moves to try another line, or start a new deal.` };
+        }
+
+        // prefer a move that at least consolidates a group rather than one that scatters
+        let choice = moves[0];
+        let bestSize = -1;
+        for (const move of moves) {
+          const destPile = move.destination.type === "tableau" ? state.tableau[move.destination.index] : null;
+          const size = destPile ? destPile.length : -1;
+          if (size > bestSize) { bestSize = size; choice = move; }
+        }
+        const lead0 = choice.cards[0];
+        const runText = choice.cards.length > 1
+          ? `${cardLabel(lead0)} and the ${choice.cards.length > 2 ? `${choice.cards.length - 1} cards` : "card"} stacked on it`
+          : cardLabel(lead0);
+        return hintFromMove({
+          ...choice,
+          message: `${lead} ${sourceLabel(choice.source) === "the waste" ? "Moving" : "Moving"} ${runText} from ${sourceLabel(choice.source)} ${destinationPreposition(choice.destination)} ${destinationLabel(choice.destination)} is legal and keeps the board tidy, but it does not unlock anything.${escape}`
+        });
       }
 
       function showHint() {
@@ -3890,7 +4023,7 @@
 
       function updateWinOverlaySummary() {
         els.winScore.textContent = `Final score: ${state.score}`;
-        els.winMeta.textContent = `Moves: ${state.moveCount} • Misses: ${state.misses} • Time: ${formatTime(nowElapsedMs())}`;
+        els.winMeta.textContent = `Moves: ${state.moveCount} • Misses: ${state.misses}${state.reshuffles ? ` • Reshuffles: ${state.reshuffles}` : ""} • Time: ${formatTime(nowElapsedMs())}`;
         if (els.winNote) {
           els.winNote.textContent = state.usedAssist
             ? `Sorted in practice mode — categories were on screen the whole time. Try it with them hidden: ${state.categoryIds.map(categoryTitle).join(", ")}.`
@@ -4086,11 +4219,13 @@
         els.newGameBtn.addEventListener("click", newDeal);
         els.hintBtn.addEventListener("click", showHint);
         els.settingsBtn.addEventListener("click", () => {
+          if (els.reshuffleBtn) els.reshuffleBtn.disabled = !canReshuffle();
           openModal(els.settingsModal);
           requestAnimationFrame(() => scrollActiveThemeIntoView("auto"));
         });
         els.refreshLayoutBtn.addEventListener("click", () => refreshLayout());
         els.settingsHintBtn.addEventListener("click", showHint);
+        if (els.reshuffleBtn) els.reshuffleBtn.addEventListener("click", reshuffleClosedCards);
         els.sizeCompactBtn.addEventListener("click", () => setCardSizePreset("compact"));
         els.sizeStandardBtn.addEventListener("click", () => setCardSizePreset("standard"));
         els.sizeLargeBtn.addEventListener("click", () => setCardSizePreset("large"));
