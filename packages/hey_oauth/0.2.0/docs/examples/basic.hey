@@ -1,0 +1,39 @@
+# Runnable: configure Google, start a login, and complete one with fakes.
+# No network, no crypto, no credentials.
+import 'stdlib:Bytes'
+import 'stdlib:Result'
+import '../../main.hey'
+
+fn gen(gctx, n)
+  return Bytes.from_text('0123456789abcdef0123456789abcdef0123456789ab', 'utf8')
+end
+
+fn exchange(xctx, cfg, code, verifier)
+  return Result.ok({id_token: 'a-signed-token'})
+end
+
+fn verify(vctx, token, now)
+  return {ok: true, value: {
+    iss: 'https://accounts.google.com', aud: 'demo-client', exp: 9999,
+    sub: 'google-user-1', nonce: 'N', email: 'learner@example.com', email_verified: true,
+  }}
+end
+
+program
+  let cfg = OauthProviders.config('google', {
+    client_id: 'demo-client',
+    client_secret: 'demo-secret',
+    redirect_uri: 'https://example.com/auth/google/callback',
+  })
+  says 'ready: ' + ('' + OauthProviders.ready?(cfg))
+
+  let started = OauthFlow.start(gen, {}, cfg)
+  says 'redirecting to the provider: ' + ('' + (Result.error?(started) == false))
+
+  let session = {state: 'S', nonce: 'N', code_verifier: 'V'}
+  let result = OauthFlow.complete({exchange: exchange, exchange_ctx: {}, verify: verify, verify_ctx: {}},
+    cfg, {code: 'C', state: 'S'}, session, 1000)
+  says 'signed in: ' + ('' + get(result, 'ok'))
+  says 'subject:   ' + ('' + get(get(result, 'identity'), 'subject'))
+  says 'email:     ' + ('' + get(get(result, 'identity'), 'email'))
+end
