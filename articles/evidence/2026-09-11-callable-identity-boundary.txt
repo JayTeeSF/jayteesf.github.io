@@ -1,0 +1,70 @@
+Hey callable identity / bootstrap-host checkpoint
+Measured: 2026-09-11, Darwin arm64
+Source worktree: ~/dev/hey-lang-tgz-dc
+Development commit: bea6178de (parent 7b2cc7f4d)
+Reported language version: 0.99.570a (NOT bumped; NOT a release)
+
+1. Cross-compilation-unit callable falsifier
+Before the direct-entry repair, independent caller/provider execution:
+  independent-run: exit 70
+  hey error: unknown callable in this program
+After repair:
+  independent-caller-provider=PASS iterations=1000 borrowed-inputs-survive
+
+2. Complete callable product gate at bea6178de
+Fresh explicit bootstrap execution host built from tools/hey_selfc_pipeline.hey,
+then product selfc ran with legacy MIR fallback disabled.
+Observed:
+  independent-caller-provider=PASS iterations=1000 borrowed-inputs-survive
+  complete callable invocation: 19 passed, 0 failed
+  native-LLVM-and-explicit-bootstrap-C=PASS shared-direct-entry-contract
+  source-product-pipeline=PASS resolution+link-plan+HIR+MIR+LLVM
+
+3. Resolver-owned bind identity
+Same source spelling without ProgramResolution was raw bind(...).
+Passing the authoritative resolution artifact produced:
+  local b37 bound:Callable = call @r1196646190 bind(prefix_callback, "prefix/")
+  local b38 returned:Callable = call @t0.14 callback_result(append)
+The generated runtime-callable table records bind as BuiltIns target 1196646190.
+Its physical ABI row is:
+  bind  hey_llvm_callable_bind_value  2  boxed  boxed,boxed  borrow  owned
+Runtime implementation clones incoming payloads before binding and returns a new box.
+Inference: ProgramResolution owns call identity; the ABI registry owns physical shape/ownership.
+LLVM need not and must not infer either fact from the spelling "bind".
+
+4. Return/consumer representation adapters
+A dynamic callable invocation has one physical result ABI: owned boxed value.
+MIR consumer kind selects adaptation. The committed tests cover string output and an i64
+function return, with the result carrier released after conversion. Withdrawing only the
+string adapter makes the authoritative product gate fail at:
+  unsupported say payload ... say str text("string")
+
+5. Parameter-kind ABI parity
+Updated direct-entry gate passes interpreter, llvm-direct, Hey emitter and self-host lanes.
+Self-host receipts for combined/i64/bool/str/boxed/callable all report:
+  consumer=hey-llvm-text fallback=0
+The boolean discriminator now uses true/false; numeric 1/0 are both truthy in Hey.
+The old gate's per-unit callable-name dispatcher assertions were removed because that dispatcher
+is intentionally gone. Defining-unit entries are demand-emitted instead.
+
+6. Real Http provider frontier
+With HEY_STDLIB_FINAL_MODULES=Http, fallback=error and the explicit bootstrap host, the old
+Http callable site is no longer the first refusal. The provider now stops later at:
+  if bool call @r912972556 len(out) > 0
+This is a separate resolved-runtime-call condition-consumer gap, not callable dispatch.
+
+7. Cold-cache/release limitation (disclosed failure)
+A plain product build after the generated selfc-pipeline fingerprint changes still tries to
+rebuild the compiler pipeline through the seed compiler's partial llvm-direct backend. It fails
+before application lowering on current compiler sources, beginning with Text.trim in
+HeyPropertyIr and HeyParser.parse_file in HeyHir, plus 22 more unsupported constructs.
+The debug Make rule supplies an explicit Stage-0 pipeline seed when building hey-selfc; the
+release hey-selfc rule does not currently supply an equivalent explicit pipeline executable.
+Inference: this is a compiler bootstrap/product-packaging boundary defect. It does NOT justify
+application Stage-0 use and it blocks promotion of bea6178de as a usable release by itself.
+
+Promotion status
+- bea6178de is pushed only to origin/hey-lang-tgz-dc.
+- local hey-lang-tgz trunk and official hey-lang-bootstrap-plan/hey-lang-tgz are not cherry-picked.
+- no version bump was made.
+- MMeow, My Queue and Top5 ordinary-build acceptance remains required.
