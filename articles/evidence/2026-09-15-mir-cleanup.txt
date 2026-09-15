@@ -1,0 +1,63 @@
+Hey MIR field-length cleanup: normalized local evidence
+Recorded 2026-09-15, Darwin arm64. This is a bounded repair receipt, not a release certificate.
+
+Repository: JayTeeSF/hey-lang-bootstrap-plan
+Development: b0bbabb60, corrected by 367816433
+Historical local trunk cherry-picks: c51bfdba4, 300a048cb
+Official hey-lang-tgz cherry-picks: 83ab57de7, c59b77e15
+Both development and official branches were pushed. Official generated conflicts
+were resolved by regenerating the combined canonical schema, preserving its
+existing Argon2/PBKDF2 declarations.
+
+Observed RED before the lifetime change:
+  test/gate_llvm_nested_string_calls.sh
+  Nested string call consumption: 8 passed, 0 failed
+  error: invalid LLVM IR input: Instruction does not dominate all uses!
+    %t78 = call ptr @hey_llvm_json_get_key_value(...)
+    call void @hey_llvm_release_value_ptr(ptr %t78)
+The quoted instruction operands are abbreviated; the error and result counts are not.
+
+Independent review exposed a second RED in the first candidate:
+  input record: {length: [1,2]}
+  expression: len(record.length)
+  expected=[0] got=[2]
+The direct compiled fixture exited 17. The complete focused source/clang/runtime
+gate independently reached the same runtime assertion. This expected value
+preserves the pre-existing protocol path; it is not a new language ruling about
+property-key precedence.
+
+Reviewed correction: source bytes subsequently committed as 367816433
+  test/gate_llvm_nested_string_calls.sh
+  Nested string call consumption: 16 passed, 0 failed
+  nested-string-runtime=PASS iterations=1000 caller-survives
+  nested_string_calls_gate=PASS
+The script compiled both emitted LLVM objects with clang and linked/ran its C
+driver. The driver tested three or outcomes 1,000 times each (shortcut, evaluated
+right true, evaluated right false), the protocol collision, and the existing
+nested-string/caller-survival cases. No mock compiler was used.
+
+Additional compiled check:
+  Rebuilt the seed pipeline from the corrected sources, emitted the same nested
+  fixture, compiled/linked it with the checked-in C driver and runtime objects,
+  then ran the executable under env -i HEY_RC_COW=0.
+  nested-string-runtime=PASS iterations=1000 caller-survives
+This establishes correctness only for this fixture with runtime copy-on-write
+disabled. It is not a uniqueness proof or a general reference-counting result.
+
+Real-module verification:
+  The full saved GraphAlgorithms.linked.mir from the preceding official archive
+  attempt was emitted by the rebuilt corrected pipeline, then compiled by clang
+  with -Wno-override-module -c. Both commands exited 0.
+  The field carrier release now follows json_len_i64 inside the right branch,
+  before that branch stores its Boolean result and joins.
+This is a full-module LLVM compilation result, not a fresh complete archive run.
+
+Review and limits:
+  Independent read-only review approved the correction after confirming the MIR
+  protocol exclusion, borrowing-contract guard and declared ABI symbol transport.
+  Runtime callable generator verification and selfhost bundle drift checks passed.
+  The initial complete archive attempt was stopped as superseded for the review
+  correction before assembly acceptance. A fresh complete official archive was
+  started on rebuilt c59b77e15; no outcome is recorded in this receipt.
+  MMeow, top5_game, my_queue_2 ordinary builds/runtime, the Linux toolchain image,
+  general ownership migration and Stage0 consumer cutover are NOT established.
