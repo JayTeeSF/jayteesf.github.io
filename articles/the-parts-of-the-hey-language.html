@@ -1,104 +1,101 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="A plain-English guided tour of Hey: start with values and functions, add actors when state needs an owner, cross machines through the same actor model, and let the compiler turn the result into native code.">
-<meta name="article-date" content="2026-08-28"><meta name="article-bucket" content="start"><meta name="article-version" content="0.99.554a">
-<meta name="article-index-title" content="The Parts of the Hey Language"><meta name="article-index-desc" content="Learn Hey from the outside in: functions, values, collections, modules, actors, jobs, distribution, native compilation and the performance work still being finished.">
-<title>The Parts of the Hey Language</title><link rel="stylesheet" href="../hey-current.css"></head><body>
-<header><div><p class="eyebrow">Hey language · guided tour · 28 August 2026</p><h1>Start with a function. Add an actor only when you need an owner.</h1><p class="lede">Hey is trying to keep the source language small: ordinary values, ordinary functions, and actors for long-lived state. Modules organize the program. Jobs organize background work. Distribution extends the actor model across machines. Native compilation should make all of that fast without asking the programmer to switch to a second, lower-level language.</p></div></header>
+<meta name="description" content="A practical introduction to Hey: immutable values, let and set, functions, callable values, modules, actors, jobs, and the native compiler underneath.">
+<meta name="article-date" content="2026-09-15"><meta name="article-bucket" content="start">
+<meta name="article-index-title" content="The Parts of the Hey Language — 15 September 2026"><meta name="article-index-desc" content="Learn Hey from small runnable examples, then see where functions, modules, actors, jobs, ownership, and native compilation fit—and which product proofs remain open.">
+<title>The Parts of the Hey Language — 15 September 2026</title>
+<link rel="stylesheet" href="../hey-current.css"><link rel="stylesheet" href="hey-architecture-guides.css"></head>
+<body class="hey-guide"><header><div><p class="eyebrow">Hey · language tour · 15 September 2026</p><h1>Start with values and functions. Add an owner when state must live.</h1><p class="lede">Hey aims for one readable language from a small calculation to a concurrent service. The source stays ordinary; the compiler is responsible for finding lower-cost representations without asking you to learn a separate “fast” dialect.</p></div></header>
 <main class="page">
-<section class="tldr"><h2>The whole language in one minute</h2><ul>
-<li><strong>Functions do most of the work.</strong> If a transformation can be expressed as input → output, keep it a function.</li>
-<li><strong>Values look immutable.</strong> The compiler is free to reuse storage when it proves nobody can observe the reuse.</li>
-<li><strong>Actors own changing state.</strong> Other code sends messages instead of reaching inside and mutating that state.</li>
-<li><strong>Remote actors should feel like actors.</strong> Crossing a machine adds transport and failure, not a second application model.</li>
-<li><strong>The compiler should make equivalent operations equivalent.</strong> Friendly spellings such as <code>m.put(k,v)</code> should not accidentally cost more than the builtin form.</li>
+<nav aria-label="September 2026 Hey guides"><ul class="article-nav"><li><a href="the-full-ladder.html">Full ladder</a></li><li><a href="architecture-of-hey.html">Architecture</a></li><li><a aria-current="page" href="the-parts-of-the-hey-language.html">Language tour</a></li></ul></nav>
+<section class="tldr"><h2>The verdict</h2><ul>
+<li><strong>Hey's center is small: values flow through functions; actors own long-lived changing state.</strong></li>
+<li><strong><code>let</code> introduces a binding and <code>set</code> advances that binding.</strong> An immutable update still behaves as though the old and new values are separate.</li>
+<li><strong>Functions can be values.</strong> Higher-order tools such as <code>reduce</code> receive a callable, not a special compiler-only syntax.</li>
+<li><strong>Modules organize vocabulary; actors and jobs organize responsibility.</strong> Remote work adds transport and failure, not a second object model.</li>
+<li><strong>Disclosed weakness:</strong> these checked-in examples establish language behavior, not complete native coverage, application migration, Linux acceptance, or performance.</li>
+<li><strong>Falsifiability:</strong> run each marked example through the interpreter; then test native compilation separately with fallback forbidden and record the exact compiler identity.</li>
 </ul></section>
 
-<h2>1 · Values and functions are the center</h2>
-<div class="two-col"><div><pre><code>fn greeting(name)
-  return 'Hello, ' + name
+<figure class="diagram"><svg viewBox="0 0 1080 230" role="group" aria-labelledby="language-title language-desc"><title id="language-title">The parts of a Hey program</title><desc id="language-desc">Seven linked boxes move from immutable values through functions, modules, actors, jobs, remote transport, and native compilation. The source features have checked-in examples. Complete native and distributed product acceptance remain open.</desc><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/></marker></defs>
+<path class="edge" d="M145 110H165M295 110H315M445 110H465M595 110H615M745 110H765M895 110H915"/>
+<a class="node landed" href="#values-and-bindings" tabindex="0" aria-label="Immutable values: checked-in examples"><rect x="15" y="50" width="130" height="120" rx="14"/><text x="80" y="86" text-anchor="middle">Values</text><text class="sub" x="80" y="112" text-anchor="middle">data + bindings</text><text class="sub" x="80" y="142" text-anchor="middle">EXAMPLE CHECKED IN</text></a>
+<a class="node landed" href="#functions-and-callables" tabindex="0" aria-label="Functions and callables: checked-in examples"><rect x="165" y="50" width="130" height="120" rx="14"/><text x="230" y="86" text-anchor="middle">Functions</text><text class="sub" x="230" y="112" text-anchor="middle">transform values</text><text class="sub" x="230" y="142" text-anchor="middle">EXAMPLE CHECKED IN</text></a>
+<a class="node pending" href="#modules-and-imports" tabindex="0" aria-label="Modules: language feature with authority migration ongoing"><rect x="315" y="50" width="130" height="120" rx="14"/><text x="380" y="86" text-anchor="middle">Modules</text><text class="sub" x="380" y="112" text-anchor="middle">organize names</text><text class="sub" x="380" y="142" text-anchor="middle">MIGRATION ACTIVE</text></a>
+<a class="node landed" href="#actors-own-state" tabindex="0" aria-label="Actors: local behavior checked in"><rect x="465" y="50" width="130" height="120" rx="14"/><text x="530" y="86" text-anchor="middle">Actors</text><text class="sub" x="530" y="112" text-anchor="middle">own state</text><text class="sub" x="530" y="142" text-anchor="middle">LOCAL EXAMPLE</text></a>
+<a class="node landed" href="#jobs-supervise-work" tabindex="0" aria-label="Jobs: focused behavior checked in"><rect x="615" y="50" width="130" height="120" rx="14"/><text x="680" y="86" text-anchor="middle">Jobs</text><text class="sub" x="680" y="112" text-anchor="middle">bound work</text><text class="sub" x="680" y="142" text-anchor="middle">FOCUSED EXAMPLE</text></a>
+<a class="node pending" href="#remote-work" tabindex="0" aria-label="Remote transport: product acceptance remains open"><rect x="765" y="50" width="130" height="120" rx="14"/><text x="830" y="86" text-anchor="middle">Remote</text><text class="sub" x="830" y="112" text-anchor="middle">transport + failure</text><text class="sub" x="830" y="142" text-anchor="middle">PRODUCT OPEN</text></a>
+<a class="node blocked" href="#native-compilation" tabindex="0" aria-label="Native compilation: complete product acceptance open"><rect x="915" y="50" width="150" height="120" rx="14"/><text x="990" y="86" text-anchor="middle">Native program</text><text class="sub" x="990" y="112" text-anchor="middle">same language</text><text class="sub" x="990" y="142" text-anchor="middle">ACCEPTANCE OPEN</text></a></svg>
+<figcaption>Figure 1. Most programs begin at the left. Add concurrency and distribution only when the problem needs them; native compilation sits underneath every source feature rather than beside it. Select a box to jump to its explanation; swipe sideways on small screens. Provenance: checked-in Hey examples at official compiler evidence through 580a3ae2b and the 15 September 2026 evidence brief.</figcaption></figure>
+<div class="status-key" aria-label="Status key"><span class="landed"><i></i>Landed and verified</span><span class="pending"><i></i>Partial, migrating, or pending</span><span class="blocked"><i></i>Blocked or acceptance open</span><span class="intended"><i></i>Intended design</span></div>
+
+<section id="values-and-bindings"><h2>Values stay separate even when a binding advances</h2><p><code>let</code> gives a name to a value. <code>set</code> makes that name refer to its next value. The important distinction is between a binding—the local name—and the value it currently names.</p>
+<pre data-hey-example="language-values-bindings"><code>program
+  let original = {name: 'Ada', visits: 1}
+  let current = original
+  set current = {...current, visits: current.visits + 1}
+  says original.visits
+  says current.visits
+end</code></pre><p class="example-note">Expected output: <code>1</code>, then <code>2</code>. The record spread creates the meaning “old fields plus this change.” The compiler may reuse storage only when that cannot change what either name observes.</p></section>
+
+<section id="functions-and-callables"><h2>Functions do the ordinary work</h2><p>A function takes values and returns a value. A callable is simply a function carried as data, so another function can invoke it later. This makes <code>map</code>, <code>filter</code>, and <code>reduce</code> ordinary library tools.</p>
+<pre data-hey-example="language-callable-reduce"><code>import 'stdlib:Collections'
+
+fn add(total, value)
+  return total + value
 end
 
 program
-  says greeting('Ada')
-end</code></pre></div><div class="card"><h3>Why begin here?</h3><p>Because most programs do not need an object hierarchy to express ordinary work. Numbers, strings, booleans, bytes, arrays and map/record-shaped values flow into functions and come back out as values.</p><p>That gives Hey the readable, direct feeling people like in Ruby while leaving the compiler room to specialize the implementation underneath.</p></div></div>
+  says Collections.reduce([1, 2, 3, 4], 0, add)
+end</code></pre><p class="example-note">Expected output: <code>10</code>. The real library's <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/580a3ae2b3f138532f1c19c820bfcba1e4e94c3c/stdlib/Collections.hey#L63-L72"><code>reduce</code> implementation</a> repeatedly calls its <code>reducer</code> parameter.</p><p>A focused compiler mechanism now carries a known reducer's ownership effect through that callable boundary. The broader performance claim remains open: ordinary immutable rebuilds still need clone, allocation, scaling, and real-application evidence. There is no magic “fast function” syntax.</p></section>
 
-<h2>2 · Immutability is the contract; reuse is the optimization</h2>
-<p>Suppose you update a map. The source language should behave as though the old value and the new value are separate. That does <em>not</em> mean the runtime must copy the whole map every time.</p>
-<div class="figure"><p class="figure-title">What the programmer sees vs. what a good compiler may do</p><div class="path">
-<div><strong>Source</strong><small><code>next = stats.put(key,value)</code></small></div>
-<div><strong>Meaning</strong><small>Produce a map with one entry changed.</small></div>
-<div><strong>Ownership proof</strong><small>Can anyone else still observe <code>stats</code>?</small></div>
-<div class="done"><strong>Single owner</strong><small>Reuse the backing storage in place.</small></div>
-<div class="now"><strong>Shared</strong><small>Copy only when the language semantics require separation.</small></div>
-</div></div>
-<section class="callout warn"><strong>This is still an important product gap.</strong> Controlled measurements show the builtin map-update path can be flat while method-form <code>stats.put(...)</code> can still follow an O(map) route. That is exactly the kind of implementation detail the language is supposed to hide. It is not finished until both spellings reach one semantic operation and the real 1BRC path gets the same scaling.</section>
+<section id="modules-and-imports"><h2>Modules organize vocabulary, not object identity</h2><p>A module groups related functions. An import makes another source unit available. Internally, the compiler needs a stable source and function identity so two helpers with the same printed name do not become the same function by accident.</p>
+<div class="two-col"><div><p class="example-note"><code>visits.hey</code> — first half of a cross-file example</p><pre data-hey-example="language-module-library"><code>module Visits
+  fn bump(user)
+    return {...user,
+      visits: user.visits + 1}
+  end
+end</code></pre></div><div><p class="example-note"><code>main.hey</code> — run this file beside <code>visits.hey</code></p><pre data-hey-example="language-module-main"><code>import './visits.hey'
 
-<h2>3 · Modules organize names; they should not define meaning by accident</h2>
-<div class="two-col"><div><pre><code>module Accounts
-  fn deposit(account, amount)
-    return {...account,
-      balance: account.balance + amount}
+program
+  let user = {name: 'Ada', visits: 1}
+  says Visits.bump(user).visits
+end</code></pre></div></div><p>Module authority and exposure are still transitional. The direction is ordinary source declarations and lexical imports, but compatibility tables remain; this guide does not claim the planned <code>Sys</code> migration is complete.</p></section>
+
+<section id="actors-own-state"><h2>Actors own state that outlives one function call</h2><p>An actor has a mailbox and private state. Other code sends messages instead of sharing that state directly. Use one for a session, connection, coordinator, or other thing that continues to exist; use a function when input-to-output is enough.</p>
+<pre data-hey-example="language-actor-counter"><code>actor Total
+  state sum = 0
+  receive value
+
+  if value == 'report'
+    says sum
+    exit
+  else
+    set sum = sum + value
   end
 end
 
-import './accounts.hey'
-
 program
-  let next = Accounts.deposit(user, 10)
-end</code></pre></div><div class="card"><h3>The compiler’s job</h3><p>A filename, a module spelling and a function spelling are useful to a human. Internally, the compiler should remember the actual imported source unit and the actual function selected there.</p><p>That is how two libraries can contain the same helper name without accidentally becoming the same function at link time.</p></div></div>
-<p>Modules define real functions. Imports choose the local vocabulary: what a file may write bare, what it writes qualified, and what it may write with a dot. Hey is heading toward having no privileged built-in layer at all — every operation gets a real module home, and <code>Sys</code> supplies the recommended everyday vocabulary as an ordinary module you import, narrow or replace.</p>
-<p>Dotted syntax belongs to that vocabulary rather than to a separate object system: <code>items.map(f)</code> is imported compile-time sugar for <code>map(items, f)</code>, chosen lexically by the importing scope and never by the receiver’s type. <a href="imports-change-the-flavor.html">Imports that change the flavor of the language</a> covers the whole mechanism and how far it is actually built.</p>
+  let total = spawn Total
+  send total, 10
+  send total, 20
+  send total, 'report'
+  join total
+end</code></pre><p class="example-note">Expected output: <code>30</code>. This is a local actor example, not a claim about cluster-wide delivery.</p></section>
 
-<h2>4 · Actors are for owned state</h2>
-<p>A function describes a transformation. An actor describes something that <em>continues to exist</em>: a session, connection, cache, game, worker, device, coordinator or other stateful service.</p>
-<div class="flow">
-<div class="stage"><strong>Function</strong><small>Take values in; return a value.</small></div>
-<div class="stage"><strong>Actor</strong><small>Own state that changes over time.</small></div>
-<div class="stage"><strong>Message</strong><small>Ask an actor to do something without sharing its mutable state.</small></div>
-<div class="stage"><strong>Job / supervisor</strong><small>Organize background work, retry and failure.</small></div>
-</div><div class="arrowline"></div>
-<section class="callout good"><strong>The simplicity test:</strong> if ordinary functions are enough, use functions. Actors are not “objects by another name”; they exist because mutable state needs a clear owner when work becomes concurrent or long-lived.</section>
+<section id="jobs-supervise-work"><h2>Jobs put bounds around background work</h2><p>Workers describe work. Jobs add capacity, result handling, retries, and dead-letter observation. The <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/580a3ae2b3f138532f1c19c820bfcba1e4e94c3c/test/minispec/supervision_spec.hey#L17-L44">checked-in supervision example</a> proves a particular bounded retry flow; it does not promise a general service-level guarantee.</p></section>
 
-<h2>5 · Distribution extends the same model across machines</h2>
-<p>Remote work should not force a new programming style. The application still talks to actors; the distributed layer adds node identity, transport, security, stale-node handling and the possibility that a machine is unavailable. If you want to try it rather than read about it, <a href="how-to-run-distributed-hey.html">Distributed Hey: one program, more machines</a> walks through two nodes on one laptop, two containers, and two real machines over TLS.</p>
-<table><thead><tr><th>Layer</th><th>What it gives the programmer</th><th>Where it stands</th></tr></thead><tbody>
-<tr><td><strong>Local actors</strong></td><td>Mailboxes and state ownership inside one process.</td><td>Core model is real.</td></tr>
-<tr><td><strong>Remote transport</strong></td><td>Remote send/call over network transport with security behavior that fails closed.</td><td>Real, with production hardening still ongoing.</td></tr>
-<tr><td><strong>Cluster services</strong></td><td>Discovery, membership, placement and upgrade orchestration.</td><td>Later layer; should not outrun compiler and performance closure.</td></tr>
-</tbody></table>
+<section id="remote-work"><h2>Remote work adds failure, not a new programming model</h2><p>The application still talks in messages. Transport adds node identity, framing, timeouts, reconnect behavior, and the possibility that another machine is unavailable. A remote send has at-most-once transport semantics; a remote call is correlated messaging with a timeout. Focused localhost tests do not certify a multi-machine product.</p></section>
 
-<h2>6 · Native compilation is underneath, not beside, the language</h2>
-<p>The intended path is straightforward:</p>
-<div class="flow">
-<div class="stage"><strong>Parse</strong><small>Find the structure of the program.</small></div>
-<div class="stage"><strong>Resolve</strong><small>Decide what every reference means.</small></div>
-<div class="stage"><strong>HIR</strong><small>Carry those decisions forward.</small></div>
-<div class="stage"><strong>MIR</strong><small>Expose execution and ownership choices.</small></div>
-<div class="stage"><strong>LLVM</strong><small>Lower to native machine code.</small></div>
-</div>
-<p>The important architectural word here is not “LLVM.” It is <strong>carry</strong>. Once the front of the compiler knows which function or operation you meant, later stages should not infer it again from a printed name. <a href="architecture-of-hey.html">The Architecture of Hey</a> is the canonical account of how that pipeline actually works, and of which parts of it are still transitional.</p>
-<section class="callout good"><strong>Concrete progress, as of 28 August 2026:</strong> the native and Hey-owned emitters agree on all 91 pinned LLVM fixtures. An earlier 90/91 diagnosis was disproved by measuring the actual current producers. The wider examples corpus is a separate, stricter test and still contains four genuine divergences.</section>
+<section id="native-compilation"><h2>The compiler should make friendly source inexpensive</h2><p>The intended path is source → parser → resolver → high-level intermediate representation → mid-level intermediate representation → LLVM → linker → native executable. The <a href="architecture-of-hey.html">architecture guide</a> explains what each layer owns.</p><p>The language promises immutable behavior. Copy-on-write preserves that behavior when sharing is possible. When the compiler proves one owner and a last use, Perceus-inspired reuse can update storage in place. That removes avoidable copying; it does not repair an algorithm that repeatedly scans everything it has already seen.</p><p>The complete archive, existing application migrations, and fresh Linux correctness remain open. A reported Linux <code>Cli</code> failure is currently scoped to a native compiler crash during MIR-to-LLVM emission; it is not yet a proven <code>Cli</code> runtime-language defect.</p></section>
 
-<h2>7 · “Fast” has to survive real programs</h2>
-<p>A language can look impressive on a tiny loop and still be slow where applications spend time. Hey’s performance program therefore needs three different proofs.</p>
-<div class="grid">
-<div class="card"><h3>Algorithmic shape</h3><p>An update that should be constant-time must stay constant-time as the collection grows. This is where method-form map update still fails today.</p></div>
-<div class="card"><h3>Whole-program speed</h3><p>1BRC and fannkuch test whether the compiler can keep good representations and ownership decisions across functions, loops and data structures.</p></div>
-<div class="card"><h3>Server behavior</h3><p>Web throughput and tail latency test allocation, IO, scheduling and concurrency. Measurements must identify sidecars and fallbacks so the number belongs to the intended path.</p></div>
-</div>
-<section class="callout"><strong>About the “1000× faster than Python” kind of claim:</strong> it is useful as an ambition, not as a release criterion. Hey should publish pinned workload comparisons and cost curves, not one giant multiplier. The architectural goal is the same one that makes Mojo interesting: high-level source code should not force high-level runtime overhead when the compiler can prove a cheaper representation.</section>
+<section id="what-is-proven"><h2>Read examples and product evidence separately</h2><table class="compact-table"><thead><tr><th>Part</th><th>What the source demonstrates</th><th>What remains open</th></tr></thead><tbody>
+<tr><td>Values + bindings</td><td>Immutable record behavior with <code>let</code> and <code>set</code>.</td><td><span class="status-label landed">Example behavior</span></td></tr>
+<tr><td>Callables</td><td>An ordinary function can be passed to <code>reduce</code>.</td><td><span class="status-label pending">Whole-program cost</span></td></tr>
+<tr><td>Modules</td><td>Qualified functions across imported source.</td><td><span class="status-label pending">Authority migration</span></td></tr>
+<tr><td>Actors + jobs</td><td>Local mailbox/state and bounded supervised work.</td><td><span class="status-label pending">Distributed product gates</span></td></tr>
+<tr><td>Native path</td><td>A real self-hosted pipeline exists.</td><td><span class="status-label blocked">Archive, apps, Linux</span></td></tr>
+</tbody></table><p>Already-decided directions around import exposure, cast-based type evidence, specification behavior, and nullability still require their own current acceptance. They are roadmap, not implied by these four examples.</p></section>
 
-<h2>8 · What is finished, what is not</h2>
-<table><thead><tr><th>Part</th><th>What you can rely on</th><th>What still has to close</th></tr></thead><tbody>
-<tr><td><strong>Language surface</strong></td><td>Values, functions, modules, actors, jobs, IO/networking and package machinery are substantial.</td><td>Finish remaining rough edges without growing a second “fast” dialect.</td></tr>
-<tr><td><strong>Compiler meaning</strong></td><td>Semantic function identity and fail-closed target/link behavior exist.</td><td>Finish source/module identity and remove remaining name/text recovery where it still acts as authority.</td></tr>
-<tr><td><strong>LLVM parity</strong></td><td>91/91 pinned fixtures agree.</td><td>Fix the four examples-corpus divergences and classify fail-closed examples.</td></tr>
-<tr><td><strong>Release trust</strong></td><td>There is a detailed certification contract.</td><td>Bring the actual release harness up to that contract and explain every non-green result before certification.</td></tr>
-<tr><td><strong>Performance</strong></td><td>Some native hot paths are already strong.</td><td>Close MAP_PUT, structured ownership, 1BRC, fannkuch and broad repeatable FAST receipts.</td></tr>
-<tr><td><strong>Distribution</strong></td><td>Actor transport exists and security behavior has been hardened.</td><td>Build cluster services after the compiler/performance foundation is trustworthy.</td></tr>
-</tbody></table>
-
-<h2>9 · The promise</h2>
-<section class="callout next"><strong>Hey should feel small even when the program becomes serious.</strong> Start with a function. Add a module to organize code. Add an actor when state needs one owner. Let the same actor model cross machines. Let the compiler—not the programmer—do the work required to reach native representations and reuse storage safely. That is the product: Ruby-like ergonomics over simple functions and actors, without accepting Ruby-like overhead as the price.</section>
-</main><footer><div>The Parts of the Hey Language · guided product tour against Hey 0.99.554a, 28 August 2026 · not compiler campaign archaeology. Where this page says “still to close,” <a href="the-full-ladder.html">The Full Ladder</a> keeps the dated scoreboard.</div></footer></body></html>
+<section id="sources"><h2>Examples and evidence</h2><ul class="source-list"><li><a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/580a3ae2b3f138532f1c19c820bfcba1e4e94c3c/test/minispec/actor_spec.hey#L30-L60">Actor state, spawn, send, and join</a>.</li><li><a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/580a3ae2b3f138532f1c19c820bfcba1e4e94c3c/test/minispec/supervision_spec.hey#L17-L44">Bounded job supervision example</a>.</li><li><a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/commit/c482af47a593067779db6e99401e91cb4460d656">Focused callable ownership effects</a>.</li><li><a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/580a3ae2b3f138532f1c19c820bfcba1e4e94c3c/docs/agents/decisions/2026-09-12-perceus-higher-order-ownership-and-compiler-quadratics.md">Ownership and compiler-quadratics decision</a>.</li></ul></section>
+</main><footer><div>Language guide · reviewed 15 September 2026. Runnable examples establish their stated behavior; native and distributed product acceptance remain separate evidence.</div></footer></body></html>
