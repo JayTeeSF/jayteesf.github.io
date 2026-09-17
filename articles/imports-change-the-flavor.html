@@ -133,7 +133,7 @@
 <body>
 <main>
 <article>
-  <p class="eyebrow">Hey language · design note · 22 August 2026 · substantially revised 29 August 2026</p>
+  <p class="eyebrow">Hey language · design note · 22 August 2026 · updated 17 September 2026</p>
   <h1>Imports that change the flavor of the language</h1>
   <p class="lede">Hey is removing the privileged built-in layer entirely. Every operation ends up in a real module, and a normal program opens by importing the recommended one. That single decision is what makes an import in Hey more than a name lookup: the same language reads differently from file to file, because each file chose its own vocabulary — and it chose it lexically, once, before the optimizer ever sees the program.</p>
 
@@ -540,6 +540,28 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
 
   <p class="note">Do not read this article as a description of what today's build does everywhere. It describes a settled design, a substantially built resolver, and a cutover in progress. Where the design and the build disagree today, the build is what runs. And the sharpest way to hold the current state in your head is this: the machinery that would let a module govern its own call forms is now wired into resolution and fails closed — over a population of one.</p>
 
+  <h3>Build-time origin binding is separate from lexical replacement</h3>
+  <p>A project is allowed to replace the vocabulary it imports. That does not mean a project directory may replace the file named by <code>stdlib:</code>. The first is an explicit lexical choice such as <code>import './System.hey'</code>. The second is provider-origin substitution: the source asks for the selected SDK and receives a project-controlled file wearing an SDK identity.</p>
+
+  <p>Hey should bind every import during Resolve. Parse keeps the import form and source span. Resolve receives one immutable compile-session root record and publishes the selected origin, semantic key, canonical locator, content digest, source unit and target unit. <code>stdlib:</code> stays beneath the selected SDK root; <code>pkg:</code> stays beneath the lock-verified package store; only an explicit relative import resolves beside the importing source. HIR consumes the resulting identities. MIR and LLVM never search for modules again.</p>
+
+  <p>The current Hey-written resolver does not yet satisfy that rule. It probes <code>stdlib/&hellip;</code> in the process working directory before consulting the selected SDK, duplicates path construction across several compiler modules, and can turn that relative path into a trusted-looking <code>stdlib:</code> unit identity. A project-controlled <code>stdlib/Text.hey</code> can therefore shadow the selected SDK. First-party launchers setting <code>HEY_STDLIB_PATH</code> do not close the hole because the CWD probe runs first.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <caption>Options considered for standard-library origin.</caption>
+    <thead><tr><th scope="col">Option</th><th scope="col">Result</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Scheme-sealed roots</th><td><strong>Required.</strong> Bind <code>stdlib:</code>, <code>pkg:</code> and relative imports to distinct origins during Resolve; remove CWD as an ambient search root.</td></tr>
+      <tr><th scope="row">SDK manifest and digests</th><td><strong>Recommended next.</strong> Verify module content and include SDK identity in cache keys and build receipts.</td></tr>
+      <tr><th scope="row">Explicit resolver map</th><td>Useful for a deliberately selected alternative toolchain, provided replacements receive a distinct origin and never masquerade as the standard library.</td></tr>
+      <tr><th scope="row">Compile stdlib modules into the compiler</th><td>Rejected. It would recreate a privileged built-in layer and work against Hey's ordinary-module design.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>This follows the strongest parts of existing practice. <a href="https://nodejs.org/api/modules.html#built-in-modules">Node gives built-in modules priority and an explicit <code>node:</code> origin</a>. <a href="https://docs.deno.com/runtime/fundamentals/modules/">Deno requires explicit relative paths or registry schemes</a>. <a href="https://github.com/ruby/ruby/blob/master/doc/NEWS/NEWS-1.9.2">Ruby removed the current directory from its load path and added <code>require_relative</code></a>, while <a href="https://perldoc.perl.org/perl5260delta#Removal-of-the-current-directory-(%22.%22)-from-@INC">Perl removed <code>.</code> from <code>@INC</code></a>. Python's continuing CWD/script-directory precedence, and its <a href="https://docs.python.org/3/using/cmdline.html#cmdoption-P"><code>-P</code> / <code>PYTHONSAFEPATH</code> escape hatch</a>, are the failure mode Hey should avoid rather than adopt as a permanent compatibility mode.</p>
+
   <p>A few narrower questions are genuinely open rather than merely unimplemented, and have been since the early-August docket: which wins when a dotted call matches both a callable field and an imported receiver function; exactly what diagnostic fires when dotted syntax names no eligible receiver; the per-binding alias spelling; and whether reusable selector sets are worth having as a compile-time-only construct. The module-path resolution algorithm — search paths, package roots — was also never fully stated.</p>
 
   <p>One boundary is drawn on purpose and is not open: <strong>no dynamic binding from data.</strong> A runtime array or map cannot decide which lexical names exist after compilation. Python draws the same line and is a useful reference for it — ordinary imports are language syntax, while programmatic loading goes through a separate library call. Hey can add a module-value loader later; it would be a different mechanism, not an extension of this one. Reusable selector sets, if they are ever adopted, have to be compile-time manifests or generated source for the same reason. The lexical layer stays lexical.</p>
@@ -569,6 +591,7 @@ Collections.map(items, f)     <span class="cmt"># qualified</span></code></pre>
       <li><em>Ownership reports on the map-update split</em> — the textual match on the builtin <code>put(</code> spelling, the method form missing its consume and move markers, the measured flat-versus-growing control, and the canonicalize-at-call-identity repair.</li>
       <li><em>module-system.md</em> and the early-August decision docket — the four-words framing, the <code>Math</code> operator exposure, precedence owned by the symbol, and the four still-open edge decisions.</li>
       <li><em>Language prior art</em> — C# extension members and Kotlin extensions (static resolution, receiver as first parameter, no members added to the extended type); Elixir imports, aliases and private functions (lexical, narrowable by inclusion and exclusion); Haskell modules (export list and import hiding as separate decisions); Rust field expressions (<code>value.name(...)</code> as a method call versus <code>(value.name)(...)</code> for a callable field); Python modules versus programmatic loading. Absorbed here from an earlier note on dot syntax without objects, which this article now supersedes.</li>
+      <li><a href="https://nesbitt.io/2026/09/15/shadowing-the-standard-library.html">Andrew Nesbitt, “Shadowing the Standard Library”</a> — the cross-language security and reproducibility failure that prompted the September 17 origin audit.</li>
     </ol>
   </div>
 
