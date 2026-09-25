@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flat Records or Regions</title>
+<meta name="article-date" content="2026-09-24">
+<meta name="article-bucket" content="research">
+<meta name="article-desc" content="Hey is 10.7x C on binary trees and loses to Erlang, Ruby and Python. Erlang wins with flat tuples and an immediate leaf; Verona would win with regions. Why the two fixes multiply instead of competing, which half of the gap turns out not to be ours to close, and the one unmeasured number that decides which to build first.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --border: rgba(128,128,128,0.35);
+    --muted: rgba(128,128,128,0.85);
+    --panel: rgba(128,128,128,0.10);
+    --code: rgba(128,128,128,0.16);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+  }
+  * { box-sizing: border-box; }
+  body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  header { margin-bottom: 2.5rem; }
+  h1, h2, h3 { line-height: 1.2; }
+  h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+  h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+  h3 { margin-top: 2rem; }
+  a { text-underline-offset: 0.18em; }
+  .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+  .tldr, .callout {
+    margin: 1.5rem 0 2rem;
+    padding: 1.1rem 1.25rem;
+    border: 2px solid var(--border);
+    border-radius: 0.7rem;
+    background: var(--panel);
+  }
+  .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+  pre {
+    overflow-x: auto;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.55rem;
+    background: var(--code);
+    line-height: 1.45;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+  th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  .number { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  ul { padding-left: 1.4rem; }
+  li { margin: 0.35rem 0; }
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
+  dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
+  .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
+  .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .term { border-left-color: #2a78d6; }
+  details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
+  details.deep > summary { cursor: pointer; font-weight: 600; }
+  .glossary dt { margin-top: 0.85rem; font-weight: 600; }
+  .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
+  .pc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0 1.75rem; }
+  @media (max-width: 620px) { .pc-grid { grid-template-columns: 1fr; } }
+  .pc-pro, .pc-con { padding: 0.85rem 1rem; border-radius: 0.55rem; border: 1px solid var(--border); }
+  .pc-pro { background: rgba(47,158,91,0.10); }
+  .pc-con { background: rgba(208,59,59,0.08); }
+  .pc-pro h4, .pc-con h4 { margin: 0 0 0.4rem; font-size: 0.78rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+  .pc-pro h4 { color: #237a47; }
+  .pc-con h4 { color: #d03b3b; }
+  @media (prefers-color-scheme: dark) {
+    .pc-pro h4 { color: #4ec97e; }
+    .pc-con h4 { color: #ff6b60; }
+  }
+  :root[data-theme="dark"] .pc-pro h4 { color: #4ec97e; }
+  :root[data-theme="dark"] .pc-con h4 { color: #ff6b60; }
+  .pc-pro p, .pc-con p { margin: 0; font-size: 0.93rem; }
+  blockquote.q { margin: 1.25rem 0; padding: 0.4rem 0 0.4rem 1rem; border-left: 3px solid var(--border); color: var(--muted); font-style: italic; }
+  figure { margin: 1.75rem 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { margin-top: 0.5rem; font-size: 0.88rem; color: var(--muted); }
+  .win { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Flat Records or Regions</h1>
+  <p class="lede">On the binary-trees benchmark, Hey is beaten by Erlang, Ruby and Python.
+  Two different fixes are available, from two different traditions. This is an argument that
+  they are not alternatives, and that picking only one leaves most of the gap on the table.</p>
+</header>
+
+<div class="tldr">
+  <h2>TL;DR</h2>
+  <ul>
+    <li><strong>The measurement.</strong> w11 bintrees: Hey 2.331&nbsp;s against Erlang 0.163, Ruby 0.487,
+      Python 0.956, C 0.217. We are 10.7&times; C and lose to three garbage-collected languages.</li>
+    <li><strong>Erlang does not use actors here.</strong> The benchmark is one sequential process. Its
+      advantage is representation and allocation, not concurrency.</li>
+    <li><strong>Roughly half the gap is not ours to close.</strong> The Erlang program's leaf allocates
+      nothing; ours allocates a node. We build about twice as many objects before any
+      implementation difference. The benchmark sources are fixed.</li>
+    <li><strong>Option A, flat records,</strong> attacks the cost <em>per object</em>: a two-field record
+      should be two slots, not a hash table with string keys.</li>
+    <li><strong>Option B, regions,</strong> attacks the cost <em>per object's lifetime</em>: a tree built and
+      discarded inside one loop iteration should be one allocation and one free, not 2<sup>d+1</sup>.</li>
+    <li><strong>They multiply.</strong> A is the larger and more tractable win and should go first.
+      B is what finally beats Erlang rather than merely catching it.</li>
+    <li><strong>One measurement decides the order</strong>, and we do not have it yet: the Perceus reuse
+      rate on w11. If it is zero, our FBIP story is aspirational and B is urgent.</li>
+  </ul>
+</div>
+
+<h2>1. The measurement</h2>
+
+<p>Taken on a quiet, mains-powered M3 Pro, best-of-5, every language verified against the same
+reference output before being timed.</p>
+
+<div class="tablewrap">
+<table>
+  <thead>
+    <tr><th>workload</th><th class="number">C</th><th class="number">Rust</th><th class="number">Go</th>
+        <th class="number">Hey</th><th class="number">Ruby</th><th class="number">Python</th><th class="number">Erlang</th><th class="number">Hey&divide;C</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>w11 bintrees</td><td class="number">0.217</td><td class="number">0.243</td><td class="number">0.213</td>
+        <td class="number win">2.331</td><td class="number">0.487</td><td class="number">0.956</td><td class="number">0.163</td><td class="number">10.74&times;</td></tr>
+    <tr><td>w12 nqueens</td><td class="number">0.279</td><td class="number">0.398</td><td class="number">0.426</td>
+        <td class="number win">7.022</td><td class="number">19.78</td><td class="number">15.24</td><td class="number">1.268</td><td class="number">25.17&times;</td></tr>
+    <tr><td>w1 sum <span class="muted">(control)</span></td><td class="number">0.112</td><td class="number">0.092</td><td class="number">0.306</td>
+        <td class="number">0.112</td><td class="number">1.916</td><td class="number">9.86</td><td class="number">2.227</td><td class="number">1.00&times;</td></tr>
+    <tr><td>w3 search <span class="muted">(control)</span></td><td class="number">0.114</td><td class="number">0.093</td><td class="number">0.32</td>
+        <td class="number">0.114</td><td class="number">1.954</td><td class="number">10.539</td><td class="number">2.238</td><td class="number">1.00&times;</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The two controls matter. <code>w1</code> and <code>w3</code> contain no function definitions at all, so a
+change to how functions pass values cannot move them. Both land at exactly 1.00&times;, which is what
+makes the other two numbers trustworthy rather than noise.</p>
+
+<p>On w11 we are beaten by <strong>Erlang by 14&times;, Ruby by 4.8&times; and Python by 2.4&times;</strong>. A
+compiled language losing to three interpreted, garbage-collected ones on an allocation benchmark is
+a statement about allocation, not about compilation.</p>
+
+<h2>2. What Erlang is actually doing</h2>
+
+<p>The first question was whether Erlang wins here by using its process model. It does not. The entire
+program is sequential:</p>
+
+<pre><code>make(0) -&gt; nil;
+make(D) -&gt; {make(D-1), make(D-1)}.
+check(nil) -&gt; 1;
+check({L, R}) -&gt; 1 + check(L) + check(R).</code></pre>
+
+<p>No processes, no messages, no scheduler. Matching Erlang's concurrency model would buy exactly
+nothing on this benchmark. Three other things are doing the work.</p>
+
+<h3>2.1 Flat positional tuples</h3>
+
+<p><code>{L, R}</code> is a header word followed by two words, contiguous. No keys are stored anywhere.
+<code>check({L, R})</code> destructures by pattern match, which compiles to two loads at constant offsets.</p>
+
+<p>Ours is a hashed map. A record literal builds a <code>HeyJsonObject</code>, and <code>n.left</code> is a hash
+lookup on the string <code>"left"</code>.</p>
+
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="Diagram comparing a flat two-word Erlang tuple with a Hey hashed record containing string keys">
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
+    <text x="0" y="16" font-size="12" fill="currentColor" opacity="0.7">ERLANG — one allocation, 3 words, keys are positions</text>
+    <rect x="0" y="28" width="110" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="14" y="53" fill="currentColor">header</text>
+    <rect x="110" y="28" width="110" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="146" y="53" fill="currentColor">ptr L</text>
+    <rect x="220" y="28" width="110" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="256" y="53" fill="currentColor">ptr R</text>
+    <text x="345" y="53" font-size="12" fill="currentColor" opacity="0.7">check({L,R}) = two loads at fixed offsets</text>
+
+    <text x="0" y="112" font-size="12" fill="currentColor" opacity="0.7">HEY — hashed object: bucket array, entries, and the key strings themselves</text>
+    <rect x="0" y="124" width="150" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="14" y="149" fill="currentColor">obj header</text>
+    <rect x="150" y="124" width="150" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="164" y="149" fill="currentColor">bucket[]</text>
+    <rect x="300" y="124" width="150" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="314" y="149" fill="currentColor">entry "left"</text>
+    <rect x="450" y="124" width="150" height="40" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="464" y="149" fill="currentColor">entry "right"</text>
+    <text x="615" y="149" font-size="12" fill="currentColor" opacity="0.7">n.left = hash, probe, compare</text>
+
+    <text x="0" y="205" font-size="12" fill="currentColor" opacity="0.7">HEY, PROPOSED — shape known at compile time, so the keys need not exist at run time</text>
+    <rect x="0" y="216" width="110" height="30" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="14" y="236" fill="currentColor">header</text>
+    <rect x="110" y="216" width="110" height="30" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="146" y="236" fill="currentColor">slot 0</text>
+    <rect x="220" y="216" width="110" height="30" fill="none" stroke="currentColor" opacity="0.5"/>
+    <text x="256" y="236" fill="currentColor">slot 1</text>
+    <text x="345" y="236" font-size="12" fill="currentColor" opacity="0.7">n.left = load at offset 0</text>
+  </g>
+</svg>
+<figcaption>The same two-field node in three representations. The key strings in the middle row are
+stored, hashed and compared at run time even though both field names are known while compiling.</figcaption>
+</figure>
+
+<h3>2.2 An immediate leaf — and this half is not ours to fix</h3>
+
+<p>Erlang's <code>make(0)</code> returns the atom <code>nil</code>, which allocates nothing. Hey's
+<code>make_tree(0)</code> returns <code>{left: nil, right: nil}</code>, a real node.</p>
+
+<p>A tree of depth <em>d</em> therefore costs Erlang about 2<sup><em>d</em></sup>&minus;1 cells and costs us
+about 2<sup><em>d</em>+1</sup>&minus;1. <strong>We allocate roughly twice as many objects before any
+representation difference at all.</strong></p>
+
+<div class="aside">
+  <h3>Why we are not going to "fix" this</h3>
+  <p>The benchmark sources are fixed and rewriting one to a friendlier spelling would invalidate the
+  comparison. The two programs are simply not structurally equivalent. The honest consequence is that
+  <strong>the achievable target on w11 is not 14&times;</strong>; it is whatever remains after this factor is
+  subtracted. Any fix should be judged against that, or a correct result will look like a failure.</p>
+</div>
+
+<h3>2.3 Bump allocation and a generational collector</h3>
+
+<p>On BEAM, allocating is a pointer increment into a per-process heap, and objects that die young cost
+almost nothing to collect. We call <code>malloc</code> per node and pay reference-count traffic on the way
+in and out.</p>
+
+<p>This is precisely the cost that <dfn>Perceus</dfn> reference counting and <dfn>FBIP</dfn> exist to
+remove, and binary trees is the benchmark the Perceus paper itself uses. Which raises the question this
+document cannot yet answer, and which is the most important open item on the project:</p>
+
+<blockquote class="q">What is our measured reuse rate on w11 today? If it is zero, the FBIP story is
+aspirational rather than real, and that is a larger finding than the hash table.</blockquote>
+
+<h2>3. Option A — flat records</h2>
+
+<p>A record whose key set is known at compile time becomes a fixed-slot object: construction is one
+allocation of a known size with no keys written, and <code>n.left</code> is a load at a constant offset.</p>
+
+<p>This is the mainstream answer. Erlang's tuples, Rust's structs, Mojo's structs, and OCaml's records
+all work this way. It is also what our own research concluded independently:</p>
+
+<blockquote class="q">Every system that keeps data flat does it by declaration, not by analysis.
+Escape analysis is a cautionary tale: HotSpot's C2 rejects roughly 80% of candidates, and does not even
+do stack allocation — it does scalar replacement.</blockquote>
+
+<div class="pc-grid">
+  <div class="pc-pro">
+    <h4>For</h4>
+    <p>Largest single win available, and it applies to every record in every program, not just to
+    trees. Well-understood, with four mature implementations to learn from. Composes with everything
+    else we are building.</p>
+  </div>
+  <div class="pc-con">
+    <h4>Against</h4>
+    <p>Needs the shape published in the signature so it survives a call, which is the same machinery
+    three other lanes are already building. Records whose shape is genuinely dynamic must keep the
+    hashed representation, so we will carry both and must decide between them soundly.</p>
+  </div>
+</div>
+
+<div class="aside term">
+  <h3>The same defect, three times</h3>
+  <p>This is not a new problem. It is the third instance of one pattern, and noticing that changes
+  how it should be built.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>flat buffer</th><th>flat record</th><th>scalar return</th></tr></thead>
+    <tbody>
+      <tr><th>value</th><td>array of i64</td><td>two-field node</td><td>recursive Int function</td></tr>
+      <tr><th>shape known at compile time</th><td>yes</td><td>yes</td><td>yes</td></tr>
+      <tr><th>what we emit</th><td>boxed array</td><td>hashed map</td><td>boxed value</td></tr>
+      <tr><th>what breaks it</th><td>crossing a call</td><td>every field read</td><td>crossing a call</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>All three are <em>a value whose shape is statically known, represented as a dynamic container</em>,
+  and all three need the same thing: the fact published in the signature rather than re-derived at each
+  site. They should share one representation-agreement pass, not grow three that drift apart.</p>
+</div>
+
+<h2>4. Option B — regions</h2>
+
+<p>A <dfn>region</dfn> is ownership of a whole subgraph rather than of one value. You allocate into it by
+bumping a pointer, and you release the entire thing in one operation without touching the objects inside
+it.</p>
+
+<p>Look at what w11's inner loop actually does:</p>
+
+<pre><code>set sum = sum + check_tree(make_tree(d))</code></pre>
+
+<p>The tree is created by one call, consumed by another, never stored, and dead at the end of the
+statement. Every node in it shares one lifetime. Under reference counting we still pay per node on the
+way out; under a region we pay once.</p>
+
+<figure>
+<svg viewBox="0 0 900 230" role="img" aria-label="Diagram contrasting per-node reference counting teardown with a single region release">
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
+    <text x="0" y="16" font-size="12" fill="currentColor" opacity="0.7">TODAY — malloc per node, refcount decrement and free per node</text>
+    <circle cx="60" cy="60" r="16" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="25" cy="110" r="13" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="95" cy="110" r="13" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="10" cy="152" r="10" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="44" cy="152" r="10" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="80" cy="152" r="10" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="114" cy="152" r="10" fill="none" stroke="currentColor" opacity="0.6"/>
+    <line x1="60" y1="76" x2="25" y2="97" stroke="currentColor" opacity="0.4"/>
+    <line x1="60" y1="76" x2="95" y2="97" stroke="currentColor" opacity="0.4"/>
+    <line x1="25" y1="123" x2="10" y2="142" stroke="currentColor" opacity="0.4"/>
+    <line x1="25" y1="123" x2="44" y2="142" stroke="currentColor" opacity="0.4"/>
+    <line x1="95" y1="123" x2="80" y2="142" stroke="currentColor" opacity="0.4"/>
+    <line x1="95" y1="123" x2="114" y2="142" stroke="currentColor" opacity="0.4"/>
+    <text x="150" y="100" font-size="12" fill="currentColor" opacity="0.75">2^(d+1)−1 frees, each touching a cache line</text>
+    <text x="150" y="122" font-size="12" fill="currentColor" opacity="0.75">plus refcount traffic on every edge</text>
+
+    <text x="480" y="16" font-size="12" fill="currentColor" opacity="0.7">REGION — bump-allocate inside, release the whole arena once</text>
+    <rect x="480" y="30" width="180" height="140" rx="8" fill="none" stroke="currentColor" opacity="0.55" stroke-dasharray="5 4"/>
+    <circle cx="560" cy="60" r="14" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="525" cy="108" r="11" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="595" cy="108" r="11" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="510" cy="148" r="9" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="543" cy="148" r="9" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="578" cy="148" r="9" fill="none" stroke="currentColor" opacity="0.6"/>
+    <circle cx="611" cy="148" r="9" fill="none" stroke="currentColor" opacity="0.6"/>
+    <line x1="560" y1="74" x2="525" y2="97" stroke="currentColor" opacity="0.4"/>
+    <line x1="560" y1="74" x2="595" y2="97" stroke="currentColor" opacity="0.4"/>
+    <text x="680" y="95" font-size="12" fill="currentColor" opacity="0.75">one free</text>
+    <text x="680" y="117" font-size="12" fill="currentColor" opacity="0.75">no per-node work</text>
+    <text x="480" y="192" font-size="12" fill="currentColor" opacity="0.6">the dashed boundary is the carried fact: this subgraph has one lifetime</text>
+  </g>
+</svg>
+<figcaption>Reference counting pays proportionally to the number of objects. A region pays once,
+provided the compiler can prove the subgraph is isolated.</figcaption>
+</figure>
+
+<h3>4.1 Why Verona specifically</h3>
+
+<p>Project Verona is a research language for concurrent ownership, and it is <strong>MIT licensed</strong>,
+which matters for us: it can be read and used directly, unlike the Apache-2.0 sources we are holding at
+arm's length behind a clean-room process.</p>
+
+<p>Its useful idea is subtyping between an owning region root and a mutable view of it. Passing the owner
+where a view is expected is a coercion that <em>does not consume the owner</em>, and a view parameter
+lowers to a widened calling convention — payload plus a region token — which is defaulted on and removed
+by dead-code elimination where it is not needed. That is a flat, unboxed parameter with an ownership
+story attached, which is exactly the shape of two problems we already have open.</p>
+
+<div class="pc-grid">
+  <div class="pc-pro">
+    <h4>For</h4>
+    <p>Attacks the cost that flat records leave behind. Turns 2<sup>d+1</sup> frees into one. Answers our
+    open question about when writing through a borrowed parameter is sound, which our stated Perceus
+    foundation does not answer at all. MIT, so usable directly.</p>
+  </div>
+  <div class="pc-con">
+    <h4>Against</h4>
+    <p>Needs an inferred region, because we allow no type annotations in user source — and inference is
+    the thing the escape-analysis literature warns about. Verona is explicitly a research project. The
+    payoff is concentrated in allocation-heavy code; it does nothing for w12-style scalar work.</p>
+  </div>
+</div>
+
+<details class="deep">
+  <summary>Why our Perceus foundation cannot answer this on its own</summary>
+  <p>Two findings from the research, both of which cut against the assumption we have been working under.</p>
+  <p><strong>Perceus is not silent on calling conventions — it makes a loud choice.</strong> Its technical
+  report states that ownership of references is passed down into each function; every parameter is owned.
+  What it <em>is</em> silent on is separate compilation, module interfaces and ABI.</p>
+  <p><strong>Perceus has no mutably-borrowed parameter mode at all.</strong> Borrowed means read-only by
+  construction, and in-place reuse comes only from owned arguments via a run-time reference-count test.
+  The later FP² work did not remove that test; it added a static guarantee about the function body and
+  kept the boundary check deliberately. Our MIR records a parameter as borrowed and we want to write
+  through it. <strong>That combination has no answer in the foundation we say we follow.</strong></p>
+  <p>There is also a piece of our own ancestry to reclaim: the borrowed calling convention appears in
+  <em>Counting Immutable Beans</em>, the paper Perceus was built on, as an inferred per-parameter
+  owned/borrowed signature. Perceus dropped it and Koka later re-added it as an annotation. So this is
+  not a research gap. It is a part of the lineage that was left out.</p>
+</details>
+
+<h2>5. They are not alternatives</h2>
+
+<p>The framing of the question was "A or B". The measurement says the honest answer is "A, then B",
+because they attack different multiplicands and therefore compose.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th></th><th>flat records</th><th>regions</th></tr></thead>
+  <tbody>
+    <tr><th>reduces</th><td>cost per object</td><td>cost per object's lifetime</td></tr>
+    <tr><th>removes</th><td>hashing, key storage, key comparison</td><td>per-node free, refcount traffic</td></tr>
+    <tr><th>helps w11</th><td>yes, directly</td><td>yes, directly</td></tr>
+    <tr><th>helps w12</th><td>little — w12's cost is arrays and scalars</td><td>little</td></tr>
+    <tr><th>helps every program</th><td>yes, records are everywhere</td><td>only allocation-heavy code</td></tr>
+    <tr><th>needs a new carried fact</th><td>shape is statically known</td><td>subgraph is isolated</td></tr>
+    <tr><th>machinery already being built</th><td>yes — the representation-agreement pass</td><td>no</td></tr>
+    <tr><th>risk</th><td>low, well-trodden</td><td>higher, inference is the hard part</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Flat records shrink each node and make field access a load. Regions then make the <em>set</em> of nodes
+nearly free to discard. Doing only the first still leaves us calling <code>malloc</code> and
+<code>free</code> a few million times; doing only the second leaves us bump-allocating hash tables.</p>
+
+<h2>6. What this means for the order of work</h2>
+
+<p><strong>Flat records first.</strong> It is the larger and more tractable win, it benefits every program
+rather than one benchmark, and — the decisive practical point — the pass it needs is already being
+written. A whole-program representation-agreement fixpoint, fail-closed over all call sites, is under
+construction for flat integer buffers right now. The question a record asks it is the same question with
+a different payload.</p>
+
+<p><strong>Regions second, and scoped narrowly at first.</strong> The general problem is inferring region
+structure, which is hard and is where escape analysis historically disappoints. But the specific case in
+front of us is not general: a value constructed within one expression, consumed within the same
+statement, never stored and dead at the statement's end. That is a statement-scoped region, and the
+escape facts we already compute are close to sufficient for it. Start there; do not start with the
+general case.</p>
+
+<p><strong>Measure the reuse rate before committing to either ordering.</strong> If Perceus reuse is
+already firing on w11 and the remaining cost is genuinely the hash table, A alone may close most of the
+practical gap. If reuse is at zero on the canonical FBIP benchmark, then the allocation cost is fully
+exposed, B matters more than this document assumes, and we have a correctness-of-story problem worth
+naming plainly.</p>
+
+<h2>7. What would count as success</h2>
+
+<p>Not 14&times;. Subtract the leaf-allocation factor from &sect;2.2 first, and judge against what remains.
+Concretely, the checks worth setting before any work starts:</p>
+
+<ul>
+  <li>w11 output stays byte-identical at <code>14985902</code>, and matches the interpreter.</li>
+  <li>w1 and w3 stay at exactly 1.00&times;. They have no functions and must not move.</li>
+  <li>The corpus zero-fallback count stays at <strong>0</strong>. A speed-up that pushes any program back
+    onto the legacy path is a loss, whatever the benchmark says.</li>
+  <li>Records whose shape is not statically known keep working, on the hashed representation, and there
+    is a test that proves the compiler chooses correctly between the two rather than guessing.</li>
+</ul>
+
+<h2>Glossary</h2>
+
+<dl class="glossary">
+  <dt>Perceus</dt>
+  <dd>Precise reference counting with reuse, from the Koka line of work. Ownership is passed into each
+  function; reference counts are inserted precisely rather than conservatively.</dd>
+  <dt>FBIP — Functional But In-Place</dt>
+  <dd>Writing in a functional style and having the compiler turn it into in-place updates when a value
+  is provably unique. Reuse analysis is the mechanism; a constructor torn down and one of the same shape
+  built in the same scope with a reference count of one reuses the memory.</dd>
+  <dt>Reuse rate</dt>
+  <dd>The fraction of allocations that reuse memory just released instead of calling the allocator. The
+  number we do not yet have for w11.</dd>
+  <dt>Region</dt>
+  <dd>Ownership of a subgraph of objects rather than of a single value. Allocation inside is a pointer
+  bump; release frees everything at once without visiting the objects.</dd>
+  <dt>Isolated subgraph</dt>
+  <dd>A set of objects reachable through exactly one entry point, with no references in from outside.
+  The property a region needs, and the thing that must be proven or declared.</dd>
+  <dt>Representation-agreement pass</dt>
+  <dd>A whole-program analysis that decides, for every call site, whether caller and callee agree on a
+  value's physical representation, and falls back to the boxed form if any site cannot prove it.</dd>
+</dl>
+
+<h2>Sources</h2>
+
+<ul>
+  <li>Reinking, Xie, de Moura, Leijen. <em>Perceus: Garbage Free Reference Counting with Reuse.</em></li>
+  <li>Lorenzen, Leijen, Swierstra. <em>FP²: Fully in-Place Functional Programming.</em></li>
+  <li>Ullrich, de Moura. <em>Counting Immutable Beans: Reference Counting Optimized for Purely Functional
+    Programming</em> — §5.2, the inferred per-parameter owned/borrowed signature.</li>
+  <li>Tofte, Talpin. <em>Region-Based Memory Management.</em></li>
+  <li><a href="https://github.com/microsoft/verona">Project Verona</a> — Microsoft Research, MIT licensed.
+    Concurrent ownership and regions.</li>
+  <li>Benchmark sources in <code>bench/src/</code>; measurements taken with
+    <code>bench/build_run_wl.sh</code>, best-of-5, each language verified against the reference output
+    before timing.</li>
+</ul>
+
+<footer>
+  <p>Written 2026-09-24 against Hey at <code>35e3b90fa</code>. The w11 and w12 figures are from a single
+  mains-powered run on an M3 Pro with the box otherwise quiet. The reuse-rate measurement this document
+  repeatedly asks for was still outstanding when it was written; treat &sect;6's ordering as provisional
+  until that number exists.</p>
+</footer>
+
+</body>
+</html>
