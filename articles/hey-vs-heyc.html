@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A visual guide to running and building Hey code: when to use hey, heyc build, the interpreter, the REPL, and the private Stage-0 compiler.">
+  <meta name="article-date" content="2026-09-25">
+  <meta name="article-bucket" content="build">
+  <meta name="article-index-title" content="hey or heyc? Choose by what you need — 25 September 2026">
+  <meta name="article-index-desc" content="The command name selects an interface; the requested operation selects native compilation, interpretation, testing, or bootstrap work.">
+  <title>hey or heyc? Choose by what you need</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f4ed;
+      --surface: #fffdf8;
+      --ink: #1d2528;
+      --muted: #5d696b;
+      --line: #d7d4ca;
+      --native: #176b55;
+      --native-soft: #e2f3eb;
+      --dev: #a35a12;
+      --dev-soft: #fff0db;
+      --private: #85455e;
+      --private-soft: #f8e7ed;
+      --code: #172125;
+      --code-ink: #e9f2ef;
+      --shadow: 0 16px 40px rgb(31 44 45 / 8%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #141819;
+        --surface: #1d2425;
+        --ink: #f1f4ef;
+        --muted: #b9c3c1;
+        --line: #394345;
+        --native: #7bd0b1;
+        --native-soft: #183b32;
+        --dev: #f2b66d;
+        --dev-soft: #46321c;
+        --private: #edaac2;
+        --private-soft: #432b35;
+        --code: #0b1012;
+        --code-ink: #eff8f5;
+        --shadow: none;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 17px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: inherit; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { font-size: .9em; }
+    .page { width: min(70rem, calc(100% - 2rem)); margin: 0 auto; }
+
+    header { padding: clamp(3.5rem, 9vw, 7rem) 0 3rem; }
+    .eyebrow {
+      margin: 0 0 .8rem;
+      color: var(--native);
+      font-weight: 800;
+      font-size: .78rem;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 13ch;
+      margin: 0;
+      font-size: clamp(2.7rem, 8vw, 6.4rem);
+      line-height: .96;
+      letter-spacing: -.055em;
+    }
+    .lede {
+      max-width: 48rem;
+      margin: 1.5rem 0 0;
+      color: var(--muted);
+      font-size: clamp(1.12rem, 2vw, 1.35rem);
+      line-height: 1.55;
+    }
+    .lede strong { color: var(--ink); }
+
+    main { padding-bottom: 5rem; }
+    section { margin-top: clamp(3.5rem, 8vw, 6.5rem); }
+    h2 { margin: 0 0 .75rem; font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.08; letter-spacing: -.035em; }
+    h3 { margin: 0; font-size: 1.15rem; line-height: 1.3; }
+    .section-intro { max-width: 46rem; margin: 0 0 1.75rem; color: var(--muted); }
+
+    .rule {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 1rem;
+      align-items: center;
+      padding: 1.25rem 1.4rem;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      box-shadow: var(--shadow);
+    }
+    .rule-mark {
+      display: grid;
+      place-items: center;
+      width: 3rem;
+      height: 3rem;
+      border-radius: 50%;
+      background: var(--native-soft);
+      color: var(--native);
+      font-size: 1.45rem;
+      font-weight: 900;
+    }
+    .rule p { margin: 0; }
+    .rule strong { display: block; font-size: 1.08rem; }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(6.5rem, 1fr));
+      gap: 1.8rem;
+      margin: 2rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .pipeline li {
+      position: relative;
+      min-height: 7rem;
+      padding: 1.2rem .9rem;
+      display: grid;
+      place-content: center;
+      text-align: center;
+      background: var(--native-soft);
+      border: 2px solid var(--native);
+      border-radius: 1rem;
+      font-weight: 800;
+    }
+    .pipeline li:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      left: calc(100% + .45rem);
+      top: 50%;
+      translate: 0 -50%;
+      width: .9rem;
+      color: var(--muted);
+      font-size: 1.35rem;
+    }
+    .pipeline small { display: block; margin-top: .3rem; color: var(--muted); font-weight: 600; }
+    .pipeline-caption { margin: .9rem 0 0; color: var(--muted); font-size: .93rem; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      display: flex;
+      flex-direction: column;
+      padding: 1.35rem;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      box-shadow: var(--shadow);
+    }
+    .tag {
+      align-self: flex-start;
+      margin-bottom: .8rem;
+      padding: .22rem .6rem;
+      border-radius: 999px;
+      font-size: .73rem;
+      font-weight: 850;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+    .tag.native { background: var(--native-soft); color: var(--native); }
+    .tag.dev { background: var(--dev-soft); color: var(--dev); }
+    .tag.private { background: var(--private-soft); color: var(--private); }
+    .command {
+      overflow-x: auto;
+      margin: .85rem 0 1rem;
+      padding: .8rem 1rem;
+      background: var(--code);
+      color: var(--code-ink);
+      border-radius: .65rem;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: .88rem;
+    }
+    .card p { margin: 0; color: var(--muted); }
+    .card .best { margin-top: auto; padding-top: 1rem; color: var(--ink); font-size: .92rem; }
+
+    .guide {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .choice {
+      display: grid;
+      grid-template-columns: minmax(12rem, .8fr) 1.4fr;
+      gap: 1.5rem;
+      align-items: center;
+      padding: 1.1rem 1.3rem;
+    }
+    .choice + .choice { border-top: 1px solid var(--line); }
+    .choice p { margin: 0; color: var(--muted); }
+    .choice > strong { color: var(--ink); }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .path {
+      padding: 1.5rem;
+      border-radius: 1rem;
+      border: 1px solid var(--line);
+    }
+    .path.product { background: var(--native-soft); }
+    .path.stage0 { background: var(--private-soft); }
+    .path p { margin: .65rem 0 0; }
+    .path ul { margin-bottom: 0; padding-left: 1.2rem; }
+
+    .example {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 1rem;
+      padding: 1.35rem;
+      border-left: .35rem solid var(--dev);
+      border-radius: .3rem 1rem 1rem .3rem;
+      background: var(--dev-soft);
+    }
+    .example strong { font-size: 1.05rem; }
+    .example p { margin: .25rem 0 0; }
+    .example .label { color: var(--dev); font-weight: 850; text-transform: uppercase; letter-spacing: .08em; font-size: .74rem; }
+
+    .internals {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .internals th, .internals td { padding: .9rem 1rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    .internals tr:last-child td { border-bottom: 0; }
+    .internals th { color: var(--muted); font-size: .78rem; letter-spacing: .07em; text-transform: uppercase; }
+    .internals td:first-child { white-space: nowrap; font-weight: 800; }
+    .internals td:last-child { color: var(--muted); }
+
+    .bottom-line {
+      padding: clamp(1.5rem, 4vw, 2.5rem);
+      background: var(--code);
+      color: var(--code-ink);
+      border-radius: 1rem;
+    }
+    .bottom-line h2 { color: inherit; }
+    .bottom-line p { max-width: 48rem; margin-bottom: 0; color: #c8d6d1; }
+
+    footer { padding: 2rem 0 3rem; color: var(--muted); font-size: .88rem; }
+
+    @media (max-width: 860px) {
+      .pipeline { grid-template-columns: 1fr; gap: 1.65rem; }
+      .pipeline li { min-height: 5rem; }
+      .pipeline li:not(:last-child)::after { content: "↓"; left: 50%; top: calc(100% + .25rem); translate: -50% 0; }
+      .cards, .split { grid-template-columns: 1fr; }
+      .choice { grid-template-columns: 1fr; gap: .25rem; }
+      .internals thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+      .internals, .internals tbody, .internals tr, .internals td { display: block; }
+      .internals tr { padding: 1rem; }
+      .internals td { padding: .2rem 0; border: 0; white-space: normal !important; }
+      .internals tr + tr { border-top: 1px solid var(--line); }
+    }
+
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <p class="eyebrow">Hey · command guide · 25 September 2026</p>
+      <h1><code>hey</code> or <code>heyc</code>?</h1>
+      <p class="lede">The shorter command doesn't select a different compiler. Hey has two separate choices: <strong>which command interface you use</strong>, and <strong>which operation that command performs</strong>.</p>
+    </header>
+
+    <main>
+      <div class="rule" aria-label="The rule to remember">
+        <div class="rule-mark" aria-hidden="true">2</div>
+        <p><strong>There are two axes.</strong> The command name selects the user-facing interface: <code>hey</code> for convenient everyday tasks, <code>heyc</code> for explicit compiler work. The operation or flag selects ordinary native compilation, interpretation, testing, or private bootstrap work.</p>
+      </div>
+
+      <section aria-labelledby="ordinary-heading">
+        <h2 id="ordinary-heading">Two everyday commands reach the same compiler</h2>
+        <p class="section-intro"><code>hey app.hey</code> is optimized for the edit-and-run loop. <code>heyc build</code> is optimized for publishing a named executable. Underneath, both use the ordinary application compiler.</p>
+        <ol class="pipeline" aria-label="Hey ordinary product compiler pipeline">
+          <li>Hey source<small><code>.hey</code> files</small></li>
+          <li>HIR<small>resolved program facts</small></li>
+          <li>MIR<small>explicit machine plan</small></li>
+          <li>LLVM IR<small>low-level intermediate code</small></li>
+          <li>Target toolchain<small>object generation + link</small></li>
+          <li>Executable<small>the program you run</small></li>
+        </ol>
+        <p class="pipeline-caption"><dfn>HIR</dfn> is Hey's high-level account of the resolved program. <dfn>MIR</dfn> is the lower-level plan with execution and machine-level calling details. Hey emits LLVM intermediate representation (IR); the target LLVM/Clang toolchain generates object code and links the executable with its required runtime and library objects.</p>
+      </section>
+
+      <section aria-labelledby="commands-heading">
+        <h2 id="commands-heading">The commands differ in what they deliver</h2>
+        <p class="section-intro">The first two cards are ordinary native compilation. The others are development or toolchain-maintenance paths.</p>
+        <div class="cards">
+          <article class="card">
+            <span class="tag native">Ordinary native</span>
+            <h3>Run source conveniently</h3>
+            <pre class="command"><code>hey app.hey
+./app.hey  # with #!/usr/bin/env hey</code></pre>
+            <p>The first run compiles the complete source graph and stores a native executable under an identity derived from its inputs. A warm run validates the source, transitive imports, compiler inputs, and target identity, then replaces the launcher with that cached executable. A <code>#!/usr/bin/env hey</code> script uses the same path.</p>
+            <p class="best"><strong>Choose this for:</strong> scripts, local tools, and edit-run work.</p>
+          </article>
+
+          <article class="card">
+            <span class="tag native">Ordinary native</span>
+            <h3>Build a deployment artifact</h3>
+            <pre class="command"><code>heyc build app.hey -o build/app
+./build/app</code></pre>
+            <p>This compiles once and leaves an explicit native executable. <code>hey build</code> delegates to the same compiler operation.</p>
+            <p class="best"><strong>Choose this for:</strong> services, releases, containers, signing, and benchmarks.</p>
+          </article>
+
+          <article class="card">
+            <span class="tag dev">Developer path</span>
+            <h3>Interpret a source file</h3>
+            <pre class="command"><code>heyc app.hey --run</code></pre>
+            <p>This uses the embedded interpreter. It is useful for diagnosis and behavioral comparison, but it does not prove that the ordinary compiler can build the program.</p>
+            <p class="best"><strong>Choose this for:</strong> focused development checks, not native performance measurements.</p>
+          </article>
+
+          <article class="card">
+            <span class="tag dev">Developer path</span>
+            <h3>Run embedded specs</h3>
+            <pre class="command"><code>heyc feature.hey --test</code></pre>
+            <p>This runs Hey specs through the embedded test harness. It isn't a second application compiler.</p>
+            <p class="best"><strong>Choose this for:</strong> quick language and library checks.</p>
+          </article>
+
+          <article class="card">
+            <span class="tag dev">Interactive</span>
+            <h3>Explore in the REPL</h3>
+            <pre class="command"><code>hey repl</code></pre>
+            <p>The read-evaluate-print loop gives immediate feedback while learning or probing an expression. <code>hey-repl</code> is the direct form.</p>
+            <p class="best"><strong>Choose this for:</strong> experiments and interactive exploration.</p>
+          </article>
+
+          <article class="card">
+            <span class="tag private">Schematic · maintainers</span>
+            <h3>Build through Stage-0</h3>
+            <pre class="command"><code>heyc stage0-build TOOLCHAIN_SOURCE.hey -o BOOTSTRAP_TOOL</code></pre>
+            <p>This schematic maintainer command selects the private native-C Stage-0 compiler. The placeholders are deliberate: Hey's repository build recipes supply required bootstrap setup. Stage-0 exists to seed, compare, and recover compiler tooling—not to build application deployments.</p>
+            <p class="best"><strong>Choose this for:</strong> compiler bootstrapping and recovery work.</p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="guide-heading">
+        <h2 id="guide-heading">Choose from the result you need</h2>
+        <div class="guide">
+          <div class="choice">
+            <strong>I want to run this source</strong>
+            <p>Use <code>hey FILE.hey</code>. You get ordinary native compilation plus a correctness-aware cache.</p>
+          </div>
+          <div class="choice">
+            <strong>I need a deployable binary</strong>
+            <p>Use <code>heyc build FILE.hey -o APP</code>, or the equivalent <code>hey build</code>.</p>
+          </div>
+          <div class="choice">
+            <strong>I need a quick interpreter check</strong>
+            <p>Use <code>heyc FILE.hey --run</code>, knowing that you are testing the interpreter rather than the ordinary compiler.</p>
+          </div>
+          <div class="choice">
+            <strong>I want to explore</strong>
+            <p>Use <code>hey repl</code>.</p>
+          </div>
+          <div class="choice">
+            <strong>The ordinary compiler rejected my app</strong>
+            <p>Report or fix that compiler failure. A Stage-0 result can help diagnose it, but Stage-0 isn't an application deployment path.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="stage0-heading">
+        <h2 id="stage0-heading">A Stage-0 success does not validate an application build</h2>
+        <p class="section-intro">A successful Stage-0 build and a successful ordinary build are evidence about different compilers.</p>
+        <div class="split">
+          <article class="path product">
+            <h3>Ordinary application path</h3>
+            <p><code>hey FILE.hey</code><br><code>heyc build FILE.hey</code></p>
+            <ul>
+              <li>HIR → MIR → LLVM IR → target toolchain</li>
+              <li>Required for application acceptance</li>
+              <li>Produces the native code Hey intends to ship</li>
+            </ul>
+          </article>
+          <article class="path stage0">
+            <h3>Private Stage-0 path</h3>
+            <p><code>heyc stage0-build TOOLCHAIN_SOURCE.hey</code></p>
+            <ul>
+              <li>Native-C bootstrap compiler</li>
+              <li>Useful for compiler seeding, recovery, and diagnostic comparison</li>
+              <li>Not an application build or deployment route</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="mmeow-heading">
+        <h2 id="mmeow-heading">Why the distinction matters for a real application</h2>
+        <div class="example">
+          <div class="label">Example</div>
+          <div>
+            <strong>MMeow needs an ordinary-built deployment binary.</strong>
+            <p>If <code>heyc build</code> rejects MMeow while Stage-0 accepts the same source, that difference is diagnostic evidence for the compiler team. It does not produce an accepted MMeow deployment. Acceptance comes when the ordinary HIR → MIR → LLVM IR → target-toolchain path builds the application.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="internal-heading">
+        <h2 id="internal-heading">The other executable names are compiler machinery</h2>
+        <p class="section-intro">You may see these names in build logs. Application projects shouldn't call them directly.</p>
+        <table class="internals">
+          <thead><tr><th scope="col">Name</th><th scope="col">Role inside the toolchain</th></tr></thead>
+          <tbody>
+            <tr><td><code>hey-selfc</code></td><td>The Hey-written self-hosted compiler driver.</td></tr>
+            <tr><td><code>hey-resolve</code></td><td>The compiled ProgramResolution component that assigns identities across the program.</td></tr>
+            <tr><td><code>hey-full</code></td><td>A compiled source-running/compiler application used behind the normal command surface.</td></tr>
+            <tr><td><code>hey-selfc-pipeline-stage0</code></td><td>A Stage-0-built bootstrap pipeline artifact used to bring up the product compiler.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="bottom-line" aria-labelledby="bottom-heading">
+        <h2 id="bottom-heading">The short version</h2>
+        <p>Run source with <code>hey</code>. Publish binaries with <code>heyc build</code> or <code>hey build</code>. Use <code>--run</code>, <code>--test</code>, and the REPL for development. Reserve <code>stage0-build</code> for the compiler team's bootstrap and recovery work.</p>
+      </section>
+    </main>
+
+    <footer>
+      <p>Based on Hey's command and script-execution contracts as of 25 September 2026: <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/trunk/docs/developers/heyc.md">Using <code>heyc</code></a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/trunk/docs/developers/script-execution-and-compilation.md">Running cached scripts and precompiled applications</a>.</p>
+    </footer>
+  </div>
+</body>
+</html>
