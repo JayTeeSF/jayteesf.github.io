@@ -185,6 +185,44 @@ module ArticlesIndex
     return articles
   end
 
+  # A STABLE INSERTION SORT, because `picked.sort(cmp)` DOES NOT EXIST. It returned the
+  # runtime's `#<stop>` sentinel, which is TRUTHY, so every downstream `if not x.empty?`
+  # answered false and this generator wrote an index with ZERO ENTRIES while printing
+  # "Generated" and exiting 0. `.empty?` and `.uniq` are missing the same way. The Ruby twin
+  # uses all three because Ruby has them; this file was transliterated from it and, per the
+  # note above, had not been executed since the 2026-08-29 restructure.
+  #
+  # Insertion sort is deliberate, not a placeholder. The comparator is three-level (rank, then
+  # date descending, then filename) and Collections.sort_by takes a KEY function, not a
+  # comparator, so expressing it there would mean inventing a composite key and inverting the
+  # date to fake a descending order. Reusing compare_entries keeps this file's ordering
+  # IDENTICAL to the Ruby twin's by construction, which is the property that matters. The
+  # input is the article count -- 13 today -- so the O(n^2) is not worth a word.
+  private fn sort_entries(items)
+    let out = []
+
+    for item in items
+      let placed = false
+      let merged = []
+
+      for existing in out
+        if not placed and ArticlesIndex.compare_entries(item, existing) < 0
+          set merged = [...merged, item]
+          set placed = true
+        end
+        set merged = [...merged, existing]
+      end
+
+      if not placed
+        set merged = [...merged, item]
+      end
+
+      set out = merged
+    end
+
+    return out
+  end
+
   # Stable order within a bucket: explicit rank first, then newest date first,
   # then filename ascending as a deterministic tie-break. The rank exists because
   # date order is wrong exactly where two pages shipped the same day and one is
@@ -240,7 +278,7 @@ module ArticlesIndex
       end
     end
 
-    return picked.sort(ArticlesIndex.compare_entries)
+    return ArticlesIndex.sort_entries(picked)
   end
 
   private fn article_item_lines(article)
@@ -281,7 +319,7 @@ module ArticlesIndex
   # prospect of any. A shelf label with nothing on it is not information; it is the
   # residue of a workflow.
   private fn bucket_section_lines(bucket, entries)
-    if entries.empty?
+    if len(entries) == 0
       return []
     end
 
@@ -306,7 +344,7 @@ module ArticlesIndex
       let entries = ArticlesIndex.entries_in_bucket(articles, bucket)
       let section_lines = ArticlesIndex.bucket_section_lines(bucket, entries)
 
-      if not section_lines.empty?
+      if len(section_lines) > 0
         set sections = [...sections, '']
 
         for line in section_lines

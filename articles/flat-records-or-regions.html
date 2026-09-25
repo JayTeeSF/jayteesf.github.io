@@ -202,7 +202,7 @@ lookup on the string <code>"left"</code>.</p>
 stored, hashed and compared at run time even though both field names are known while compiling.</figcaption>
 </figure>
 
-<h3>2.2 An immediate leaf — and this half is not ours to fix</h3>
+<h3>2.2 An immediate leaf — which deflates Erlang, but not C or Ruby</h3>
 
 <p>Erlang's <code>make(0)</code> returns the atom <code>nil</code>, which allocates nothing. Hey's
 <code>make_tree(0)</code> returns <code>{left: nil, right: nil}</code>, a real node.</p>
@@ -212,11 +212,44 @@ about 2<sup><em>d</em>+1</sup>&minus;1. <strong>We allocate roughly twice as man
 representation difference at all.</strong></p>
 
 <div class="aside">
-  <h3>Why we are not going to "fix" this</h3>
-  <p>The benchmark sources are fixed and rewriting one to a friendlier spelling would invalidate the
-  comparison. The two programs are simply not structurally equivalent. The honest consequence is that
-  <strong>the achievable target on w11 is not 14&times;</strong>; it is whatever remains after this factor is
-  subtracted. Any fix should be judged against that, or a correct result will look like a failure.</p>
+  <h3>Corrected after measurement</h3>
+  <p>This section first claimed the factor halves the whole gap. It doesn't. <strong>C's
+  <code>make</code> mallocs unconditionally</strong> — <code>d == 0</code> only selects
+  field values — and <strong>Ruby's <code>[]</code> is a fresh Array</strong> at every
+  level. Both build the same <strong>14,985,902 nodes Hey does</strong>, so
+  <strong>Hey&divide;C = 10.86&times; and Hey&divide;Ruby carry no discount at all</strong>.
+  Only the Erlang and Python columns are deflated.</p>
+  <p><strong>Ruby allocates exactly our object count and is still 4.6&times; faster.</strong>
+  That's the cleanest comparison in the table and the one worth being accountable to. The
+  benchmark sources stay untouchable; what changed is that there's no free half to subtract
+  before judging a fix against C or Ruby.</p>
+</div>
+
+<div class="callout">
+  <h2>What the measurement actually found</h2>
+  <p>Three things in this article's original reasoning turned out to be wrong, and the real
+  defect was none of them.</p>
+  <ul>
+    <li><strong>The reuse rate on w11 is 0.00%</strong> — zero reuses across 14,985,902
+      allocations. Not a broken implementation: Perceus pairs a torn-down cell with a
+      same-size constructor <em>in the same branch</em>, and here <code>make_tree</code>
+      allocates without destructuring while <code>check_tree</code> destructures without
+      allocating. Neither does both, so reuse is <em>correctly inapplicable</em>. Finishing
+      Perceus buys this benchmark nothing.</li>
+    <li><strong>Hashing and keys were never the cost.</strong> The index threshold is 16, so
+      a two-field record linear-scans with one <code>strcmp</code>, and keys are already
+      free — three <code>strdup</code> calls in the entire run.</li>
+    <li><strong>The real defect is a leak.</strong> Peak RSS <strong>2.58&nbsp;GB against C's
+      5.7&nbsp;MB</strong>. A box minted for <code>n.left == nil</code> is never released on
+      any path and pins every subtree, so essentially nothing is ever freed. 8 mallocs and
+      336 bytes per node, against C's 1 and 16.</li>
+  </ul>
+  <p><strong>Beating Erlang is not reachable by representation work.</strong> Erlang's
+  0.163&nbsp;s beats the <em>C reference</em> at 0.2086&nbsp;s, and a perfect flat unboxed
+  refcounted node measures 0.2664&nbsp;s — already slower. The honest target is to
+  <strong>match C, about 1.3&times;</strong>, which beats Ruby and Python. A sampling profile
+  puts the allocator at <strong>63.6%</strong> and the user's own algorithm at
+  <strong>2.4%</strong>, which is the case for regions.</p>
 </div>
 
 <h3>2.3 Bump allocation and a generational collector</h3>

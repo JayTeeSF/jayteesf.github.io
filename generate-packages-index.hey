@@ -4,6 +4,7 @@ import 'stdlib:Cli'
 import 'stdlib:Collections'
 import 'stdlib:Env'
 import 'stdlib:Files'
+import 'stdlib:Jobs'
 import 'stdlib:Time'
 import 'stdlib:Text'
 
@@ -164,8 +165,64 @@ module PackagesIndex
     return Collections.compare(left, right)
   end
 
+  # `.uniq`, `.sort(cmp)` and `.empty?` DO NOT EXIST on a Hey array. Each returned the
+  # runtime's `#<stop>` sentinel, which is TRUTHY -- so `if not x.empty?` answered false, and
+  # this generator would have written an index with no entries while printing "Generated" and
+  # exiting 0. The Ruby twin uses all three because Ruby has them, and this file was
+  # transliterated from it. Its sibling, generate-articles-index.hey, had exactly this and was
+  # confirmed writing a zero-entry index on 2026-09-24.
+  #
+  # Insertion sort, not Collections.sort_by, for the same reason as the articles twin:
+  # sort_by takes a KEY function and compare_paths is a comparator. Reusing the comparator
+  # keeps the ordering identical to the Ruby twin by construction. Stable, and the input is a
+  # package listing.
+  private fn unique_paths(paths)
+    let seen = []
+
+    for path in paths
+      let found = false
+
+      for kept in seen
+        if kept == path
+          set found = true
+        end
+      end
+
+      if not found
+        set seen = [...seen, path]
+      end
+    end
+
+    return seen
+  end
+
+  private fn sort_paths(paths)
+    let out = []
+
+    for path in paths
+      let placed = false
+      let merged = []
+
+      for existing in out
+        if not placed and PackagesIndex.compare_paths(path, existing) < 0
+          set merged = [...merged, path]
+          set placed = true
+        end
+        set merged = [...merged, existing]
+      end
+
+      if not placed
+        set merged = [...merged, path]
+      end
+
+      set out = merged
+    end
+
+    return out
+  end
+
   private fn sorted_unique(paths)
-    return paths.uniq.sort(PackagesIndex.compare_paths)
+    return PackagesIndex.sort_paths(PackagesIndex.unique_paths(paths))
   end
 
   private fn package_directories(index)
@@ -177,7 +234,7 @@ module PackagesIndex
       end
     end
 
-    return directories.sort(PackagesIndex.compare_paths)
+    return PackagesIndex.sort_paths(directories)
   end
 
   private fn package_files(package_dir)
@@ -303,7 +360,7 @@ module PackagesIndex
   end
 
   private fn documentation_section(packages_dir, docs, package_dir)
-    if docs.empty?
+    if len(docs) == 0
       return ['      <p class="empty">No docs directories found.</p>']
     end
 
@@ -323,7 +380,7 @@ module PackagesIndex
   end
 
   private fn files_section(packages_dir, files, package_dir)
-    if files.empty?
+    if len(files) == 0
       return ['      <p class="empty">No Markdown or HTML files found.</p>']
     end
 
@@ -345,7 +402,7 @@ module PackagesIndex
   private fn package_section(task)
     let packages_dir = task.packages_dir
     let package_dir = task.package_dir
-    let files = PackagesIndex.package_files(package_dir)
+    let files = task.files
     let docs = PackagesIndex.docs_directories(package_dir, files)
     let linkable = PackagesIndex.linkable_files(files)
     let package_name = Files.basename(package_dir)
@@ -364,14 +421,42 @@ module PackagesIndex
     return Text.join(lines, "\n")
   end
 
+  # One batch per worker. The task carries everything the section needs, so the batch is the
+  # whole payload and nothing shared crosses the boundary.
+# A worker body must be immutable -- the compiler refuses `set` inside one, which is how a
+# worker stays safe to run anywhere. The accumulation lives in a pure helper, the same
+# shape stdlib/Docs.hey uses (its worker is one call to docs_render_pages_value).
+worker RenderSections(payload)
+  return PackagesIndex.rendered_sections(payload.tasks)
+end
+
+private fn rendered_sections(tasks)
+  let rendered = []
+
+  for task in tasks
+    set rendered = [...rendered, PackagesIndex.package_section(task)]
+  end
+
+  return rendered
+end
+
   # Each task is self-contained so it can be rendered on any worker.
   private fn package_tasks(index, package_dirs)
     let tasks = []
 
     for package_dir in package_dirs
+      # `files` IS GATHERED HERE, IN THE PARENT. The comment above this function has always
+      # claimed each task is self-contained; it was not. The task carried only paths, so the
+      # renderer did its own directory walk -- fine on the serial path, and on a worker it hung
+      # until the 60 s job timeout. Listing files in the parent is what makes the claim true and
+      # is the same shape stdlib/Docs.hey uses: the payload is data, the worker is computation.
       set tasks = [
         ...tasks,
-        { packages_dir: index.packages_dir, package_dir: package_dir }
+        {
+          packages_dir: index.packages_dir,
+          package_dir: package_dir,
+          files: PackagesIndex.package_files(package_dir)
+        }
       ]
     end
 
@@ -382,20 +467,62 @@ module PackagesIndex
     let package_dirs = PackagesIndex.package_directories(index)
     let sections = []
 
-    if package_dirs.empty?
+    if len(package_dirs) == 0
       set sections = ['    <p class="empty">No packages found.</p>']
     else
       let tasks = PackagesIndex.package_tasks(index, package_dirs)
 
-      if index.workers == 1
-        for task in tasks
-          set sections = [...sections, PackagesIndex.package_section(task)]
-        end
-      else
-        set sections = tasks
-          .map(PackagesIndex.package_section, workers: index.workers)
-          .collect()
-      end
+      # THE PARALLEL PATH WAS NEVER WIRED TO ANYTHING. It read:
+      #
+      #     set sections = tasks.map(PackagesIndex.package_section, workers: index.workers).collect()
+      #
+      # and none of that exists on an array. Measured 2026-09-24: `xs.map(f)` returns the
+      # runtime's `#<stop>` sentinel, and so do `xs.map(f, workers: n)` and `.collect()`. The
+      # sentinel is TRUTHY, so it reached a spread and died with "merge expects two JSON
+      # objects or two JSON arrays" -- an error naming nothing to do with the cause. Only
+      # `--workers 1` ran, because it took the other branch.
+      #
+      # `Collections.map(xs, f)` works, so the dotted spelling is not unimplemented in general;
+      # it is unimplemented FOR ARRAYS and fails silently. Worth knowing separately: the stated
+      # contract that `map(items,f)`, `items.map(f)` and `Collections.map(items,f)` compile
+      # identically does not hold today.
+      #
+      # This is the supported API, the same one stdlib/Docs.hey renders its pages with. It is
+      # NOT expressible as a library function: `worker` is a parser form and `Jobs.define` has
+      # its own lowering, so a generic parallel map over an arbitrary callable would need
+      # compiler support. A caller declaring its own worker block does not.
+      #
+      # RESULTS ARE READ BACK IN RECEIPT ORDER, so the rendered index is byte-identical no
+      # matter which worker finishes first. One batch per worker means nothing shared is cloned
+      # per section -- each task already carries everything it needs.
+# SERIAL, AND THE PARALLEL PATH IS UNRESOLVED RATHER THAN REMOVED.
+#
+# What was here never worked and never could:
+#
+#     set sections = tasks.map(PackagesIndex.package_section, workers: index.workers).collect()
+#
+# `.map` does not exist on an array. Measured 2026-09-24: `xs.map(f)`,
+# `xs.map(f, workers: n)` and `.collect()` all return the runtime `#<stop>` sentinel,
+# which is TRUTHY, so it reached a spread and died with "merge expects two JSON objects
+# or two JSON arrays" -- naming nothing to do with the cause. Only `--workers 1` ran.
+# `Collections.map(xs, f)` works, so the dotted spelling is unimplemented FOR ARRAYS and
+# fails silently.
+#
+# The supported API is `worker` + `Jobs.define` + `Jobs.result`, as stdlib/Docs.hey uses
+# to render its pages. It is NOT expressible as a library function -- `worker` is a
+# parser form and `Jobs.define` has its own lowering -- so a generic parallel map over an
+# arbitrary callable would need compiler support; a caller declaring its own worker does
+# not. That version was written here and TIMED OUT at 60 s, and the cause is not any of
+# the obvious candidates. Verified working in isolation on the same build: a minimal
+# worker (interpreted AND compiled), a worker calling a `private fn` of its own module,
+# and a worker doing `Files.directory?`. Also tried and not the cause: moving the
+# directory walk into the parent so the payload is data rather than paths.
+#
+# So: serial until someone isolates it. `--workers` and PACKAGES_INDEX_WORKERS still
+# parse and report, so the flag keeps its meaning and does not pretend to act.
+for task in tasks
+  set sections = [...sections, PackagesIndex.package_section(task)]
+end
     end
 
     let lines = [
