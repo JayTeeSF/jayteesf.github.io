@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="What Erlang, Go, Tokio, Pony, Akka, actix, Kotlin, Swift, Orleans and Ray do when an actor's mailbox fills up, the trade-offs of each, and the options for Hey.">
+  <meta name="article-date" content="2026-10-08">
+  <meta name="article-bucket" content="actors">
+  <meta name="article-index-rank" content="30">
+  <meta name="article-desc" content="A decision brief: when senders outrun a receiver, should a Hey send grow memory, wait, fail, drop the message, or be slowed down by the scheduler? What ten actor runtimes do, and what each choice would cost Hey.">
+  <title>Should Hey's Mailboxes Have Limits?</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.85);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 0.55rem;
+      background: var(--code);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; Actors &middot; October 8, 2026</p>
+    <h1>Should Hey's Mailboxes Have Limits?</h1>
+    <p class="lede">
+      A decision brief. When senders outrun a receiver, something has to give: memory grows, the sender
+      waits, the send fails, a message is dropped, or the scheduler slows the sender down. Here is what ten
+      actor and channel runtimes choose, what each choice costs, and the options for Hey.
+    </p>
+  </header>
+
+  <main>
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>Hey today:</strong> mailboxes are unbounded and <code>send</code> is a statement that never
+          waits, never fails and never drops. In a test where 8 fast senders feed one actor, the backlog reached
+          850&ndash;890&nbsp;MB.</li>
+        <li><strong>Most actor runtimes default to unbounded too</strong> (Erlang/Elixir, Akka, Pony, Swift, Ray).
+          The ones that bound by default (Go channels, Kotlin's <code>actor</code>, actix) are channel-first designs
+          where waiting is the normal way to send.</li>
+        <li><strong>No option is free.</strong> Waiting can deadlock cycles of actors and needs the handler to be able
+          to suspend. Failing turns <code>send</code> into an expression every caller must check. Dropping loses
+          messages silently. Scheduler-level slowing (Pony) keeps the language unchanged but bounds memory only
+          in practice, not as a guarantee.</li>
+        <li><strong>Recommendation:</strong> keep <code>send</code> unbounded by default and add, in order:
+          (1) visibility, meaning queue length and high-water marks you can read and alert on;
+          (2) Pony-style scheduler backpressure as an automatic safety net; and (3) opt-in per-actor limits
+          with an explicit overflow policy, for actors that need a hard bound. Details and alternatives below.</li>
+      </ul>
+    </section>
+
+    <h2>What Hey does today</h2>
+    <ul>
+      <li><code>send pid, message</code> is fire-and-forget. It has no result, so it cannot report "full".</li>
+      <li>Mailboxes grow without limit. The rewritten scheduler made a send one atomic operation with no lock,
+        which makes sending even cheaper and fast producers even faster.</li>
+      <li>The one existing limit is on <code>Actor.call</code> (request/reply): at most 1,024 callers may be
+        <em>waiting</em>. Further calls fail with <code>actor_call_overloaded</code>. That bounds waiters, not the
+        mailbox; requests that timed out can still sit in the queue.</li>
+      <li>Actors already have <code>link</code>, <code>monitor</code> and supervision, so "let it crash and
+        restart" is available as a recovery tool.</li>
+      <li>Measured on the rewritten scheduler (a shared 12-core Mac, so indicative rather than qualified): an idle
+        actor costs about 137 bytes; 8 senders &times; 1,000,000 messages into one actor reached 4.7&ndash;5.2
+        million messages per second with an 850&ndash;890&nbsp;MB peak backlog, because nothing slows the senders.</li>
+    </ul>
+
+    <h2>The six things a runtime can do when a mailbox is full</h2>
+    <ol>
+      <li><strong>Grow.</strong> Keep queueing. Simple and never blocks, but memory is unbounded and latency grows
+        silently.</li>
+      <li><strong>Wait.</strong> The sender blocks or suspends until there is room. This is real backpressure, but
+        it can deadlock when actors send to each other in a cycle, and a waiting actor holds its turn.</li>
+      <li><strong>Fail.</strong> The send returns an error ("full") and the sender decides what to do. It is
+        explicit, but every send site must handle the result.</li>
+      <li><strong>Drop.</strong> Discard the newest or oldest message, or route it to a dead-letter queue. Memory is
+        bounded and the sender is never blocked, but messages are lost.</li>
+      <li><strong>Throttle senders in the scheduler.</strong> The runtime notices an overloaded receiver and
+        deprioritizes or pauses the actors that send to it. The language does not change, but the bound is
+        practical, not guaranteed.</li>
+      <li><strong>Kill on overload.</strong> Past a size limit the overloaded actor is terminated, and supervision
+        restarts it. Crash-only, and the queued messages are lost.</li>
+    </ol>
+    <p>A seventh pattern lives above the mailbox: <strong>demand-driven pipelines</strong>, where consumers ask
+      for N items and producers send no more than that (Elixir GenStage, Akka Streams, reactive streams). These
+      are libraries built on top of the mailbox, not mailbox policies.</p>
+
+    <h2>What other runtimes do</h2>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Runtime</th><th>Default</th><th>When full</th><th>Backpressure tools</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Erlang / Elixir (BEAM)</td>
+          <td>Unbounded mailbox</td>
+          <td>Never full; local send never blocks</td>
+          <td>Synchronous <code>gen_server:call</code> naturally paces callers; GenStage/Broadway demand; optional <code>max_heap_size</code> kill</td>
+          <td><code>max_heap_size</code> is a per-process guard that kills the process (it cannot be trapped). With <code>message_queue_data</code> set to <code>off_heap</code> the queue does not count toward it, so it is not a dependable mailbox limit. The BEAM community treats runaway mailboxes as a flow-control design problem.</td>
+        </tr>
+        <tr>
+          <td>Go</td>
+          <td>Channels: unbuffered by default; buffered channels have a fixed size</td>
+          <td>Send blocks the goroutine</td>
+          <td><code>select</code> with <code>default</code> turns a send into try-send (drop or do something else)</td>
+          <td>Waiting is the normal way to send, because goroutines are cheap to park. Cycles of blocking sends deadlock, and Go reports "all goroutines are asleep" only when <em>every</em> goroutine is stuck.</td>
+        </tr>
+        <tr>
+          <td>Rust / Tokio (actor pattern)</td>
+          <td>You choose: <code>mpsc::channel(n)</code> bounded, or <code>unbounded_channel</code></td>
+          <td>Bounded: <code>send().await</code> waits; <code>try_send</code> returns an error</td>
+          <td>Bounded channel; <code>reserve()</code> to wait for capacity first</td>
+          <td>Tokio's docs warn that an unbounded channel can grow until the process runs out of memory and aborts. The common actors-with-Tokio pattern uses a bounded channel per actor.</td>
+        </tr>
+        <tr>
+          <td>Pony</td>
+          <td>Unbounded mailbox</td>
+          <td>Never full</td>
+          <td>Automatic runtime backpressure: an actor that cannot drain its queue in one batch (default 100 messages) is marked overloaded, and actors that send to it are muted (descheduled) until it catches up. The <code>Backpressure</code> package lets code signal external pressure (for example a slow TCP peer).</td>
+          <td>Nothing to configure and no API change. A muted actor can look hung, and muted actors keep a program from quiescing. The runtime sees only queue sizes, not pressure from outside the program.</td>
+        </tr>
+        <tr>
+          <td>Akka / Pekko (JVM)</td>
+          <td>Unbounded mailbox</td>
+          <td>Bounded mailboxes are opt-in. With a non-zero <code>mailbox-push-timeout-time</code> the sender blocks up to that time, then the message goes to dead letters; with zero it goes straight to dead letters.</td>
+          <td>Akka Streams provides demand-based backpressure</td>
+          <td>Dead letters exist for debugging, not as a reliable store. Blocking a JVM thread inside an actor is discouraged.</td>
+        </tr>
+        <tr>
+          <td>actix (Rust)</td>
+          <td>Bounded: 16 messages per actor by default, adjustable</td>
+          <td><code>send</code> returns a future that waits for room</td>
+          <td><code>Addr::do_send</code> bypasses the limit</td>
+          <td>Bounded by default, but with an escape hatch that brings the unbounded case back.</td>
+        </tr>
+        <tr>
+          <td>Kotlin coroutines</td>
+          <td>Channels choose a capacity (rendezvous, buffered, unlimited, conflated)</td>
+          <td>Default overflow policy is to suspend the sender; alternatives are drop-oldest and drop-latest</td>
+          <td><code>BufferOverflow</code> policy per channel</td>
+          <td>Overflow is a declared choice on each channel: suspend, drop oldest or drop latest.</td>
+        </tr>
+        <tr>
+          <td>Swift actors</td>
+          <td>No user-visible mailbox; calls queue on the actor</td>
+          <td>Never full</td>
+          <td><code>AsyncStream</code> buffering policies (unbounded by default; keep newest or oldest N)</td>
+          <td>Actors are reentrant: at an <code>await</code> the actor can start the next queued call. Community discussion calls unbounded buffers a known hazard, and backpressure for <code>AsyncStream</code> was proposed separately (SE-0406).</td>
+        </tr>
+        <tr>
+          <td>Microsoft Orleans</td>
+          <td>Unbounded per-grain request queues</td>
+          <td>Never full</td>
+          <td>Optional load shedding: above a CPU threshold the gateway rejects client requests</td>
+          <td>Off by default. It sheds at the system's front door instead of per actor.</td>
+        </tr>
+        <tr>
+          <td>Ray (Python)</td>
+          <td>Unlimited pending calls per actor handle</td>
+          <td>With <code>max_pending_calls</code> set, extra calls raise <code>PendingCallsLimitExceeded</code></td>
+          <td>Recommended pattern: cap in-flight work with <code>ray.wait</code></td>
+          <td>The limit is counted per caller handle, not per actor.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="muted">Two patterns stand out. Runtimes built around actors default to unbounded queues and add
+      backpressure elsewhere: in synchronous calls, in the scheduler, or in stream libraries. Runtimes built
+      around channels bound by default, because suspending the sender is cheap and idiomatic there.</p>
+
+    <h2>The trade-offs, in Hey's terms</h2>
+    <h3>Waiting (block or suspend the sender)</h3>
+    <ul>
+      <li><strong>Deadlock in cycles.</strong> If actor A waits on a full B while B waits on a full A, both stop.
+        Ring, pipeline and request/reply topologies are exactly where this happens, and Hey's own benchmarks
+        include rings.</li>
+      <li><strong>Needs a suspendable handler.</strong> On the new scheduler a handler that blocks would hold a
+        worker thread. Making a send wait cheaply needs the same machinery as the pending
+        <code>sleep</code>-as-suspension decision (below): the compiler turns the handler into a resumable state
+        machine. Without it, waiting means burning threads.</li>
+      <li><strong>Changes existing programs.</strong> Programs that relied on <code>send</code> never pausing
+        would start pausing under load.</li>
+    </ul>
+    <h3>Failing (send returns "full")</h3>
+    <ul>
+      <li>Explicit and predictable, but <code>send</code> is a statement today. Making it return a result changes
+        every call site, or needs a second form (for example <code>try_send</code>) alongside the existing one.</li>
+      <li>Callers then have to choose what to do: retry, drop, or escalate. In practice this often becomes a
+        retry loop, which is waiting under another name.</li>
+    </ul>
+    <h3>Dropping (newest, oldest, or to dead letters)</h3>
+    <ul>
+      <li>Memory is bounded and senders are never blocked. This is the right choice for telemetry, progress
+        updates, "latest value wins" state and UI refreshes.</li>
+      <li>Wrong for commands and requests: a dropped <code>{kind: 'charge', ...}</code> is a correctness bug.
+        It also weakens "per-sender order is preserved" into "preserved for the messages that survived".</li>
+    </ul>
+    <h3>Scheduler throttling (Pony-style muting)</h3>
+    <ul>
+      <li><strong>No language change</strong>: <code>send</code> keeps its meaning (never fails, never drops), and
+        it fits the new scheduler, which already knows each actor's queue and batch.</li>
+      <li>The bound is practical, not hard: a single huge burst still queues. A muted actor can look hung, and
+        cyclic topologies need care so that two actors do not mute each other indefinitely.</li>
+      <li>It does not see pressure from outside the program (slow sockets, disks); that needs an explicit
+        API like Pony's <code>Backpressure</code>.</li>
+    </ul>
+    <h3>Kill on overload (Erlang-style limit plus supervision)</h3>
+    <ul>
+      <li>Fits Hey's existing <code>link</code>/<code>monitor</code>/supervision: the actor exits with a reason such
+        as <code>mailbox_overflow</code> and its supervisor decides what happens next.</li>
+      <li>Loses everything queued, and is a blunt instrument. It works as a last-resort guard set far above normal
+        use, not as flow control.</li>
+    </ul>
+
+    <h2>Options for Hey</h2>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Option</th><th>What changes</th><th>Language change?</th><th>Bounds memory?</th><th>Main risk</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>A. Unbounded plus visibility</strong></td><td>Report queue length, high-water mark and enqueue rate per actor in <code>actor_info</code> and runtime metrics, with optional warnings</td><td>No</td><td>No</td><td>Overload is visible, but nothing stops it</td></tr>
+        <tr><td><strong>B. Scheduler backpressure (Pony-style)</strong></td><td>The runtime deprioritizes or pauses actors that send to an overloaded actor until it catches up</td><td>No</td><td>In practice</td><td>Muted actors look stuck; cycles need care</td></tr>
+        <tr><td><strong>C. Opt-in bounded mailboxes</strong></td><td>An actor declares a capacity and an overflow policy (<code>wait</code>, <code>fail</code>, <code>drop_newest</code>, <code>drop_oldest</code>); add <code>try_send</code> that returns a result</td><td>Yes, additive</td><td>Yes, for actors that opt in</td><td><code>wait</code> needs suspendable handlers; dropping must be a deliberate choice</td></tr>
+        <tr><td><strong>D. Bounded by default, sender waits</strong></td><td>Every mailbox has a default capacity; <code>send</code> waits when full (Go/actix style)</td><td>Yes, breaking</td><td>Yes</td><td>Deadlocks in cycles; existing programs change behavior; needs suspension everywhere</td></tr>
+        <tr><td><strong>E. Overload limit plus supervision</strong></td><td>Optional per-actor ceiling; above it the actor exits with <code>mailbox_overflow</code></td><td>Additive</td><td>Yes (by killing)</td><td>Loses queued messages; a guard rather than flow control</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <section class="callout">
+      <h2>Recommendation</h2>
+      <ol>
+        <li><strong>Now: A.</strong> It changes no semantics and makes every later decision measurable.</li>
+        <li><strong>Next: B as the default safety net</strong>, built into the new work-stealing scheduler, with
+          stress tests for cyclic topologies before it ships. It bounds the common runaway case (the 8-senders
+          test) without touching the language.</li>
+        <li><strong>Then: C as opt-in</strong>, starting with the policies that need no suspension
+          (<code>fail</code> via <code>try_send</code>, <code>drop_newest</code>, <code>drop_oldest</code>), and
+          adding <code>wait</code> once handlers can suspend (the same compiler work as <code>sleep</code>).</li>
+        <li><strong>Optionally E</strong> as a high, opt-in ceiling for actors whose supervisor should restart them
+          instead of letting memory climb.</li>
+        <li><strong>Avoid D.</strong> It changes what every existing send means and brings deadlock risk to the
+          most common actor topologies, in exchange for a guarantee that A, B and C deliver more safely.</li>
+      </ol>
+      <p>Decision needed: approve, adjust or reject each step. Any step marked "Yes" under language change needs
+        your ruling on syntax and names before it is built.</p>
+    </section>
+
+    <h2>Related pending decision: <code>sleep</code> inside actors</h2>
+    <p>"Make <code>sleep</code> behave like <code>await</code>" turned out to have design consequences, because
+      today's <code>await</code> does not pause the handler: it ends the handler, and the result arrives later as
+      a new message. The options are:</p>
+    <ul>
+      <li><strong>A. Keep blocking.</strong> Unchanged meaning. On the new scheduler a sleeping actor costs one OS
+        thread (about 16&nbsp;KB) instead of a whole core.</li>
+      <li><strong>B. End the handler and deliver a timer message later</strong> (the Akka and Pony style). This
+        changes meaning: code after <code>sleep</code> would no longer run in that turn. If wanted, it belongs
+        under a new name such as <code>send_after</code>.</li>
+      <li><strong>C1. True suspension of sleeps written directly in a handler.</strong> The compiler makes the
+        handler resumable and no other message for that actor runs meanwhile, so the meaning is unchanged
+        and only the cost drops. Sleeps inside called functions keep option A's behavior. This is the
+        recommended option, and it is the same machinery a waiting <code>send</code> (option C above) would
+        need.</li>
+      <li><strong>C2. Suspend through any call depth</strong> by making every function that can reach a
+        <code>sleep</code> resumable. Complete, but a very large compiler change.</li>
+      <li><strong>C3. Small pooled stacks per handler</strong> (Go-style). Covers any call depth, costs a few KB
+        per sleeping actor and two context switches per turn.</li>
+    </ul>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://tutorial.ponylang.io/runtime-basics/backpressure">Pony tutorial: Backpressure</a>;
+        <a href="https://www.ponylang.io/blog/2017/12/0.21.0-released/">Pony 0.21.0 release notes (overload and muting, batch size 100)</a>;
+        <a href="https://stdlib.ponylang.io/backpressure--index/">Pony stdlib: backpressure package</a></li>
+      <li><a href="https://erlang.org/pipermail/erlang-questions/2016-April/088988.html">erlang-questions: Max heap size (2016 thread)</a>;
+        <a href="https://medium.com/learn-elixir/messages-overwhelming-b004fbdcaa2a">Messages overwhelming (Elixir)</a></li>
+      <li><a href="https://elixir-lang.org/blog/2016/07/14/announcing-genstage/">Announcing GenStage</a></li>
+      <li><a href="https://doc.akka.io/docs/akka/2.5/mailboxes.html">Akka 2.5: Mailboxes</a>;
+        <a href="https://doc.akka.io/docs/akka/2.9/typed/mailboxes.html">Akka 2.9: Typed mailboxes</a>;
+        <a href="https://pekko.apache.org/docs/pekko/1.2/typed/mailboxes.html">Pekko 1.2: Mailboxes</a>;
+        <a href="https://www.baeldung.com/scala/typed-mailboxes">Baeldung: typed mailboxes</a></li>
+      <li><a href="https://actix.rs/docs/actix/context">actix: Context (mailbox capacity, <code>do_send</code>)</a></li>
+      <li><a href="https://ryhl.io/blog/actors-with-tokio/">Alice Ryhl: Actors with Tokio</a>;
+        <a href="https://doc.servo.org/tokio/sync/mpsc/fn.unbounded_channel.html">tokio::sync::mpsc::unbounded_channel</a></li>
+      <li><a href="https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines.channels/-channel/">Kotlin: Channel</a>;
+        <a href="https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines.channels/-buffer-overflow/">Kotlin: BufferOverflow</a></li>
+      <li><a href="https://forums.swift.org/t/se-0406-backpressure-support-for-asyncstream/66771">SE-0406: Backpressure support for AsyncStream</a>;
+        <a href="https://forums.swift.org/t/swift-async-algorithms-design-guidelines/61629?page=2">Swift Async Algorithms: design guidelines</a>;
+        <a href="https://mjtsai.com/blog/2024/07/29/actor-reentrancy-in-swift">Actor reentrancy in Swift</a></li>
+      <li><a href="https://learn.microsoft.com/en-us/dotnet/api/orleans.configuration.loadsheddingoptions.loadsheddingenabled?view=orleans-3.0">Orleans: LoadSheddingEnabled</a></li>
+      <li><a href="https://docs.ray.io/en/latest/ray-core/api/doc/ray.exceptions.PendingCallsLimitExceeded.html">Ray: PendingCallsLimitExceeded</a>;
+        <a href="https://docs.ray.io/en/latest/ray-core/patterns/limit-pending-tasks.html">Ray: limiting pending tasks</a></li>
+      <li><a href="https://www.golinuxcloud.com/golang-buffered-channel/">Go buffered channels: blocking behavior</a>;
+        <a href="https://geeksforgeeks.org/go-non-blocking-channel-operations">Go non-blocking channel operations</a></li>
+      <li>Hey companion pieces: <a href="what-makes-an-actor-cheap.html">What Makes an Actor Cheap?</a> and
+        <a href="designing-heys-actors.html">Designing Hey's Actors</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Compiled October 8, 2026 from the sources above and Hey's own actor scheduler measurements, which were
+      taken on a shared 12-core Mac and are indicative rather than qualified benchmarks. Behavior of other
+      runtimes is as documented by them at the linked versions; check current docs before relying on a detail.
+    </p>
+  </footer>
+</body>
+</html>
