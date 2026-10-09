@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How Hey runs millions of actors on a handful of threads, how one actor's failure stays its own, and what Hey is taking from Erlang, Go, Pony, Swift and Tokio. Pictures first.">
+  <meta name="article-date" content="2026-10-09">
+  <meta name="article-bucket" content="actors">
+  <meta name="article-index-rank" content="40">
+  <meta name="article-desc" content="A picture-first explainer. Hey's actors are not one-per-thread: a million idle actors fit in about 137 MB on 12 worker threads. The new scheduler measures with Go. One actor failing must never hurt the others sharing its thread, and per-actor regions should make an actor's death as cheap as Erlang's. What every major actor runtime does, and the order Hey will do it in.">
+  <title>How Hey Runs a Million Actors</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.9);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      --hey: #2f7de1;
+      --hey-soft: rgba(47,125,225,0.18);
+      --warm: #e8912d;
+      --warm-soft: rgba(232,145,45,0.18);
+      --bad: #d9473f;
+      --bad-soft: rgba(217,71,63,0.16);
+      --good: #2e9e5b;
+      --good-soft: rgba(46,158,91,0.16);
+      --ink: CanvasText;
+      --paper: Canvas;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 5rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3.2rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2, .callout h3 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; background: var(--code); padding: 0 0.25em; border-radius: 0.25em; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+
+    figure { margin: 1.75rem 0 2.25rem; }
+    figure svg { width: 100%; height: auto; display: block; }
+    figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+    svg text { fill: CanvasText; font-family: system-ui, -apple-system, sans-serif; }
+    svg .m { fill: var(--muted); }
+    svg .ln { stroke: CanvasText; stroke-opacity: 0.55; fill: none; }
+    svg .box { fill: var(--panel); stroke: var(--border); }
+    svg .thread { fill: var(--warm-soft); stroke: var(--warm); }
+    svg .worker { fill: var(--hey-soft); stroke: var(--hey); }
+    svg .actor { fill: var(--hey); }
+    svg .actor-w { fill: var(--warm); }
+    svg .dead { fill: var(--bad); }
+    svg .ok { fill: var(--good); }
+
+    .bars { margin: 1rem 0 0.5rem; }
+    .bar-row { display: grid; grid-template-columns: minmax(7.5rem, 11rem) 1fr; gap: 0.6rem; align-items: center; margin: 0.45rem 0; }
+    .bar-label { font-size: 0.95rem; }
+    .bar-track { position: relative; height: 1.6rem; background: var(--panel); border-radius: 0.35rem; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 0.35rem; background: var(--muted); }
+    .bar-fill.hey { background: var(--hey); }
+    .bar-fill.before { background: var(--bad); }
+    .bar-fill.go { background: var(--warm); }
+    .bar-val { position: absolute; left: 0.5rem; top: 0; line-height: 1.6rem; font-size: 0.85rem; font-weight: 600; color: CanvasText; white-space: nowrap; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.9rem; margin: 1.25rem 0 2rem; }
+    .card { border: 1px solid var(--border); border-radius: 0.7rem; padding: 0.9rem 1rem; background: var(--panel); }
+    .card h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .card p { margin: 0.3rem 0 0; font-size: 0.95rem; }
+    .big { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--hey); }
+
+    .pill { display: inline-block; padding: 0.05rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--border); }
+    .pill.measured { background: var(--warm-soft); }
+    .pill.progress { background: var(--hey-soft); }
+    .pill.queued { background: var(--panel); }
+    .pill.proposed { background: transparent; border-style: dashed; }
+
+    .steps { list-style: none; padding: 0; counter-reset: step; }
+    .steps li { position: relative; padding: 0.8rem 1rem 0.8rem 3.4rem; margin: 0.7rem 0; border: 1px solid var(--border); border-radius: 0.7rem; }
+    .steps li::before { counter-increment: step; content: counter(step); position: absolute; left: 0.9rem; top: 0.8rem; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: var(--hey); color: white; font-weight: 700; text-align: center; line-height: 1.8rem; }
+    .yes { color: var(--good); font-weight: 700; }
+    .no { color: var(--bad); font-weight: 700; }
+    .part { color: var(--warm); font-weight: 700; }
+    dt { font-weight: 700; margin-top: 0.8rem; }
+    dd { margin-left: 1.2rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; Actors &middot; October 9, 2026</p>
+    <h1>How Hey Runs a Million Actors</h1>
+    <p class="lede">
+      Is there one actor per thread? No. Hey parks millions of actors in memory and runs whichever ones have
+      mail on one worker thread per CPU core. This article shows how that works in pictures, what happens when
+      one actor fails while sharing a thread with thousands of others, and what Hey is taking from Erlang, Go,
+      Pony, Swift and Tokio.
+    </p>
+  </header>
+
+  <main>
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>Many actors per thread.</strong> A compiled Hey actor is a small record (its state plus a
+          mailbox) with no stack and no thread of its own. One worker thread per core runs whichever actors have
+          mail. A million idle actors take about <strong>137 MB</strong> and use no CPU.</li>
+        <li><strong>The new scheduler measures with Go.</strong> Copying Go's design took ping-pong from
+          3.5&ndash;4.7&nbsp;&micro;s to <strong>110&nbsp;ns</strong> per message, and throughput now grows with
+          cores instead of falling. It is measured on a branch and <em>has not shipped yet</em>.</li>
+        <li><strong>Failure belongs to the actor, not the thread.</strong> Hey fails fast, like Erlang: an error
+          stops that actor's turn, and the thread moves straight on to the next actor. Error state has to live with
+          the actor, because thousands of actors share each thread.</li>
+        <li><strong>Next: a memory region per actor.</strong> When an actor dies, its whole memory region should be
+          freed at once, the way Erlang frees a process heap. Regions already cut about a third of the instructions
+          from a record-heavy benchmark.</li>
+      </ul>
+    </section>
+
+    <h2>1. One thread per actor, or many actors per thread?</h2>
+    <p>
+      The obvious way to build actors is to give each one an operating-system thread. That works for a few
+      hundred actors. It fails at a million, because every thread reserves a stack (typically 512&nbsp;KB to
+      8&nbsp;MB of address space) and the kernel has to schedule all of them.
+    </p>
+    <p>
+      Hey's compiled actors use the other model, usually called <strong>M:N</strong>: <em>M</em> actors share
+      <em>N</em> threads, with <em>N</em> equal to the number of cores. An idle actor is just data. When a message
+      arrives, a worker thread picks the actor up, runs its handler to completion, and puts it down again.
+    </p>
+
+    <figure>
+      <svg viewBox="0 0 900 360" role="img" aria-labelledby="f1t f1d">
+        <title id="f1t">One thread per actor compared with many actors per thread</title>
+        <desc id="f1d">On the left, each of eight actors has its own thread with a large stack. On the right, twelve worker threads serve a large field of small actor dots.</desc>
+        <text x="20" y="30" font-size="20" font-weight="700">One thread per actor</text>
+        <text x="20" y="52" font-size="14" class="m">every actor carries a stack and a kernel thread</text>
+        <g>
+          <rect x="20"  y="75" width="44" height="210" rx="6" class="thread"/>
+          <rect x="74"  y="75" width="44" height="210" rx="6" class="thread"/>
+          <rect x="128" y="75" width="44" height="210" rx="6" class="thread"/>
+          <rect x="182" y="75" width="44" height="210" rx="6" class="thread"/>
+          <rect x="236" y="75" width="44" height="210" rx="6" class="thread"/>
+          <rect x="290" y="75" width="44" height="210" rx="6" class="thread"/>
+          <rect x="344" y="75" width="44" height="210" rx="6" class="thread"/>
+          <circle cx="42"  cy="270" r="8" class="actor-w"/><circle cx="96"  cy="270" r="8" class="actor-w"/>
+          <circle cx="150" cy="270" r="8" class="actor-w"/><circle cx="204" cy="270" r="8" class="actor-w"/>
+          <circle cx="258" cy="270" r="8" class="actor-w"/><circle cx="312" cy="270" r="8" class="actor-w"/>
+          <circle cx="366" cy="270" r="8" class="actor-w"/>
+          <text x="42" y="180" font-size="13" text-anchor="middle" transform="rotate(-90 42 180)">stack</text>
+          <text x="204" y="180" font-size="13" text-anchor="middle" transform="rotate(-90 204 180)">stack</text>
+          <text x="366" y="180" font-size="13" text-anchor="middle" transform="rotate(-90 366 180)">stack</text>
+        </g>
+        <text x="20" y="315" font-size="15">7 actors = 7 threads = 7 stacks</text>
+        <text x="20" y="337" font-size="14" class="m">a million actors would mean a million threads</text>
+
+        <line x1="440" y1="40" x2="440" y2="330" class="ln" stroke-dasharray="4 6"/>
+
+        <text x="470" y="30" font-size="20" font-weight="700">Many actors per thread (Hey)</text>
+        <text x="470" y="52" font-size="14" class="m">idle actors are tiny records; 12 workers run the busy ones</text>
+        <g id="field">
+          <!-- a field of small actors -->
+          <g fill="var(--hey)" opacity="0.85">
+            <circle cx="480" cy="80" r="3"/><circle cx="492" cy="80" r="3"/><circle cx="504" cy="80" r="3"/><circle cx="516" cy="80" r="3"/><circle cx="528" cy="80" r="3"/><circle cx="540" cy="80" r="3"/><circle cx="552" cy="80" r="3"/><circle cx="564" cy="80" r="3"/><circle cx="576" cy="80" r="3"/><circle cx="588" cy="80" r="3"/><circle cx="600" cy="80" r="3"/><circle cx="612" cy="80" r="3"/><circle cx="624" cy="80" r="3"/><circle cx="636" cy="80" r="3"/><circle cx="648" cy="80" r="3"/><circle cx="660" cy="80" r="3"/><circle cx="672" cy="80" r="3"/><circle cx="684" cy="80" r="3"/><circle cx="696" cy="80" r="3"/><circle cx="708" cy="80" r="3"/><circle cx="720" cy="80" r="3"/><circle cx="732" cy="80" r="3"/><circle cx="744" cy="80" r="3"/><circle cx="756" cy="80" r="3"/><circle cx="768" cy="80" r="3"/><circle cx="780" cy="80" r="3"/><circle cx="792" cy="80" r="3"/><circle cx="804" cy="80" r="3"/><circle cx="816" cy="80" r="3"/><circle cx="828" cy="80" r="3"/><circle cx="840" cy="80" r="3"/><circle cx="852" cy="80" r="3"/><circle cx="864" cy="80" r="3"/>
+            <circle cx="486" cy="92" r="3"/><circle cx="498" cy="92" r="3"/><circle cx="510" cy="92" r="3"/><circle cx="522" cy="92" r="3"/><circle cx="534" cy="92" r="3"/><circle cx="546" cy="92" r="3"/><circle cx="558" cy="92" r="3"/><circle cx="570" cy="92" r="3"/><circle cx="582" cy="92" r="3"/><circle cx="594" cy="92" r="3"/><circle cx="606" cy="92" r="3"/><circle cx="618" cy="92" r="3"/><circle cx="630" cy="92" r="3"/><circle cx="642" cy="92" r="3"/><circle cx="654" cy="92" r="3"/><circle cx="666" cy="92" r="3"/><circle cx="678" cy="92" r="3"/><circle cx="690" cy="92" r="3"/><circle cx="702" cy="92" r="3"/><circle cx="714" cy="92" r="3"/><circle cx="726" cy="92" r="3"/><circle cx="738" cy="92" r="3"/><circle cx="750" cy="92" r="3"/><circle cx="762" cy="92" r="3"/><circle cx="774" cy="92" r="3"/><circle cx="786" cy="92" r="3"/><circle cx="798" cy="92" r="3"/><circle cx="810" cy="92" r="3"/><circle cx="822" cy="92" r="3"/><circle cx="834" cy="92" r="3"/><circle cx="846" cy="92" r="3"/><circle cx="858" cy="92" r="3"/><circle cx="870" cy="92" r="3"/>
+            <circle cx="480" cy="104" r="3"/><circle cx="492" cy="104" r="3"/><circle cx="504" cy="104" r="3"/><circle cx="516" cy="104" r="3"/><circle cx="528" cy="104" r="3"/><circle cx="540" cy="104" r="3"/><circle cx="552" cy="104" r="3"/><circle cx="564" cy="104" r="3"/><circle cx="576" cy="104" r="3"/><circle cx="588" cy="104" r="3"/><circle cx="600" cy="104" r="3"/><circle cx="612" cy="104" r="3"/><circle cx="624" cy="104" r="3"/><circle cx="636" cy="104" r="3"/><circle cx="648" cy="104" r="3"/><circle cx="660" cy="104" r="3"/><circle cx="672" cy="104" r="3"/><circle cx="684" cy="104" r="3"/><circle cx="696" cy="104" r="3"/><circle cx="708" cy="104" r="3"/><circle cx="720" cy="104" r="3"/><circle cx="732" cy="104" r="3"/><circle cx="744" cy="104" r="3"/><circle cx="756" cy="104" r="3"/><circle cx="768" cy="104" r="3"/><circle cx="780" cy="104" r="3"/><circle cx="792" cy="104" r="3"/><circle cx="804" cy="104" r="3"/><circle cx="816" cy="104" r="3"/><circle cx="828" cy="104" r="3"/><circle cx="840" cy="104" r="3"/><circle cx="852" cy="104" r="3"/><circle cx="864" cy="104" r="3"/>
+            <circle cx="486" cy="116" r="3"/><circle cx="498" cy="116" r="3"/><circle cx="510" cy="116" r="3"/><circle cx="522" cy="116" r="3"/><circle cx="534" cy="116" r="3"/><circle cx="546" cy="116" r="3"/><circle cx="558" cy="116" r="3"/><circle cx="570" cy="116" r="3"/><circle cx="582" cy="116" r="3"/><circle cx="594" cy="116" r="3"/><circle cx="606" cy="116" r="3"/><circle cx="618" cy="116" r="3"/><circle cx="630" cy="116" r="3"/><circle cx="642" cy="116" r="3"/><circle cx="654" cy="116" r="3"/><circle cx="666" cy="116" r="3"/><circle cx="678" cy="116" r="3"/><circle cx="690" cy="116" r="3"/><circle cx="702" cy="116" r="3"/><circle cx="714" cy="116" r="3"/><circle cx="726" cy="116" r="3"/><circle cx="738" cy="116" r="3"/><circle cx="750" cy="116" r="3"/><circle cx="762" cy="116" r="3"/><circle cx="774" cy="116" r="3"/><circle cx="786" cy="116" r="3"/><circle cx="798" cy="116" r="3"/><circle cx="810" cy="116" r="3"/><circle cx="822" cy="116" r="3"/><circle cx="834" cy="116" r="3"/><circle cx="846" cy="116" r="3"/><circle cx="858" cy="116" r="3"/><circle cx="870" cy="116" r="3"/>
+            <circle cx="480" cy="128" r="3"/><circle cx="492" cy="128" r="3"/><circle cx="504" cy="128" r="3"/><circle cx="516" cy="128" r="3"/><circle cx="528" cy="128" r="3"/><circle cx="540" cy="128" r="3"/><circle cx="552" cy="128" r="3"/><circle cx="564" cy="128" r="3"/><circle cx="576" cy="128" r="3"/><circle cx="588" cy="128" r="3"/><circle cx="600" cy="128" r="3"/><circle cx="612" cy="128" r="3"/><circle cx="624" cy="128" r="3"/><circle cx="636" cy="128" r="3"/><circle cx="648" cy="128" r="3"/><circle cx="660" cy="128" r="3"/><circle cx="672" cy="128" r="3"/><circle cx="684" cy="128" r="3"/><circle cx="696" cy="128" r="3"/><circle cx="708" cy="128" r="3"/><circle cx="720" cy="128" r="3"/><circle cx="732" cy="128" r="3"/><circle cx="744" cy="128" r="3"/><circle cx="756" cy="128" r="3"/><circle cx="768" cy="128" r="3"/><circle cx="780" cy="128" r="3"/><circle cx="792" cy="128" r="3"/><circle cx="804" cy="128" r="3"/><circle cx="816" cy="128" r="3"/><circle cx="828" cy="128" r="3"/><circle cx="840" cy="128" r="3"/><circle cx="852" cy="128" r="3"/><circle cx="864" cy="128" r="3"/>
+            <circle cx="486" cy="140" r="3"/><circle cx="498" cy="140" r="3"/><circle cx="510" cy="140" r="3"/><circle cx="522" cy="140" r="3"/><circle cx="534" cy="140" r="3"/><circle cx="546" cy="140" r="3"/><circle cx="558" cy="140" r="3"/><circle cx="570" cy="140" r="3"/><circle cx="582" cy="140" r="3"/><circle cx="594" cy="140" r="3"/><circle cx="606" cy="140" r="3"/><circle cx="618" cy="140" r="3"/><circle cx="630" cy="140" r="3"/><circle cx="642" cy="140" r="3"/><circle cx="654" cy="140" r="3"/><circle cx="666" cy="140" r="3"/><circle cx="678" cy="140" r="3"/><circle cx="690" cy="140" r="3"/><circle cx="702" cy="140" r="3"/><circle cx="714" cy="140" r="3"/><circle cx="726" cy="140" r="3"/><circle cx="738" cy="140" r="3"/><circle cx="750" cy="140" r="3"/><circle cx="762" cy="140" r="3"/><circle cx="774" cy="140" r="3"/><circle cx="786" cy="140" r="3"/><circle cx="798" cy="140" r="3"/><circle cx="810" cy="140" r="3"/><circle cx="822" cy="140" r="3"/><circle cx="834" cy="140" r="3"/><circle cx="846" cy="140" r="3"/><circle cx="858" cy="140" r="3"/><circle cx="870" cy="140" r="3"/>
+          </g>
+          <text x="675" y="168" font-size="13" text-anchor="middle" class="m">idle actors: state + mailbox, about 137 bytes each, no stack, no thread</text>
+        </g>
+        <g>
+          <rect x="480" y="190" width="28" height="70" rx="5" class="worker"/><rect x="513" y="190" width="28" height="70" rx="5" class="worker"/>
+          <rect x="546" y="190" width="28" height="70" rx="5" class="worker"/><rect x="579" y="190" width="28" height="70" rx="5" class="worker"/>
+          <rect x="612" y="190" width="28" height="70" rx="5" class="worker"/><rect x="645" y="190" width="28" height="70" rx="5" class="worker"/>
+          <rect x="678" y="190" width="28" height="70" rx="5" class="worker"/><rect x="711" y="190" width="28" height="70" rx="5" class="worker"/>
+          <rect x="744" y="190" width="28" height="70" rx="5" class="worker"/><rect x="777" y="190" width="28" height="70" rx="5" class="worker"/>
+          <rect x="810" y="190" width="28" height="70" rx="5" class="worker"/><rect x="843" y="190" width="28" height="70" rx="5" class="worker"/>
+          <circle cx="494" cy="245" r="6" class="actor"/><circle cx="560" cy="245" r="6" class="actor"/><circle cx="626" cy="245" r="6" class="actor"/>
+          <circle cx="692" cy="245" r="6" class="actor"/><circle cx="758" cy="245" r="6" class="actor"/><circle cx="824" cy="245" r="6" class="actor"/>
+          <circle cx="527" cy="245" r="6" class="actor"/><circle cx="725" cy="245" r="6" class="actor"/><circle cx="857" cy="245" r="6" class="actor"/>
+          <path d="M560 174 L560 188" class="ln" marker-end="url(#arr)"/>
+          <path d="M692 174 L692 188" class="ln" marker-end="url(#arr)"/>
+          <path d="M824 174 L824 188" class="ln" marker-end="url(#arr)"/>
+        </g>
+        <text x="470" y="290" font-size="15">12 worker threads, one per core</text>
+        <text x="470" y="312" font-size="14" class="m">a worker takes an actor with mail, runs its handler to completion,</text>
+        <text x="470" y="332" font-size="14" class="m">then takes the next one</text>
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="CanvasText" fill-opacity="0.6"/>
+          </marker>
+        </defs>
+      </svg>
+      <figcaption>Figure 1. Hey's compiled actors use the right-hand model. Two parts of Hey still use the
+        left-hand model: the interpreter, and actors started under <code>supervise</code>. Moving
+        <code>supervise</code> onto the worker pool is on the list in section 7.</figcaption>
+    </figure>
+
+    <h3>How small is an idle actor?</h3>
+    <p>
+      Being small is what makes a million actors possible. Each bar below is the memory one idle actor or task costs.
+      Shorter is better.
+    </p>
+    <div class="bars" role="img" aria-label="Bytes per idle actor: Tokio 64, Hey 137, Pony about 240, BEAM about 2616, Go about 2870">
+      <div class="bar-row"><div class="bar-label">Rust Tokio task</div><div class="bar-track"><div class="bar-fill" style="width:2.2%"></div><span class="bar-val" style="left:calc(2.2% + 0.5rem)">64 B</span></div></div>
+      <div class="bar-row"><div class="bar-label"><strong>Hey actor</strong></div><div class="bar-track"><div class="bar-fill hey" style="width:4.8%"></div><span class="bar-val" style="left:calc(4.8% + 0.5rem)">137 B (measured, 1,000,000 parked)</span></div></div>
+      <div class="bar-row"><div class="bar-label">Pony actor</div><div class="bar-track"><div class="bar-fill" style="width:8.4%"></div><span class="bar-val" style="left:calc(8.4% + 0.5rem)">about 240 B</span></div></div>
+      <div class="bar-row"><div class="bar-label">Erlang process</div><div class="bar-track"><div class="bar-fill" style="width:91%"></div><span class="bar-val">about 2,616 B</span></div></div>
+      <div class="bar-row"><div class="bar-label">Go goroutine</div><div class="bar-track"><div class="bar-fill go" style="width:100%"></div><span class="bar-val">about 2,870 B (measured, same machine)</span></div></div>
+    </div>
+    <p class="muted">
+      Hey and Go were measured on the same 12-core Mac with a million parked actors or goroutines. The Tokio,
+      Pony and Erlang figures come from <a href="what-makes-an-actor-cheap.html">What Makes an Actor Cheap?</a>.
+      Erlang and Go are big for the same reason: every process or goroutine owns a stack, even while idle.
+    </p>
+
+    <div class="cards">
+      <div class="card"><div class="big">137 MB</div><p>for 1,000,000 idle Hey actors</p></div>
+      <div class="card"><div class="big">0.11 s</div><p>total CPU for those million actors over 3 seconds, all of it spent spawning them. Idle actors cost nothing.</p></div>
+      <div class="card"><div class="big">0.4&ndash;0.6 s</div><p>to spawn, stop and join a million actors (Go: 0.8&ndash;1.2 s), on the new scheduler</p></div>
+    </div>
+
+    <h2>2. How the worker threads share the work</h2>
+    <p>
+      Many actors per thread only pays off if the threads don't fight over the work. Until this month they
+      did: Hey's old scheduler had one global lock that every message went through. Adding cores made it
+      <em>slower</em>, because the threads spent their time waiting for each other.
+    </p>
+    <p>
+      The new scheduler copies the design that Go has refined since 2012. Each core keeps its own queue, and
+      there is no global lock on the path a message takes.
+    </p>
+
+    <figure>
+      <svg viewBox="0 0 900 430" role="img" aria-labelledby="f2t f2d">
+        <title id="f2t">The work-stealing scheduler</title>
+        <desc id="f2d">Three of the worker slots are shown, each with a run-next slot and a local run queue. An idle worker steals half of a busy worker's queue. Threads outside the pool use a shared injection ring. Workers with nothing to do park without spinning.</desc>
+        <!-- worker 1 -->
+        <rect x="20" y="20" width="260" height="250" rx="10" class="box"/>
+        <text x="150" y="46" font-size="17" font-weight="700" text-anchor="middle">Worker 1 (busy)</text>
+        <rect x="45" y="62" width="210" height="36" rx="6" class="worker"/>
+        <text x="150" y="85" font-size="14" text-anchor="middle">running: actor A's turn</text>
+        <rect x="45" y="108" width="60" height="30" rx="6" fill="var(--good-soft)" stroke="var(--good)"/>
+        <text x="75" y="128" font-size="13" text-anchor="middle">B</text>
+        <text x="118" y="128" font-size="13">"run next" slot</text>
+        <text x="45" y="160" font-size="13" class="m">local queue (256 slots, no lock):</text>
+        <g>
+          <rect x="45"  y="168" width="26" height="26" rx="4" class="actor"/><rect x="75"  y="168" width="26" height="26" rx="4" class="actor"/>
+          <rect x="105" y="168" width="26" height="26" rx="4" class="actor"/><rect x="135" y="168" width="26" height="26" rx="4" class="actor"/>
+          <rect x="165" y="168" width="26" height="26" rx="4" class="actor"/><rect x="195" y="168" width="26" height="26" rx="4" class="actor"/>
+          <rect x="225" y="168" width="26" height="26" rx="4" class="actor"/>
+        </g>
+        <text x="45" y="220" font-size="13">If A sends to B, B runs next on the same</text>
+        <text x="45" y="238" font-size="13">core, while B's data is still in the CPU cache.</text>
+
+        <!-- worker 2 idle stealing -->
+        <rect x="320" y="20" width="260" height="250" rx="10" class="box"/>
+        <text x="450" y="46" font-size="17" font-weight="700" text-anchor="middle">Worker 2 (ran out of work)</text>
+        <rect x="345" y="62" width="210" height="36" rx="6" fill="none" stroke="var(--border)" stroke-dasharray="5 4"/>
+        <text x="450" y="85" font-size="14" text-anchor="middle" class="m">nothing to run</text>
+        <text x="345" y="160" font-size="13" class="m">local queue:</text>
+        <rect x="345" y="168" width="26" height="26" rx="4" class="actor"/><rect x="375" y="168" width="26" height="26" rx="4" class="actor"/>
+        <rect x="405" y="168" width="26" height="26" rx="4" class="actor"/>
+        <text x="345" y="220" font-size="13">Takes HALF of another worker's queue</text>
+        <text x="345" y="238" font-size="13">in one atomic step ("work stealing").</text>
+        <path d="M254 181 L340 181" class="ln" stroke-width="3" stroke="var(--hey)" stroke-opacity="1" marker-end="url(#arr2)"/>
+        <text x="300" y="150" font-size="13" text-anchor="middle" style="fill:var(--hey)">steal</text>
+        <text x="300" y="166" font-size="13" text-anchor="middle" style="fill:var(--hey)">half</text>
+
+        <!-- worker 3 parked -->
+        <rect x="620" y="20" width="260" height="250" rx="10" class="box"/>
+        <text x="750" y="46" font-size="17" font-weight="700" text-anchor="middle">Worker 3 (parked)</text>
+        <text x="750" y="110" font-size="40" text-anchor="middle">z z z</text>
+        <text x="645" y="160" font-size="13">Sleeps in the kernel: no CPU.</text>
+        <text x="645" y="184" font-size="13">Woken only when work appears</text>
+        <text x="645" y="202" font-size="13">AND no other worker is already</text>
+        <text x="645" y="220" font-size="13">looking. No stampede of</text>
+        <text x="645" y="238" font-size="13">wake-ups, and none lost</text>
+        <text x="645" y="256" font-size="13">(Go&#8217;s rule).</text>
+
+        <!-- injection ring -->
+        <rect x="20" y="320" width="560" height="90" rx="10" class="box"/>
+        <text x="40" y="347" font-size="16" font-weight="700">Shared injection ring</text>
+        <text x="40" y="370" font-size="13">For threads outside the pool, such as main, a timer or an I/O thread. Workers check it</text>
+        <text x="40" y="390" font-size="13">regularly so nothing waits forever.</text>
+        <!-- inbox -->
+        <rect x="620" y="320" width="260" height="90" rx="10" class="box"/>
+        <text x="640" y="347" font-size="16" font-weight="700">Each actor's mailbox</text>
+        <text x="640" y="370" font-size="13">A send is ONE atomic exchange. No lock;</text>
+        <text x="640" y="390" font-size="13">senders never retry.</text>
+        <defs>
+          <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--hey)"/>
+          </marker>
+        </defs>
+      </svg>
+      <figcaption>Figure 2. The new scheduler. Three of the twelve worker slots are shown. An actor also handles
+        up to 64 messages per turn before giving the core back, which spreads the cost of scheduling it across many
+        messages.</figcaption>
+    </figure>
+
+    <h3>What that changed, measured</h3>
+    <p>Two actors passing one message back and forth, time per message. Shorter is better:</p>
+    <div class="bars" role="img" aria-label="Ping-pong time per message: Hey before 4,100 nanoseconds, Hey after 112, Go 106">
+      <div class="bar-row"><div class="bar-label">Hey, old scheduler</div><div class="bar-track"><div class="bar-fill before" style="width:100%"></div><span class="bar-val">3,500&ndash;4,700 ns</span></div></div>
+      <div class="bar-row"><div class="bar-label"><strong>Hey, new scheduler</strong></div><div class="bar-track"><div class="bar-fill hey" style="width:2.7%"></div><span class="bar-val" style="left:calc(2.7% + 0.5rem)">110&ndash;114 ns</span></div></div>
+      <div class="bar-row"><div class="bar-label">Go goroutines</div><div class="bar-track"><div class="bar-fill go" style="width:2.6%"></div><span class="bar-val" style="left:calc(2.6% + 0.5rem)">105&ndash;108 ns</span></div></div>
+    </div>
+
+    <p style="margin-top:1.5rem">Throughput as cores are added: 1,000 pairs of actors exchanging messages, in millions of messages per second. Higher is better:</p>
+    <figure>
+      <svg viewBox="0 0 900 360" role="img" aria-labelledby="f3t f3d">
+        <title id="f3t">Throughput by number of worker threads</title>
+        <desc id="f3d">With the old scheduler, throughput falls from 6 million messages per second on one worker to 1.4 million on twelve. With the new scheduler it rises from 9.2 million on one worker to 55 million on twelve.</desc>
+        <!-- axes: x 1..12 -> 90..860 ; y 0..60 -> 300..40 -->
+        <line x1="90" y1="300" x2="860" y2="300" class="ln"/>
+        <line x1="90" y1="40" x2="90" y2="300" class="ln"/>
+        <g font-size="13" class="m">
+          <text x="80" y="304" text-anchor="end" class="m">0</text>
+          <text x="80" y="217" text-anchor="end" class="m">20</text>
+          <text x="80" y="131" text-anchor="end" class="m">40</text>
+          <text x="80" y="44" text-anchor="end" class="m">60</text>
+        </g>
+        <line x1="90" y1="213" x2="860" y2="213" stroke="var(--border)"/>
+        <line x1="90" y1="127" x2="860" y2="127" stroke="var(--border)"/>
+        <line x1="90" y1="40" x2="860" y2="40" stroke="var(--border)"/>
+        <!-- x labels at 1,2,4,8,12: x = 90 + (n-1)*70 -->
+        <g font-size="13" text-anchor="middle">
+          <text x="90" y="322" class="m">1</text><text x="160" y="322" class="m">2</text><text x="300" y="322" class="m">4</text>
+          <text x="580" y="322" class="m">8</text><text x="860" y="322" class="m">12</text>
+          <text x="475" y="348" class="m">worker threads</text>
+        </g>
+        <!-- after: 9.2, 17.5, 33.5, 50, 55.5 ; y = 300 - v*260/60 -->
+        <polyline points="90,260 160,224 300,155 580,83 860,60" fill="none" stroke="var(--hey)" stroke-width="4"/>
+        <g fill="var(--hey)"><circle cx="90" cy="260" r="5"/><circle cx="160" cy="224" r="5"/><circle cx="300" cy="155" r="5"/><circle cx="580" cy="83" r="5"/><circle cx="860" cy="60" r="5"/></g>
+        <text x="850" y="52" font-size="15" font-weight="700" text-anchor="end" style="fill:var(--hey)">new: 55 M/s</text>
+        <!-- before: 6.15, 3.2, 2.3, 1.4, 1.4 -->
+        <polyline points="90,273 160,286 300,290 580,294 860,294" fill="none" stroke="var(--bad)" stroke-width="4"/>
+        <g fill="var(--bad)"><circle cx="90" cy="273" r="5"/><circle cx="160" cy="286" r="5"/><circle cx="300" cy="290" r="5"/><circle cx="580" cy="294" r="5"/><circle cx="860" cy="294" r="5"/></g>
+        <text x="850" y="282" font-size="15" font-weight="700" text-anchor="end" style="fill:var(--bad)">old: 1.4 M/s, falling</text>
+      </svg>
+      <figcaption>Figure 3. The old scheduler got slower with every core added. The new one scales almost linearly
+        up to the 6 performance cores, then keeps gaining more slowly on the efficiency cores. Medians of three runs
+        on a shared machine, so treat small differences as noise.</figcaption>
+    </figure>
+
+    <div class="callout">
+      <h3>Status: measured, not shipped</h3>
+      <p>All the scheduler numbers above come from branch <code>gippipity/actor-scheduler-oct8</code>. It passed
+        ThreadSanitizer and AddressSanitizer (40 of 40 runs) and 500 stress runs without a failure. It is not in
+        a Hey release yet. It is queued to land right after the current Elders release round.</p>
+    </div>
+
+    <h2>3. When an actor fails, who else gets hurt?</h2>
+    <p>
+      Hey follows Erlang's rule: <strong>fail fast, keep the failure isolated, restart</strong>. A run-time
+      error, such as a failed JSON parse or an explicit <code>fail</code>, stops the current unit of work right
+      there. There is no try/catch to thread errors through the program. The unit's supervisor, the server or the
+      job runner, decides what happens next: answer 500, mark the job failed, or restart the actor.
+    </p>
+    <p>
+      Sharing threads adds a twist. If the record that says "an error happened" belonged to the <em>thread</em>, the
+      failed actor's error would leak onto the next actor that thread runs. So the error has to belong to the
+      <em>actor's turn</em>:
+    </p>
+
+    <figure>
+      <svg viewBox="0 0 900 330" role="img" aria-labelledby="f4t f4d">
+        <title id="f4t">Error state per thread compared with per unit of work</title>
+        <desc id="f4d">One worker thread runs turns for actors A, B, C and D in sequence. Actor B fails. In the wrong design, the error flag stays on the thread and C and D look failed too. In the right design, only B stops, and C and D run normally.</desc>
+        <text x="20" y="28" font-size="17" font-weight="700">Wrong: the error belongs to the thread</text>
+        <line x1="20" y1="70" x2="880" y2="70" stroke="var(--warm)" stroke-width="2"/>
+        <text x="20" y="58" font-size="13" class="m">worker thread 4, over time &rarr;</text>
+        <rect x="40"  y="80" width="180" height="44" rx="6" fill="var(--good-soft)" stroke="var(--good)"/><text x="130" y="107" font-size="15" text-anchor="middle">A's turn &#10003;</text>
+        <rect x="240" y="80" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="330" y="107" font-size="15" text-anchor="middle">B fails &#10007;</text>
+        <rect x="440" y="80" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)" stroke-dasharray="5 4"/><text x="530" y="107" font-size="15" text-anchor="middle">C "fails" too</text>
+        <rect x="640" y="80" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)" stroke-dasharray="5 4"/><text x="730" y="107" font-size="15" text-anchor="middle">D "fails" too</text>
+        <text x="20" y="150" font-size="13" class="m">B's error flag stays on the thread, so innocent actors look broken. Hey had this bug for requests (found October 9).</text>
+
+        <text x="20" y="200" font-size="17" font-weight="700">Right: the error belongs to the turn (the request, the job, the actor)</text>
+        <line x1="20" y1="242" x2="880" y2="242" stroke="var(--hey)" stroke-width="2"/>
+        <text x="20" y="230" font-size="13" class="m">worker thread 4, over time &rarr;</text>
+        <rect x="40"  y="252" width="180" height="44" rx="6" fill="var(--good-soft)" stroke="var(--good)"/><text x="130" y="279" font-size="15" text-anchor="middle">A's turn &#10003;</text>
+        <rect x="240" y="252" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="330" y="279" font-size="15" text-anchor="middle">B stops at once &#10007;</text>
+        <rect x="440" y="252" width="180" height="44" rx="6" fill="var(--good-soft)" stroke="var(--good)"/><text x="530" y="279" font-size="15" text-anchor="middle">C's turn &#10003;</text>
+        <rect x="640" y="252" width="180" height="44" rx="6" fill="var(--good-soft)" stroke="var(--good)"/><text x="730" y="279" font-size="15" text-anchor="middle">D's turn &#10003;</text>
+        <text x="20" y="320" font-size="13" class="m">B's memory is released, its supervisor is told, and the thread moves on. C and D never notice.</text>
+      </svg>
+      <figcaption>Figure 4. The scheduler points a "current unit" marker at whichever turn is running. The error
+        record lives in that unit, never in the thread.</figcaption>
+    </figure>
+
+    <h3>Stopping at once, without slowing the normal path</h3>
+    <p>
+      Today a Hey handler that hits an error keeps running, using <code>nil</code> for the failed value. The
+      response is 500, but the handler's side effects still happen. The fix being built now makes the handler stop
+      where the error happened. The Maintainer's condition was that this must not turn into a heavyweight exception
+      system that slows every program down. The design meets it this way:
+    </p>
+    <ul>
+      <li>The compiler's middle stage (MIR, the step that already decides who owns each value) marks which calls
+        can fail. Most can't: arithmetic on known integers, field reads on known records, and so on.</li>
+      <li>After a call that <em>can</em> fail, the compiled code makes one cheap, predictable check: "did that
+        fail?" If yes, it jumps to the function's normal clean-up exit. Owned values are released exactly as on a
+        normal return, so nothing leaks.</li>
+      <li>The caller does the same, all the way up to the unit's boundary. There, the request answers 500, or
+        the actor stops and its supervisor is told.</li>
+    </ul>
+    <p>
+      A call that cannot fail pays nothing. A call that can fail pays one branch the CPU almost always predicts
+      correctly. Status: <span class="pill progress">in progress</span>.
+    </p>
+
+    <h2>4. Problems that can reach many actors at once</h2>
+    <p>
+      A failing handler is the easy case. The hard cases are the ones where something goes wrong in a way the
+      thread itself feels:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Problem</th><th>What happens in Hey today</th><th>Best known fix</th><th>Who does it that way</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A handler loops forever</strong> or computes for a long time</td>
+            <td><span class="no">Hurts others.</span> It keeps its worker thread, and the actors queued behind it on that core wait (other workers can steal some of them).</td>
+            <td><strong>Preemption.</strong> The compiler adds a cheap "time's up?" check at the top of every loop. When a turn runs out of budget, the actor yields its place.</td>
+            <td>Erlang counts "reductions" (units of work) and switches process after a budget; Go interrupts long-running goroutines with a timer signal</td></tr>
+          <tr><td><strong>A handler sleeps</strong></td>
+            <td><span class="part">Handled on the new scheduler:</span> the sleeping actor's core passes to a spare thread (up to 512).</td>
+            <td>Better: the actor parks, with no thread at all, until a timer wakes it.</td>
+            <td>Erlang, Go, Tokio all park rather than block</td></tr>
+          <tr><td><strong>A handler blocks on slow I/O</strong></td>
+            <td><span class="no">Not yet covered:</span> it holds a worker thread.</td>
+            <td>Non-blocking I/O: the actor parks, and an event loop wakes it when the data arrives.</td>
+            <td>Go's network poller, Tokio, Erlang's I/O ports</td></tr>
+          <tr><td><strong>A hard crash</strong> (memory corruption, out of memory)</td>
+            <td><span class="no">Kills the whole process</span>, and every actor with it.</td>
+            <td>Make it impossible: memory safety proved by the compiler. Contain it: a memory limit per actor. Recover: an operating-system supervisor (such as systemd) restarts the process.</td>
+            <td>Erlang has the same limit for native code; Pony and Rust prevent it at compile time</td></tr>
+          <tr><td><strong>Two actors touch the same data</strong></td>
+            <td><span class="yes">Prevented.</span> A message is copied on send, so actors never share anything they can change.</td>
+            <td>Keep the safety, lose the copy: when the compiler <em>proves</em> the sender will not use a value again, <strong>move</strong> it instead of copying it.</td>
+            <td>Pony (reference capabilities), Swift (<code>Sendable</code> checks), Rust (ownership)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>5. What the other actor languages do</h2>
+    <p>Every major runtime gets some of this right. None gets all of it:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Many per thread</th><th>Failure stays local</th><th>Supervisors restart</th><th>Preempts busy actors</th><th>Messages without copying</th><th>Memory freed when an actor dies</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Erlang / Elixir</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes (OTP)</td><td class="yes">yes (reductions)</td><td class="no">copies (except big binaries)</td><td class="yes">yes: its heap is freed whole</td></tr>
+          <tr><td><strong>Go</strong></td><td class="yes">yes</td><td class="no">no: an unrecovered panic kills the program</td><td class="no">no</td><td class="yes">yes (timer signal)</td><td class="part">shares memory, unchecked</td><td class="no">garbage collector, later</td></tr>
+          <tr><td><strong>Pony</strong></td><td class="yes">yes</td><td class="part">no exceptions to escape</td><td class="no">no</td><td class="no">no (batch per turn)</td><td class="yes">yes, proved safe</td><td class="part">per-actor collector</td></tr>
+          <tr><td><strong>Swift actors</strong></td><td class="yes">yes</td><td class="part">errors are values</td><td class="no">no</td><td class="no">no (cooperative)</td><td class="part">Sendable checks</td><td class="part">reference counting</td></tr>
+          <tr><td><strong>Akka (JVM)</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td><td class="part">shares, by convention</td><td class="no">JVM collector</td></tr>
+          <tr><td><strong>Rust Tokio</strong></td><td class="yes">yes</td><td class="part">a task's panic is caught</td><td class="no">library</td><td class="part">cooperative budget</td><td class="yes">moves, proved</td><td class="yes">ownership</td></tr>
+          <tr><td><strong>Hey, today</strong></td><td class="yes">yes</td><td class="part">being fixed (section 3)</td><td class="part">yes, but one thread each</td><td class="no">no</td><td class="no">copies</td><td class="part">reference counting</td></tr>
+          <tr><td><strong>Hey, goal</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes, on the pool</td><td class="yes">loop checks</td><td class="yes">moves when MIR proves it</td><td class="yes">regions</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The goal row takes the best part of each runtime: Erlang's isolation and supervision, Go's scheduler,
+      Pony's and Rust's compile-time proof that a message can move safely, and a region-based version of Erlang's
+      "free the whole heap at once".
+    </p>
+
+    <h2>6. Regions: an actor's memory, freed in one step</h2>
+    <p>
+      Erlang has a trick that makes failure cheap. Each process allocates from its own private heap, so when a
+      process dies, nothing has to be walked or counted: the whole heap goes back at once.
+    </p>
+    <p>
+      Hey already has the building block. A <strong>region</strong> is a group of allocations that share one
+      lifetime, allocated side by side and freed together. Since October 3, MIR has proved where a temporary
+      graph of records, such as decoded JSON, is built, only read, and then dropped. That graph goes into a
+      region, and the region is freed in one step instead of one object at a time.
+    </p>
+
+    <figure>
+      <svg viewBox="0 0 900 300" role="img" aria-labelledby="f5t f5d">
+        <title id="f5t">Freeing an actor's memory object by object compared with by region</title>
+        <desc id="f5d">On the left, an actor's values are scattered across the heap and each must be released separately. On the right, the actor's values sit in one region that is returned in a single step when the actor dies.</desc>
+        <text x="20" y="28" font-size="17" font-weight="700">Object by object (today)</text>
+        <rect x="20" y="45" width="400" height="190" rx="10" class="box"/>
+        <g>
+          <rect x="45"  y="70"  width="40" height="26" rx="4" class="actor"/><rect x="150" y="62"  width="40" height="26" rx="4" class="actor-w"/>
+          <rect x="250" y="80"  width="40" height="26" rx="4" class="actor"/><rect x="340" y="66"  width="40" height="26" rx="4" class="actor-w"/>
+          <rect x="90"  y="130" width="40" height="26" rx="4" class="actor-w"/><rect x="200" y="140" width="40" height="26" rx="4" class="actor"/>
+          <rect x="300" y="126" width="40" height="26" rx="4" class="actor-w"/><rect x="60"  y="190" width="40" height="26" rx="4" class="actor"/>
+          <rect x="170" y="196" width="40" height="26" rx="4" class="actor-w"/><rect x="280" y="190" width="40" height="26" rx="4" class="actor"/>
+          <rect x="360" y="186" width="40" height="26" rx="4" class="actor"/>
+        </g>
+        <text x="20" y="262" font-size="14">The actor's values (blue) are mixed in with everyone else's.</text>
+        <text x="20" y="282" font-size="14" class="m">When it dies, each one is found and released separately.</text>
+
+        <text x="480" y="28" font-size="17" font-weight="700">By region (goal)</text>
+        <rect x="480" y="45" width="400" height="190" rx="10" class="box"/>
+        <rect x="505" y="65" width="230" height="150" rx="8" fill="var(--hey-soft)" stroke="var(--hey)" stroke-width="2"/>
+        <text x="620" y="88" font-size="13" text-anchor="middle">actor B's region</text>
+        <g>
+          <rect x="520" y="100" width="40" height="26" rx="4" class="actor"/><rect x="566" y="100" width="40" height="26" rx="4" class="actor"/>
+          <rect x="612" y="100" width="40" height="26" rx="4" class="actor"/><rect x="658" y="100" width="40" height="26" rx="4" class="actor"/>
+          <rect x="520" y="134" width="40" height="26" rx="4" class="actor"/><rect x="566" y="134" width="40" height="26" rx="4" class="actor"/>
+          <rect x="612" y="134" width="40" height="26" rx="4" class="actor"/><rect x="520" y="168" width="40" height="26" rx="4" class="actor"/>
+        </g>
+        <rect x="760" y="80" width="40" height="26" rx="4" class="actor-w"/><rect x="820" y="120" width="40" height="26" rx="4" class="actor-w"/>
+        <rect x="770" y="170" width="40" height="26" rx="4" class="actor-w"/>
+        <text x="480" y="262" font-size="14">The actor's values sit side by side in its own region.</text>
+        <text x="480" y="282" font-size="14" class="m">When it dies, the region goes back in ONE step.</text>
+      </svg>
+      <figcaption>Figure 5. A region per actor is Erlang's private heap, rebuilt with compile-time proof instead of a
+        garbage collector.</figcaption>
+    </figure>
+
+    <div class="cards">
+      <div class="card"><h3>What regions did already</h3><div class="big">&minus;35%</div><p>instructions on a record-heavy benchmark (34.2 billion &rarr; 22.3 billion), same output, same peak memory, once MIR put temporary record graphs in regions.</p></div>
+      <div class="card"><h3>Why it fits actors</h3><p>An actor's state and the values built during one turn have obvious lifetimes: "until the turn ends" and "until the actor dies". Those are exactly what a region needs.</p></div>
+      <div class="card"><h3>Bonus</h3><p>Allocation is the single largest cost in Hey's own compiler right now (about a third of its CPU, measured October 9). Regions attack the same cost from the other side.</p></div>
+    </div>
+    <p>
+      The background on regions, and why they work together with flat records rather than competing with them,
+      is in <a href="flat-records-or-regions.html">Flat Records or Regions?</a>.
+    </p>
+
+    <h2>7. The order of work</h2>
+    <ol class="steps">
+      <li><strong>Land the new scheduler.</strong> Message throughput about 30 times higher, and it grows with cores
+        instead of shrinking. <span class="pill measured">measured on a branch, not shipped</span> <span class="pill queued">queued after the Elders release</span></li>
+      <li><strong>Fail fast, per unit of work.</strong> An error stops the turn at once, and the error lives with the
+        request, job or actor, never the thread. <span class="pill progress">in progress</span></li>
+      <li><strong>Run <code>supervise</code> on the worker pool.</strong> Today every supervised actor gets an OS
+        thread. On the pool, a million supervised actors need no more threads than one does. <span class="pill queued">queued after the Elders release</span></li>
+      <li><strong>A region per actor and per turn.</strong> Values built during a turn are freed in one step when the
+        turn ends; the actor's state is freed in one step when it dies. <span class="pill queued">queued</span></li>
+      <li><strong>Move, don't copy, when the compiler proves it is safe.</strong> This closes the remaining gap with Go
+        when many senders feed one actor (5 million messages per second versus Go's 20 million). <span class="pill proposed">proposed</span></li>
+      <li><strong>Preemption checks at the top of loops,</strong> so one busy actor cannot hold up the others on its
+        core. <span class="pill proposed">proposed</span></li>
+    </ol>
+
+    <h2>Glossary</h2>
+    <dl>
+      <dt>actor</dt><dd>An independently scheduled unit with private state that communicates only by sending messages.</dd>
+      <dt>M:N scheduling</dt><dd>Running M lightweight tasks (here, actors) on N operating-system threads, with N usually equal to the number of cores.</dd>
+      <dt>turn</dt><dd>One visit by a worker thread to an actor, during which the actor handles up to 64 messages from its mailbox.</dd>
+      <dt>run to completion</dt><dd>A handler finishes its current message before the worker moves on. Between turns, an actor needs no stack.</dd>
+      <dt>work stealing</dt><dd>An idle worker takes half of a busy worker's queue, so no core sits idle while another has a backlog.</dd>
+      <dt>parking</dt><dd>A worker (or an actor) going to sleep without using CPU until something wakes it.</dd>
+      <dt>preemption</dt><dd>Taking the core away from a task that has run too long, so others get a turn.</dd>
+      <dt>fail fast</dt><dd>Stopping the current unit of work at the first error, instead of carrying on with a placeholder value.</dd>
+      <dt>supervisor</dt><dd>An actor or runtime component that is told when another actor fails and decides whether to restart it.</dd>
+      <dt>MIR</dt><dd>Hey's mid-level compiler representation. It decides who owns each value, when it is released, and (now) which calls can fail.</dd>
+      <dt>region</dt><dd>A group of allocations with one shared lifetime, allocated together and freed together in a single step.</dd>
+    </dl>
+
+    <h2>Sources</h2>
+    <ul>
+      <li>Hey actor scheduler receipt and design, October 8, 2026 (internal: <code>projects/hey/evidence/20261008T-gippipity-actor-scheduler/</code>, branch <code>gippipity/actor-scheduler-oct8</code> at <code>2463cb04d</code>).</li>
+      <li>Hey region allocation, steps 1 and 2: commits <code>988414671</code> and <code>86691a1a1</code> (October 3, 2026).</li>
+      <li>Hey compiler self-compile profile, October 9, 2026 (macOS <code>sample</code> at 90 s and 300 s).</li>
+      <li><a href="https://golang.org/s/go11sched">Dmitry Vyukov: Scalable Go Scheduler Design</a>;
+        <a href="https://github.com/golang/proposal/blob/master/design/24543-non-cooperative-preemption.md">Go: non-cooperative goroutine preemption</a></li>
+      <li><a href="https://tokio.rs/blog/2019-10-scheduler">Tokio: Making the Tokio scheduler 10x faster</a></li>
+      <li><a href="https://blog.stenmans.org/theBeamBook/">Erik Stenman: The BEAM Book</a> (processes, reductions, per-process heaps);
+        <a href="https://www.erlang.org/doc/system/sup_princ.html">Erlang/OTP: supervisor behaviour</a></li>
+      <li><a href="https://www.ponylang.io/media/papers/orca_gc_and_type_system_co-design_for_actor_languages.pdf">Clebsch et al.: ORCA, GC and type system co-design for actor languages</a></li>
+      <li><a href="https://github.com/swiftlang/swift-evolution/blob/main/proposals/0306-actors.md">Swift SE-0306: Actors</a>;
+        <a href="https://github.com/swiftlang/swift-evolution/blob/main/proposals/0302-concurrent-value-and-concurrent-closures.md">SE-0302: Sendable</a></li>
+      <li><a href="https://www.microsoft.com/en-us/research/project/project-verona/">Microsoft Research: Project Verona</a> (regions)</li>
+      <li>Earlier Hey actor articles: <a href="what-makes-an-actor-cheap.html">What Makes an Actor Cheap?</a>,
+        <a href="designing-heys-actors.html">Designing Hey's Actors</a>, and
+        <a href="should-heys-mailboxes-have-limits.html">Should Hey's Mailboxes Have Limits?</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Written October 9, 2026. Hey's numbers were measured on a shared 12-core Apple-silicon Mac while other builds
+      were running, as medians of three runs. They are indicative, not qualified benchmarks. The scheduler results
+      are from a branch that has not shipped yet; this article will be updated when it does.
+    </p>
+  </footer>
+</body>
+</html>
