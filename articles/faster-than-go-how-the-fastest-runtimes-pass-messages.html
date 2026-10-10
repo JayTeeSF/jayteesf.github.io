@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="What one actor message costs, how Erlang, Go, Pony, Tokio, CAF, Akka and Seastar keep it cheap, where Hey 0.99.597a ties Go and where it is still four times slower, and the plan to beat them. Pictures first.">
+  <meta name="article-date" content="2026-10-10">
+  <meta name="article-bucket" content="actors">
+  <meta name="article-index-rank" content="39">
+  <meta name="article-desc" content="A picture-first explainer. Hey 0.99.597a shipped an M:N actor scheduler that ties Go on rings and pairs and beats it on spawning a million actors, but is 4x slower when 8 senders hit one receiver. The five steps of a message, how the fastest runtimes make each one cheap, the run-next deadlock found and fixed before release, and why Hey's ownership tracking can let it move messages instead of copying them.">
+  <title>Faster Than Go</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.9);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      --hey: #2f7de1;
+      --hey-soft: rgba(47,125,225,0.18);
+      --warm: #e8912d;
+      --warm-soft: rgba(232,145,45,0.18);
+      --bad: #d9473f;
+      --bad-soft: rgba(217,71,63,0.16);
+      --good: #2e9e5b;
+      --good-soft: rgba(46,158,91,0.16);
+      --ink: CanvasText;
+      --paper: Canvas;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 5rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3.2rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2, .callout h3 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; background: var(--code); padding: 0 0.25em; border-radius: 0.25em; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+
+    figure { margin: 1.75rem 0 2.25rem; }
+    figure svg { width: 100%; height: auto; display: block; }
+    figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+    svg text { fill: CanvasText; font-family: system-ui, -apple-system, sans-serif; }
+    svg .m { fill: var(--muted); }
+    svg .ln { stroke: CanvasText; stroke-opacity: 0.55; fill: none; }
+    svg .box { fill: var(--panel); stroke: var(--border); }
+    svg .thread { fill: var(--warm-soft); stroke: var(--warm); }
+    svg .worker { fill: var(--hey-soft); stroke: var(--hey); }
+    svg .actor { fill: var(--hey); }
+    svg .actor-w { fill: var(--warm); }
+    svg .dead { fill: var(--bad); }
+    svg .ok { fill: var(--good); }
+
+    .bars { margin: 1rem 0 0.5rem; }
+    .bar-row { display: grid; grid-template-columns: minmax(7.5rem, 11rem) 1fr; gap: 0.6rem; align-items: center; margin: 0.45rem 0; }
+    .bar-label { font-size: 0.95rem; }
+    .bar-track { position: relative; height: 1.6rem; background: var(--panel); border-radius: 0.35rem; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 0.35rem; background: var(--muted); }
+    .bar-fill.hey { background: var(--hey); }
+    .bar-fill.before { background: var(--bad); }
+    .bar-fill.go { background: var(--warm); }
+    .bar-val { position: absolute; left: 0.5rem; top: 0; line-height: 1.6rem; font-size: 0.85rem; font-weight: 600; color: CanvasText; white-space: nowrap; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.9rem; margin: 1.25rem 0 2rem; }
+    .card { border: 1px solid var(--border); border-radius: 0.7rem; padding: 0.9rem 1rem; background: var(--panel); }
+    .card h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .card p { margin: 0.3rem 0 0; font-size: 0.95rem; }
+    .big { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--hey); }
+
+    .pill { display: inline-block; padding: 0.05rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--border); }
+    .pill.measured { background: var(--warm-soft); }
+    .pill.progress { background: var(--hey-soft); }
+    .pill.queued { background: var(--panel); }
+    .pill.proposed { background: transparent; border-style: dashed; }
+
+    .steps { list-style: none; padding: 0; counter-reset: step; }
+    .steps li { position: relative; padding: 0.8rem 1rem 0.8rem 3.4rem; margin: 0.7rem 0; border: 1px solid var(--border); border-radius: 0.7rem; }
+    .steps li::before { counter-increment: step; content: counter(step); position: absolute; left: 0.9rem; top: 0.8rem; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: var(--hey); color: white; font-weight: 700; text-align: center; line-height: 1.8rem; }
+    .yes { color: var(--good); font-weight: 700; }
+    .no { color: var(--bad); font-weight: 700; }
+    .part { color: var(--warm); font-weight: 700; }
+    dt { font-weight: 700; margin-top: 0.8rem; }
+    dd { margin-left: 1.2rem; }
+  </style>
+
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; Actors &middot; October 10, 2026</p>
+    <h1>Faster Than Go: How the Fastest Runtimes Pass Messages</h1>
+    <p class="lede">
+      Hey 0.99.597a shipped a new actor scheduler that already matches Go on most message benchmarks. Matching is
+      not the goal. This article shows, in pictures, what one message actually costs, how Erlang, Go, Pony, Tokio,
+      CAF, Akka and Seastar each keep that cost down, the one benchmark where Hey is still four times slower than
+      Go, the deadlock we found and fixed on the way, and the plan for making parallel code the obvious way to
+      write Hey.
+    </p>
+  </header>
+
+  <main>
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>597a shipped the scheduler.</strong> One run queue per CPU core, a "run next" slot, work
+          stealing, a lock-free mailbox, and per-thread caches of message nodes. Against the previous release it is
+          <strong>10 to 300 times faster</strong> on actor benchmarks.</li>
+        <li><strong>It ties Go on most rows.</strong> Ring of 100,000 actors: 226 vs 227&nbsp;ns per hop. Pairs:
+          17.2 vs 17.0 million messages per second. Spawning and joining a million actors: Hey is faster
+          (0.82&nbsp;s vs 1.43&nbsp;s).</li>
+        <li><strong>One row loses badly.</strong> When 8 senders all send to 1 receiver, Hey does 5 million messages
+          a second and Go does 19 million. The cause is 8 cores fighting over one memory location.</li>
+        <li><strong>What the fastest runtimes do differently:</strong> they batch (Pony, Akka), they keep data on one
+          core (Seastar), they avoid copying (Pony's isolated references), and they schedule an actor only when its
+          mailbox goes from empty to non-empty (Pony, and now Hey).</li>
+        <li><strong>Hey's advantage is ownership.</strong> Hey's compiler already decides who owns each value. A
+          message the sender will never touch again can be <em>moved</em>, not copied: Erlang must copy, Go shares
+          and hopes. That is the next big step.</li>
+      </ul>
+    </section>
+
+    <div class="cards">
+      <div class="card"><h3>Ring, 100,000 actors</h3><div class="big">226 ns</div><p>per hop. Go: 227 ns. Previous Hey release: 62,563 ns.</p></div>
+      <div class="card"><h3>Pairs, 10 million messages</h3><div class="big">17.2 M/s</div><p>Go: 17.0 M/s. Previous Hey release: 2.0 M/s.</p></div>
+      <div class="card"><h3>8 senders, 1 receiver</h3><div class="big" style="color:var(--bad)">5.05 M/s</div><p>Go: 19.4 M/s. The row to fix first.</p></div>
+      <div class="card"><h3>1 million actors parked</h3><div class="big">177 MB</div><p>about 132 bytes per idle actor, no CPU used.</p></div>
+    </div>
+    <p class="muted">Numbers: Linux, Intel i7-1165G7 (4 cores, 8 threads), mean of 3 runs, measured on the scheduler as
+      it was just before it shipped. The shipped 597a is being re-measured now, together with Erlang, Pony and Tokio
+      versions of every benchmark.</p>
+
+    <h2>1. What one message costs</h2>
+    <p>
+      "Send a message" sounds like one step. It is five, and each one can be cheap or expensive depending on how the
+      runtime is built. The picture follows one message from a sender to a receiver on a different core.
+    </p>
+    <figure>
+      <svg viewBox="0 0 960 330" role="img" aria-label="The five steps of sending one message">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="CanvasText" fill-opacity="0.6"/></marker></defs>
+        <rect class="worker" x="10" y="20" width="250" height="290" rx="12"/>
+        <text x="135" y="45" text-anchor="middle" font-weight="700">Core 1: the sender</text>
+        <rect class="worker" x="700" y="20" width="250" height="290" rx="12"/>
+        <text x="825" y="45" text-anchor="middle" font-weight="700">Core 2: the receiver</text>
+        <rect class="box" x="35" y="70" width="200" height="50" rx="8"/><text x="135" y="92" text-anchor="middle" font-weight="600">1. Get a message node</text><text x="135" y="110" text-anchor="middle" class="m" font-size="13">from this core's cache, no lock</text>
+        <rect class="box" x="35" y="140" width="200" height="50" rx="8"/><text x="135" y="162" text-anchor="middle" font-weight="600">2. Isolate the value</text><text x="135" y="180" text-anchor="middle" class="m" font-size="13">copy it, or move it if unique</text>
+        <rect class="box" x="300" y="105" width="360" height="60" rx="8"/><text x="480" y="130" text-anchor="middle" font-weight="600">3. Push onto the receiver's mailbox</text><text x="480" y="150" text-anchor="middle" class="m" font-size="13">one atomic exchange on the mailbox tail</text>
+        <rect class="box" x="300" y="195" width="360" height="60" rx="8"/><text x="480" y="220" text-anchor="middle" font-weight="600">4. Was the mailbox empty? Schedule it</text><text x="480" y="240" text-anchor="middle" class="m" font-size="13">queue the actor, wake a sleeping core if needed</text>
+        <rect class="box" x="725" y="140" width="200" height="50" rx="8"/><text x="825" y="162" text-anchor="middle" font-weight="600">5. Run the turn</text><text x="825" y="180" text-anchor="middle" class="m" font-size="13">drain a batch of mail</text>
+        <path class="ln" d="M135,120 L135,140" marker-end="url(#ar)"/>
+        <path class="ln" d="M235,165 L300,135" marker-end="url(#ar)"/>
+        <path class="ln" d="M480,165 L480,195" marker-end="url(#ar)"/>
+        <path class="ln" d="M660,225 L725,170" marker-end="url(#ar)"/>
+        <text x="480" y="290" text-anchor="middle" class="m" font-size="14">Steps 3 and 4 are the only ones where two cores touch the same memory. That is where the time goes.</text>
+      </svg>
+      <figcaption>A message's journey. The cheap steps stay on one core. The expensive steps are the ones where cores share
+        memory: every time two cores write the same cache line, the line has to travel between them, which costs
+        roughly 50 to 100 nanoseconds.</figcaption>
+    </figure>
+
+    <h2>2. Where Hey stands after 597a</h2>
+    <p>Shorter bars are better for time; longer bars are better for throughput. Each bar is scaled to the best of the three.</p>
+
+    <h3>Ping-pong between two actors (nanoseconds per hop, lower is better)</h3>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-label">Hey 596a (before)</span><div class="bar-track"><div class="bar-fill before" style="width:100%"></div><span class="bar-val">2,615 ns</span></div></div>
+      <div class="bar-row"><span class="bar-label">Hey 597a</span><div class="bar-track"><div class="bar-fill hey" style="width:6.6%"></div><span class="bar-val">172 ns</span></div></div>
+      <div class="bar-row"><span class="bar-label">Go 1.27</span><div class="bar-track"><div class="bar-fill go" style="width:5.0%"></div><span class="bar-val">132 ns</span></div></div>
+    </div>
+
+    <h3>8 senders to 1 receiver (millions of messages per second, higher is better)</h3>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-label">Hey 596a (before)</span><div class="bar-track"><div class="bar-fill before" style="width:1.5%"></div><span class="bar-val">0.28 M/s</span></div></div>
+      <div class="bar-row"><span class="bar-label">Hey 597a</span><div class="bar-track"><div class="bar-fill hey" style="width:26%"></div><span class="bar-val">5.05 M/s</span></div></div>
+      <div class="bar-row"><span class="bar-label">Go 1.27</span><div class="bar-track"><div class="bar-fill go" style="width:100%"></div><span class="bar-val">19.4 M/s</span></div></div>
+    </div>
+
+    <h3>2,000 actors that each sleep 100 ms (total time, lower is better)</h3>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-label">Hey 596a (before)</span><div class="bar-track"><div class="bar-fill before" style="width:100%"></div><span class="bar-val">25,060 ms</span></div></div>
+      <div class="bar-row"><span class="bar-label">Hey 597a</span><div class="bar-track"><div class="bar-fill hey" style="width:1.7%"></div><span class="bar-val">430 ms</span></div></div>
+      <div class="bar-row"><span class="bar-label">Go 1.27</span><div class="bar-track"><div class="bar-fill go" style="width:0.4%"></div><span class="bar-val">100 ms (ideal)</span></div></div>
+    </div>
+
+    <div class="table-wrap"><table>
+      <tr><th>Benchmark</th><th>Hey 596a</th><th>Hey 597a</th><th>Go 1.27</th><th>Verdict</th></tr>
+      <tr><td>Ping-pong, 2 actors</td><td>2,615 ns/hop</td><td>172 ns/hop</td><td>132 ns/hop</td><td class="part">Go 23% ahead</td></tr>
+      <tr><td>Ring of 100,000 actors</td><td>62,563 ns/hop</td><td>226 ns/hop</td><td>227 ns/hop</td><td class="yes">Tie</td></tr>
+      <tr><td>Pairs, 10 million messages</td><td>2.00 M/s</td><td>17.16 M/s</td><td>17.03 M/s</td><td class="yes">Tie</td></tr>
+      <tr><td>8 senders, 1 receiver</td><td>0.28 M/s</td><td>5.05 M/s</td><td>19.38 M/s</td><td class="no">Go 4&times; ahead</td></tr>
+      <tr><td>2,000 sleepers &times; 100 ms</td><td>25,060 ms</td><td>430 ms</td><td>100 ms</td><td class="no">Go 4&times; ahead</td></tr>
+      <tr><td>Spawn, stop and join 1 million</td><td>over 900 s</td><td>0.82 s</td><td>1.43 s</td><td class="yes">Hey ahead</td></tr>
+      <tr><td>1 million parked actors</td><td>173 MB</td><td>177 MB</td><td>&mdash;</td><td class="muted">132 B per actor</td></tr>
+    </table></div>
+
+    <h2>3. Why eight senders are slow</h2>
+    <p>
+      A Hey mailbox is a lock-free list: a sender adds its message with one atomic exchange on the mailbox's
+      <em>tail</em>. One sender doing that is fast. Eight senders on eight cores all doing it to the same tail means the
+      cache line holding the tail is bounced from core to core millions of times a second. Each bounce costs about as
+      much as everything else in the send put together.
+    </p>
+    <figure>
+      <svg viewBox="0 0 960 300" role="img" aria-label="Eight cores contending on one mailbox tail versus batching">
+        <text x="230" y="25" text-anchor="middle" font-weight="700">Today: every message fights for the tail</text>
+        <text x="720" y="25" text-anchor="middle" font-weight="700">Batched: one fight per batch</text>
+        <g>
+          <rect class="dead" x="190" y="130" width="80" height="44" rx="8" fill-opacity="0.85"/>
+          <text x="230" y="157" text-anchor="middle" font-weight="700" style="fill:white">tail</text>
+          <g class="m">
+            <rect class="thread" x="20" y="45" width="60" height="30" rx="6"/><text x="50" y="65" text-anchor="middle" font-size="13">core 1</text>
+            <rect class="thread" x="20" y="125" width="60" height="30" rx="6"/><text x="50" y="145" text-anchor="middle" font-size="13">core 2</text>
+            <rect class="thread" x="20" y="205" width="60" height="30" rx="6"/><text x="50" y="225" text-anchor="middle" font-size="13">core 3</text>
+            <rect class="thread" x="380" y="45" width="60" height="30" rx="6"/><text x="410" y="65" text-anchor="middle" font-size="13">core 4</text>
+            <rect class="thread" x="380" y="125" width="60" height="30" rx="6"/><text x="410" y="145" text-anchor="middle" font-size="13">core 5</text>
+            <rect class="thread" x="380" y="205" width="60" height="30" rx="6"/><text x="410" y="225" text-anchor="middle" font-size="13">core 6</text>
+            <rect class="thread" x="150" y="250" width="60" height="30" rx="6"/><text x="180" y="270" text-anchor="middle" font-size="13">core 7</text>
+            <rect class="thread" x="250" y="250" width="60" height="30" rx="6"/><text x="280" y="270" text-anchor="middle" font-size="13">core 8</text>
+          </g>
+          <path class="ln" d="M80,60 L190,140 M80,140 L190,150 M80,220 L190,165 M380,60 L270,140 M380,140 L270,152 M380,220 L270,165 M180,250 L215,174 M280,250 L245,174" stroke-dasharray="4 3"/>
+          <text x="230" y="110" text-anchor="middle" class="m" font-size="13">the cache line moves on every send</text>
+        </g>
+        <line x1="480" y1="40" x2="480" y2="290" class="ln" stroke-opacity="0.25"/>
+        <g>
+          <rect class="ok" x="680" y="130" width="80" height="44" rx="8" fill-opacity="0.85"/>
+          <text x="720" y="157" text-anchor="middle" font-weight="700" style="fill:white">tail</text>
+          <rect class="worker" x="510" y="55" width="130" height="36" rx="6"/><text x="575" y="78" text-anchor="middle" font-size="13">core 1: 64 queued</text>
+          <rect class="worker" x="510" y="135" width="130" height="36" rx="6"/><text x="575" y="158" text-anchor="middle" font-size="13">core 2: 64 queued</text>
+          <rect class="worker" x="800" y="55" width="140" height="36" rx="6"/><text x="870" y="78" text-anchor="middle" font-size="13">core 3: 64 queued</text>
+          <rect class="worker" x="800" y="135" width="140" height="36" rx="6"/><text x="870" y="158" text-anchor="middle" font-size="13">core 4: 64 queued</text>
+          <path class="ln" d="M640,73 L680,140 M640,153 L680,152 M800,73 L760,140 M800,153 L760,152"/>
+          <text x="720" y="215" text-anchor="middle" class="m" font-size="13">each core links its messages locally, then</text>
+          <text x="720" y="233" text-anchor="middle" class="m" font-size="13">splices the whole chain in with ONE exchange</text>
+        </g>
+      </svg>
+      <figcaption>The fix the fastest runtimes use: make the expensive shared step happen once per batch, not once per
+        message. Pony limits each actor turn to a batch of messages for fairness; Akka's "throughput" setting does the
+        same. Go is fast here for reasons we are still measuring; the Linux machine is profiling both.</figcaption>
+    </figure>
+
+    <h2>4. How the fastest runtimes do it</h2>
+    <p>Every runtime below solves the same five steps. They differ in which step they make cheap.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Runtime</th><th>Mailbox</th><th>Scheduling</th><th>Message data</th><th>Fairness and overload</th></tr>
+      <tr><td><strong>Erlang (BEAM)</strong></td><td>Per process, lock-protected</td><td>One run queue per core; a process is preempted after a budget of "reductions" (units of work)</td><td><span class="no">Copied</span> into the receiver's heap (large binaries are shared)</td><td>Reduction budget; no mailbox limit</td></tr>
+      <tr><td><strong>Go</strong></td><td>Channels (a lock per channel)</td><td>Per-core run queue with a "run next" slot, work stealing, spinning threads, a separate network poller</td><td><span class="part">Shared</span> memory; the programmer must not race</td><td>Preemption by signal; bounded channels block the sender</td></tr>
+      <tr><td><strong>Pony</strong></td><td>Lock-free multi-producer, single-consumer queue per actor</td><td>Per-core queues, work stealing; the sender learns for free whether the mailbox was empty and schedules only then</td><td><span class="yes">Moved</span>: the type system proves an "isolated" value has one owner</td><td>Batch of 100 messages per turn; an actor that cannot drain its mailbox counts as overloaded and senders are slowed</td></tr>
+      <tr><td><strong>Rust Tokio</strong></td><td>Channels (lock-free)</td><td>Per-core queue plus a one-task "LIFO slot", work stealing of half a queue, a global queue</td><td><span class="yes">Moved</span> (Rust ownership)</td><td>Cooperative budget of 128 units per task turn; the LIFO slot is capped so two tasks cannot starve the rest</td></tr>
+      <tr><td><strong>CAF (C++)</strong></td><td>Lock-free per actor</td><td>Work stealing, eager</td><td>Copy-on-write shared</td><td>Configurable throughput per turn</td></tr>
+      <tr><td><strong>Akka (JVM)</strong></td><td>Lock-free queue per actor</td><td>Thread pool (fork-join)</td><td>Shared references to immutable objects</td><td>"Throughput" = messages per turn, a batching knob</td></tr>
+      <tr><td><strong>Seastar</strong></td><td>Per pair of cores (single-producer queues)</td><td>One thread per core, nothing shared, no stealing</td><td>Moved between cores explicitly</td><td>Each core polls; no locks at all</td></tr>
+      <tr><td><strong>Hey 597a</strong></td><td>Lock-free, one atomic exchange per send</td><td>Per-core queue, "run next" slot, work stealing, global injection queue, slot handoff before blocking</td><td><span class="no">Copied</span> today (an isolating copy) &mdash; <span class="yes">moves</span> are next</td><td>Batched turns; a "run next" streak limit</td></tr>
+    </table></div>
+    <p class="muted">Sources: Pony runtime documentation and the 0.21.0 release notes (batch size and overload); Tokio's
+      scheduler commits on the LIFO slot and cooperative budget; descriptions of the BEAM scheduler (reductions and
+      per-core run queues); published actor benchmark studies (Savina, the Glasgow comparison of Erlang, Go and Akka).
+      Links are at the end.</p>
+
+    <h2>5. The deadlock we found on the way</h2>
+    <p>
+      The "run next" slot is a trick from Go and Tokio: when an actor sends a reply, the receiver goes into a
+      one-actor slot on the <em>same</em> core, so it runs next while the message is still in that core's cache. It
+      is the reason ping-pong got 15 times faster. It also caused the one real bug we found while testing 597a,
+      reported by the RecallCoach app's test suite.
+    </p>
+    <figure>
+      <svg viewBox="0 0 960 260" role="img" aria-label="The run-next deadlock">
+        <rect class="worker" x="20" y="30" width="420" height="200" rx="12"/>
+        <text x="230" y="55" text-anchor="middle" font-weight="700">Core 1</text>
+        <rect class="box" x="45" y="75" width="170" height="60" rx="8"/><text x="130" y="100" text-anchor="middle" font-weight="600">Job worker</text><text x="130" y="120" text-anchor="middle" class="m" font-size="13">"stop the pool, wait"</text>
+        <rect class="dead" x="250" y="75" width="165" height="60" rx="8" fill-opacity="0.8"/><text x="332" y="100" text-anchor="middle" font-weight="600" style="fill:white">run-next slot</text><text x="332" y="120" text-anchor="middle" font-size="13" style="fill:white">pool worker: "stop"</text>
+        <text x="230" y="170" text-anchor="middle" class="m" font-size="14">The waiter is blocked, so it never gets back</text>
+        <text x="230" y="190" text-anchor="middle" class="m" font-size="14">to run the actor in its own run-next slot.</text>
+        <rect class="box" x="500" y="30" width="440" height="200" rx="12"/>
+        <text x="720" y="55" text-anchor="middle" font-weight="700">Cores 2 to 12: asleep</text>
+        <text x="720" y="100" text-anchor="middle" class="m" font-size="14">Nobody woke them: a run-next send assumed</text>
+        <text x="720" y="120" text-anchor="middle" class="m" font-size="14">"this core will run it next, no need to wake anyone".</text>
+        <text x="720" y="170" text-anchor="middle" font-weight="600" style="fill:var(--good)">The fix: before any blocking wait, a core hands its</text>
+        <text x="720" y="190" text-anchor="middle" font-weight="600" style="fill:var(--good)">slot to a spare thread (or spills its queue), and a</text>
+        <text x="720" y="210" text-anchor="middle" font-weight="600" style="fill:var(--good)">run-next send always checks for a sleeping core.</text>
+      </svg>
+      <figcaption>Go's scheduler does the same two things: a goroutine entering a blocking call gives its processor to
+        another thread, and making a goroutine ready always considers waking an idle processor. Tokio hit a related
+        problem with its LIFO slot (two tasks starving the rest) and capped it. The new Hey spec 1376 reproduces the
+        deadlock and passes on 597a; the app's job test runs in 3.9&nbsp;s, the same as before.</figcaption>
+    </figure>
+
+    <h2>6. Hey's unfair advantage: knowing who owns the message</h2>
+    <p>
+      Erlang copies every message so processes can never share memory; that is safe and costs time proportional to the
+      message's size. Go shares memory and trusts the programmer not to race. Pony and Rust move values whose single
+      owner is proven by the type system. Hey already has the information Pony and Rust use: its compiler's middle
+      layer (MIR) decides who owns every value, and the code generator obeys. When MIR proves that the sender never
+      uses a message again, the send can hand over the pointer instead of copying.
+    </p>
+    <figure>
+      <svg viewBox="0 0 960 200" role="img" aria-label="Copy versus move of a message">
+        <text x="230" y="25" text-anchor="middle" font-weight="700">Copy (Erlang, Hey today)</text>
+        <rect class="worker" x="40" y="45" width="130" height="110" rx="10"/><text x="105" y="70" text-anchor="middle" font-size="13">sender heap</text>
+        <rect class="actor" x="70" y="85" width="70" height="50" rx="6"/>
+        <rect class="worker" x="290" y="45" width="130" height="110" rx="10"/><text x="355" y="70" text-anchor="middle" font-size="13">receiver heap</text>
+        <rect class="actor" x="320" y="85" width="70" height="50" rx="6"/>
+        <path class="ln" d="M140,110 L320,110" marker-end="url(#ar)"/><text x="230" y="100" text-anchor="middle" class="m" font-size="13">every byte copied</text>
+        <text x="720" y="25" text-anchor="middle" font-weight="700">Move (Pony, Rust, Hey next)</text>
+        <rect class="worker" x="530" y="45" width="130" height="110" rx="10"/><text x="595" y="70" text-anchor="middle" font-size="13">sender</text>
+        <rect class="worker" x="780" y="45" width="130" height="110" rx="10"/><text x="845" y="70" text-anchor="middle" font-size="13">receiver</text>
+        <rect class="ok" x="810" y="85" width="70" height="50" rx="6"/>
+        <path class="ln" d="M660,110 L810,110" marker-end="url(#ar)"/><text x="720" y="100" text-anchor="middle" class="m" font-size="13">one pointer handed over</text>
+        <text x="480" y="185" text-anchor="middle" class="m" font-size="14">Safe only when the compiler proves the sender holds the only reference. Hey's MIR already tracks exactly that.</text>
+      </svg>
+    </figure>
+
+    <h2>7. The plan</h2>
+    <ol class="steps">
+      <li><strong>Batch the shared step</strong> <span class="pill progress">in progress</span><br>Fix 8-senders-to-1:
+        link messages locally and splice them into the mailbox with one exchange; never wake a receiver that is already
+        scheduled. Target: beat Go's 19.4 M/s.</li>
+      <li><strong>Timers per core</strong> <span class="pill queued">next</span><br>Sleeping actors go on a
+        per-core timer wheel instead of borrowing a thread each, so 2,000 sleepers wake together at 100 ms.</li>
+      <li><strong>Move, don't copy</strong> <span class="pill queued">next</span><br>When MIR proves a message has
+        one owner, send the pointer. This is where Hey can pass Go (no races) and Erlang (no copies) at the same time.</li>
+      <li><strong>A memory region per actor</strong> <span class="pill queued">queued</span><br>Free an actor's whole
+        memory at once when it dies, as Erlang frees a process heap.</li>
+      <li><strong>Measure against the best</strong> <span class="pill progress">in progress</span><br>The Linux
+        benchmark machine is adding Erlang, Pony and Rust Tokio versions of every actor benchmark (and CAF or Akka if
+        feasible), so every row shows who is fastest. The scorecard will carry them.</li>
+    </ol>
+
+    <section class="callout">
+      <h3>Why this matters</h3>
+      <p>If sending a message costs about as much as a function call, splitting work across actors stops being an
+        optimisation you reach for late and becomes the normal way to write a program. Every Hey web server, job queue
+        and data pipeline gets faster without the programmer doing anything different. That is the bar: parallel code
+        should be the obvious choice because it is the fast choice.</p>
+    </section>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><a href="https://tutorial.ponylang.io/runtime-basics/scheduler">Pony tutorial: the scheduler</a> and <a href="https://www.ponylang.io/blog/2017/12/0.21.0-released/">Pony 0.21.0 release notes</a> (batch size, overload, backpressure)</li>
+      <li><a href="https://patterns.ponylang.io/async/batch-and-yield">Pony patterns: batch and yield</a></li>
+      <li><a href="https://www.ponylang.io/faq/runtime/">Pony runtime FAQ</a> and <a href="https://www.ponylang.io/benchmarks_all.pdf">Pony benchmarks</a></li>
+      <li><a href="https://redirect.github.com/tokio-rs/tokio/commit/8b60f58a87b0f37bef73d6d97900ffff8267135a">Tokio: limiting the LIFO slot</a> and <a href="https://doc.servo.org/tokio/runtime/coop/index.html">Tokio cooperative budget</a></li>
+      <li><a href="https://blog.appsignal.com/2024/04/23/deep-diving-into-the-erlang-scheduler.html">Deep diving into the Erlang scheduler</a> and <a href="https://www.erlang-factory.com/upload/presentations/765/EFSF2013Hitchhikers-Tour-of-the-BEAM.pdf">A Hitchhiker's Tour of the BEAM</a></li>
+      <li><a href="https://2019.splashcon.org/details/agere/6/Run-Actor-Run-Towards-Cross-Actor-Language-Benchmarking">Run, Actor, Run: towards cross-actor language benchmarking</a> (Akka, CAF, Pony on Savina)</li>
+      <li><a href="https://eprints.bournemouth.ac.uk/30239/1/sac-18.pdf">A comparison of Erlang, Go and Scala/Akka</a></li>
+      <li><a href="https://arxiv.org/pdf/1301.0748">libcppa (CAF): designing an actor semantic for C++11</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Written October 10, 2026. Hey and Go numbers were measured on the Linux benchmark machine (4 cores, 8 threads,
+      AC power, cooled), mean of 3 runs, on the scheduler as it was just before it shipped in 0.99.597a. The shipped
+      release is being re-measured, and Erlang, Pony and Tokio are being added; this article will be updated with
+      those numbers. The previous article, <a href="how-hey-runs-a-million-actors.html">How Hey Runs a Million
+      Actors</a>, explains the scheduler's design.
+    </p>
+  </footer>
+</body>
+</html>
