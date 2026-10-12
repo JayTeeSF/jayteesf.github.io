@@ -1,0 +1,7 @@
+# New timer scaling:88native executionsPASS
+
+Source runtime600a timer0417aff407b1116394647bd304640cef5961774c,baseline599a. Samegenuine599a LLVM, prebuilt binaries withSHA256 inmetadata; nocompilerbuild.10k/20kactors×500ms at1/8workers, oneexcludedwarmup+tenmeasured, rotatedlanes. Completed16:09:14PDT, controller785exit0. RERUN=NOforidenticalinputs.
+
+At20k/oneworker, list3182ms/2.75CPU s vsheap568ms/0.16CPU s:5.60xcompletion,17.19xfewerCPU seconds. Footprintlist89.08MB vsheap346.57MB:moreturnsconcurrentlyparkratherthanfinishwhilelinear insertioncontinues. At20k/eightworkers,list663.5ms/1.425CPU s vsheap543ms/0.54CPU s, footprints346.67/347.18MB. These are measuredmilestone benefits,NOT O(1)-amortizedwheelcompletion. Fiberadmissionmemoryremainsopen; preserveunfavorablefootprint.
+
+Follow-up behavioral controls now pass on the actual runtime: heap and profiled old-list each 12 configurations; native ARM64 Linux clang22.1.3 TSan 12 configurations with real fibers. A deliberately reversed deadline comparator fails actual callback ordering. At one worker, zero resumptions after all96entered plus final96park counter proves an overlapping cohort and32/64capacitygrowth; at2/8workers only96totalparks is claimed. Stop/shutdown wait for callbacks; they do not interrupt active turns. Full source/binary identities and review fixes are in ../timer-behavior/. This remains runtime evidence, not600acompilerqualification.
