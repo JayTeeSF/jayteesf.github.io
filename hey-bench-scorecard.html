@@ -109,7 +109,7 @@ table.data{border-collapse:collapse; width:100%; font-size:13px}
   </section>
 
   <div class="two">
-    <section class="panel"><h2 id="detailTitle"></h2><div class="sub" id="detailSub"></div><div class="bars" id="bars"></div></section>
+    <section class="panel"><h2 id="detailTitle"></h2><div class="sub" id="detailSub"></div><div class="bars" id="bars"></div><h3 style="font-size:14px;margin:18px 0 6px" id="histTitle"></h3><div class="sub" id="histSub"></div><div class="scroll"><table class="data" id="hist"></table></div></section>
     <section class="panel"><h2>Hey scaling probes</h2><div class="sub">Compiled Hey only, N = 32,000. A slope near 1.0 means O(n); near 2.0 means O(n²).</div><div class="scroll"><table class="data" id="scal"></table></div></section>
   </div>
 </div>
@@ -405,9 +405,25 @@ function detail(){
   $("detailTitle").textContent = `${t.label} · ${m.label}`;
   $("detailSub").textContent = (m.higher? "Longer bar is better. ":"Shorter bar is better. ") + "Absolute values; Hey is the dark bar.";
   const vs = LANGS.map(l=>[l,t.langs[l]?.[m.key]]).filter(x=>x[1]!=null && x[1]>0).sort((a,b)=> m.higher? b[1]-a[1] : a[1]-b[1]);
-  if (!vs.length){ $("bars").innerHTML = `<p class="sub">This metric has no value for ${t.label}.</p>`; return; }
+  if (!vs.length){ $("bars").innerHTML = `<p class="sub">This metric has no value for ${t.label}.</p>`; history(t); return; }
   const max=Math.max(...vs.map(x=>x[1]));
+  history(t);
   $("bars").innerHTML = vs.map(([l,v])=>`<div class="bar${l==="hey"?" hey":""}"><span class="name">${l}</span><div class="track"><div class="fill" style="width:${Math.max(0.6,100*v/max)}%"></div></div><span class="val">${fmt(v,m.unit)}</span></div>`).join("");
+}
+// Hey on the selected test, one row per release (its latest run). Instructions per op
+// barely move between runs on one host, so they separate a code change from host noise,
+// which moves wall time and CPU together with the C reference.
+function history(t){
+  const runs=[...HIST, {meta:DATA.meta, tests:DATA.tests}], byVer=new Map();
+  for (const run of runs){ const v=run.meta?.version; if (v && run.tests?.find(x=>x.id===t.id)?.langs.hey) byVer.set(v, run); }
+  const rows=[...byVer.values()].slice(-12).reverse();
+  $("histTitle").textContent = `Hey on ${t.label}, by release`;
+  $("histSub").textContent = "Latest run of each release, newest first. Wall time and CPU move with the host, so read them against the C reference from the same run. Instructions per op is the stable measure of a code change.";
+  if (!rows.length){ $("hist").innerHTML=""; return; }
+  const num=(v,d)=> v==null? "—" : Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+  $("hist").innerHTML = `<thead><tr><th style="text-align:left">Release</th><th>Hey sha</th><th>Wall s</th><th>CPU s</th><th>Instr / op</th><th>C wall s</th></tr></thead><tbody>`+
+    rows.map(run=>{ const L=run.tests.find(x=>x.id===t.id).langs, h=L.hey;
+      return `<tr><td style="text-align:left">${esc(run.meta.version)}</td><td>${esc(run.meta.hey_sha||"")}</td><td>${num(h.time,3)}</td><td>${num(h.cpu,2)}</td><td>${num(h.ipo,1)}</td><td>${num(L.c?.time,3)}</td></tr>`; }).join("")+"</tbody>";
 }
 function scaling(){
   const rows=DATA.scaling.filter(r=>r.n===Math.max(...DATA.scaling.map(x=>x.n)));
@@ -421,7 +437,7 @@ $("heat").addEventListener("mousemove", e=>{
   if(!td){ tip.hidden=true; return; }
   const t=DATA.tests.find(x=>x.id===td.dataset.id), l=td.dataset.l, d=t.langs[l], m=METRICS[metric];
   const b=baseline(t,l), bl= b? `<br>${base==="prev"?"previous":"best"}: ${fmt(b.v,m.unit)} (${esc(b.run.tag)}, hey ${esc(b.run.hey_sha)})` : "";
-  tip.innerHTML = d? `<b>${l} · ${t.label}</b><br>${m.label}: ${fmt(d[m.key],m.unit)} (${base==="c"?tag(cost(t,l))+" vs C":dtag(cost(t,l))})${bl}<br>speed ${fmt(d.ops,"ops/s")}<br>efficiency ${fmt(d.eff,"per CPU-s")}<br>peak RAM ${fmt(d.rss,"MB")}` : `<b>${l}</b><br>not run on this test`;
+  tip.innerHTML = d? `<b>${l} · ${t.label}</b><br>${m.label}: ${fmt(d[m.key],m.unit)} (${base==="c"?tag(cost(t,l))+" vs C":dtag(cost(t,l))})${bl}<br>speed ${fmt(d.ops,"ops/s")}<br>efficiency ${fmt(d.eff,"per CPU-s")}<br>peak RAM ${fmt(d.rss,"MB")}${d.ipo!=null?`<br>instructions ${fmt(d.ipo,"instr/op")}`:""}` : `<b>${l}</b><br>not run on this test`;
   tip.hidden=false; tip.style.left=Math.min(innerWidth-270,e.clientX+14)+"px"; tip.style.top=(e.clientY+14)+"px";
 });
 $("heat").addEventListener("mouseleave", ()=>$("tip").hidden=true);
