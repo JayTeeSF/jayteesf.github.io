@@ -1,0 +1,22 @@
+# Linux: one loop, one client, one request and reply; prints "echo: hello".
+import 'stdlib:Bytes'
+import 'stdlib:Io'
+import 'stdlib:Net'
+import '../../io_uring.hey'
+
+program
+  let loop = IoUring.open('127.0.0.1', 0, {}).value
+  let client = Net.connect('127.0.0.1', loop.port, {}).value
+  client.write_all('hello')
+  let ready = IoUring.wait(loop, 2000)
+  while ready == 0
+    set ready = IoUring.wait(loop, 200)
+  end
+  let id = IoUring.next(loop)
+  let got = IoUring.data(loop, id)
+  let sent = IoUring.send(loop, id, len(got), 'echo: ' + got, true)
+  let written = IoUring.wait(loop, 0)       # hands the reply to the kernel
+  let reply = client.read_exact(11)
+  says Bytes.decode(reply.value.data, 'utf-8')
+  let closed = IoUring.close(loop)
+end
