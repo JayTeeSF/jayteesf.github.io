@@ -18,11 +18,11 @@ module PackagesIndex
     }
   end
 
-  # --workers N, or PACKAGES_INDEX_WORKERS. Defaults to 4, which measured
-  # fastest on a 14-package tree; 1 is the serial path.
+  # --workers N, or PACKAGES_INDEX_WORKERS. Defaults to 4. The value is parsed and
+  # validated, but rendering is serial on 0.99.601a (see render_page), so it does not
+  # change the work done or the output.
   private fn worker_count(args)
-    # The flag wins, and is checked first so the common case never pays
-    # for an environment lookup (Env.default measured ~5 ms here).
+    # The flag wins, then the environment.
     let requested = ''
     let index = 0
 
@@ -37,11 +37,9 @@ module PackagesIndex
       set requested = Env.default('PACKAGES_INDEX_WORKERS', '')
     end
 
-    # Nothing supplied: take the default without validating it. This is
-    # not micro-optimisation — Text.int_token? is a delegated call, and
-    # the first delegated call in a process costs ~5.8 ms (probe:
-    # war-room bench/probes/cli-startup-call-cost.hey). Paying that to
-    # check a literal we wrote ourselves cost 20% of total runtime.
+    # Nothing supplied: take the default; there is nothing to validate. (At 0.99.410a
+    # Text.int_token? was a delegated call whose first use cost ~5.8 ms; on 0.99.601a
+    # the war-room probe bench/probes/cli-startup-call-cost.hey measures it at 4-23 us.)
     if requested == ''
       return 4
     end
@@ -165,64 +163,12 @@ module PackagesIndex
     return Collections.compare(left, right)
   end
 
-  # `.uniq`, `.sort(cmp)` and `.empty?` DO NOT EXIST on a Hey array. Each returned the
-  # runtime's `#<stop>` sentinel, which is TRUTHY -- so `if not x.empty?` answered false, and
-  # this generator would have written an index with no entries while printing "Generated" and
-  # exiting 0. The Ruby twin uses all three because Ruby has them, and this file was
-  # transliterated from it. Its sibling, generate-articles-index.hey, had exactly this and was
-  # confirmed writing a zero-entry index on 2026-09-24.
-  #
-  # Insertion sort, not Collections.sort_by, for the same reason as the articles twin:
-  # sort_by takes a KEY function and compare_paths is a comparator. Reusing the comparator
-  # keeps the ordering identical to the Ruby twin by construction. Stable, and the input is a
-  # package listing.
-  private fn unique_paths(paths)
-    let seen = []
-
-    for path in paths
-      let found = false
-
-      for kept in seen
-        if kept == path
-          set found = true
-        end
-      end
-
-      if not found
-        set seen = [...seen, path]
-      end
-    end
-
-    return seen
-  end
-
-  private fn sort_paths(paths)
-    let out = []
-
-    for path in paths
-      let placed = false
-      let merged = []
-
-      for existing in out
-        if not placed and PackagesIndex.compare_paths(path, existing) < 0
-          set merged = [...merged, path]
-          set placed = true
-        end
-        set merged = [...merged, existing]
-      end
-
-      if not placed
-        set merged = [...merged, path]
-      end
-
-      set out = merged
-    end
-
-    return out
-  end
-
+  # On 2026-09-24 `.uniq`, `.sort(cmp)` and `.empty?` on an array returned the runtime's
+  # truthy `#<stop>` sentinel, and this function was replaced by a hand-written unique and
+  # insertion sort. They work on 0.99.601a, and the Ruby spelling is back: same output, byte
+  # for byte, and 6.5x faster on the 34-package tree.
   private fn sorted_unique(paths)
-    return PackagesIndex.sort_paths(PackagesIndex.unique_paths(paths))
+    return paths.uniq.sort(PackagesIndex.compare_paths)
   end
 
   private fn package_directories(index)
@@ -234,7 +180,7 @@ module PackagesIndex
       end
     end
 
-    return PackagesIndex.sort_paths(directories)
+    return directories.sort(PackagesIndex.compare_paths)
   end
 
   private fn package_files(package_dir)
