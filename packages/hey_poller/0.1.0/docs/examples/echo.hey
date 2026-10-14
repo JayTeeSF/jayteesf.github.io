@@ -1,0 +1,31 @@
+# One loop on the backend this OS selects, one client, one request and reply;
+# prints "echo: hello".
+import 'stdlib:Bytes'
+import 'stdlib:Io'
+import 'stdlib:Net'
+import '../../poller.hey'
+
+# A connect and its first bytes can reach the loop in two wake-ups (the accept
+# finds nothing to read yet): wait until input is there, boundedly.
+fn wait_for_input(loop)
+  let ready = Poller.wait(loop, 2000)
+  let tries = 0
+  while ready == 0 and tries < 20
+    set ready = Poller.wait(loop, 200)
+    set tries = tries + 1
+  end
+  return ready
+end
+
+program
+  let loop = Poller.open('127.0.0.1', 0, {}).value
+  let client = Net.connect('127.0.0.1', loop.port, {}).value
+  client.write_all('hello')
+  let ready = wait_for_input(loop)
+  let id = Poller.next(loop)
+  let got = Poller.data(loop, id)
+  let sent = Poller.send(loop, id, len(got), 'echo: ' + got, true)
+  let reply = client.read_exact(11)
+  says Bytes.decode(reply.value.data, 'utf-8')
+  let closed = Poller.close(loop)
+end
