@@ -1,0 +1,63 @@
+#!/bin/sh
+# Run one of this repo's Hey scripts from a cached native build.
+#
+#   bin/hey-run generate-articles-index [ARGS...]
+#   bin/hey-run generate-packages-index [ARGS...]
+#
+# The first run (and any run after the script, one of its stdlib imports, or the
+# pinned Hey's compiler changes) builds NAME.hey once with `heyc build` into
+# .hey-bin/NAME (gitignored, ~1 s). Every other run execs that binary directly,
+# so it starts instantly and never touches the Hey toolchain.
+#
+# The Hey used is pinned here, not taken from PATH or ~/.config/hey/env.sh:
+# the Maintainer's canonical checkout, ~/dev/hey-lang-bootstrap-plan (0.99.601a
+# on 2026-10-14). Override with SITE_HEY_ROOT=/path/to/hey.
+set -eu
+
+[ $# -ge 1 ] || { echo "usage: bin/hey-run SCRIPT[.hey] [ARGS...]" >&2; exit 64; }
+SITE="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+HEY="${SITE_HEY_ROOT:-$HOME/dev/hey-lang-bootstrap-plan}"
+name="$(basename -- "${1%.hey}")"; shift
+src="$SITE/$name.hey"
+bin="$SITE/.hey-bin/$name"
+[ -f "$src" ] || { echo "hey-run: no such script: $src" >&2; exit 66; }
+
+# Rebuild key: the script, its stdlib imports (transitively), the compiler.
+imports() { sed -n "s/^import 'stdlib:\([A-Za-z0-9_]*\)'.*/\1/p" "$@" 2>/dev/null; }
+seen=""; todo="$(imports "$src")"
+while [ -n "$todo" ]; do
+  next=""
+  for m in $todo; do
+    case " $seen " in *" $m "*) continue ;; esac
+    seen="$seen $m"; next="$next $(imports "$HEY/stdlib/$m.hey")"
+  done
+  todo="$(echo $next)"
+done
+key="$(
+  { echo "$HEY"; cat "$src"
+    for m in $seen; do cat "$HEY/stdlib/$m.hey" 2>/dev/null || echo "missing $m"; done
+    cat "$HEY/build/heyc" "$HEY/build/hey-selfc" 2>/dev/null || echo "no build"
+  } | shasum -a 256 | cut -c1-64
+)"
+
+if [ -x "$bin" ] && { [ ! -x "$HEY/build/heyc" ] || [ ! -x "$HEY/build/hey-selfc" ]; }; then
+  # The pinned tree is mid-rebuild. Building now would fall back to compiling
+  # the compiler from source (minutes), so keep the previous build.
+  [ "$(cat "$bin.key" 2>/dev/null)" = "$key" ] ||
+    echo "hey-run: $HEY/build is incomplete; running the previous build of $name" >&2
+elif [ ! -x "$bin" ] || [ "$(cat "$bin.key" 2>/dev/null)" != "$key" ]; then
+  mkdir -p "$SITE/.hey-bin"
+  tmp="$(mktemp -d "$SITE/.hey-bin/build.XXXXXX")"
+  echo "hey-run: building $name.hey with $HEY ..." >&2
+  if HEY_ROOT="$HEY" HEY_STDLIB_PATH="$HEY/stdlib" HEY_COMPILER_BUILD_DIR="$HEY/build" \
+       nice -n 10 "$HEY/bin/heyc" build --backend llvm "$src" -o "$tmp/$name" >"$tmp/log" 2>&1; then
+    mv -f "$tmp/$name" "$bin"; echo "$key" > "$bin.key"
+  elif [ -x "$bin" ]; then
+    echo "hey-run: rebuild failed (log below); running the previous build of $name" >&2
+    cat "$tmp/log" >&2
+  else
+    cat "$tmp/log" >&2; rm -rf "$tmp"; exit 70
+  fi
+  rm -rf "$tmp"
+fi
+exec "$bin" "$@"
