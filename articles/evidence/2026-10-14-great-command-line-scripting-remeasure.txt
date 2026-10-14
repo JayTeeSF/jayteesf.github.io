@@ -198,3 +198,49 @@ HARNESS (first set; the second set differs only in its lane list)
     python3 -c "import json,sys;r=json.load(open('$OUT/${NAMES[$i]}.json'))['results'][0];print('%-14s %7.1f ± %5.1f ms  (min %6.1f, n=%d)'%('${NAMES[$i]}',r['mean']*1e3,r['stddev']*1e3,r['min']*1e3,len(r['times'])))"
   done
   rm -f packages/index.html
+
+==========================================================================================
+APPENDED 2026-10-14 ~13:20-13:35: THE FIX SHIPPED (site commit fb5fee2), SHIPPED LANES RE-MEASURED
+  The owner decided to ship the sort fix. generate-packages-index.hey @ fb5fee2 restores
+  paths.uniq.sort(PackagesIndex.compare_paths) / directories.sort(...) and removes the
+  2026-09-24 unique_paths + sort_paths workaround (646 -> 592 lines; 27 -> 25 fns; non-comment,
+  non-blank code 469 -> 435). Stale comments corrected (5.8 ms first call, ~5 ms Env.default).
+  Parity before commit: script lane and bin/hey-run lane, today's and July's trees, cmp vs Ruby
+  4.0.7 -> all OK. --help, --workers abc, --workers 0, two positionals, missing dir: identical
+  messages before and after (there is no --help; it is read as a directory name).
+  Repo packages/index.html regenerated (bin/hey-run generate-packages-index --workers 1):
+  634 new link lines (packages published since 2026-09-06); cmp-identical to the Ruby twin for
+  the same timestamp.
+
+  Same tools and host as above (Hey 601a @565e6ddad, Ruby 4.0.7 real binary, hyperfine -N,
+  nice -n 10). Lanes: ship-script (shebang, default workers), ship-script-w1, ship-binary
+  (heyc build --backend llvm of fb5fee2's file), ship-heyrun (bin/hey-run, cached build in
+  the scratch copy's .hey-bin), ruby407-yjit, ruby407-nojit. Order rotated, 3 rounds per tree,
+  trees alternated. Parity gate passed for all 6 lanes in every round.
+
+  LOAD SWUNG IN ROUND 3. Rounds 1-2: 1-min load 2.4-3.2. Round 3: 3.0-3.4, with a
+  com.apple.Virtualization VM (~100% of a core) in the top-CPU list alongside the Hey compiler
+  build (hey-selfc-pipeline-stage0, ~99%). Round 3 is slower on every lane of the July tree
+  (Ruby +10%, bin/hey-run +20%); on today's tree the shift is 0-5%.
+
+  pooled mean +- sd (median), per-round means; xN = Ruby 4.0.7+YJIT pooled mean / lane mean
+  == today tree
+  ruby407-yjit     310.7 +-  2.7 (median  311.2) n=60  x1.00   r1/r2/r3: 312.0 / 311.9 / 308.1
+  ruby407-nojit    397.5 +-  9.3 (median  394.8) n=60  x0.78   r1/r2/r3: 394.9 / 391.4 / 406.3
+  ship-binary      115.6 +-  1.1 (median  115.6) n=90  x2.69   r1/r2/r3: 115.5 / 116.2 / 115.3
+  ship-script      137.2 +-  4.8 (median  135.3) n=90  x2.27   r1/r2/r3: 134.5 / 135.1 / 141.8
+  ship-script-w1   134.5 +-  2.1 (median  134.2) n=90  x2.31   r1/r2/r3: 134.2 / 133.3 / 136.0
+  ship-heyrun      176.0 +-  2.9 (median  175.8) n=90  x1.77   r1/r2/r3: 176.0 / 176.0 / 175.9
+   r1 1-min load 2.51 - 2.71
+   r2 1-min load 2.37 - 3.1
+   r3 1-min load 3.05 - 3.4
+  == july tree
+  ruby407-yjit      98.0 +-  5.8 (median   94.8) n=60  x1.00   r1/r2/r3: 94.0 / 95.5 / 104.5
+  ruby407-nojit    102.8 +-  6.0 (median   99.6) n=60  x0.95   r1/r2/r3: 99.1 / 98.7 / 110.5
+  ship-binary       25.6 +-  0.5 (median   25.6) n=90  x3.83   r1/r2/r3: 25.1 / 25.6 / 26.0
+  ship-script       50.3 +-  5.8 (median   47.8) n=90  x1.95   r1/r2/r3: 47.5 / 47.2 / 56.3
+  ship-script-w1    45.8 +-  1.2 (median   45.7) n=90  x2.14   r1/r2/r3: 45.1 / 45.3 / 46.9
+  ship-heyrun       90.1 +- 10.8 (median   85.6) n=90  x1.09   r1/r2/r3: 82.7 / 85.4 / 102.2
+   r1 1-min load 2.55 - 2.62
+   r2 1-min load 3.1 - 3.17
+   r3 1-min load 3.37 - 3.42
