@@ -1,0 +1,200 @@
+Great Command-Line Scripting with Hey: re-measurement receipt
+Measured 2026-10-14 (article dated the week of 2026-10-10). Darwin seat.
+
+WHAT WAS MEASURED
+  Site repo: JayTeeSF/jayteesf.github.io @ 00befeb (generate-packages-index.rb / .hey as committed;
+    the .hey last changed in 0631ba3, 2026-09-24)
+  Workloads (copied to a scratch dir; the repo's packages/index.html was never written):
+    "today"  = packages/ at 05167f8: 34 package dirs, 1,765 files, 181 docs dirs, 1,222 links in the output
+    "July"   = packages/ at 12233b1 (2026-07-25 18:10 -0700): 14 package dirs, 414 files
+  PACKAGES_INDEX_GENERATED_AT=2026-10-14T00:00:00Z in every lane.
+
+TOOLS
+  Hey 0.99.601a = ~/dev/hey-lang-bootstrap-plan @ 565e6ddad37676e1c7fe892265b3f329d918094e (main;
+    33 commits behind origin/main, none ahead; build/ from 2026-10-13 10:57; sha256 prefix
+    build/heyc 1fc845b9251e4927, build/hey-selfc 0a89f488bceddd31). HEY_ROOT, HEY_STDLIB_PATH and
+    HEY_COMPILER_BUILD_DIR set explicitly for every lane; PATH led with its bin/ so the shebang's
+    `hey` is 601a.
+  Hey 0.99.602a = ~/dev/hey-lang-tgz-dc @ 352d9a0c5: NOT MEASURED. Every script, including hello
+    world, fails: "hey-selfc: the product pipeline was built from compiler sources aba314a7ce60671a
+    and this checkout is d25f33024105aabb; rebuild it". Not rebuilt (out of scope; Hey team fixing).
+  Ruby 4.0.7 (2026-09-15 revision 229531a6cf) +YJIT +PRISM [arm64-darwin25], newest stable on
+    ruby-lang.org on 2026-10-14; installed with rbenv from a local ruby-build definition
+    (ruby-build 20260716 predates 4.0.7; tarball sha256 911ace20...82d from cache.ruby-lang.org/index.txt).
+  Ruby 4.0.6 (2026-07-14 revision 03b6d3f889) +YJIT, for one control lane.
+  Ruby lanes call the real binary (~/.rbenv/versions/X/bin/ruby), not the rbenv shim. The shell
+  exports RUBY_YJIT_ENABLE=1, so the no-JIT lane runs under `env -u RUBY_YJIT_ENABLE`
+  (verified: RubyVM::YJIT.enabled? => false).
+  hyperfine 1.20.0, -N (no shell), --warmup 3, 30 runs (Hey) / 20 runs (Ruby), run at nice -n 10.
+
+HOST AND LOAD
+  Apple M3 Pro, 12 cores (6P + 6E), 18 GiB, macOS 26.6.2, Darwin 25.6.0 arm64.
+  NOT a quiet box: a Hey compiler build (hey-selfc-pipeline-stage0, ~99% of one core) ran during
+  every lane. 1-minute load average 2.2-3.0 across all rounds (this benchmark included).
+  Lane order rotated each round; 3 rounds (first set), 2 rounds (second set). Round-to-round
+  spread of each lane's mean <= 2%: no swing with load was visible at this load level.
+
+PARITY GATE (every round, every lane, before timing)
+  rm packages/index.html; run; test -s; cmp against the Ruby 4.0.7+YJIT output. All lanes passed.
+  Negative controls (2026-10-14, July tree):
+    lane = `true`                                -> exit=0, "NO OUTPUT (gate red)"
+    lane = gpi-bin with a different timestamp    -> exit=0, "PARITY FAIL (gate red)"
+    lane = gpi-bin (positive control)            -> parity OK
+
+LANES
+  hey-script   ./generate-packages-index.hey [--workers 1] ./packages     (shebang -> 601a `hey`)
+  hey-binary   heyc build --backend llvm generate-packages-index.hey -o gpi-bin (what bin/hey-run builds)
+  dot-*        the same file with two edits, nothing else changed:
+                 sorted_unique:        paths.uniq.sort(PackagesIndex.compare_paths)
+                 package_directories:  directories.sort(PackagesIndex.compare_paths)
+               (the Ruby spells these paths.uniq.sort { compare_paths }; the shipped .hey replaced them
+               on 2026-09-24 with a hand-written O(n^2) unique + insertion sort because, on that
+               day's build, .uniq/.sort/.empty? returned a truthy #<stop>. At 601a they work.)
+  var-*        the same two edits spelled Collections.sort(Collections.uniq(paths), cmp)
+
+RESULTS (mean +- sd ms, per round; pooled across rounds. xN = Ruby 4.0.7+YJIT mean in that round divided by the lane mean: above 1 means the lane beat Ruby)
+=== tree today (packages @05167f8)
+hey-binary-w1  r1:  744.6± 4.0 (min  736.2) x0.40 | r2:  746.0± 8.4 (min  735.9) x0.40 | r3:  742.1± 3.3 (min  733.7) x0.40 || pooled  744.2± 5.8 n=90
+hey-binary-w4  r1:  745.3± 4.4 (min  738.7) x0.40 | r2:  742.4± 3.7 (min  735.7) x0.40 | r3:  742.5± 3.4 (min  735.6) x0.40 || pooled  743.4± 4.0 n=90
+hey-script-w1  r1:  767.2± 7.6 (min  755.9) x0.39 | r2:  761.7± 4.3 (min  753.6) x0.39 | r3:  759.2± 3.6 (min  752.8) x0.39 || pooled  762.7± 6.3 n=90
+hey-script-w4  r1:  765.8± 3.9 (min  759.7) x0.39 | r2:  762.7± 5.5 (min  755.5) x0.39 | r3:  757.9± 3.1 (min  752.0) x0.39 || pooled  762.1± 5.4 n=90
+ruby406-yjit   r1:  308.8± 4.5 (min  302.5) x0.97 | r2:  303.4± 1.9 (min  301.2) x0.99 | r3:  302.7± 1.9 (min  299.2) x0.98 || pooled  305.0± 4.0 n=60
+ruby407-nojit  r1:  376.4± 3.4 (min  371.7) x0.79 | r2:  375.1± 5.0 (min  370.4) x0.80 | r3:  373.6± 3.5 (min  368.8) x0.80 || pooled  375.0± 4.1 n=60
+ruby407-yjit   r1:  298.6± 1.7 (min  295.7) x1.00 | r2:  299.2± 2.5 (min  296.3) x1.00 | r3:  297.9± 1.9 (min  294.2) x1.00 || pooled  298.6± 2.1 n=60
+var-binary     r1:  114.7± 1.6 (min  112.5) x2.60 | r2:  113.3± 0.5 (min  112.4) x2.64 | r3:  113.0± 0.6 (min  111.4) x2.64 || pooled  113.7± 1.3 n=90
+var-script     r1:  133.6± 2.8 (min  131.5) x2.23 | r2:  132.7± 0.9 (min  131.0) x2.26 | r3:  132.5± 0.7 (min  131.1) x2.25 || pooled  132.9± 1.8 n=90
+r1 1-min load min/max 2.62 2.95
+r2 1-min load min/max 2.37 2.75
+r3 1-min load min/max 2.33 2.49
+=== tree July (packages @12233b1)
+hey-binary-w1  r1:   79.5± 1.4 (min   78.0) x1.18 | r2:   78.3± 1.0 (min   77.2) x1.18 | r3:   78.4± 0.7 (min   77.3) x1.18 || pooled   78.7± 1.2 n=90
+hey-binary-w4  r1:   79.0± 0.7 (min   77.6) x1.18 | r2:   78.3± 0.5 (min   77.5) x1.18 | r3:   78.4± 0.6 (min   77.5) x1.18 || pooled   78.6± 0.7 n=90
+hey-script-w1  r1:   98.2± 0.8 (min   96.8) x0.95 | r2:   97.1± 0.4 (min   96.2) x0.95 | r3:   97.2± 0.5 (min   96.4) x0.95 || pooled   97.5± 0.8 n=90
+hey-script-w4  r1:   98.4± 1.3 (min   96.6) x0.95 | r2:   97.5± 1.0 (min   96.3) x0.95 | r3:   97.2± 0.5 (min   96.4) x0.96 || pooled   97.7± 1.1 n=90
+ruby406-yjit   r1:   93.7± 0.5 (min   92.9) x1.00 | r2:   94.5± 1.3 (min   93.3) x0.97 | r3:   93.8± 0.6 (min   93.3) x0.99 || pooled   94.0± 0.9 n=60
+ruby407-nojit  r1:   97.1± 0.8 (min   95.7) x0.96 | r2:   97.0± 0.6 (min   95.6) x0.95 | r3:   96.8± 0.6 (min   96.1) x0.96 || pooled   97.0± 0.7 n=60
+ruby407-yjit   r1:   93.6± 1.4 (min   92.2) x1.00 | r2:   92.2± 0.8 (min   91.1) x1.00 | r3:   92.8± 1.5 (min   91.6) x1.00 || pooled   92.9± 1.4 n=60
+var-binary     r1:   25.1± 0.5 (min   24.6) x3.72 | r2:   24.7± 0.2 (min   24.4) x3.74 | r3:   24.8± 0.4 (min   24.4) x3.75 || pooled   24.9± 0.4 n=90
+var-script     r1:   44.2± 0.9 (min   43.2) x2.12 | r2:   43.7± 0.4 (min   43.2) x2.11 | r3:   43.6± 0.3 (min   43.2) x2.13 || pooled   43.8± 0.6 n=90
+r1 1-min load min/max 2.65 2.81
+r2 1-min load min/max 2.44 2.52
+r3 1-min load min/max 2.37 2.48
+
+Second set (dotted variant), per round:
+today r1 dot-binary       113.8 +-  1.1
+today r1 dot-script       134.2 +-  3.0
+today r1 hey-binary-w4    741.7 +-  4.7
+today r1 ruby407-yjit     299.3 +-  3.3
+today r1 var-binary       113.9 +-  2.6
+today r2 dot-binary       113.2 +-  0.9
+today r2 dot-script       132.9 +-  1.7
+today r2 hey-binary-w4    743.4 +-  5.3
+today r2 ruby407-yjit     298.1 +-  1.4
+today r2 var-binary       112.8 +-  1.1
+July  r1 dot-binary        25.0 +-  0.5
+July  r1 dot-script        43.7 +-  0.4
+July  r1 hey-binary-w4     78.2 +-  0.4
+July  r1 ruby407-yjit      92.6 +-  0.8
+July  r1 var-binary        24.7 +-  0.3
+July  r2 dot-binary        24.7 +-  0.3
+July  r2 dot-script        43.5 +-  0.4
+July  r2 hey-binary-w4     78.5 +-  0.6
+July  r2 ruby407-yjit      92.2 +-  0.7
+July  r2 var-binary        24.8 +-  0.3
+
+FLOORS (2026-10-14 13:03, load 2.2-2.5, hyperfine -N x30)
+  /usr/bin/true                         1.0 +- 0.0 ms
+  601a compiled hello world             1.2 +- 0.0 ms
+  601a hello world via `hey` shebang   19.4 +- 0.3 ms
+  ruby 4.0.7 --yjit -e 0               28.3 +- 0.3 ms
+  ruby 4.0.7 --yjit, requiring cgi/pathname/time   30.6 +- 0.3 ms
+  `rbenv exec ruby -e 0` (the shim)    81.8 +- 0.7 ms   (why Ruby lanes call the real binary)
+  bin/hey-run generate-packages-index, July tree, cached build: 133.6 +- 2.0 ms vs the same
+    binary exec'd directly 78.3 +- 0.6 ms -> ~55 ms per run of rebuild-key hashing in bin/hey-run.
+
+COUNTS (load-immune; Ruby simulation of each algorithm on the exact lists sorted)
+  today's tree: 68 lists, 1,222 items, largest 181
+    shipped Hey (insertion sort + full-scan unique): 34,976 comparator calls, 1,629,983 list-element copies
+    stdlib merge sort + uniq:                         3,372 comparator calls,   121,248 copies
+    Ruby Array#uniq + #sort (comparator calls only):  4,311
+  July tree: 28 lists, 280 items, largest 55
+    shipped 3,129 / 47,287; stdlib 559 / 10,397; Ruby 539
+  ("copies" = elements copied by [...xs, x], which copies xs at 601a.)
+
+PROBES (601a, compiled, 2 runs each)
+  cli-startup-call-cost.hey (war-room bench/probes): first call Text.int_token? 4-23 us,
+    Env.default ~1 us, Files.join <=1 us, Time.utc_iso8601 374-509 us; steady state 0-1 us/call.
+  per call (100k reps): Collections.compare 111-114 ns, Text.lower 3.9 us.
+  list growth, n appends: n=1k 4.8 ms, 2k 18 ms, 4k 71 ms, 8k 285 ms, 16k 1.17 s ([...xs, x] and
+    xs.push identical). Ruby 4.0.7+YJIT: xs << s 0.3/0.3/0.5/0.9/2.7 ms; xs = [*xs, s] 1.3/3.7/9.4/20/42 ms.
+  .map(f, workers: n) at 601a: compile error "unresolved callable: map". `--workers` in the script
+    parses and is ignored (serial since 0631ba3).
+  Ruby inclusive phase timing (instrumented, today's tree): render 276 ms, of which compare_paths 141 ms.
+
+ADDED AFTER THE EDITOR PASS (2026-10-14)
+  bin/hey-run rebuild-key cost: `cat build/heyc build/hey-selfc | shasum -a 256` (2.67 MB + 0.28 MB)
+    = 23.2 +- 3.8 ms (hyperfine x10). The rest of its ~55 ms is the stdlib-import walk (sed per
+    module) and hashing the script and its stdlib files; not separately timed.
+  The July port (generate-packages-index.hey @ 68c3e15, 2026-07-25) on 601a:
+    heyc build -> exit 70, "hey_resolve_program: unresolved callable: ...:395:24: tasks.map"
+  601a dotted-method check (dotted.hey, run with `hey`): xs=['b','a','b'];
+    xs.uniq => ["b","a"]; xs.empty? => false; xs.sort(cmp) => ["a","b","b"]; [1,2].map(double) => [2,4].
+    [1,2,3].map(double, workers: 2) -> compile error "unresolved callable: map".
+  source-zip figures quoted from the July article (66.5 vs 153.3 ms at 500 files; 2.16 s vs 672 ms
+    at 8,000) carry no release in that article. The war-room findings log
+    (docs/PERFORMANCE-FINDINGS.md, entry "2026-07-24 PDT evening (v0.99.402a - source-zip CLI port)")
+    records different figures for 402a: 500 files ruby 162.7 / hey-compiled 78.7 ms; 2,000 files
+    264 / 340 ms; 8,000 files Ruby 5.0x faster. Not re-run on 601a.
+  Ruby 4.0.6 vs 4.0.7 (+YJIT): today's tree 305.0 vs 298.6 ms (2.1%); July's 94.0 vs 92.9 (1.2%).
+  Second set's own Ruby baseline: today 298.7 ms (2 rounds), July 92.4 ms; the article's ratios use
+    the first set's pooled 298.6 / 92.9.
+
+HARNESS (first set; the second set differs only in its lane list)
+  #!/bin/bash
+  # Parity-gated, interleaved, load-logged benchmark of generate-packages-index.
+  # Usage: harness.sh ROUND   (run from the scratch bench dir)
+  set -eu
+  ROUND=$1
+  STAMP=2026-10-14T00:00:00Z
+  export PACKAGES_INDEX_GENERATED_AT="$STAMP"
+  R=$HOME/dev/hey-lang-bootstrap-plan
+  export HEY_ROOT=$R HEY_STDLIB_PATH=$R/stdlib HEY_COMPILER_BUILD_DIR=$R/build
+  export PATH="$R/bin:$PATH"          # the shebang's `hey` is 601a, not ~/.config/hey/env.sh's 602a
+  OUT=results/r$ROUND; mkdir -p "$OUT"
+  
+  declare -a NAMES CMDS
+  add() { NAMES+=("$1"); CMDS+=("$2"); }
+  add ruby407-yjit  "$HOME/.rbenv/versions/4.0.7/bin/ruby --yjit ./generate-packages-index.rb ./packages"
+  add ruby407-nojit "env -u RUBY_YJIT_ENABLE $HOME/.rbenv/versions/4.0.7/bin/ruby ./generate-packages-index.rb ./packages"
+  add ruby406-yjit  "$HOME/.rbenv/versions/4.0.6/bin/ruby --yjit ./generate-packages-index.rb ./packages"
+  add hey-script-w4 './generate-packages-index.hey ./packages'
+  add hey-script-w1 './generate-packages-index.hey --workers 1 ./packages'
+  add hey-binary-w4 './gpi-bin ./packages'
+  add hey-binary-w1 './gpi-bin --workers 1 ./packages'
+  add var-script   './variant-stdlib-sort.hey ./packages'
+  add var-binary   './variant-bin ./packages'
+  
+  loadlog() { { echo "== $1 $(date '+%H:%M:%S')"; uptime; ps -Ao pcpu,pid,comm -r | head -6; } >> "$OUT/load.log"; }
+  
+  # Parity gate: delete, run, assert non-empty, byte-compare against Ruby 4.0.7 + YJIT.
+  for i in "${!NAMES[@]}"; do
+    rm -f packages/index.html
+    bash -c "${CMDS[$i]}" >/dev/null 2>"$OUT/${NAMES[$i]}.stderr"
+    test -s packages/index.html || { echo "${NAMES[$i]}: NO OUTPUT"; exit 1; }
+    cp packages/index.html "$OUT/out.${NAMES[$i]}.html"
+    cmp "$OUT/out.ruby407-yjit.html" "$OUT/out.${NAMES[$i]}.html" || { echo "${NAMES[$i]}: PARITY FAIL"; exit 1; }
+  done
+  echo "round $ROUND: parity OK for ${#NAMES[@]} lanes"
+  
+  # Interleave: rotate lane order each round.
+  n=${#NAMES[@]}
+  for k in $(seq 0 $((n-1))); do
+    i=$(( (k + ROUND) % n ))
+    loadlog "before ${NAMES[$i]}"
+    runs=30; case "${NAMES[$i]}" in ruby*) runs=20;; esac
+    nice -n 10 hyperfine -N --warmup 3 --runs $runs --export-json "$OUT/${NAMES[$i]}.json" \
+      --command-name "${NAMES[$i]}" "${CMDS[$i]}" >/dev/null
+    loadlog "after ${NAMES[$i]}"
+    python3 -c "import json,sys;r=json.load(open('$OUT/${NAMES[$i]}.json'))['results'][0];print('%-14s %7.1f ± %5.1f ms  (min %6.1f, n=%d)'%('${NAMES[$i]}',r['mean']*1e3,r['stddev']*1e3,r['min']*1e3,len(r['times'])))"
+  done
+  rm -f packages/index.html
