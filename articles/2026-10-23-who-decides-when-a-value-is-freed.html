@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Step 2 of Hey's typed-MIR work, being implemented from 2026-10-24: move every decision about when a value is freed out of the LLVM emitter and into MIR, written as explicit drop statements and checked by a separate verifier. A measured quadratic loop, the plan in nine slices, and six decisions for the Maintainer.">
+  <meta name="article-date" content="2026-10-23">
+  <meta name="article-bucket" content="ideas-and-research">
+  <meta name="article-index-title" content="Who decides when a value is freed — 23 October 2026">
+  <meta name="article-desc" content="A picture-first decision brief. A map put stored inside a branch is copied on every update today: 80,000 updates take 88 s instead of 0.02 s, because ownership travels as text notes and the emitter decides most releases itself. The Perceus-style plan: MIR names every value, writes dup and drop at last use, a separate verifier checks them, the emitter obeys. Nine slices, what depends on call identity, and six decisions.">
+  <title>Who Decides When a Value Is Freed</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: #595855;
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      --hey-ink: #1d5bb0;
+      --warm: #e8912d;
+      --warm-soft: rgba(232,145,45,0.18);
+      --bad: #d9473f;
+      --bad-soft: rgba(217,71,63,0.16);
+      --good: #2e9e5b;
+      --good-ink: #1d6e3e;
+      --good-soft: rgba(46,158,91,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --muted: #b9b8b2; --hey-ink: #8db9f5; --good-ink: #6fd09a; }
+    }
+    :root[data-theme="dark"] { color-scheme: dark; --muted: #b9b8b2; --hey-ink: #8db9f5; --good-ink: #6fd09a; }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 5rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3.2rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr { margin: 1.5rem 0 2rem; padding: 1.1rem 1.25rem; border: 2px solid var(--border); border-radius: 0.7rem; background: var(--panel); }
+    .tldr h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; background: var(--code); padding: 0 0.25em; border-radius: 0.25em; overflow-wrap: anywhere; }
+    pre { background: var(--code); padding: 0.9rem 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.86rem; line-height: 1.5; }
+    pre code { background: none; padding: 0; overflow-wrap: normal; }
+    pre .hl { background: var(--good-soft); display: inline-block; min-width: 100%; }
+    pre .miss { background: var(--bad-soft); display: inline-block; min-width: 100%; }
+    pre .note { color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+
+    .bars { margin: 1rem 0 0.5rem; }
+    .bar-row { display: grid; grid-template-columns: minmax(8rem, 15rem) 1fr; gap: 0.6rem; align-items: center; margin: 0.45rem 0; }
+    .bar-label { font-size: 0.92rem; }
+    .bar-track { position: relative; height: 1.7rem; background: var(--panel); border-radius: 0.35rem; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 0.35rem; }
+    .bar-fill.before { background: var(--bad); }
+    .bar-fill.c { background: var(--good); min-width: 3px; }
+    .bar-val { position: absolute; left: 0.4rem; top: 0.2rem; line-height: 1.3rem; padding: 0 0.35rem; border-radius: 0.25rem; font-size: 0.85rem; font-weight: 600; background: Canvas; color: CanvasText; white-space: nowrap; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem; margin: 1.25rem 0 2rem; }
+    .card { border: 1px solid var(--border); border-radius: 0.7rem; padding: 0.9rem 1rem; background: var(--panel); }
+    .card h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .card p { margin: 0.3rem 0 0; font-size: 0.95rem; }
+    .num { display: inline-block; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: var(--hey-ink); color: Canvas; font-weight: 700; text-align: center; line-height: 1.7rem; margin-right: 0.4rem; font-size: 0.9rem; }
+
+    .timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin: 1.25rem 0 0.75rem; }
+    .slice { border: 2px solid var(--border); border-radius: 0.6rem; padding: 0.55rem 0.7rem; font-size: 0.9rem; }
+    .slice b { display: block; font-size: 1rem; }
+    .slice .tag { display: block; margin-top: 0.35rem; font-size: 0.8rem; font-weight: 700; }
+    .slice.gate { background: var(--panel); }
+    .slice.same { border-color: var(--good); }
+    .slice.change { border-color: var(--warm); background: var(--warm-soft); }
+    .slice .dep { display: block; margin-top: 0.3rem; font-size: 0.8rem; color: var(--hey-ink); font-weight: 700; }
+    .legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.88rem; color: var(--muted); }
+    .legend span::before { content: ""; display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 0.2rem; margin-right: 0.35rem; vertical-align: -0.1rem; border: 2px solid var(--border); }
+    .legend .l-same::before { border-color: var(--good); }
+    .legend .l-change::before { border-color: var(--warm); background: var(--warm-soft); }
+    .legend .l-gate::before { background: var(--panel); }
+
+    td.pick { color: var(--good-ink); font-weight: 700; }
+    details { margin: 0.6rem 0 1rem; padding: 0.6rem 0.9rem; border: 1px solid var(--border); border-radius: 0.6rem; }
+    summary { cursor: pointer; font-weight: 600; }
+    dt { font-weight: 700; margin-top: 0.8rem; }
+    dd { margin-left: 1.2rem; }
+    .status { margin: 1.5rem 0 2rem; padding: 1.1rem 1.25rem; border: 2px solid var(--warm); border-radius: 0.7rem; background: var(--warm-soft); }
+    .status h2 { margin: 0 0 0.6rem; padding: 0; border: 0; font-size: 1.25rem; }
+    .dcard { border: 2px solid var(--border); border-radius: 0.8rem; padding: 0.9rem 1.1rem; margin: 1.3rem 0; }
+    .dcard h3 { margin: 0 0 0.5rem; font-size: 1.12rem; }
+    .dcard p { margin: 0.4rem 0; }
+    .dcard table { margin: 0.6rem 0; font-size: 0.93rem; }
+    .dcard tr.picked td { background: var(--good-soft); }
+    .dcard tr.picked td:first-child { box-shadow: inset 4px 0 0 var(--good-ink); font-weight: 600; }
+    .chip { display: inline-block; margin-right: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 0.35rem; background: var(--hey-ink); color: Canvas; font-size: 0.9rem; font-weight: 700; vertical-align: 0.08em; }
+    .pick-chip { display: inline-block; margin-right: 0.35rem; padding: 0 0.4rem; border-radius: 0.3rem; background: var(--good-ink); color: Canvas; font-size: 0.8rem; font-weight: 700; }
+    .dcard .path { padding: 0.45rem 0.7rem; border-left: 4px solid var(--good-ink); background: var(--panel); border-radius: 0 0.4rem 0.4rem 0; }
+    .dcard .undo { padding: 0.45rem 0.7rem; border-left: 4px solid var(--warm); background: var(--panel); border-radius: 0 0.4rem 0.4rem 0; }
+    .dcard .reply { font-size: 0.95rem; }
+    .dcard .reply code { user-select: all; }
+    :root[data-theme="light"] { color-scheme: light; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; Ideas and research &middot; October 23, 2026</p>
+    <h1>Who Decides When a Value Is Freed</h1>
+    <p class="lede">
+      Step 2 of Hey's typed-MIR work, designed on October 23 and being built from October 24. MIR is the compiler stage that plans how values
+      are stored and released. The LLVM emitter, the last stage, turns that plan into low-level code. Today both
+      decide when a value is freed. Step 2 gives the job to MIR alone, with a separate checker.
+    </p>
+  </header>
+
+  <main>
+    <section class="status" aria-labelledby="status-h">
+      <h2 id="status-h">Status, 24 October 2026: being built now, each pick reversible</h2>
+      <p>As of about 05:00 PDT, GippiPiTy is <strong>implementing the recommended picks</strong> so the work isn't blocked waiting for rulings. Each pick goes in its own change, so any one can be reversed. <a href="#decisions">The six decisions</a> each show the options, what's being done, and what a "no" costs.</p>
+      <ul>
+        <li><strong>Branch:</strong> <code>gippipity/606a-ownership</code>, worktree <code>.worktrees/606a-ownership</code>, made from <code>gippipity/606a-integration</code> at <code>b8a1cd1f9</code>.</li>
+        <li><strong>First step:</strong> a failing test for the quadratic <code>put</code> inside a branch, then the consume-exactly-once verifier.</li>
+        <li><strong>Checked at 05:11 PDT:</strong> the branch exists on this machine only, not yet pushed. Nothing is committed on it. Six probe programs and their gate script (<code>test/gate_ownership_doubling.sh</code>) are written but not committed (<code>test/fixtures/ownership_doubling/</code>: the map, array and string updated in one arm and read in the other, plus a value-semantics check that a kept alias still copies). The section 1 timings were taken on <code>gippipity/606a-performance</code> at <code>589f6c22d</code>, not on this branch. No compiler code has changed.</li>
+      </ul>
+    </section>
+
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>A missed note makes a map loop quadratic:</strong> 80,000 updates take 88 s instead of 0.02 s
+          when the update is stored inside a branch.</li>
+        <li><strong>After step 2, MIR decides, a separate verifier checks, the emitter obeys.</strong></li>
+        <li><strong>Slice S4 moves the decision with identical output; S6 and S7 change it, measured.</strong></li>
+      </ul>
+    </section>
+
+    <h2>1. A map update stored inside a branch is copied every time</h2>
+    <p>Ordinary Hey: each <code>put</code> returns a new map, and the old one is never used again.</p>
+<pre><code>while i &lt; n
+  if direct
+    set stats = stats.put("k#{i}", {sum: i, count: 1})
+  else
+    set stats = add_reading(stats, "k#{i}", i)    <span class="note"># the same put, inside a function</span>
+  end</code></pre>
+    <p>
+      A Hey map counts how many places hold it. If <code>put</code> sees a count of one, it writes in place;
+      otherwise it copies the whole map.
+    </p>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-label">in the branch, 20,000 keys</span>
+        <div class="bar-track"><div class="bar-fill before" style="width:5.8%"></div><span class="bar-val">5.1 s</span></div></div>
+      <div class="bar-row"><span class="bar-label">in the branch, 40,000 keys</span>
+        <div class="bar-track"><div class="bar-fill before" style="width:22.7%"></div><span class="bar-val">20.0 s</span></div></div>
+      <div class="bar-row"><span class="bar-label">in the branch, 80,000 keys</span>
+        <div class="bar-track"><div class="bar-fill before" style="width:100%"></div><span class="bar-val">88.0 s</span></div></div>
+      <div class="bar-row"><span class="bar-label">through a function, 80,000 keys</span>
+        <div class="bar-track"><div class="bar-fill c" style="width:0.1%"></div><span class="bar-val">0.02 s</span></div></div>
+    </div>
+    <p class="muted">One run each, Apple M3 Pro, evening of October 23 (PDT). Doubling the keys quadruples the time:
+      every update copies the map.</p>
+    <p>The difference is a text note MIR adds to the end of a line:</p>
+<pre><code><span class="miss">store stats:boxed = call @r1769118190 @o1 put(stats, ...)                        <span class="note"># branch: no note, copies</span></span>
+<span class="hl">store stats:boxed = call @t0.0 add_reading(stats, ...) ; move b7                <span class="note"># function: handed over</span></span>
+<span class="hl">store stats:boxed = call @r1769118190 @o1 put(stats, ...) ; own b2 ; reuse b2   <span class="note"># no branch: in place</span></span></code></pre>
+    <p>Nothing flagged the missing note.</p>
+
+    <h2>2. Today MIR and the emitter both decide, and the check reruns MIR's own code</h2>
+    <ul>
+      <li><strong>MIR</strong> has eight kinds of note. Passes that scan MIR text write them; later code finds
+        them by searching for substrings.</li>
+      <li><strong>The emitter</strong> makes most release decisions itself. It reads back the LLVM it just wrote,
+        and two hand-written lists of runtime function names fill in the rest.</li>
+      <li><strong>The check</strong> reruns the passes that wrote the notes and compares text, so it can't catch a
+        note they never write.</li>
+    </ul>
+
+    <h2>3. After: MIR writes every release as a statement, and a separate verifier checks it</h2>
+    <p>This is the Perceus design (the Koka compiler, PLDI 2021), which builds on Lean 4&rsquo;s reference counting (&ldquo;Counting Immutable Beans&rdquo;, 2019).</p>
+    <div class="cards">
+      <div class="card"><h3><span class="num">1</span>Name every value</h3>
+        <p>Every intermediate result becomes a temporary, <code>$1</code>, <code>$2</code>, so each has a last use.</p></div>
+      <div class="card"><h3><span class="num">2</span>Write <code>dup</code> and <code>drop</code></h3>
+        <p><code>dup</code> adds a reference, <code>drop</code> releases one, at last use. A dead value passed to a
+          parameter that keeps it is handed over, not copied.</p></div>
+      <div class="card"><h3><span class="num">3</span>Verify separately</h3>
+        <p>A pass of its own counts +1 per owned definition, parameter or <code>dup</code>, &minus;1 per drop or
+          hand-over. Every path must end at zero, or it names the rule, line and binding.</p></div>
+      <div class="card"><h3><span class="num">4</span>The emitter obeys</h3>
+        <p>It turns the statements into instructions and stops reading its own output.</p></div>
+    </div>
+<pre><code><span class="note"># the branch after step 2: a sketch in the design's form, not compiler output
+# (@r1769118190 is put's runtime identity)</span>
+temp $1:boxed = call @r921413014 to_s(i)
+temp $2:boxed = "k" + $1
+drop $1
+temp $3:boxed = {sum: i, count: 1}
+<span class="hl">store stats:boxed = call @r1769118190 @o1 put(stats, $2, $3)   <span class="note"># stats dead after: handed over</span></span></code></pre>
+    <p>
+      One rule covers every binding: <code>stats</code> isn't used again and <code>put</code> keeps its map, so
+      <code>put</code> gets the only reference, branch or not. <em>GippiPiTy's reading:</em> this loop gets fast
+      once S5 marks <code>put</code>'s map parameter as kept and S6 moves drops to last use; the bug's notes name
+      S6.
+    </p>
+    <p>
+      A wasted copy isn't a wrong release, so a second test times <code>put</code>, <code>push</code> and
+      <code>append</code> loops at n and 2n: time must double, not quadruple. The C runtime's one uniqueness test,
+      <code>hey_rc_count_is_unique</code>, stays as the final guard for values MIR can't see into.
+    </p>
+
+    <h2>4. S4 moves the decision with identical output; S6 and S7 change it</h2>
+    <div class="timeline">
+      <div class="slice gate"><b>S0</b>Failing tests<span class="tag">no LLVM change</span></div>
+      <div class="slice same"><b>S1</b>Reader and verifier<span class="tag">identical</span></div>
+      <div class="slice same"><b>S2</b>Name every value<span class="tag">identical or explained</span><span class="dep">needs call identity</span></div>
+      <div class="slice same"><b>S3</b><code>and</code>, <code>or</code>, loop tests as branches<span class="tag">identical</span></div>
+      <div class="slice same"><b>S4</b>MIR writes today's drops; old code cross-checks, then goes<span class="tag">identical</span></div>
+      <div class="slice same"><b>S5</b>Parameters marked kept or read-only<span class="tag">identical, then measured</span><span class="dep">needs runtime identities</span></div>
+      <div class="slice change"><b>S6</b>Drops at last use<span class="tag">measured change</span></div>
+      <div class="slice change"><b>S7</b>In-place updates, reuse of freed records<span class="tag">measured change</span></div>
+      <div class="slice same"><b>S8</b>Delete the note readers<span class="tag">identical</span></div>
+    </div>
+    <div class="legend"><span class="l-gate">tests only</span><span class="l-same">LLVM byte-identical</span><span class="l-change">LLVM changes, measured</span></div>
+    <p>Any byte S4 changes is a bug, so it proves MIR decides before anything is decided differently.</p>
+
+    <h2>5. It needs every call's target first (step 1b)</h2>
+    <p>
+      MIR has to know which function each call reaches (its <em>call identity</em>), resolved, never guessed from
+      a spelling. About 650 calls in the compiler's own MIR lack one; the fix is in progress on
+      <code>gippipity/606a-typed-mir-call-identity</code>. Until then they keep today's safe, slower default.
+    </p>
+
+    <h2 id="decisions">6. Decisions: retire heyc's MIR path, use <code>$N</code>, no leaks, accept a measured S6, specialize later, gate memory every slice</h2>
+    <p class="muted">From the design's open questions. Picks are GippiPiTy's, and GippiPiTy is building them now (see Status at the top). Each card shows every option, what's being done for the pick, and what a "no" costs. To answer, copy the reply line.</p>
+    <p class="muted">Reversal estimates are GippiPiTy's judgment, not measurements.</p>
+
+    <article class="dcard" id="d1">
+      <h3><span class="chip">D1</span>Should <code>runtime/heyc.c</code> stop reading MIR, or learn the new statements?</h3>
+      <p class="now"><b>Why now:</b> heyc has its own MIR reader and LLVM writer. From S2, MIR contains <code>temp</code>, then <code>dup</code> and <code>drop</code>; heyc must either parse them or stop reading MIR.</p>
+      <div class="table-wrap"><table class="dopts">
+        <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
+        <tr class="picked"><td><span class="pick-chip">Pick</span> Retire heyc's MIR path</td>
+          <td>Move the tests that use it. About 70 files in <code>test/</code> mention both <code>heyc</code> and <code>build-mir</code> (a <code>grep</code> count; two counts gave 69 and 70), not audited as real calls; 2 test scripts use <code>stage0-build-mir</code>; 2 specs refer to it (<code>specs/compiler/927_direct_mir_backend_consumers.hey:25</code>, <code>1023_mir_typed_json_stringify_contract.hey:16</code>).</td>
+          <td>A test that was really checking heyc's own emitter loses that check. How many of the 70 are real calls is unknown.</td>
+          <td>One MIR reader and one emitter, as the design rules require. The bootstrap seed (the first compiler, built before any Hey compiler exists) is built from Hey source with <code>heyc stage0-build</code>, so it doesn't need heyc's MIR path.</td></tr>
+        <tr><td>heyc strips the new statements, as it strips today's notes</td>
+          <td>Small: heyc already removes annotations (design, open question 1).</td>
+          <td><em>GippiPiTy's inference:</em> <code>dup</code> and <code>drop</code> could be stripped, but <code>temp</code> lines define values and <code>frame.cleanup</code> decides what is freed, so heyc would still need to read them, or emit LLVM whose ownership differs from the real emitter's. Its tests would then pass on code the product doesn't use.</td>
+          <td>The tests run nearly unchanged for a while.</td></tr>
+        <tr><td>Teach heyc the new statements</td>
+          <td>A second MIR parser, in C, changed in every slice S1 to S8.</td>
+          <td>The two readers drift apart; it breaks the one-reader rule.</td>
+          <td>The tests run unchanged.</td></tr>
+      </table></div>
+      <p class="path"><b>Being done for the pick:</b> not started. Planned before S2: move <code>test/regression_mir_typed_json_stringify.sh</code> and <code>test/gate_native_checked_returns.sh</code> off <code>stage0-build-mir</code>, then sort the 70 into real calls and mentions.</p>
+      <p class="undo"><b>If you disagree:</b> the moved tests come back from git (small). The real cost moves forward: a C parser change in every later slice.</p>
+      <p class="reply">Reply: <code>D1 agree</code> &middot; <code>D1 instead: teach heyc</code></p>
+    </article>
+
+    <article class="dcard" id="d2">
+      <h3><span class="chip">D2</span>May temporaries be spelled <code>$1</code>, <code>$2</code>?</h3>
+      <p class="now"><b>Why now:</b> S1's reader and S2's text form fix the spelling, and every test fixture after that uses it.</p>
+      <div class="table-wrap"><table class="dopts">
+        <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
+        <tr class="picked"><td><span class="pick-chip">Pick</span> <code>$N</code></td>
+          <td>The reader must skip <code>$</code> inside string literals; a test keeps "no Hey name contains <code>$</code>" true.</td>
+          <td>If Hey ever allows <code>$</code> in names, temporaries could clash. Today names can't contain it (<code>stdlib/HeyTokens.hey:103-105</code>, :120-122).</td>
+          <td>Temporaries are visibly not locals; no clash with any Hey name.</td></tr>
+        <tr><td>Reuse the <code>b5</code>-style numbers MIR already gives local variables</td>
+          <td>No new token.</td>
+          <td>Temporaries look like locals; "has no stack slot" needs its own marker.</td>
+          <td>One numbering scheme for everything.</td></tr>
+      </table></div>
+      <p class="path"><b>Being done for the pick:</b> the S1 reader and its round-trip test (<code>print(parse(x)) == x</code>) use <code>$N</code>. Not started yet; the branch begins with S0's failing tests.</p>
+      <p class="undo"><b>If you disagree:</b> a rename in one printer, one reader and the fixtures. Mechanical, if decided before S2 lands.</p>
+      <p class="reply">Reply: <code>D2 agree</code> &middot; <code>D2 instead: reuse b5-style numbers</code></p>
+    </article>
+
+    <article class="dcard" id="d3">
+      <h3><span class="chip">D3</span>When a run-time error unwinds through a call, must its in-flight temporaries be freed?</h3>
+      <p class="now"><b>Why now:</b> at S4, MIR starts writing the <code>frame.cleanup</code> list (the values freed if an error unwinds). The answer decides what goes on that list.</p>
+      <div class="table-wrap"><table class="dopts">
+        <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
+        <tr class="picked"><td><span class="pick-chip">Pick</span> Register them, freed on unwind</td>
+          <td>Each listed value gets a stack slot and one store into the frame's slot list (<code>hey_llvm_frame_cleanup_push_value</code>, <code>stdlib/HeyLlvm.hey:2872</code> on 606a-integration; runtime push and pop at <code>runtime/hey_runtime.c:6571</code>, :6580). <em>GippiPiTy's inference:</em> a temporary that today lives only in a register would need a slot. Not measured.</td>
+          <td>Slower calls in hot loops whose calls can fail. Size unknown until S4 measures it.</td>
+          <td>Leak gates stay strict with no exceptions; a supervised actor that keeps restarting doesn't leak each time.</td></tr>
+        <tr><td>Let them leak in the failed unit of work</td>
+          <td>Leak tests need an exception for failure paths.</td>
+          <td>Repeated failures under supervision leak every time.</td>
+          <td>Cheaper calls; fits "fail fast, the work is over anyway".</td></tr>
+      </table></div>
+      <p class="path"><b>Being done for the pick:</b> planned at S4. MIR first writes exactly today's list (the compiled LLVM text exactly the same as before); then one separate commit adds temporaries, with its cost measured.</p>
+      <p class="undo"><b>If you disagree:</b> drop that one commit. The leak gates then need a failure-path exception.</p>
+      <p class="reply">Reply: <code>D3 agree</code> &middot; <code>D3 instead: let them leak</code></p>
+    </article>
+
+    <article class="dcard" id="d4">
+      <h3><span class="chip">D4</span>May S6 change the compiler's own LLVM everywhere, judged by measurement?</h3>
+      <p class="now"><b>Why now:</b> today's acceptance allows only recorded corpus fixes, and S6 (drops at last use) changes LLVM broadly. Without a ruling S6 can't land as designed, and the answer decides whether it's one slice or many.</p>
+      <div class="table-wrap"><table class="dopts">
+        <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
+        <tr class="picked"><td><span class="pick-chip">Pick</span> Measured waiver</td>
+          <td>Judged by: test output unchanged, no leaks, self-compile peak memory and build times no worse than the previous release.</td>
+          <td>A behaviour change hidden in a large diff that the tests don't cover.</td>
+          <td>S6 lands as one slice; the quadratic branch loop gets fixed by the general rule.</td></tr>
+        <tr><td>Byte-identical except recorded fixes</td>
+          <td>S6 split into many smaller slices, every LLVM difference classified by hand.</td>
+          <td>The fix arrives much later.</td>
+          <td>The strongest guarantee: every changed byte is explained.</td></tr>
+      </table></div>
+      <p class="path"><b>Being done for the pick:</b> nothing yet; S6 comes after S0 to S5. S4 stays byte-identical either way.</p>
+      <p class="undo"><b>If you disagree:</b> nothing built is thrown away; S6 is planned as split slices instead.</p>
+      <p class="reply">Reply: <code>D4 agree</code> &middot; <code>D4 instead: byte-identical except recorded fixes</code></p>
+    </article>
+
+    <article class="dcard" id="d5">
+      <h3><span class="chip">D5</span>Split each drop into separate unique and shared paths now, or after S7?</h3>
+      <p class="now"><b>Why now:</b> it decides whether S6 and S7 include this extra lowering. (&ldquo;Drop specialization&rdquo;, from the Perceus paper named in section 3: the shared path just lowers the count, the unique path frees the value and its children.)</p>
+      <div class="table-wrap"><table class="dopts">
+        <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
+        <tr class="picked"><td><span class="pick-chip">Pick</span> After S7, only if drops show in profiles</td>
+          <td>Some speed waits.</td>
+          <td>Small; it's an addition, not a redesign.</td>
+          <td>S6 and S7 are measured on their own, without a third change mixed in.</td></tr>
+        <tr><td>Now, with S6 and S7</td>
+          <td>More code per drop; one more change in slices that are already measured changes.</td>
+          <td>Harder to tell which change moved a number.</td>
+          <td>Perceus pairs it with reuse, so the full gain arrives sooner.</td></tr>
+      </table></div>
+      <p class="path"><b>Being done for the pick:</b> nothing; it's deferred by design.</p>
+      <p class="undo"><b>If you disagree:</b> it's added to S6/S7. Nothing is thrown away.</p>
+      <p class="reply">Reply: <code>D5 agree</code> &middot; <code>D5 instead: now</code></p>
+    </article>
+
+    <article class="dcard" id="d6">
+      <h3><span class="chip">D6</span>Check self-compile peak memory on every slice, or only at S6 and S7?</h3>
+      <p class="now"><b>Why now:</b> it sets each slice's acceptance from S1 onward. Reuse can hold memory longer: in the Perceus paper, one benchmark (cfold, which simplifies arithmetic expressions) used 11% less memory with the optimizations switched off.</p>
+      <div class="table-wrap"><table class="dopts">
+        <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
+        <tr class="picked"><td><span class="pick-chip">Pick</span> Every slice</td>
+          <td>One measured self-compile per slice. Every landing already needs it, so this mostly means writing it down.</td>
+          <td>Small.</td>
+          <td>A memory rise is pinned to the slice that caused it.</td></tr>
+        <tr><td>Only at S6 and S7</td>
+          <td>Fewer measurements.</td>
+          <td>A rise from an earlier slice turns up late and is hard to place.</td>
+          <td>Slightly faster slices.</td></tr>
+      </table></div>
+      <p class="path"><b>Being done for the pick:</b> each slice's commit will carry its peak-memory figure next to the previous release's.</p>
+      <p class="undo"><b>If you disagree:</b> skip the per-slice figures. Nothing is thrown away.</p>
+      <p class="reply">Reply: <code>D6 agree</code> &middot; <code>D6 instead: only S6 and S7</code></p>
+    </article>
+
+    <h2>7. Not measured yet</h2>
+    <ul>
+      <li>How many programs hit the missing note; one probe found it.</li>
+      <li>What S6 and S7 do to time and memory, and what D3 costs.</li>
+    </ul>
+
+    <details>
+      <summary>Evidence: the code today, at file and line</summary>
+      <p>Branch <code>gippipity/606a-performance</code> at <code>589f6c22d</code> unless noted. The design's line numbers are for <code>606a-typed-mir</code> at <code>423455590</code>; HeyLlvm lines match on both, HeyMir lines differ.</p>
+      <ul>
+        <li>Emitter reads back its own LLVM: <code>hey_llvm_stmt_release_scan_value</code>, <code>stdlib/HeyLlvm.hey:2571</code>, called with <code>split(segment, "\n")</code> at :2539; it matches <code>%R = call ptr @</code> lines via <code>hey_llvm_call_def_reg_value</code> (:2295) and frees what <code>hey_llvm_box_escapes?</code> (:2423) says isn't kept.</li>
+        <li>Name lists: <code>hey_llvm_shim_aliases_first_arg?</code> (:2271, 22 names compared with <code>==</code>) and <code>hey_llvm_shim_lends_result?</code> (:2278).</li>
+        <li>Other emitter deciders: <code>hey_llvm_fn_boxed_release_bids_value</code> (:2845), <code>hey_llvm_frame_cleanup_push_value</code> (:2907), <code>hey_llvm_expression_cleanup_value</code> (:5789), <code>hey_llvm_scoped_borrow_value</code> (:5796).</li>
+        <li>MIR note producers: <code>hey_mir_own_scan_idents</code> (<code>stdlib/HeyMir.hey:1907</code>; :2874 in 606a-typed-mir), <code>hey_mir_own_annotate_text</code> (:3563), <code>hey_mir_reuse_annotate_text</code> (:3635), <code>hey_mir_move_annotate_text</code> (:3665).</li>
+        <li>The check that reruns: <code>hey_mir_verify_ownership_facts_value</code> (:6171) strips the notes, reruns own, reuse, move and late annotation, and compares each note per line ("analysis recompute disagrees").</li>
+        <li>The runtime test: <code>hey_rc_count_is_unique</code>, <code>runtime/hey_runtime.c:1665</code>, with both test switches inside it.</li>
+        <li>No <code>$</code> in Hey names: <code>stdlib/HeyTokens.hey:103-105</code> (an identifier starts with <code>_</code> or an ASCII letter) and :120-122 (continues with letters, digits, <code>_</code>, <code>?</code>, <code>!</code>).</li>
+        <li>heyc's MIR path: <code>heyc_emit_llvm_ir_from_mir_file</code>, <code>runtime/heyc.c:26612</code>, via <code>heyc_load_legacy_mir_file</code>; reached only from MIR-file commands (dispatch :28940-28989). The seed is built with <code>heyc stage0-build</code> from Hey source (<code>Makefile:281</code>, :284, :408). <code>stage0-build-mir</code> is used by <code>test/regression_mir_typed_json_stringify.sh</code> and <code>test/gate_native_checked_returns.sh</code>; <code>specs/compiler/927_direct_mir_backend_consumers.hey</code> checks it exists. The 66 is a count of files in <code>test/</code> that mention both <code>heyc</code> and <code>build-mir</code>, not audited as calls.</li>
+        <li>Possible fourth group without call identity: <code>print</code>, <code>say</code>, <code>warn</code>, <code>log</code> are MIR statement kinds (<code>HeyMir.hey:6632</code>), and the emitter picks the runtime function from the leading word (<code>HeyLlvm.hey:20874</code>, :21100, :21140, :21374).</li>
+        <li>Call counts: the step-1b proposal lists about 630 compiler-node helper calls, 9 <code>Ranges.until</code> and 8 in heredocs (about 650); the step-2 design says "about 720".</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>Evidence: how the section 1 numbers were taken</summary>
+      <p>Probe sources and this table are in cagents, <code>projects/hey/tasks/typed-mir-expressions-and-ownership-facts/bug-quadratic-put-inside-if/</code>. Built with <code>bin/hey build</code> (the MIR header says language 0.99.605a), HEY_* unset, <code>/usr/bin/time -p</code>, one run each, right output every run.</p>
+      <div class="table-wrap"><table>
+        <tr><th>keys</th><th><code>put</code> stored in the branch</th><th>through <code>add_reading</code>, same branch</th><th>no branch</th></tr>
+        <tr><td>20,000</td><td>5.09 s</td><td>0.00 s</td><td>0.30 s (first run; user time 0.00 s)</td></tr>
+        <tr><td>40,000</td><td>19.97 s</td><td>0.01 s</td><td>0.01 s</td></tr>
+        <tr><td>80,000</td><td>87.98 s</td><td>0.02 s</td><td>0.02 s</td></tr>
+      </table></div>
+      <p>The MIR lines in section 1 are from <code>bin/hey phase mir</code>; the "no branch" line is from the second probe, so its binding is <code>b2</code>. Why the note pass skips the branch wasn't traced. This is a probe, not a benchmark.</p>
+    </details>
+
+    <details>
+      <summary>Evidence: how each note maps to the new statements, and the verifier's rules</summary>
+      <div class="table-wrap"><table>
+        <tr><th>note today</th><th>becomes</th></tr>
+        <tr><td><code>; own bN</code>, <code>; takeowned bN</code></td><td>no <code>dup</code> before the use that keeps it</td></tr>
+        <tr><td><code>; move bN</code></td><td>handed to the call; the store drops nothing</td></tr>
+        <tr><td><code>; ownarg bN</code> (emitter clones)</td><td><code>dup bN</code> before the call</td></tr>
+        <tr><td><code>; consume bN</code> on a header</td><td>parameter mode <code>own</code></td></tr>
+        <tr><td><code>; borrowarg</code></td><td>parameter mode <code>borrow</code> at the callee</td></tr>
+        <tr><td><code>; mapborrow bN</code></td><td><code>local bN r:boxed borrow = M[K]</code></td></tr>
+        <tr><td><code>; reuse bN</code></td><td>a spread that takes a dead record, or <code>reset</code>/<code>reuse</code></td></tr>
+        <tr><td>function-end, loop back-edge and sweep releases</td><td><code>drop</code> statements</td></tr>
+      </table></div>
+      <p>The verifier fails on: use after hand-over, a count below zero (double drop), a count not zero at <code>ret</code>, <code>fail</code> or a self tail call (missing drop), branches or loop edges that disagree where they join, and a borrowed value dropped, handed over or outliving its owner. Each rule has a broken-MIR test that must fail, and must fail again if that rule is switched off. Source: design sections 3 and 5.</p>
+      <p>Borrow inference (from Lean): a parameter a function only reads is borrowed, so neither caller nor callee touches its count; one that's returned, stored, sent or passed on to a keeping parameter is owned. This is what S5 does.</p>
+    </details>
+
+    <details>
+      <summary>Evidence: reuse, the test switches, and what Perceus and Lean measured</summary>
+      <ul>
+        <li>Reuse (Lean 4 <code>reset</code>/<code>reuse</code>): when a record dies just before a record of the same shape is built in the same function, the new one is written into the old memory if the old one was unique.</li>
+        <li>Two test switches live inside <code>hey_rc_count_is_unique</code>: <code>HEY_VIOLATE_COW_UNIQUENESS=1</code> (always "unique") must turn the alias tests red; <code>HEY_RC_COW_FORCE_SHARED=1</code> (always "shared") must zero the in-place counters with identical output.</li>
+        <li>From the Hey research brief of 2026-10-23, which quotes the papers; the papers weren't re-read for this page. Perceus (Reinking, Xie, de Moura, Leijen, PLDI 2021): red-black tree with 42 million insertions, purely functional Koka "within 10% of the performance of the in-place mutating algorithm in C++"; without the reference-count optimizations "more than 2x slower". Where data is heavily shared, the gain is smaller. Reuse can hold memory: cfold without the optimizations used 11% less. The paper argues the best results need static compiler facts and a runtime is-unique test together.</li>
+        <li>Lean 4, "Counting Immutable Beans" (Ullrich, de Moura, IFL 2019): <code>reset</code>/<code>reuse</code> and borrow inference.</li>
+        <li>Later work, not measured: the 1BRC program (the one-billion-row challenge, in ordinary Hey) reads a returned record field by field and drops it. Step 2 makes that last use visible; not building the record at all is later work with no estimate. 1BRC runs at about 12,000 instructions per row against C's 326 (lesson of 2026-10-23).</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>Words used here</summary>
+      <dl>
+        <dt>MIR</dt><dd>Hey's mid-level intermediate representation: evaluation order, temporaries, how values are stored and who owns each one.</dd>
+        <dt>LLVM emitter</dt><dd>The last Hey stage. It turns MIR into LLVM, the low-level code that becomes machine code. By the rules it obeys MIR and decides nothing.</dd>
+        <dt>reference count</dt><dd>How many places hold a value. At one, the value can be changed in place safely.</dd>
+        <dt><code>dup</code> / <code>drop</code></dt><dd>Add one reference / release one. At zero the value is freed.</dd>
+        <dt>A-normal form</dt><dd>Every intermediate result has its own name, so each has a definite last use.</dd>
+        <dt>verifier</dt><dd>A pass that checks MIR's rules and fails with the rule, line and binding. It's separate code from the passes it checks.</dd>
+        <dt>call identity</dt><dd>The resolved target of a call (<code>@t</code> for Hey functions, <code>@r</code> for runtime functions), not its spelling.</dd>
+        <dt>self-compile</dt><dd>The Hey compiler compiling itself. Its peak memory and time are part of every landing's checks.</dd>
+        <dt>byte-identical</dt><dd>The compiled LLVM text is exactly the same as before the change.</dd>
+      </dl>
+    </details>
+
+    <h2>Sources</h2>
+    <ul>
+      <li>Hey project task <code>typed-mir-expressions-and-ownership-facts</code> (internal): <code>design-step2-anf-ownership.md</code>, <code>proposal-call-identity.md</code> and <code>bug-quadratic-put-inside-if/README.md</code>, 2026-10-23.</li>
+      <li>Hey compiler design rules for agents (internal brief), Perceus section.</li>
+      <li>Hey research brief, 2026-10-23, fastest implementations (internal), Perceus section.</li>
+      <li>Hey lesson, 2026-10-23, "the stdlib wrapper costs more than the work" (internal).</li>
+      <li>Alex Reinking, Ningning Xie, Leonardo de Moura, Daan Leijen,
+        <a href="https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/">Perceus: Garbage Free Reference Counting with Reuse</a>, PLDI 2021.</li>
+      <li>Sebastian Ullrich, Leonardo de Moura, <a href="https://arxiv.org/abs/1908.05647">Counting Immutable Beans</a>, IFL 2019 (Lean 4).</li>
+      <li>Earlier: <a href="2026-10-23-optimizing-hey-within-its-architecture.html">Fast for every program, not for one benchmark</a>.</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>
+      Written October 23, 2026; status and decision cards added October 24, when implementation of the picks began on <code>gippipity/606a-ownership</code>. The section 1 timings are a single-run probe on one
+      machine; they show the shape of the problem, not a benchmark result.
+    </p>
+  </footer>
+</body>
+</html>
