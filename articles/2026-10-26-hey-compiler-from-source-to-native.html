@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Follow one Hey program through parsing, name resolution, HIR, MIR, ownership and LLVM. Compare the implementation with the June, July and August compiler designs, and distinguish working mechanisms from unfinished migration.">
+  <meta name="article-date" content="2026-10-26">
+  <meta name="article-bucket" content="how-it-works">
+  <meta name="article-index-title" content="How the Hey compiler turns source into native code">
+  <meta name="article-index-desc" content="A worked example, an interactive ownership explanation, and a June-to-October comparison of Hey's compiler design and implementation. Includes current frontend gaps and reproducible inspection guidance.">
+  <title>How the Hey compiler turns source into native code</title>
+  <link rel="stylesheet" href="../hey-current.css">
+  <link rel="stylesheet" href="hey-architecture-guides.css">
+  <style>
+    html{scroll-behavior:smooth} body.hey-guide{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);line-height:1.65}
+    .guide-wrap{max-width:980px;margin:auto;padding:1.5rem 1rem 4rem} h1,h2,h3{line-height:1.2} h1{font-size:clamp(2rem,5vw,3rem)} h2{margin-top:2.6rem} p,li{max-width:76ch} a{color:var(--link);text-underline-offset:.16em} .eyebrow,.caption{color:var(--muted);font-size:.88rem} .lede{font-size:1.2rem;max-width:68ch}
+    pre{padding:1rem;overflow-x:auto;background:var(--code-bg);color:var(--code-fg);border-radius:.5rem;line-height:1.5} code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em} :not(pre)>code{overflow-wrap:anywhere}
+    .callout,details,.exercise{padding:1rem 1.2rem;border:1px solid var(--line);border-radius:.6rem;background:var(--surface);margin:1rem 0} .callout{border-left:5px solid var(--info)} .limit{border-left-color:var(--work)} summary{font-weight:750;cursor:pointer} details>summary{padding:.2rem 0} details[open]>summary{margin-bottom:.8rem} .skip{position:absolute;left:-10000px}.skip:focus{position:static}
+    .pipeline{list-style:none;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:1.4rem 0}.pipeline li{margin:0}.pipeline a{display:block;height:100%;box-sizing:border-box;border:1px solid var(--line);border-top:4px solid var(--info);border-radius:.4rem;padding:.65rem;background:var(--surface);text-decoration:none}.pipeline strong,.pipeline span{display:block}.pipeline span{font-size:.83rem;color:var(--mid)}
+    table{width:100%;border-collapse:collapse;font-size:.92rem} th,td{padding:.7rem;text-align:left;border:1px solid var(--line);vertical-align:top} th{background:var(--surface2)} caption{text-align:left;font-weight:750;padding:.7rem 0}.tag{display:inline-block;padding:.1rem .45rem;border:1px solid var(--line);border-radius:.25rem;font-size:.8rem;font-weight:750}.yes{background:var(--good-bg);color:var(--good)}.partial{background:var(--work-bg);color:var(--work)}.future{background:var(--violet-bg);color:var(--violet)}
+    fieldset{border:0;margin:0;padding:0}legend{font-weight:750;margin-bottom:.6rem}label{display:block;padding:.35rem 0}input{margin-right:.5rem}output{display:block;padding:1rem;background:var(--surface2);border-radius:.4rem;margin-top:.75rem}button{font:inherit;padding:.45rem .8rem;border:1px solid var(--line);border-radius:.3rem;background:var(--surface2);color:var(--ink);cursor:pointer}a:focus-visible,summary:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--link);outline-offset:4px}.source-list li{margin-bottom:.6rem}footer{margin-top:3rem;border-top:1px solid var(--line);padding-top:1rem}.columns{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.columns pre{margin-top:.3rem}
+    @media(max-width:640px){.pipeline{grid-template-columns:repeat(2,minmax(0,1fr))}.columns{grid-template-columns:1fr}th,td{padding:.5rem}.guide-wrap{padding-inline:.8rem}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{details{break-inside:avoid}.exercise fieldset{display:none}.pipeline a{color:inherit}.skip{display:none}}
+  </style>
+</head>
+<body class="hey-guide">
+<a class="skip" href="#main">Skip to the guide</a>
+<div class="guide-wrap">
+<header>
+  <p class="eyebrow">Hey compiler guide · 26 October 2026 · implementation compared with the June–August designs</p>
+  <h1>How the Hey compiler turns source into native code</h1>
+  <p class="lede">You should be able to explain why a program produced a wrong answer, why an immutable update copied memory, or why a build refused. Each question belongs to a particular compiler stage. Follow one small program, then use the same map to inspect Hey’s progress against its original plans.</p>
+</header>
+<main id="main">
+<section class="callout" aria-labelledby="verdict">
+  <h2 id="verdict">The design is useful; the consolidation is unfinished</h2>
+  <ul>
+    <li><strong>Keep a decision with the stage that owns it.</strong> Syntax records structure; resolution chooses declarations; high-level intermediate representation (HIR) carries language meaning; mid-level intermediate representation (MIR) plans execution and ownership; LLVM generates native code from that plan.</li>
+    <li><strong>Immutable code can reuse memory.</strong> This requires a valid lifetime plan and the necessary runtime checks. A syntax tree alone supplies neither.</li>
+    <li><strong>June, July and August progressively tightened the same goal:</strong> one account of the program, carried into code generation. Self-compilation was a milestone along that route.</li>
+    <li><strong>Disclosed weakness:</strong> the October candidate still has an older parser-to-HIR path, textual expression consumers, and a public interpreter entry point. The fuller frontend migration is scheduled after the current release.</li>
+    <li><strong>Check the boundary:</strong> a required identity or ownership fact withdrawn from an artifact must produce a refusal. Withdrawing an optional optimization must preserve the correct general behavior.</li>
+  </ul>
+</section>
+
+<section id="example">
+  <h2>Start with a result you can predict</h2>
+  <pre><code>fn add_fee(total)
+  return total + 2
+end
+
+program
+  let subtotal = 3
+  says add_fee(subtotal * 4)
+end</code></pre>
+  <p>The answer is <strong>14</strong>. To preserve that answer, the compiler has to know that multiplication happens before the call, that <code>add_fee</code> names this particular function, and that the values reaching the arithmetic are numbers with the appropriate representation.</p>
+  <p>A wrong answer is easier to investigate when those decisions are separate. An incorrectly grouped expression is a parser problem. A call to the wrong declaration is a resolution problem. Passing a String as an integer is a type or representation problem. None should be repaired by teaching the LLVM emitter to recognize the spelling <code>add_fee</code>.</p>
+  <figure aria-labelledby="pipeline-caption">
+    <ol class="pipeline">
+      <li><a href="#syntax"><strong>1 · Source and tokens</strong><span>Identify words, punctuation and positions.</span></a></li>
+      <li><a href="#syntax"><strong>2 · Syntax tree</strong><span>Record grouping and child expressions.</span></a></li>
+      <li><a href="#resolution"><strong>3 · Resolution</strong><span>Choose the declaration each name denotes.</span></a></li>
+      <li><a href="#hir"><strong>4 · HIR</strong><span>Carry operations and language types.</span></a></li>
+      <li><a href="#mir"><strong>5 · MIR</strong><span>Name steps; plan representation and lifetime.</span></a></li>
+      <li><a href="#llvm"><strong>6 · LLVM</strong><span>Translate and optimize the explicit plan.</span></a></li>
+      <li><a href="#runtime"><strong>7 · Link and runtime</strong><span>Join native providers and operating-system support.</span></a></li>
+      <li><a href="#execution"><strong>8 · Native program</strong><span>Execute the compiled application.</span></a></li>
+    </ol>
+    <figcaption id="pipeline-caption" class="caption">The intended ownership of decisions. Select a stage to see its job and the current implementation boundary. This diagram is an architecture map, not a claim that every entry point has completed the migration.</figcaption>
+  </figure>
+</section>
+
+<section id="syntax">
+  <h2>The tree keeps grouping from becoming somebody else’s guess</h2>
+  <p>A <strong>token</strong> is a recognized piece of source, such as a name, number or parenthesis. A <strong>parser</strong> arranges tokens into a tree. An <strong>abstract syntax tree</strong>, or AST, records the meaningful structure rather than just a flat sequence of characters.</p>
+  <pre><code>Call
+├── callee: add_fee
+└── argument: Multiply
+    ├── Name: subtotal
+    └── Integer: 4</code></pre>
+  <p class="caption">Teaching notation: this shows relationships, not the exact serialized Hey node format.</p>
+  <p>Now an analysis can visit the multiplication’s two children. It does not need another text scanner to rediscover where the call’s argument ends. Source positions remain attached so a diagnostic can point back to your code.</p>
+  <p><strong>Hey already has a generated final syntax tree.</strong> <code>HeySyntaxTree</code> builds it, generated readers expose its children, and <code>HeyProgramResolution</code> admits source units through it. But the older <code>HeyParser</code> tree is still used by HIR. In that older tree, a binding can contain <code>expr: "2 + 3"</code> rather than two structured operands. The benefit still to earn is consistent consumption of the admitted structure, not inventing another parser. <a href="#source-current">[Current source]</a></p>
+  <details>
+    <summary>What a source location does—and does not—prove</summary>
+    <p>A location tells you which bytes a node came from. A node identity distinguishes occurrences, even when two expressions have equal text. A binding identity says which declaration a reference selects. These are related facts, but none substitutes for the others. Searching a line for a familiar function name loses that distinction.</p>
+    <p>The parser’s schema generates node construction and access rules. Code using an exact compiler node must use those rules; it cannot assume that the node behaves like an ordinary user map. That representation mismatch caused the AST-export defect described in the inspection section.</p>
+  </details>
+</section>
+
+<section id="resolution">
+  <h2>Resolution chooses which function your call means</h2>
+  <p>A <strong>resolver</strong> joins a name in your code to a particular declaration, accounting for scope, imports and module exposure. In the example, the call must select our <code>add_fee</code>, not another function with the same spelling.</p>
+  <p>Hey’s program resolver reads a source unit, records its digest, builds its admitted syntax tree, and resolves names across the import graph. It assigns identities that later stages can carry. A digest is a content fingerprint; it helps establish which source the facts describe. <a href="#source-current">[Current source]</a></p>
+  <p>This is why “put the special cases in a table” is insufficient. A generated table may describe a function’s calling agreement. It cannot independently decide that every function spelled <code>put</code> has a particular ownership effect. That agreement must belong to the resolved function.</p>
+</section>
+
+<section id="hir">
+  <h2>HIR says what the program does before choosing machine details</h2>
+  <p>An <strong>intermediate representation</strong>, or IR, is a compiler’s representation of a program between source and machine code. <strong>High-level IR</strong>, or HIR, carries operations, language types and structured control flow. It should consume the parser’s structure and the resolver’s identities.</p>
+  <p>For the example, HIR needs a numeric multiplication, a call to the selected function, and an output operation. If an analysis cannot prove a useful specialization, correct general behavior must remain available. A missing proof must not become an invented type.</p>
+  <p>The August 19 architecture report showed why this matters: a String argument was classified as an integer in HIR, and the emitter compiled that incorrect fact. Fixing the emitted instruction alone would leave the false fact upstream. <a href="#source-aug19">[August report]</a></p>
+  <p><strong>Current gap:</strong> the resolver’s structured admission and HIR’s older parser consumption have not been fully joined. A clean diagram in the documentation does not close that gap. The later frontend work must carry admitted structure into HIR and remove redundant semantic reconstruction after its consumers have migrated.</p>
+  <details>
+    <summary>See the current implementation seam</summary>
+    <pre><code>source → tokens → final syntax tree → resolved identities
+                                           │
+source reopened → older statement tree ────┤
+                                           ↓
+                                          HIR → MIR → LLVM → native code</code></pre>
+    <p>Program resolution already owns admitted trees and source identities. HIR still calls the older parser and joins the published resolution facts. Before/after source fingerprints help catch changes, but this is not a fully frozen, single-read frontend throughout lowering.</p>
+    <p>There is an additional entry-point seam: <code>heyc build</code> first runs the C source-graph validator; the compiled application runner calls the selected compiler driver directly. Consolidation must account for both. Replacing one command’s dispatcher alone cannot establish a single semantic frontend.</p>
+  </details>
+</section>
+
+<section id="mir">
+  <h2>MIR makes execution and ownership explicit</h2>
+  <p><strong>Mid-level IR</strong>, or MIR, lowers the program into smaller operations. Its intended form names intermediate results and makes execution paths explicit. The current compiler names intermediates in supported lowering paths; some MIR expressions remain nested. MIR owns representation and lifetime planning before LLVM emission.</p>
+  <pre><code>t0 = multiply subtotal, 4
+t1 = call resolved_add_fee, t0
+output t1</code></pre>
+  <p class="caption">Teaching notation, not executable Hey MIR. Real MIR also carries types, resolved identities, calling agreements and ownership facts.</p>
+  <p>A language String and the bits passed to a native function are different levels of description. The compiler must distinguish an owned boxed value from a borrowed string view, keep the view’s owner alive through its last use, and make a checked conversion when a native boundary requires a different representation.</p>
+  <p>That is the connection to the recent Boolean and String repairs: correct language values were not enough; the pipeline also had to materialize the right representation and preserve the right owner. Cleanup must cover normal returns, branches and failures—not just the successful example.</p>
+  <details>
+    <summary>Reading an ownership plan without becoming a memory-management expert</summary>
+    <p><strong>Own</strong> means this reference carries a lifetime obligation. <strong>Borrow</strong> means a value can be read while another owner keeps it alive. <strong>Move</strong> transfers an obligation. <strong>Duplicate</strong> records another live reference; <strong>drop</strong> retires one. These are compiler facts, not a new surface language you must write.</p>
+    <p>The current design requires named MIR values and explicit lifetime operations. Hey has working ownership mechanisms and focused tests, but their presence is not proof that every possible update has a complete last-use/reuse analysis. The current compiler brief requires the verifier to check the facts MIR relies on. <a href="#source-brief">[Design rules]</a></p>
+    <p>In the pinned implementation, the explicit consume-exactly-once checker applies to modules declaring <code>ownership hey-ownership-v1</code>. Other ownership annotations and bounded planners still coexist. Current receiver-rebuild reuse does not establish a general ability to recycle every dropped cell into a same-sized allocation.</p>
+  </details>
+</section>
+
+<section id="ownership">
+  <h2>Perceus helps immutable programs avoid unnecessary copies</h2>
+  <p>Immutable behavior means an update must preserve any earlier value your program can still observe. It does not require a fresh physical allocation for every update.</p>
+  <div class="columns">
+    <div><h3>The earlier value is still needed</h3><pre><code>let before = {tea: 3}
+let after = put(before, 'tea', 4)
+says before.tea
+says after.tea</code></pre><p>The outputs must remain <code>3</code> and <code>4</code>. Reuse cannot overwrite the version still observable as <code>before</code>.</p></div>
+    <div><h3>The old version is no longer used</h3><pre><code>let prices = {tea: 3}
+let updated = put(prices, 'tea', 4)
+says updated.tea</code></pre><p>This creates an opportunity: if the operation supports reuse, last-use analysis permits consumption, and storage is unique, the implementation may update that storage in place.</p></div>
+  </div>
+  <p><a href="https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf">Perceus</a> places precise reference-count operations over explicit control flow and combines them with reuse analysis. <a href="https://koka-lang.github.io/koka/doc/book.html#sec-fbip">Koka’s “functional but in-place” explanation</a> shows how functional code can benefit from uniqueness and reuse. These are design references for Hey; they do not confer Koka’s guarantees on Hey.</p>
+  <div class="exercise">
+    <fieldset>
+      <legend>Change one condition: may the old value still be read?</legend>
+      <label><input type="radio" name="old-value" value="live" checked>Yes—the program still observes the earlier version.</label>
+      <label><input type="radio" name="old-value" value="dead">No—this is its last use.</label>
+    </fieldset>
+    <output id="reuse-answer" aria-live="polite">Preserve the earlier version. If both versions use the same mutable storage, the update needs a copy or another representation that preserves the old value.</output>
+    <p class="caption">A teaching model, not a benchmark or a claim about the current lowering of this exact example. Last use permits a reuse opportunity; it does not guarantee uniqueness, supported layout, or a particular optimization.</p>
+  </div>
+  <p><strong>The division of work matters:</strong> syntax preserves the update’s shape; HIR preserves its meaning; MIR establishes order and lifetime; the runtime performs the required uniqueness check. LLVM must not invent ownership because it recognizes an update-looking expression.</p>
+  <p>Removing copies also does not remove an algorithm’s repeated searches. If each insertion scans everything already inserted, ownership improvements alone do not make the algorithm linear. General indexing and traversal improvements need their own measurements.</p>
+</section>
+
+<section id="mojo">
+  <h2>The Mojo influence is a method for building passes</h2>
+  <p>The August design borrowed five principles from the infrastructure associated with Mojo and MLIR: parseable IR, ownership and reuse, verification, structural rewriting, and one surface language. The proposal explicitly declined to adopt the MLIR framework itself. It was a plan for Hey’s compiler substrate, not a proposal to turn Hey into Mojo. <a href="#source-mojo">[August 20–22 designs]</a></p>
+  <div class="table-scroll"><table>
+    <caption>What those principles let you check</caption>
+    <thead><tr><th scope="col">Principle</th><th scope="col">Practical question</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Parseable IR</th><td>Can a saved artifact be decoded into the same structure, rather than interpreted by a new text scan?</td></tr>
+      <tr><th scope="row">Ownership and reuse</th><td>Does MIR authorize consumption or borrowing, and is the owner alive on every path?</td></tr>
+      <tr><th scope="row">Verification</th><td>Does a pass refuse an invalid fact at its boundary?</td></tr>
+      <tr><th scope="row">Structural rewriting</th><td>Does the transformation match declared nodes and children, rather than rediscovering syntax?</td></tr>
+      <tr><th scope="row">One surface language</th><td>Does ordinary correct Hey benefit, without a benchmark-specific dialect or hidden backend switch?</td></tr>
+    </tbody>
+  </table></div>
+  <p>The <a href="https://mlir.llvm.org/docs/LangRef/">MLIR reference</a> distinguishes textual, in-memory and serialized forms of the same semantic content. Text is not inherently the problem. The problem is losing structured meaning and asking later consumers to reconstruct it independently.</p>
+</section>
+
+<section id="llvm">
+  <h2>LLVM translates the plan; linking supplies its implementations</h2>
+  <p>Hey emits LLVM IR, a lower-level instruction representation. LLVM optimizes and generates machine code. The <strong>linker</strong> joins the resulting object code with the runtime and native providers needed by the program.</p>
+  <p>An <strong>application binary interface</strong>, or ABI, specifies how compiled code passes arguments and results. A mismatch between a boxed result and a raw Boolean is not a spelling problem. The producing and consuming stages must agree on that interface.</p>
+  <p>Hey’s emitter should mechanically consume resolved calls, representations and lifetime plans. It must refuse a required agreement that is missing or contradictory. It must not silently move the application to another compiler backend to make a green build.</p>
+  <p class="caption">Logical ownership and call location differ: the current LLVM entry point invokes a checked-String planner implemented inside MIR before emitting instructions. That is MIR-owned normalization at the emission boundary, not permission for the emitter to invent lifetimes.</p>
+</section>
+
+<section id="runtime">
+  <h2>The native program still needs a runtime</h2>
+  <p><strong>Native</strong> means machine code is executing; it does not mean there are no support routines. Hey’s runtime implements values, reference counting, collection operations, actor scheduling and operating-system boundaries. Ordinary compiled library code and runtime primitives have different jobs.</p>
+  <p>Hey’s standard-library archive packages compiled providers for linking. A native call boundary must carry its calling and ownership agreement. An unavailable library implementation must not be concealed by running the ordinary algorithm through a hidden interpreter service.</p>
+  <p>Actors add lifetime boundaries: messages and state must preserve isolation, and temporary values must be retired after their last authorized use. A failure inside a contained operation must run its cleanup without incorrectly destroying a healthy sibling. A pass that handles a successful return but omits an error edge has an incomplete ownership plan.</p>
+  <details>
+    <summary>Strings, collections and the later Phase S work</summary>
+    <p>Hey’s String work uses SDS-backed storage: backing allocations hold bytes and lifetime information, while views and boxed values can expose different representations. A temporary borrowed view cannot outlive its backing owner.</p>
+    <p>Phase S is a later representation project: a compact 16-byte string value over SDS blocks. It is not the AST migration, and neither project should be presented as already shipped in the current candidate. Reducing a value’s size and proving fewer copies are separate improvements; each needs its own behavioral and performance tests.</p>
+    <p>Collections likewise need both lifetime rules and suitable algorithms. A uniqueness test cannot fix a poor hash distribution, and an index cannot excuse releasing an aliased value too early.</p>
+    <p>Static linked providers and dynamically loaded native extensions are separate boundaries. The dynamic interface checks descriptors and distinguishes declared blocking calls. Complete borrowed-view, result and effect transport across every package/native boundary remains unfinished; a working archive does not certify that broader rollout.</p>
+  </details>
+</section>
+
+<section id="execution">
+  <h2>Self-hosting, running an application and interpreting are distinct</h2>
+  <p>A <strong>self-hosted compiler</strong> is built using the language it compiles. A <strong>bootstrap</strong> is the earlier compiler or seed used to construct that compiler. Neither term proves that every ordinary program follows the desired path.</p>
+  <div class="table-scroll"><table>
+    <caption>Execution boundaries in the frozen October candidate</caption>
+    <thead><tr><th scope="col">Entry point</th><th scope="col">What it currently does</th><th scope="col">Why it matters</th></tr></thead>
+    <tbody>
+      <tr><th scope="row"><code>heyc build app.hey -o app</code></th><td>Uses the ordinary self-hosted LLVM compilation route.</td><td>The application’s native pipeline must pass on its own.</td></tr>
+      <tr><th scope="row">Native <code>hey</code> application runner</th><td>Compiles/caches the application and executes its native program.</td><td>A source launcher need not interpret the application.</td></tr>
+      <tr><th scope="row"><code>heyc app.hey --run</code></th><td>Enters the C interpreter.</td><td>This is a remaining public alternate execution path.</td></tr>
+      <tr><th scope="row">REPL and comparison controls</th><td>Use interpreter facilities.</td><td>Interactive execution and independent behavioral checks still have dependencies to migrate or explicitly bound.</td></tr>
+      <tr><th scope="row">Stage-0 compiler</th><td>Supports bootstrap and explicit comparison/recovery.</td><td>It is not an accepted silent rescue backend for a failed application compile.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Some compiler tools themselves depend on interpreted bootstrap calls. Globally changing <code>--run</code> without tracing those calls can make the compiler recursively try to compile the tool needed to compile itself. Removing an independent interpreter oracle can also turn a differential check into the same implementation compared with itself.</p>
+  <p><strong>The later migration must reuse the existing native runner and compiler stages.</strong> It must preserve arguments, input/output, exit status and failures, while making bootstrap dependencies explicit. The isolated execution draft has not yet passed its new routing gate and is not merged.</p>
+</section>
+
+<section id="history">
+  <h2>June chose a migration ladder; July specified the handoff; August tested authority</h2>
+  <p>The goal did not first appear with the latest AST discussion. The historical documents repeatedly ask the same question with increasing precision: which implementation is allowed to decide what a program means?</p>
+  <div class="table-scroll"><table>
+    <caption>Design intent and contemporaneous evidence, kept separate</caption>
+    <thead><tr><th scope="col">Period and source</th><th scope="col">Design or decision</th><th scope="col">What the source actually established then</th><th scope="col">Comparison with October</th></tr></thead>
+    <tbody>
+      <tr><th scope="row"><a href="#source-june">June 28–29</a></th><td>Grow a Hey-written compiler in stages; converge on shared frontend facts and a typed backend handoff.</td><td>C remained the full compiler/oracle; LLVM had narrow smoke coverage; the Hey compiler handled a supported subset. Promotion required parity and performance.</td><td>The ordinary native application route now uses the self-hosted LLVM pipeline. Bootstrap and alternate interpreter uses remain.</td></tr>
+      <tr><th scope="row"><a href="#source-july">July 11</a></th><td>Source → resolved AST → semantic HIR → verified MIR → backend consumers. Cache metadata must not secretly define semantics.</td><td>A design contract and a matrix of producer/consumer lanes, with a focused recurrence measurement—not proof of whole-language consolidation.</td><td>Stage responsibilities remain aligned. Legacy HIR parsing and incomplete structured transport are still gaps against the contract.</td></tr>
+      <tr><th scope="row"><a href="#source-aug3">August 3–5</a></th><td>Generated nodes, a real syntax tree, resolver and shared semantic frontend.</td><td>August 3 explicitly reported real nodes but no controlling tree. August 5 still marked frontend authority off and described an intended shared evaluator.</td><td>Final syntax is now admitted by program resolution. That is more than node construction; it still does not mean all HIR consumers use that tree.</td></tr>
+      <tr><th scope="row"><a href="#source-aug11">August 11</a></th><td>Make the compiler compile itself without legacy fallback.</td><td>The report reached that milestone for compiler source, then documented missed wrong code and unregistered failing comparisons. Ordinary fallback retirement was separate.</td><td>Self-build, actual tool builds, corpus checks and roundtrip checks remain separate qualification evidence.</td></tr>
+      <tr><th scope="row"><a href="#source-aug19">August 19</a></th><td>Give the structured frontend semantic authority.</td><td>Syntax and resolution ran beside the established <code>HeyParser → HeyHir</code> path; a false type fact caused wrong code.</td><td>The current source still reveals that semantic-consumer seam. New syntax construction alone is not the missing work.</td></tr>
+      <tr><th scope="row"><a href="#source-mojo">August 20–22</a></th><td>Parse, verify and structurally rewrite IR; place ownership in MIR; transfer authority per construct with evidence.</td><td>A design direction and a cutover rule, not a universal completed Perceus implementation.</td><td>The adopted stage-ownership principles remain constraints under the <a href="#source-brief">current compiler brief</a>. Typed facts belong inside existing MIR, not a parallel replacement IR pipeline.</td></tr>
+      <tr><th scope="row"><a href="#source-aug28">August 28</a></th><td>Carry exact identities through calls, HIR, MIR and linking; retire spelling recovery.</td><td>The snapshot reported identity progress alongside emitter failures, missing producer facts and ownership analyses still scanning serialized MIR.</td><td>Current repairs strengthen decoded MIR facts and ownership plans. Completion still requires a consumer-by-consumer audit and real platform evidence.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="caption">June citations are dated compiler-repository documents. No June compiler-design article was located in the supplied website/archive search. August entries attribute status to their original reports; they are not fresh certifications of those old builds.</p>
+  <details>
+    <summary>Why the website and the archive can tell different stories</summary>
+    <p>The supplied website snapshot is dated August 29, but the documents inside it retain earlier dates. The archived August architecture page is a full historical report. The current site’s architecture link leads to a September 16 guide. Reading the newer page as the contents of the August report would erase the migration history.</p>
+    <p>The selected June–August documents establish a Perceus/Mojo design lineage. The later compiler brief explicitly names Koka. This comparison does not backdate that later citation or import current guarantees into an earlier plan.</p>
+  </details>
+</section>
+
+<section id="verification">
+  <h2>A useful green check must fail when the contract is broken</h2>
+  <p>A <strong>verifier</strong> checks that an artifact satisfies the invariants its next consumer relies on. A <strong>negative control</strong> deliberately breaks a required fact and confirms that the check detects it. This guards against tests that pass because they never inspect the important behavior.</p>
+  <p>Golden snapshots record expected compiler output. Differential tests compare observable behavior across implementations. Roundtrip tests check decoding and reconstruction. None can replace all the others: two consumers can agree on a wrong producer fact, and a stable snapshot can preserve wrong behavior.</p>
+  <div class="table-scroll"><table>
+    <caption>October 26 evidence: candidate qualification is not publication</caption>
+    <thead><tr><th scope="col">Claim</th><th scope="col">Evidence and limit</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Mac compiler build</th><td><span class="tag yes">Passed</span> Frozen source <code>7cb8fecbd</code>; source-before/after and product digest recorded.</td></tr>
+      <tr><th scope="row">Mac acceptance</th><td><span class="tag yes">25 steps passed</span> Eight focused checks, two actual native tool builds and fifteen broad checks. This is the declared release queue, not every test in the repository.</td></tr>
+      <tr><th scope="row">Golden qualification</th><td><span class="tag yes">91 fixtures, 9 companions</span> CHECK passed unchanged snapshots, with manifest and transaction controls. Not a claim of universal C-output parity.</td></tr>
+      <tr><th scope="row">Linux qualification</th><td><span class="tag partial">Unqualified</span> A Linux report says build/focused checks failed; the actual diagnostic was still outstanding at this checkpoint. No candidate timings are accepted from that report.</td></tr>
+      <tr><th scope="row">Compile/runtime performance</th><td><span class="tag partial">Incomplete</span> Build turnaround using a verified native bootstrap is not a controlled speedup. Same-source instruction/peak measurements and runtime coverage require their own receipts.</td></tr>
+      <tr><th scope="row">Frontend transition and Phase S</th><td><span class="tag future">Later releases</span> Neither is merged or claimed complete by this guide.</td></tr>
+    </tbody>
+  </table></div>
+  <p>The source compiler and its generated products also need separate identities. Cache keys must account for the source, compiler, providers and relevant options. A cache hit proves reuse of a recorded artifact; its reliability depends on the validity of that identity.</p>
+  <details>
+    <summary>Which verification actually runs?</summary>
+    <p>Direct pipeline checks can validate intermediate pass outputs. Ordinary builds disable repeated per-pass checking through an explicit option; the LLVM input boundary still validates MIR. Therefore “verify the IR” is a design requirement with specific enforcement points, not evidence that every pass always runs every verifier.</p>
+    <p>The text-recovery census limits known residual scanning/recovery sites and detects newly introduced ones. Passing it does not mean the count is zero. The old C consumer also still refuses some golden cases; current classifications distinguish refusal, known oracle defects, behavioral checks and actual IR parity.</p>
+  </details>
+</section>
+
+<section id="inspection">
+  <h2>Inspect what exists, then improve the stage that owns the problem</h2>
+  <p><strong>You can inspect the generated expression tree today.</strong> This uses the lexical admission and syntax parser also used by program resolution:</p>
+  <pre><code>import 'stdlib:HeyTokens'
+import 'stdlib:HeySyntaxTree'
+
+program
+  let code = "program\n  let total = 2 + 3\n  says total\nend\n"
+  let lexical = read_source_text_into_lexical_admission(code)
+  let parsed = HeySyntaxTree.parse_unit_lexical_admission(lexical, 0)
+  if !parsed.ok
+    fail parsed.error
+  end
+  says json_canonical_text(parsed.value.tree)
+end</code></pre>
+  <p>This example was exercised with the frozen candidate host. It produces a <code>syntax_tree</code> containing an <code>infix_expr</code> for the addition, with sealed unit/node identities. The <code>0</code> selects this unit’s identity. This is syntax inspection of one unit; it does not resolve its imports or prove the resulting program’s semantic correctness.</p>
+  <details>
+    <summary>Inspect the older compatibility tree separately</summary>
+    <p>The older parser tree remains available through <code>HeyParser.parse_text(source_name, code)</code> or <code>HeyParser.parse_file(path)</code>. Its exact compiler nodes require explicit conversion at the JSON inspection boundary:</p>
+  <pre><code>import 'stdlib:HeyParser'
+import 'stdlib:HeyCompilerNodes'
+
+program
+  let tree = HeyParser.parse_text(
+    'example.hey',
+    "program\n  let total = 2 + 3\n  says total\nend\n"
+  )
+  says json_canonical_text(HeyCompilerNodes.to_legacy(tree))
+end</code></pre>
+    <p>This example was also exercised with the frozen candidate host. Its binding contains <code>expr: "2 + 3"</code>. This is the older statement tree, not the generated expression tree shown above.</p>
+  </details>
+  <p><strong>The public <code>hey phase ast</code> command is broken in that frozen candidate.</strong> Its consumer assumes ordinary record access on an exact node and rejects valid input. An isolated repair now uses generated readers, validates nested nodes and rehydrates the artifact before HIR. Its tests replay HIR after deleting the original source; independent review and integration remain separate.</p>
+  <p>That is a useful distinction when improving the compiler. Repairing serialization does not finish structural HIR migration. Nor should modifying an inspectable JSON snapshot let a caller smuggle an unchecked ownership claim into LLVM. Each consuming boundary must validate the facts it accepts.</p>
+  <details>
+    <summary>Three questions to ask before proposing a compiler optimization</summary>
+    <ol>
+      <li><strong>Which stage owns this decision?</strong> Grouping belongs to syntax; selected declarations to resolution; language types to HIR; representation and lifetime to MIR.</li>
+      <li><strong>What fact permits the optimization?</strong> For example, an explicit resolved effect, last use of a named value and a successful uniqueness check.</li>
+      <li><strong>What happens when the fact is absent?</strong> Missing required semantics must refuse; an unavailable optimization must retain correct general behavior.</li>
+    </ol>
+    <p>Then test the real path. A focused MIR fixture can prove a mechanism; a source program must prove the ordinary producer emits the fact, and platform qualification must prove the resulting application behaves correctly.</p>
+  </details>
+</section>
+
+<section id="sources">
+  <h2>Sources and the implementation checkpoint</h2>
+  <p>The implementation account is pinned to compiler source <code>7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629</code>. Historical plans retain their original dates and status. The isolated AST fix and execution draft are later work, not features silently attributed to that source.</p>
+  <p class="caption">Some source repositories and raw qualification logs require project access. The explanation and historical comparison are self-contained; those references provide provenance, not a promise that every receipt is publicly downloadable.</p>
+  <ol class="source-list">
+    <li id="source-june"><strong>June 28–29:</strong> <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/2f14a963734b6c4c8bdbb98ab950b6b5090154a6/docs/features/63-self-hosting-compiler-migration.md">Self-hosting migration</a>; <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/2f14a963734b6c4c8bdbb98ab950b6b5090154a6/docs/features/75-self-hosting-decision-gate.md">promotion decision gate</a>; <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/322672bf7b270579f1eacedc16fd673775e47095/docs/14-llvm-native-selfhosted-strategy.md">LLVM, native-C and self-hosted strategy</a>.</li>
+    <li id="source-july"><strong>July 11:</strong> <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/2b5f96b491bd1c9dfc5cfe863c37f3ba630de9de/docs/26-clean-compiler-architecture.md">Clean compiler architecture</a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/2b5f96b491bd1c9dfc5cfe863c37f3ba630de9de/docs/compiler-backend-matrix.md">compiler/backend matrix</a>.</li>
+    <li id="source-aug3"><strong>August 3–5:</strong> archived website documents <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/c2f9fcb2872744e0c48002129b85d2a0e811a6ff/dailies/2026-08-03-the-front-end-has-a-lexical-layer.html">the front end has a lexical layer</a> and <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/79c85c220309816976d77918ccca6e5dea845f7e/dailies/2026-08-05-compiler-shape-and-full-ladder.html">compiler shape and full ladder</a>.</li>
+    <li id="source-aug11"><strong>August 11:</strong> archived <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/9453f799aac1cfd476452356b61489d68a33fdd9/dailies/2026-08-11-the-compiler-compiled-itself.html">the compiler compiled itself</a>.</li>
+    <li id="source-aug19"><strong>August 19:</strong> archived <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/bf9588dd6bcc87936ef5ed39d01acb9bca7005bb/dailies/2026-08-19-530a-architecture.html">530a architecture</a>.</li>
+    <li id="source-mojo"><strong>August 20–22:</strong> <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/c9db4dbe134cbd993d88f77688075205ff968b75/articles/five-things-hey-should-take-from-mojo.html">Five things Hey should take from Mojo</a>; <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/4575998f9d261e35dca335ab8a64e005efcdf3f8/dailies/2026-08-20-0.99.533a-what-hey-borrows-from-mojo.html">the August 20 design daily</a>; <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/3a5b7162827d3e93d124ad001725a191ff8de0c2/articles/from-strings-to-real-ir.html">From Strings to Real IR</a>; archived <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/cfe08936afa5acaacf2cc1aa55b959327a40009a/dailies/2026-08-22-d49-emitter-authority-cutover.html">d49 emitter authority cutover</a>.</li>
+    <li id="source-aug28"><strong>August 28:</strong> archived <a href="https://github.com/JayTeeSF/jayteesf.github.io/blob/0611c87b372f2e87c0f8ccb6757707aee06f2d5a/dailies/2026-08-28-ARCHITECTURE-hey-restructured.html">ARCHITECTURE hey restructured</a>. Archive root: <code>archives/jayteesf.github.io-2026-08-29</code>. The newer <a href="architecture-of-hey.html">September 16 architecture guide</a> is a distinct document.</li>
+    <li id="source-current"><strong>Current implementation:</strong> <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/stdlib/HeyProgramResolution.hey#L388">source admission</a>, <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/stdlib/HeySyntaxTree.hey#L2224">syntax parser</a>, <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/stdlib/HeyHir.hey#L13348">older parser/HIR boundary</a>, <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/stdlib/HeyMir.hey">MIR</a>, <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/stdlib/HeyLlvm.hey">LLVM emitter</a>, <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/runtime/heyc.c#L29125">interpreter dispatch</a>, <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/7cb8fecbd1c3436190c65ecae1e79f8f9bbdb629/tools/hey_run.hey#L1060">native application runner</a>.</li>
+    <li id="source-brief"><strong>Current project authority:</strong> Cagents <code>projects/hey/evidence/BRIEF-compiler-design-rules-for-agents.md</code>; release receipts under <code>gippipity-606a-final-qualification-7cb8fecbd</code> and <code>gippipity-606a-final-goldens-7cb8fecbd</code>. These establish the dated candidate scope, not a shipping claim.</li>
+    <li><strong>Primary design references:</strong> Reinking, Xie, de Moura and Leijen, <a href="https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf">Perceus technical report</a> (2020; PLDI paper 2021); <a href="https://koka-lang.github.io/koka/doc/book.html#sec-fbip">Koka book</a>; <a href="https://mlir.llvm.org/docs/LangRef/">MLIR language reference</a>. No performance result from these projects is presented as a measurement of Hey.</li>
+  </ol>
+  <details id="glossary">
+    <summary>Glossary</summary>
+    <dl>
+      <dt>AST</dt><dd>Abstract syntax tree: the structure recognized in source code.</dd>
+      <dt>Resolution</dt><dd>Choosing the particular declaration a name denotes.</dd>
+      <dt>HIR</dt><dd>High-level intermediate representation: operations and language meaning before lower-level choices.</dd>
+      <dt>MIR</dt><dd>Mid-level intermediate representation: explicit execution steps, representations and lifetime plans.</dd>
+      <dt>LLVM</dt><dd>The compiler infrastructure that accepts Hey’s low-level IR and generates optimized machine code.</dd>
+      <dt>ABI</dt><dd>Application binary interface: how compiled functions pass values and results.</dd>
+      <dt>Ownership</dt><dd>The compiler/runtime accounting for who keeps a value alive and when that obligation ends.</dd>
+      <dt>Copy-on-write</dt><dd>Preserving old observable values by copying shared storage when an update requires it; unique storage may allow reuse.</dd>
+      <dt>Bootstrap</dt><dd>The seed compiler path used to construct or recover a newer compiler.</dd>
+      <dt>Self-hosting</dt><dd>Building a compiler with a compiler for its own implementation language.</dd>
+      <dt>Verifier</dt><dd>A checker for the invariants an artifact’s consumer relies on.</dd>
+    </dl>
+  </details>
+</section>
+</main>
+<footer><p>This guide compares dated design intent with a pinned implementation. It does not announce a 606a deployment. The frontend transition remains later-release work; a performance improvement needs a measurement of the corresponding production path.</p><p><a href="index.html">More Hey articles</a> · <a href="#main">Back to the guide</a></p></footer>
+</div>
+<script>
+  (() => {
+    const answer = document.getElementById('reuse-answer');
+    for (const option of document.querySelectorAll('input[name="old-value"]')) {
+      option.addEventListener('change', () => {
+        answer.textContent = option.value === 'dead'
+          ? 'Last use makes consumption possible. Reuse still requires the operation’s valid MIR plan and the necessary runtime uniqueness/layout conditions. Otherwise preserve correct general behavior.'
+          : 'Preserve the earlier version. If both versions use the same mutable storage, the update needs a copy or another representation that preserves the old value.';
+      });
+    }
+  })();
+</script>
+</body>
+</html>
