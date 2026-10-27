@@ -146,12 +146,12 @@ says updated.tea</code></pre><p>This creates an opportunity: if the operation su
   <p><a href="https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf">Perceus</a> places precise reference-count operations over explicit control flow and combines them with reuse analysis. <a href="https://koka-lang.github.io/koka/doc/book.html#sec-fbip">Koka’s “functional but in-place” explanation</a> shows how functional code can benefit from uniqueness and reuse. These are design references for Hey; they do not confer Koka’s guarantees on Hey.</p>
   <div class="exercise">
     <fieldset>
-      <legend>Change one condition: may the old value still be read?</legend>
+      <legend>Explore ownership: does this example read the earlier value again?</legend>
       <label><input type="radio" name="old-value" value="live" checked>Yes—the program still observes the earlier version.</label>
       <label><input type="radio" name="old-value" value="dead">No—this is its last use.</label>
     </fieldset>
     <output id="reuse-answer" aria-live="polite">Preserve the earlier version. If both versions use the same mutable storage, the update needs a copy or another representation that preserves the old value.</output>
-    <p class="caption">A teaching model, not a benchmark or a claim about the current lowering of this exact example. Last use permits a reuse opportunity; it does not guarantee uniqueness, supported layout, or a particular optimization.</p>
+    <p class="caption">This is an interactive teaching example, not a request for a compiler-design decision. Choose either case to see why preserving an observable earlier value matters. Last use permits a reuse opportunity; it does not guarantee uniqueness, supported layout, or a particular optimization. This example is not a benchmark or a claim about its current lowering.</p>
   </div>
   <p><strong>The division of work matters:</strong> syntax preserves the update’s shape; HIR preserves its meaning; MIR establishes order and lifetime; the runtime performs the required uniqueness check. LLVM must not invent ownership because it recognizes an update-looking expression.</p>
   <p>Removing copies also does not remove an algorithm’s repeated searches. If each insertion scans everything already inserted, ownership improvements alone do not make the algorithm linear. General indexing and traversal improvements need their own measurements.</p>
@@ -205,13 +205,13 @@ says updated.tea</code></pre><p>This creates an opportunity: if the operation su
     <tbody>
       <tr><th scope="row"><code>heyc build app.hey -o app</code></th><td>Uses the ordinary self-hosted LLVM compilation route.</td><td>The application’s native pipeline must pass on its own.</td></tr>
       <tr><th scope="row">Native <code>hey</code> application runner</th><td>Compiles/caches the application and executes its native program.</td><td>A source launcher need not interpret the application.</td></tr>
-      <tr><th scope="row"><code>heyc app.hey --run</code></th><td>Enters the C interpreter.</td><td>This is a remaining public alternate execution path.</td></tr>
+      <tr><th scope="row"><code>heyc app.hey --run</code></th><td>In the frozen candidate, enters the C interpreter.</td><td>This violates the required behavior: compile through HIR → MIR → LLVM, then execute the compiled program.</td></tr>
       <tr><th scope="row">REPL and comparison controls</th><td>Use interpreter facilities.</td><td>Interactive execution and independent behavioral checks still have dependencies to migrate or explicitly bound.</td></tr>
       <tr><th scope="row">Stage-0 compiler</th><td>Supports bootstrap and explicit comparison/recovery.</td><td>It is not an accepted silent rescue backend for a failed application compile.</td></tr>
     </tbody>
   </table></div>
-  <p>Some compiler tools themselves depend on interpreted bootstrap calls. Globally changing <code>--run</code> without tracing those calls can make the compiler recursively try to compile the tool needed to compile itself. Removing an independent interpreter oracle can also turn a differential check into the same implementation compared with itself.</p>
-  <p><strong>The later migration must reuse the existing native runner and compiler stages.</strong> It must preserve arguments, input/output, exit status and failures, while making bootstrap dependencies explicit. The isolated execution draft has not yet passed its new routing gate and is not merged.</p>
+  <p><strong>The required public behavior is compile, then run.</strong> The command must reuse the existing native runner and HIR → MIR → LLVM stages, preserve arguments, input/output, exit status and failures, and refuse compilation failures without interpreting the application.</p>
+  <p>Some compiler tools currently depend on interpreted bootstrap calls. Those internal dependencies need explicit bootstrap entry points so changing public <code>--run</code> cannot recursively invoke the compiler tool it is constructing. Independent interpreter comparison controls likewise need explicit entry points so differential tests do not compare the native implementation with itself. These migration dependencies do not justify retaining the interpreter as the public application route. The isolated execution draft is not merged or qualified.</p>
 </section>
 
 <section id="history">
