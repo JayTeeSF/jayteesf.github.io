@@ -143,7 +143,7 @@ what's decided to make it cheaper.</p>
 <p>Every Hey value (number, String, array, map, record) is immutable. <code>put</code>, <code>push</code>,
 <code>merge</code> and the spread <code>{...doc, visits: 1}</code> all return a <em>new</em> value:</p>
 <p class="cmd-label">immutable.hey</p>
-<pre><code>program
+<pre data-example="runnable" data-file="immutable.hey"><code>program
   let fruit = {apples: 1}
   let more = fruit.put(&#39;pears&#39;, 2)
   let doc = {name: &#39;Ada&#39;}
@@ -154,9 +154,9 @@ what's decided to make it cheaper.</p>
   says next
 end</code></pre>
 <p class="cmd-label">Run</p>
-<pre><code>$ hey immutable.hey</code></pre>
+<pre data-example="runnable"><code>$ hey immutable.hey</code></pre>
 <p class="cmd-label">Output</p>
-<pre class="out"><code>{&quot;apples&quot;:1}
+<pre data-example="fragment" data-needs="REVIEW" class="out"><code>{&quot;apples&quot;:1}
 {&quot;apples&quot;:1,&quot;pears&quot;:2}
 {&quot;name&quot;:&quot;Ada&quot;}
 {&quot;name&quot;:&quot;Ada&quot;,&quot;visits&quot;:1}</code></pre>
@@ -164,11 +164,11 @@ end</code></pre>
 <p class="id">Run, Mac M3 Pro, with the 0.99.606a candidate in the documentation toolchain (<code>hey --version</code> prints <code>0.99.606a</code>; the toolchain is a later candidate build<sup><a href="#n1">1</a></sup>, same language surface as the frozen 0.99.606a source, whose own build had failed). <code>hey</code> means that toolchain's <code>bin/hey</code>; every <code>HEY_*</code> variable was unset first. Instruction counts come from <code>/usr/bin/time -l</code>; the machine was busy (load average about 8.5), so milliseconds are rough and instructions are the number to trust. <code>hey build</code> also prints about 30 <code>selfhost_*=</code> progress lines before <code>built PATH</code>; they are left out above.</p>
 <p>That's the safe part: no function can change a value you passed it, and an actor can be handed a value (copied or moved) without locks, because nothing can change it.
 Now the puzzle. This is how everyone counts things in Hey:</p>
-<pre><code>set counts = counts.put(word, counts[word] + 1)</code></pre>
+<pre data-example="fragment" data-needs="REVIEW"><code>set counts = counts.put(word, counts[word] + 1)</code></pre>
 <p>If <code>put</code> copied the map each time, counting a million words over a thousand-key map would copy about a
 billion entries. Does it?</p>
 <p class="cmd-label">count.hey: count a million words over a 1,000-word vocabulary</p>
-<pre><code>import &#39;stdlib:Cli&#39;
+<pre data-example="runnable" data-file="count.hey"><code>import &#39;stdlib:Cli&#39;
 import &#39;stdlib:Text&#39;
 import &#39;stdlib:Time&#39;
 
@@ -195,14 +195,14 @@ program
   says Time.ns_to_ms(Time.elapsed_ns(started))
 end</code></pre>
 <p class="cmd-label">Run</p>
-<pre><code>$ hey build count.hey -o count &amp;&amp; /usr/bin/time -l ./count 250000   # and 500000, 1000000</code></pre>
+<pre data-example="runnable"><code>$ hey build count.hey -o count &amp;&amp; /usr/bin/time -l ./count 250000   # and 500000, 1000000</code></pre>
 <div class="tablewrap"><table><tr><th class="num">n</th><th>Printed (count of w7, ms)</th><th class="num">Instructions</th><th class="num">Per word</th><th class="num">Peak memory</th></tr>
 <tr><td class="num">250,000</td><td><code>250</code>, <code>19</code></td><td class="num">414,437,219</td><td class="num">1,658</td><td class="num">1.5 MB</td></tr>
 <tr><td class="num">500,000</td><td><code>500</code>, <code>38</code></td><td class="num">812,506,086</td><td class="num">1,625</td><td class="num">1.5 MB</td></tr>
 <tr><td class="num">1,000,000</td><td><code>1000</code>, <code>74</code></td><td class="num">1,609,356,413</td><td class="num">1,609</td><td class="num">1.5 MB</td></tr></table></div>
 <p><strong>No.</strong> Double the words, double the work: about 1,600 instructions per word at every size, and memory stays flat. The map isn't copied. The binary is 182,328 bytes. Sections 2 and 3 explain why, and here's the version that <em>does</em> copy.</p>
 <div class="puzzle"><strong>What would you predict?</strong> Same loop, one extra line: <code>let before = counts</code> at the top of each iteration, and <code>len(before)</code> read after the <code>put</code>. Nothing else changes. How much slower?
-<pre><code>import &#39;stdlib:Cli&#39;
+<pre data-example="runnable" data-file="append.hey"><code>import &#39;stdlib:Cli&#39;
 import &#39;stdlib:Text&#39;
 import &#39;stdlib:Time&#39;
 
@@ -347,7 +347,7 @@ made famous): one allocation holding a small header, then the bytes, then a NUL 
 <li><strong>Appending to a String you alone hold grows it in place</strong> (spare capacity, amortized like a vector), so <code>set out = out + piece</code> in a loop is linear. <span class="badge b-works">Works today</span></li>
 </ul>
 <p class="cmd-label">append.hey: build a long String with +</p>
-<pre><code>import &#39;stdlib:Cli&#39;
+<pre data-example="runnable" data-file="append.hey"><code>import &#39;stdlib:Cli&#39;
 import &#39;stdlib:Text&#39;
 import &#39;stdlib:Time&#39;
 
@@ -369,7 +369,7 @@ program
   says Time.ns_to_ms(Time.elapsed_ns(started))
 end</code></pre>
 <p class="cmd-label">Run</p>
-<pre><code>$ hey build append.hey -o append &amp;&amp; /usr/bin/time -l ./append 250000   # and 500000, 1000000</code></pre>
+<pre data-example="runnable"><code>$ hey build append.hey -o append &amp;&amp; /usr/bin/time -l ./append 250000   # and 500000, 1000000</code></pre>
 <div class="tablewrap"><table><tr><th class="num">n lines</th><th>Printed (length, ms)</th><th class="num">Instructions</th><th class="num">Peak memory</th></tr>
 <tr><td class="num">250,000</td><td><code>2888890</code>, <code>10</code></td><td class="num">205,196,577</td><td class="num">5.4 MB</td></tr>
 <tr><td class="num">500,000</td><td><code>5888890</code>, <code>21</code></td><td class="num">394,272,120</td><td class="num">8.4 MB</td></tr>
@@ -382,7 +382,7 @@ end</code></pre>
 shares the parent's block (one count increment) instead of copying. There's no mutable buffer: build output by
 joining immutable pieces.</p>
 <p class="cmd-label">bytes.hey</p>
-<pre><code>import &#39;stdlib:Bytes&#39;
+<pre data-example="runnable" data-file="bytes.hey"><code>import &#39;stdlib:Bytes&#39;
 
 program
   let data = Bytes.from_text(&#39;station;12.5&#39;, &#39;utf-8&#39;)
@@ -392,9 +392,9 @@ program
   says Bytes.find_byte(data, 59, 0)
 end</code></pre>
 <p class="cmd-label">Run</p>
-<pre><code>$ hey bytes.hey</code></pre>
+<pre data-example="runnable"><code>$ hey bytes.hey</code></pre>
 <p class="cmd-label">Output</p>
-<pre class="out"><code>12
+<pre data-example="fragment" data-needs="REVIEW" class="out"><code>12
 station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
@@ -648,7 +648,7 @@ exact size class known at compile time, skipping the size lookup. The size class
 <p>Three builtins: <code>reset_allocations()</code> zeroes the counters, <code>allocations()</code> returns them as a
 map, and <code>memory_rss_bytes()</code> gives the process's resident memory.</p>
 <p class="cmd-label">watch.hey: count in place, then count while keeping the old map</p>
-<pre><code>fn count_alone(n)
+<pre data-example="runnable" data-file="watch.hey"><code>fn count_alone(n)
   let counts = {}
   let i = 0
   while i &lt; n
@@ -696,14 +696,14 @@ program
   says memory_rss_bytes() &gt; 0
 end</code></pre>
 <p class="cmd-label">Run</p>
-<pre><code>$ hey watch.hey</code></pre>
+<pre data-example="runnable"><code>$ hey watch.hey</code></pre>
 <p class="cmd-label">Output</p>
-<pre class="out"><code>alone: in place 1000, copied 0
+<pre data-example="fragment" data-needs="REVIEW" class="out"><code>alone: in place 1000, copied 0
 keeping the old map: in place 0, copied 1000
 true</code></pre>
 <p>The counters <code>json_write_inplace</code> and <code>json_write_cow_copy</code> show the difference from section 1 directly. <code>allocations()</code> returns 43 counters; this was the list:</p>
 <p class="cmd-label">stats.hey</p>
-<pre><code>program
+<pre data-example="runnable" data-file="stats.hey"><code>program
   let ignored = reset_allocations()
   let doc = {name: &#39;Ada&#39;}
   let next = {...doc, visits: 1}
@@ -713,9 +713,9 @@ true</code></pre>
   says memory_rss_bytes() &gt; 0
 end</code></pre>
 <p class="cmd-label">Run</p>
-<pre><code>$ hey stats.hey</code></pre>
+<pre data-example="runnable"><code>$ hey stats.hey</code></pre>
 <p class="cmd-label">Output</p>
-<pre class="out"><code>object
+<pre data-example="fragment" data-needs="REVIEW" class="out"><code>object
 [&quot;xmalloc_calls&quot;,&quot;xmalloc_bytes&quot;,&quot;strdup_calls&quot;,&quot;strdup_bytes&quot;,&quot;string_values&quot;,&quot;bytes_values&quot;,&quot;json_objects&quot;,&quot;json_pairs&quot;,&quot;json_arrays&quot;,&quot;array_appends&quot;,&quot;clones&quot;,&quot;releases&quot;,&quot;string_grows&quot;,&quot;json_gets&quot;,&quot;json_puts&quot;,&quot;json_get_key_fast&quot;,&quot;json_put_key_fast&quot;,&quot;json_has_key_fast&quot;,&quot;json_delete_key_fast&quot;,&quot;json_write_inplace&quot;,&quot;json_write_cow_copy&quot;,&quot;message_allocs&quot;,&quot;message_reuses&quot;,&quot;message_returns&quot;,&quot;message_outstanding&quot;,&quot;message_peak_outstanding&quot;,&quot;send_clones&quot;,&quot;send_moves&quot;,&quot;boxes_made&quot;,&quot;boxes_retired&quot;,&quot;boxes_live&quot;,&quot;io_transfer_arms&quot;,&quot;io_transfer_takes&quot;,&quot;io_transfer_poisons&quot;,&quot;io_handle_closes&quot;,&quot;io_governed_clones&quot;,&quot;shape_interns&quot;,&quot;shape_reuses&quot;,&quot;node_field_snapshot_clones&quot;,&quot;node_borrow_begins&quot;,&quot;node_borrow_ends&quot;,&quot;node_borrow_promotions&quot;,&quot;shape_queries&quot;]
 true</code></pre>
 <p>Two environment variables help outside the program: <code>HEY_ALLOC_STATS=1</code> prints every counter as one JSON line on exit (it also turns on the six allocation counters, such as <code>xmalloc_calls</code>, which read 0 without it), and <code>/usr/bin/time -l</code> (Mac) or <code>/usr/bin/time -v</code> (Linux) gives instructions and peak memory. <code>HEY_ALLOC_STATS=1 hey watch.hey</code> printed the same three lines, then (shortened) <code>HEY_ALLOC_STATS {"xmalloc_calls":6722,"xmalloc_bytes":4034208, &hellip; "json_write_inplace":0,"json_write_cow_copy":1000, &hellip;}</code>; its totals are for the whole run after the last reset.</p>

@@ -164,12 +164,12 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <p class="note"><strong>Hey in five words.</strong> <code>let</code> makes a name, <code>set</code> gives it a new value, <code>says</code> prints a line, <code>program ... end</code> is where the run starts, and <code>[...out, x]</code> is a new list with <code>x</code> added on the end. Values never change in place; you make a new one and <code>set</code> the name to it.</p>
 <p>The project is three files:</p>
-<pre><code>wordfreq/
+<pre data-example="fragment" data-needs="REVIEW"><code>wordfreq/
   wordfreq.hey      the program: flags, files, output
   lib/count.hey     the pure part: text in, counts out
   count_spec.hey    tests for lib/count.hey</code></pre>
 <p>Here's what it does when you're done. Run it on a folder with two short text files:</p>
-<pre><code>$ hey wordfreq.hey --top=5 sample
+<pre data-example="runnable"><code>$ hey wordfreq.hey --top=5 sample
 2 files, 12 different words
      4  the
      3  dog
@@ -179,7 +179,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <h2 id="flags">2. Read flags with <code>Cli</code> <span class="tag t-good">Works today</span></h2>
 <p>You describe your options once, as data. <code>Cli</code> turns that description into a help screen and into checked, typed values. Nothing to subclass, no annotations.</p>
-<pre><code>fn schema()
+<pre data-example="runnable" data-file="wordfreq.hey"><code>fn schema()
   return Cli.schema('wordfreq [FOLDER]', 'Count the most common words in text files.', [
     Cli.option('top', 'int', 10, 'how many words to show'),
     Cli.option('ext', 'string', '.txt', 'which file ending to read'),
@@ -188,14 +188,14 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
   ])
 end</code></pre>
 <p>Then the top of <code>program</code> reads the real arguments and checks them:</p>
-<pre><code>  let parsed = Cli.current()                    # reads argv and splits flags from the rest
+<pre data-example="fragment" data-needs="REVIEW"><code>  let parsed = Cli.current()                    # reads argv and splits flags from the rest
   let checked = Cli.validate(parsed, schema())  # a Result: ok, or which flag was wrong
   ...
   let folder = Cli.parsed_positionals(parsed).first('.')   # first item, or '.' if there is none
   let top = Cli.typed_flag(checked, 'top', 10)  # already an Int, not text</code></pre>
 <p><code>.first('.')</code> works because the file has <code>import 'stdlib:Collections' exposing: [first] forms: [:dotted]</code>: that import lets you call <code>first(list, fallback)</code> as <code>list.first(fallback)</code>. (Imports are covered in <a href="2026-10-25-hey-modules-imports-exports.html">Modules, imports and exports</a>.)</p>
 <p>The help screen comes for free:</p>
-<pre><code>$ hey wordfreq.hey --help
+<pre data-example="runnable"><code>$ hey wordfreq.hey --help
 Usage: wordfreq [FOLDER] [options]
 Count the most common words in text files.
 Options:
@@ -206,7 +206,7 @@ Options:
 <p>A <code>bool</code> option is switched on by its name alone (<code>--git</code>) or given <code>=true/false/yes/no/on/off/1/0</code>; <code>--no-git</code> switches it off. Anything that doesn't start with a dash is a <em>positional</em> argument (here, the folder).</p>
 <div class="note warn">
 <p><strong>Write values with <code>=</code>: <code>--top=5</code>, not <code>--top 5</code>.</strong> <span class="tag t-warn">Partly works</span> <code>Cli.parse</code> reads flags before it sees your schema, so it can't tell that <code>--top</code> takes a value. It treats <code>--top</code> as a switch and <code>5</code> as the folder, and then validation says the flag isn't an Int:</p>
-<pre><code>$ hey wordfreq.hey --top 5 sample; echo "exit status: $?"
+<pre data-example="runnable"><code>$ hey wordfreq.hey --top 5 sample; echo "exit status: $?"
 --top expects int
 Usage: wordfreq [FOLDER] [options]
 …  (the rest of the help screen)
@@ -218,7 +218,7 @@ exit status: 64</code></pre>
 <h2 id="count">3. Walk files and count with a map <span class="tag t-good">Works today</span></h2>
 <p><code>Files.files(folder, '.txt')</code> returns every file under the folder that ends in <code>.txt</code>, sorted, searching subfolders too. <code>Files.read_text(path)</code> reads one file into a String.</p>
 <p>The counting lives in its own module so the tests can call it without touching the disk:</p>
-<pre><code># The pure part of wordfreq: text in, counts out. No files, no flags.
+<pre data-example="fragment" data-needs="REVIEW"><code># The pure part of wordfreq: text in, counts out. No files, no flags.
 import 'stdlib:Text'
 import 'stdlib:Collections'
 
@@ -283,14 +283,14 @@ end</code></pre>
 </div>
 
 <p>Back in <code>wordfreq.hey</code>, the main loop is four lines:</p>
-<pre><code>  let counts = {}
+<pre data-example="fragment" data-needs="REVIEW"><code>  let counts = {}
   for path in paths
     set counts = WordCount.add(counts, Files.read_text(path))
   end</code></pre>
 
 <h2 id="process">4. Run another program <span class="tag t-good">Works today</span></h2>
 <p>With <code>--git</code>, <code>wordfreq</code> asks git which files it tracks instead of walking the folder. <code>Process.run_argv</code> takes the command as a list of words. There's no shell in between, so spaces and quotes in file names arrive exactly as written.</p>
-<pre><code>fn files_from_git(folder, ext)
+<pre data-example="runnable" data-file="wordfreq.hey"><code>fn files_from_git(folder, ext)
   let run = Process.run_argv(['git', '-C', folder, 'ls-files', '*' + ext])
   if !run.ok
     return []
@@ -304,7 +304,7 @@ end</code></pre>
   return out
 end</code></pre>
 <p>The answer is a record: <code>ok</code>, <code>stdout</code>, <code>stderr</code> and the child's status. Here the sample folder is a git repository that tracks only <code>a.txt</code>:</p>
-<pre><code>$ hey wordfreq.hey --git --top=3 sample
+<pre data-example="runnable"><code>$ hey wordfreq.hey --git --top=3 sample
 1 files, 9 different words
      3  the
      2  dog
@@ -317,7 +317,7 @@ end</code></pre>
 <div class="note good"><p><strong>Expected failures are values.</strong> A missing folder or a bad flag is something a user will do. Return a <code>Result</code> (<code>Result.ok(v)</code> or <code>Result.error_with(code, message)</code>), check <code>.ok</code>, and print something helpful. <code>Cli.validate</code> already does this for flags.</p></div>
 <div class="note bad"><p><strong>Bugs stop the program.</strong> <code>fail 'message'</code>, or any runtime error, stops the whole process at once. Hey calls the thing a failure stops the <em>unit of work</em>: in a server it's one request, in a tool it's the whole process. It prints the message and exits with status <strong>70</strong>. There's no <code>try/catch</code>; that's a <a href="2026-10-25-hey-every-decision.html">ruled design choice</a> (fail fast, Erlang style).</p></div>
 </div>
-<pre><code>$ cat fail_demo.hey
+<pre data-example="runnable"><code>$ cat fail_demo.hey
 program
   says 'checking...'
   fail 'the config file is missing'
@@ -331,13 +331,13 @@ exit status: 70</code></pre>
 <p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 (or 2 in many tools) for "you typed it wrong". <strong>Hey has no statement that sets the process exit status today.</strong> A program that ends normally exits 0; <code>fail</code> exits 70. No release, ruling or task covers adding one yet; the gap is recorded as a known issue.</p>
 <p><code>Cli</code> can already work out the right number for you: <code>Cli.exit_status(checked)</code> gives 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag, and <code>Cli.ok_exit</code> / <code>Cli.error_exit</code> build exit records. Nothing applies that number to the process, though.</p>
 <p>The working pattern, used by the published <code>hey_secret_lint</code> package, is to build the whole output as one String and hand it to <code>/bin/sh</code>, which prints it and exits with the code you pick. <code>Process.exec_env_argv</code> replaces the Hey process, so nothing printed earlier can be lost:</p>
-<pre><code># Hey has no statement that sets an exit status yet, so hand the text
+<pre data-example="runnable" data-file="wordfreq.hey"><code># Hey has no statement that sets an exit status yet, so hand the text
 # to /bin/sh, which prints it and exits with the status we choose.
 fn finish(text, status)
   Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
 end</code></pre>
 <p><code>wordfreq</code> passes <code>Cli.exit_status(checked)</code> to <code>finish</code> for a bad flag, and 1 for a missing folder:</p>
-<pre><code>$ hey wordfreq.hey --top=many sample; echo "exit status: $?"
+<pre data-example="runnable"><code>$ hey wordfreq.hey --top=many sample; echo "exit status: $?"
 --top expects int
 Usage: wordfreq [FOLDER] [options]
 …  (the rest of the help screen)
@@ -358,7 +358,7 @@ exit status: 1</code></pre>
 </tbody>
 </table>
 <p>A spec block runs the program with no arguments, so put the tests next to the pure module, not next to the tool:</p>
-<pre><code>spec 'WordCount cleans, counts and ranks words'
+<pre data-example="runnable" data-file="count_spec.hey"><code>spec 'WordCount cleans, counts and ranks words'
   expect stdout &quot;WordCount: 5 passed, 0 failed\n&quot;
 end
 
@@ -376,11 +376,11 @@ program
   Minispec.report(s)
 end</code></pre>
 <p>You can run the file as an ordinary program to see the report:</p>
-<pre><code>$ hey count_spec.hey
+<pre data-example="runnable"><code>$ hey count_spec.hey
 WordCount: 5 passed, 0 failed</code></pre>
 <div class="note warn">
 <p><strong>Today, <code>heyc --test</code> only finds the standard library when you run it from inside the Hey checkout.</strong> <span class="tag t-warn">Partly works</span> From your own project folder, any spec file that imports a <code>stdlib:</code> module fails before it starts (setting <code>HEY_ROOT</code> doesn't help):</p>
-<pre><code>$ heyc count_spec.hey --test
+<pre data-example="runnable"><code>$ heyc count_spec.hey --test
 FAIL: WordCount cleans, counts and ranks words
 expected stdout: WordCount: 5 passed, 0 failed
 
@@ -393,7 +393,7 @@ expected exit: 0
 actual exit:   1
 exit status: 1</code></pre>
 <p>Until that's fixed, run it from the Hey checkout and pass the full path:</p>
-<pre><code>$ cd "$HEY_HOME" &amp;&amp; heyc ~/code/wordfreq/count_spec.hey --test
+<pre data-example="runnable"><code>$ cd "$HEY_HOME" &amp;&amp; heyc ~/code/wordfreq/count_spec.hey --test
 PASS: WordCount cleans, counts and ranks words
 exit status: 0</code></pre>
 <p>(<code>$HEY_HOME</code> here means wherever your Hey toolchain lives. A spec with no <code>stdlib:</code> import passes from anywhere.) No task covers this yet; it is recorded as a known issue.</p>
@@ -401,7 +401,7 @@ exit status: 0</code></pre>
 <p>A Minispec suite is a plain value: each assertion returns a new suite with one more result in it. <code>Minispec.report</code> prints the totals, and the <code>spec</code> block checks that line. For a CI job without the golden harness, <code>Minispec.finish(s)</code> prints the report and exits 70 if anything failed.</p>
 
 <details><summary>The whole of <code>wordfreq.hey</code>, in one piece</summary>
-<pre><code># wordfreq: the most common words in the text files under a folder.
+<pre data-example="runnable" data-file="wordfreq.hey"><code># wordfreq: the most common words in the text files under a folder.
 import 'stdlib:Cli'
 import 'stdlib:Files'
 import 'stdlib:Process'
@@ -476,7 +476,7 @@ end</code></pre>
 <h2 id="ship">7. Script or binary? Measure it</h2>
 <p>You've been running <code>hey wordfreq.hey</code>. That's the <em>script</em> path: Hey compiles the program to native code the first time and keeps the result in a cache keyed by the source and everything it imports. Change any imported file and the next run recompiles. Nothing goes stale.</p>
 <p>You can also make the file itself executable:</p>
-<pre><code>$ head -1 wf
+<pre data-example="runnable"><code>$ head -1 wf
 #!/usr/bin/env hey
 $ chmod +x wf
 $ ./wf --top=3 sample
@@ -485,7 +485,7 @@ $ ./wf --top=3 sample
      3  dog
      2  a</code></pre>
 <p>Or build one binary to copy to another machine, a container, or a <code>bin/</code> folder:</p>
-<pre><code>$ hey build wordfreq.hey -o build/wordfreq
+<pre data-example="runnable"><code>$ hey build wordfreq.hey -o build/wordfreq
 selfhost_driver_call_identity=canonical-exact-span
 selfhost_semantic_request=b82997c69e14dec9a3f54bd271d8f3ef44e7e2f2157e18889a508314cbe68c7b
 selfhost_build_outcome=started
@@ -493,7 +493,7 @@ selfhost_build_outcome=started
 built …/build/wordfreq</code></pre>
 
 <p><code>hey build</code> prints a 30-line build receipt (which compiler stages ran, hashes of each stage's output, timings) and then the path it built. The binary links nothing but the system C library:</p>
-<pre><code>$ ls -l build/wordfreq
+<pre data-example="runnable"><code>$ ls -l build/wordfreq
 -rwxr-xr-x  1 jthomas  wheel  276408 build/wordfreq
 $ otool -L build/wordfreq
 build/wordfreq:
@@ -508,7 +508,7 @@ $ ./build/wordfreq --top=3 sample
 
 <h3>How fast does each one start?</h3>
 <p>We timed all three with <code>hyperfine</code> 1.20.0 on an Apple-silicon Mac: cold means an empty cache (5 runs), warm and direct are 25 runs each after 3 warm-ups. The Mac was busy with other compiler builds while we measured, which is why the cold runs spread from 6.2 to 14.4 seconds; the warm and direct numbers barely moved.</p>
-<pre><code>cold: empty cache every run
+<pre data-example="runnable"><code>cold: empty cache every run
 $ hyperfine -N --runs 5 --prepare 'rm -rf $CACHE' 'hey wordfreq.hey --top=3 sample'
   Time (mean ± σ):      8.606 s ±  3.508 s    [User: 0.110 s, System: 0.018 s]
   Range (min … max):    6.168 s … 14.429 s    5 runs
@@ -522,7 +522,7 @@ Benchmark 2: ./build/wordfreq --top=3 sample
   Time (mean ± σ):       2.1 ms ±   0.1 ms    [User: 1.0 ms, System: 0.7 ms]
   Range (min … max):     1.9 ms …   2.5 ms    25 runs</code></pre>
 <p>Hey also ships its own startup benchmark, <code>./bin/perf script-startup</code>. Its <code>--source</code> option is meant to take your program, but today it insists the program prints exactly <code>script-startup-ok</code>, so it fails on any real tool. Its built-in hello-world run gives the same picture:</p>
-<pre><code>$ ./bin/perf script-startup --iterations 25 --out /tmp/startup
+<pre data-example="runnable"><code>$ ./bin/perf script-startup --iterations 25 --out /tmp/startup
 script startup benchmark ok iterations=25 compiler_started_on_warm=false backend=llvm cold_ms=5840 warm_mean_ms=8 direct_mean_ms=1</code></pre>
 
 <figure class="fig" aria-labelledby="d2cap">
@@ -578,11 +578,11 @@ script startup benchmark ok iterations=25 compiler_started_on_warm=false backend
 
 <h2 id="package">8. Ship it as a package command <span class="tag t-good">Works today</span></h2>
 <p>A package can declare commands in its <code>hey-package.json</code>. Anyone who depends on the package gets the command, verified against the lock file's hashes every time it runs. This is how <code>hey_secret_lint</code> ships <code>secret-lint</code>:</p>
-<pre><code>  "commands": {
+<pre data-example="fragment" data-needs="REVIEW"><code>  "commands": {
     "secret-lint": "bin/secret-lint.hey"
   }</code></pre>
 <p>From a project that depends on it:</p>
-<pre><code>$ cat hey-package.json
+<pre data-example="runnable"><code>$ cat hey-package.json
 {
   &quot;name&quot;: &quot;lintdemo&quot;,
   &quot;version&quot;: &quot;0.1.0&quot;,
@@ -619,7 +619,7 @@ exit status: 1</code></pre>
 </tbody>
 </table>
 <p>What happened when we ran each one:</p>
-<pre><code>$ hey-scaffold new &quot;Word Tools&quot; --description &quot;Counts words.&quot;
+<pre data-example="runnable"><code>$ hey-scaffold new &quot;Word Tools&quot; --description &quot;Counts words.&quot;
 …  (3 build-receipt lines)
 hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: unsupported condition for the Hey LLVM emitter slice: if bool call @r245406630 exists?(dest)
 

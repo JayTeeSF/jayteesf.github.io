@@ -146,7 +146,7 @@ fails the build if the package-facing header ever mentions <code>HeyValue</code>
 <p>A tiny C library with two functions, <code>add_i64</code> and <code>scale_i64</code>. The manifest says what each
 takes and returns, who owns what, whether it can be null, whether it <strong>blocks</strong> (waits on disk or network),
 and whether it is safe to call from two threads at once:</p>
-<p class="runlabel">hey.native.json</p><pre><code>{
+<p class="runlabel">hey.native.json</p><pre data-example="fragment" data-needs="REVIEW"><code>{
   &quot;schema&quot;: &quot;hey-native-package-v1&quot;,
   &quot;name&quot;: &quot;native_math&quot;,
   &quot;version&quot;: &quot;0.1.0&quot;,
@@ -182,7 +182,7 @@ and whether it is safe to call from two threads at once:</p>
 <p>Generate the shim. The <em>descriptor symbol</em> is the name of one exported C table that lists the package's
 functions and their types; Hey looks it up once when it opens the library. <code>hey native</code> writes the versioned C header, a deterministic wrapper, and a lock file<sup><a href="#n1">1</a></sup>
 recording the ABI version, target, manifest hash, sources, headers, libraries and the descriptor symbol.</p>
-<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey native --manifest ~/myapp/hey.native.json --out ~/myapp/generated --target host &amp;&amp; ls generated
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey native --manifest ~/myapp/hey.native.json --out ~/myapp/generated --target host &amp;&amp; ls generated
 native_package=native_math
 native_abi_version=2
 manifest_sha256=0238394214c30afb9deba1e1164bc77ed3f0e0f1273017dee6dc2577dc7cff3f
@@ -197,7 +197,7 @@ $ echo $?
 0</code></pre>
 <div class="note warn"><p><strong>Use absolute paths.</strong> With relative paths the same command fails on this
 toolchain (and on 0.99.604a), because the generator reads the manifest relative to the toolchain, not your directory:</p>
-<p class="runlabel">Run it (exact command and output)</p><pre class="out failed"><code>$ hey native --manifest hey.native.json --out generated --target host
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out failed"><code>$ hey native --manifest hey.native.json --out generated --target host
 hey error: could not open read file
   at ~/hey/stdlib/Files.hey:1:1 in function
   at tools/hey_native_generate.hey:4:1 in repl
@@ -205,14 +205,14 @@ $ echo $?
 70</code></pre>
 <p>Reported to the Hey maintainers for triage.</p></div>
 <p>Compile the library (on Linux use <code>cc -shared</code> and <code>.so</code>):</p>
-<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ cc -dynamiclib -fPIC -std=c11 -Wall -Wextra -Werror -Igenerated -I. generated/native_math_ffi.c native_math.c -o libnative_math.dylib &amp;&amp; ls -l libnative_math.dylib
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ cc -dynamiclib -fPIC -std=c11 -Wall -Wextra -Werror -Igenerated -I. generated/native_math_ffi.c native_math.c -o libnative_math.dylib &amp;&amp; ls -l libnative_math.dylib
 -rwxr-xr-x 33944 libnative_math.dylib
 $ echo $?
 0</code></pre>
 <p>Then load and call it. <code>Native.call</code> refuses a function marked <code>blocking: true</code>;<sup><a href="#n2">2</a></sup> that one goes
 through <code>Native.call_blocking</code>, here from a Job so no scheduler thread is held.
  <span class="badge b-works">Works today</span></p>
-<p class="runlabel">native_today.hey</p><pre><code>import &#39;stdlib:Native&#39;
+<p class="runlabel">native_today.hey</p><pre data-example="runnable" data-file="native_today.hey"><code>import &#39;stdlib:Native&#39;
 import &#39;stdlib:Jobs&#39;
 
 worker Scale(message)
@@ -241,7 +241,7 @@ program
   says Native.close(extension).ok
   says Native.call(extension, &#39;add_i64&#39;, [1, 1]).code
 end</code></pre>
-<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey native_today.hey
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey native_today.hey
 true
 native_math
 2
@@ -269,14 +269,14 @@ Job's <code>call_blocking</code> gives 42, close succeeds, and a call after clos
 <div class="note warn"><p><strong>Where may blocking calls run?</strong> <span class="badge b-partly">Partly works</span> The intended rule is "only from a bounded
 worker or Job". Today it is a comment in <code>stdlib/Native.hey</code>, not a check: nothing stops
 <code>call_blocking</code> anywhere, including inside an actor, where it would hold a shared scheduler thread.</p></div>
-<p class="runlabel">blocking_in_program.hey</p><pre><code>import &#39;stdlib:Native&#39;
+<p class="runlabel">blocking_in_program.hey</p><pre data-example="runnable" data-file="blocking_in_program.hey"><code>import &#39;stdlib:Native&#39;
 
 program
   let extension = Native.open(&#39;./libnative_math.dylib&#39;, &#39;hey_native_native_math_extension_v1&#39;).value.handle
   says Native.call_blocking(extension, &#39;scale_i64&#39;, [7, 6]).value
   says Native.close(extension).ok
 end</code></pre>
-<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey blocking_in_program.hey
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey blocking_in_program.hey
 42
 true
 $ echo $?
@@ -317,7 +317,7 @@ partitioned Job.</p>
 <code>Native.call</code> faster or slower than calling a Hey function that does the same addition? By how much?</div>
 <p>On this toolchain, a million calls of the two-integer <code>add_i64</code> against a million calls of the same
 addition written in Hey (built with <code>hey build</code>, timed inside the program):</p>
-<p class="runlabel">call_cost.hey</p><pre><code>import &#39;stdlib:Native&#39;
+<p class="runlabel">call_cost.hey</p><pre data-example="runnable" data-file="call_cost.hey"><code>import &#39;stdlib:Native&#39;
 
 fn add(left, right)
   return left + right
@@ -350,12 +350,12 @@ program
   says &#39;Hey function: &#39; + div(plain_ns, n) + &#39; ns per call&#39;
   says Native.close(extension).ok
 end</code></pre>
-<p class="runlabel">Run it (trimmed; full output below)</p><pre class="out"><code>$ hey build call_cost.hey -o call_cost &amp;&amp; ls -l call_cost
+<p class="runlabel">Run it (trimmed; full output below)</p><pre data-example="runnable" class="out"><code>$ hey build call_cost.hey -o call_cost &amp;&amp; ls -l call_cost
 [30 selfhost_ diagnostic lines hidden here; full output below]
 built ~/myapp/call_cost
 -rwxr-xr-x 173048 call_cost
 $ echo $?
-0</code></pre><details><summary>Full output, including the 30 selfhost_ lines the compiler prints on every build</summary><pre class="out"><code>$ hey build call_cost.hey -o call_cost &amp;&amp; ls -l call_cost
+0</code></pre><details><summary>Full output, including the 30 selfhost_ lines the compiler prints on every build</summary><pre data-example="runnable" class="out"><code>$ hey build call_cost.hey -o call_cost &amp;&amp; ls -l call_cost
 selfhost_driver_call_identity=canonical-exact-span
 selfhost_semantic_request=3ffb9b4b4324cbe2fdda3dea68a719d5549bb1b9e0d2c6a4cc67b91c046c0699
 selfhost_build_outcome=started
@@ -390,7 +390,7 @@ built ~/myapp/call_cost
 -rwxr-xr-x 173048 call_cost
 $ echo $?
 0</code></pre></details>
-<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ ./call_cost
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ ./call_cost
 same answer: true
 Native.call: 561 ns per call
 Hey function: 35 ns per call
@@ -406,7 +406,7 @@ in the picture: building and freeing a list and a Result per call, not the addit
 <h2 id="v2">4. Decided: direct, typed calls (the native ABI v2 release)</h2>
 <p> <span class="badge b-decided">Decided, coming</span> (direction decided; implementation in progress, not merged).<sup><a href="#n3">3</a></sup> You import a package's
 functions as a module and call them like Hey functions. The compiler binds each call at compile time:</p>
-<pre><code># proposed spelling (pick Native 1, not yet ruled)
+<pre data-example="fragment" data-needs="REVIEW"><code># proposed spelling (pick Native 1, not yet ruled)
 import 'native:hey_sqlite3'
 
 let changed = Sqlite3Raw.changes(db)</code></pre>
