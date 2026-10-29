@@ -111,10 +111,10 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </head>
 <body>
 <div class="wrap">
-<p class="eyebrow">Reference 2 of 10 &middot; toolchain 0.99.606a</p>
+<p class="eyebrow">Reference 2 of 10</p>
 <h1>Modules, imports and exports</h1>
 <p class="lede">A module decides what it <em>offers</em>. An import decides what a file <em>uses</em>, and how it may be spelled. Both choices are made at compile time, in plain sight, and only for the one file that wrote them.</p>
-<div class="summary"><strong>In one paragraph</strong>By design, you write <code>exposes name forms: [...]</code> at the end of a module to publish a function (606a doesn't accept that line yet; see the table below). Write <code>import './file.hey'</code> to use it as <code>Module.name(...)</code>, or add <code>exposing: [name]</code> to call it bare, or <code>forms: [:dotted]</code> to call it as <code>value.name(...)</code>. A dotted call is just a function call with the value moved to the front; there are no classes and no method lookup at run time.</div>
+<div class="summary"><strong>In one paragraph</strong>You write <code>exposes name forms: [...]</code> at the end of a module to publish a function. Write <code>import './file.hey'</code> to use it as <code>Module.name(...)</code>, or add <code>exposing: [name]</code> to call it bare, or <code>forms: [:dotted]</code> to call it as <code>value.name(...)</code>. A dotted call is just a function call with the value moved to the front; there are no classes and no method lookup at run time.</div>
 
 <figure class="fig" aria-labelledby="yah2-cap">
 <svg viewBox="0 0 900 120" role="img" aria-label="You are here: Reference 2 between Reference 1, the language, and Reference 6, the standard library">
@@ -124,12 +124,12 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <rect x="620" y="40" width="260" height="64" rx="10" class="box"/><text x="640" y="78" class="b">Reference 6: Standard library</text>
 <path d="M280 72 H318" class="ln"/><path d="M580 72 H618" class="ln"/>
 </svg>
-<figcaption id="yah2-cap">Badges: <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span> <span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span>.</figcaption>
+<figcaption id="yah2-cap">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test. <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet; the box shows what it will print. <span class="badge b-proposed">Proposed</span> not ruled.</figcaption>
 </figure>
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#publish">A module publishes, an import activates</a></li>
-<li><a href="#reopen">Reopening a module across files</a></li>
+<li><a href="#reopen">Reopening a module, and sub-modules</a></li>
 <li><a href="#exposes"><code>exposes</code> and its forms</a></li>
 <li><a href="#forms">Every import form</a></li>
 <li><a href="#receiver">Receiver calls are static</a></li>
@@ -137,38 +137,39 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#private">Private things, no leaks, explicit re-export</a></li>
 <li><a href="#operators">Operator imports</a></li>
 <li><a href="#facades">Facade modules</a></li>
-<li><a href="#pkg"><code>pkg:</code> and the proposed <code>native:</code></a></li>
-<li><a href="#flavor">"Imports change the flavor"</a></li>
+<li><a href="#pkg"><code>pkg:</code> imports</a></li>
+<li><a href="#flavor">Built-ins live in namespaces</a></li>
 <li><a href="#additions">Seven additions from a look at other languages</a></li>
-<li><a href="#gaps">Known gaps</a></li>
+<li><a href="#gaps">Still coming, in one list</a></li>
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
 
-<div class="note bad"><strong>Read this first: the design and the 606a toolchain disagree a lot here.</strong> Hey's module contract (the "settled source contract" in <code>docs/developers/implementation-status.md</code>) is clear and is described below. But when every form was compiled and run on the 0.99.606a toolchain for this page, only the core worked: <code>module</code>, plain imports, qualified calls, <code>exposing:</code> with renames, <code>forms: [:dotted]</code> receiver calls, <code>private import</code>, and rejection of names leaked through another file. <code>exposes</code> itself, <code>as</code>, <code>exposing: *</code>, <code>conceals:</code>, <code>private fn</code> enforcement, unqualified calls between functions of the same module, callable-field calls and operator imports were refused or behaved differently. Each one is shown running below, with its real output. The feature inventory and <code>implementation-status.md</code> list these forms as built; on 606a they fail as shown. This page reports the disagreement and doesn't settle it.</div>
+
 <p><strong>Three words used throughout.</strong> A <em>receiver</em> is the value before the dot in <code>value.f(…)</code>. A file's <em>lexical scope</em> is the set of names that file can use, decided by what it declares and imports. A <em>facade</em> is a module that exists only to re-offer a chosen set of names from other modules.</p>
 
 <div class="scroll"><table>
-<caption>Every form, as run on 0.99.606a</caption>
-<tr><th>Form</th><th>Design says</th><th>606a did</th><th>Status</th></tr>
-<tr><td><code>module Name … end</code></td><td>groups functions</td><td>works; every function is public</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>reopen <code>module Name</code> in a second file</td><td>members combine into one module</td><td>the second file hides the first: calls into the first fail as unresolved</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td><code>exposes f forms: […]</code></td><td>the complete public surface</td><td>parser refuses the line</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td>call a sibling <code>f()</code> inside a module</td><td>works</td><td>refused; write <code>Module.f()</code></td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td><code>private fn</code></td><td>unreachable from outside</td><td>accepted, not enforced</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td><code>import './x.hey'</code></td><td>qualified access</td><td>works</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td><code>import 'stdlib:X'</code></td><td>required to use X</td><td>works; stdlib modules are also reachable with no import</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td><code>… as Alias</code></td><td>renames the module</td><td>refused</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td><code>… exposing: [a, b as c]</code></td><td>bare names, one renamed</td><td>works</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td><code>… exposing: *</code></td><td>whole surface</td><td>refused</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td><code>… forms: [:dotted]</code></td><td><code>x.f(a)</code> means <code>f(x, a)</code>, bare <code>f</code> not adopted</td><td>works exactly so</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td><code>… conceals: [name]</code></td><td>removes a name</td><td>parser refuses</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td><code>private import</code></td><td>module-internal import</td><td>works</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>no transitive leaks</td><td>A imports B; C imports A; C can't see B</td><td>refused for user modules</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>collection method sugar</td><td><code>names.uniq()</code> via dotted import</td><td>works</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>callable field <code>x.run(a)</code></td><td>calls the field's function</td><td>refused</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td>operator import <code>infix: '**'</code></td><td>per-file operator meaning</td><td><code>exposes</code> line refused</td><td><span class="badge b-partly">Partly works</span></td></tr>
-<tr><td>facade with <code>exposes *</code></td><td>curated re-export (selector manifests deferred)</td><td>refused</td><td><span class="badge b-partly">Partly works</span> <span class="badge b-decided">Decided: deferred</span></td></tr>
-<tr><td><code>pkg:</code> import</td><td>locked package module</td><td>works once the package is ensured (Guide 2); refused here with no lock</td><td><span class="badge b-works">Works today</span></td></tr>
+<caption>Every form at a glance</caption>
+<tr><th>Form</th><th>What it does</th><th>Status</th></tr>
+<tr><td><code>module Name … end</code></td><td>groups functions</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>reopen <code>module Name</code> in a second file</td><td>members combine into one module</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>module Outer/Inner</code>, called <code>Outer/Inner.f()</code></td><td>a sub-module</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>exposes f forms: […]</code></td><td>the complete public surface</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>call a sibling <code>f()</code> inside a module</td><td>no module prefix needed</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>private fn</code></td><td>unreachable from outside the module</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>import './x.hey'</code></td><td>qualified access</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>import 'stdlib:X'</code></td><td>bare or dotted forms of a standard module</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>… as Alias</code></td><td>renames the module, for this file</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>… exposing: [a, b]</code></td><td>bare names</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>… exposing: [a as b]</code></td><td>refused: the module alias is the only rename</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>… exposing: *</code></td><td>the whole surface, bare</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>… forms: [:dotted]</code></td><td><code>x.f(a)</code> means <code>f(x, a)</code>, bare <code>f</code> not adopted</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>private import</code></td><td>module-internal import</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>no leaks between files</td><td>A imports B; C imports A; C can't see B</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>collection method sugar</td><td><code>names.uniq()</code> via dotted import</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>callable field <code>x.run(a)</code></td><td>calls the field's function</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>operator import <code>infix: '**'</code></td><td>per-file operator meaning</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>facade with <code>exposes *</code></td><td>curated re-export</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td><code>pkg:</code> import</td><td>locked package module</td><td><span class="badge b-works">Works today</span></td></tr>
 </table></div>
 
 <h2 id="publish">1. A module publishes; an import activates</h2>
@@ -195,10 +196,10 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <text x="396" y="230" class="mono">… exposing: [deposit] forms: [:dotted]</text>
 <text x="396" y="256" class="sm">this file sees account.deposit(25) only, not bare deposit(…)</text>
 </svg>
-<figcaption id="pub-cap">Figure 1. The module's surface is a menu. Each importing file picks from it for itself; nothing it picks leaks into any other file. (On 606a the surface is "every function", because <code>exposes</code> isn't accepted yet.)</figcaption>
+<figcaption id="pub-cap">Figure 1. The module's surface is a menu. Each importing file picks from it for itself; nothing it picks leaks into any other file. (A module with no <code>exposes</code> line offers every function.)</figcaption>
 </figure>
-<p>This module is used by most examples below. <code>module Name … end</code> groups functions; module names are CamelCase (since 0.99.364a, <code>docs/migrations/v0.99.364a-camelcase-modules.md</code>). <span class="badge b-works">Works today</span> Notice <code>BankAccount.valid_amount?</code>: on 606a a function must name its own module to call a sibling.</p>
-<div class="run"><div class="fname">bank_account.hey</div><pre data-example="runnable" data-file="sibling_call.hey" class="src"><code>module BankAccount
+<p>This module is used by most examples below. <code>module Name … end</code> groups functions; module names are CamelCase. <span class="badge b-works">Works today</span> Notice <code>BankAccount.valid_amount?</code>: today a function names its own module to call a sibling.</p>
+<div class="run"><div class="fname">bank_account.hey</div><pre data-example="runnable" data-file="bank_account.hey" class="src"><code>module BankAccount
   fn open(owner, balance)
     return {owner: owner, balance: balance}
   end
@@ -223,8 +224,8 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
   end
 end
 </code></pre></div>
-<p>The unqualified sibling call the design allows:</p>
-<div class="run"><div class="fname">sibling_call.hey</div><pre data-example="runnable" data-file="sibling_call.hey" class="src"><code>module Prices
+<p>Inside a module, a sibling is called by its bare name, and it answers before any built-in of the same name.<sup><a href="#n5">5</a></sup> <span class="badge b-decided">Decided, coming</span></p>
+<div class="run"><div class="fname">sibling_call.hey</div><pre data-example="decided-coming" data-file="sibling_call.hey" class="src"><code>module Prices
   fn with_tax(amount)
     return amount + tax(amount)
   end
@@ -237,13 +238,8 @@ end
 program
   says Prices.with_tax(100)
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey sibling_call.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=43835da18e37bcf8a4b639cc2fa2bc9d5553a06c58f78024966d92dda642df48
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: &lt;docs&gt;/r2/sibling_call.hey:3:21: tax
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey sibling_call.hey</div><pre data-example="decided-coming" class="out"><code>110
+</code></pre></div>
 
 <h2 id="reopen">Reopening a module across files <span class="badge b-decided">Decided, coming</span></h2>
 <p>Like Ruby, a Hey module can be opened in more than one file. Every file that says <code>module Shapes</code> adds its functions to the same module:</p>
@@ -272,10 +268,22 @@ end</code></pre></div>
 <li><strong>Built-in namespaces are different.</strong> Reopening a built-in module such as <code>Path</code> is allowed but gives a warning, because it hides the built-in.</li>
 </ul>
 <div class="note"><strong>No runtime cost.</strong> Ruby reopens a module while the program runs, so it has to update its method tables and throw away cached lookups. Hey resolves every name before the program runs, so a function compiles to the same native code whichever file it's written in. The build cache keeps each file's part separately, so editing one file rebuilds only the code that uses what changed.</div>
-<div class="note bad"><strong>Today's toolchain (0.99.606a) doesn't do this yet.</strong> The second <code>module Shapes</code> silently hides the first, so <code>Shapes.area</code> above fails as an unresolved call. Until it changes, keep each module in one file.</div>
+<h3>Sub-modules: <code>Outer/Inner</code></h3>
+<p>The other way to split a big module is into named sections. <code>module Shapes/Area</code> is a sub-module of <code>Shapes</code>, and its members are called with the slash in the name: <code>Shapes/Area.rect(3, 4)</code>. That's the one spelling: <code>a / b</code> with spaces is still division, and the dotted chain <code>Shapes.Area.rect</code> is refused with a message suggesting <code>Shapes/Area.rect</code>.<sup><a href="#n6">6</a></sup> <span class="badge b-decided">Decided, coming</span></p>
+<div class="run"><div class="fname">shapes_sub.hey</div><pre data-example="decided-coming" data-file="shapes_sub.hey" class="src"><code>module Shapes/Area
+  fn rect(w, h)
+    return w * h
+  end
+end
+
+program
+  says Shapes/Area.rect(3, 4)
+end
+</code></pre><div class="cmd"><span class="prompt">$</span> hey shapes_sub.hey</div><pre data-example="decided-coming" class="out"><code>12
+</code></pre></div>
 <h2 id="exposes">2. <code>exposes</code> and its forms</h2>
-<p>By design, the <code>exposes</code> lines at the end of a module are its whole public surface; anything not listed stays inside. Each line names the <em>forms</em> a caller may use: <code>:qualified</code> (<code>BankAccount.deposit(a, 1)</code>), <code>:unqualified</code> (<code>deposit(a, 1)</code> after <code>exposing:</code>) and <code>:dotted</code> (<code>a.deposit(1)</code>). A facade module may write <code>exposes *</code>. The syntax tree has nodes for it (<code>exposes_decl</code>, <code>export_label</code>) and <code>compiler/module_exposure_forms.json</code> defines the forms. <span class="badge b-partly">Partly works</span> On 606a the self-hosted compiler's parser rejects the line, and none of the standard library's modules use it (their public names come from the generated exposure catalog instead):</p>
-<div class="run"><div class="fname">bank_exposes.hey</div><pre data-example="runnable" data-file="bank_exposes.hey" class="src"><code>module BankAccount
+<p>The <code>exposes</code> lines at the end of a module are its whole public surface; anything not listed stays inside. Each line names the <em>forms</em> a caller may use: <code>:qualified</code> (<code>BankAccount.deposit(a, 1)</code>), <code>:unqualified</code> (<code>deposit(a, 1)</code> after <code>exposing:</code>) and <code>:dotted</code> (<code>a.deposit(1)</code>). A facade module may write <code>exposes *</code>. <span class="badge b-decided">Decided, coming</span> Until a build accepts the line, a module with no <code>exposes</code> offers every function.</p>
+<div class="run"><div class="fname">bank_exposes.hey</div><pre data-example="decided-coming" data-file="bank_exposes.hey" class="src"><code>module BankAccount
   fn open(owner, balance)
     return {owner: owner, balance: balance}
   end
@@ -286,29 +294,24 @@ end
 program
   says BankAccount.open(&#39;Ada&#39;, 100).owner
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey bank_exposes.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=4a23e0f140c803cd7f6844115f3e9d8dd89911b9319423ea7f90f283137a9866
-selfhost_build_outcome=started
-hey error: hey-selfc: semantic HIR emission failed (exit 70): hey error: self-hosted HIR compiler failed: parser rejected source before HIR emission: exposes open forms: [:qualified, :unqualified]
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey bank_exposes.hey</div><pre data-example="decided-coming" class="out"><code>Ada
+</code></pre></div>
 
 <h2 id="forms">3. Every import form</h2>
 <div class="scroll"><table>
-<tr><th>You write</th><th>The file gets (by design)</th></tr>
+<tr><th>You write</th><th>The file gets</th></tr>
 <tr><td><code>import 'stdlib:Text'</code></td><td>a standard library module, qualified: <code>Text.upper(s)</code></td></tr>
 <tr><td><code>import './x.hey'</code>, <code>import '../x.hey'</code></td><td>a file relative to this one, qualified</td></tr>
 <tr><td><code>import 'pkg:name@1.0.0/main'</code></td><td>a locked, hash-checked package module (<a href="2026-10-25-hey-guide-packages.html">Packages guide</a>)</td></tr>
 <tr><td><code>… as Alias</code></td><td>the module under another name</td></tr>
 <tr><td><code>… exposing: [a, b]</code></td><td>bare <code>a(…)</code>, <code>b(…)</code> in this file</td></tr>
-<tr><td><code>… exposing: [old as new]</code></td><td>one binding under a new name</td></tr>
+<tr><td><code>… exposing: [old as new]</code></td><td>refused: rename the module with <code>as</code> instead</td></tr>
 <tr><td><code>… exposing: *</code></td><td>the whole public surface, bare</td></tr>
 <tr><td><code>… forms: [:dotted]</code></td><td>narrows which forms are adopted</td></tr>
-<tr><td><code>… conceals: [name]</code></td><td>removes adopted or default names (including builtins)</td></tr>
+
 <tr><td><code>private import …</code> (inside a module)</td><td>an import that is the module's own business</td></tr>
 </table></div>
-<p>The lists after <code>exposing:</code>, <code>forms:</code> and <code>conceals:</code> are written in the source, so the compiler knows every name before the program runs. There's no runtime import: a value computed while the program runs can never create a name. (Older docs describe a <code>Module.load(…)</code> that returns a module value; the resolver treats <code>Module.load</code> as a value that never creates a name (<code>stdlib/HeyNames.hey</code>), and no stdlib function by that name is callable today.) <span class="badge b-works">Works today</span></p>
+<p>The lists after <code>exposing:</code>, <code>forms:</code> and <code>conceals:</code> are written in the source, so the compiler knows every name before the program runs. There's no runtime import: a value computed while the program runs can never create a name. There's no <code>Module.load</code> either.<sup><a href="#n7">7</a></sup> <span class="badge b-works">Works today</span></p>
 <h3>Bare import: qualified names <span class="badge b-works">Works today</span></h3>
 <div class="run"><div class="fname">bare_import.hey</div><pre data-example="runnable" data-file="bare_import.hey" class="src"><code>import &#39;./bank_account.hey&#39;
 
@@ -318,41 +321,33 @@ program
 end
 </code></pre><div class="cmd"><span class="prompt">$</span> hey bare_import.hey</div><pre data-example="runnable" class="out"><code>125
 </code></pre></div>
-<h3><code>exposing:</code> brings names in, <code>old as new</code> renames one <span class="badge b-works">Works today</span></h3>
-<div class="run"><div class="fname">exposing_import.hey</div><pre data-example="runnable" data-file="exposing_import.hey" class="src"><code>import &#39;./bank_account.hey&#39; exposing: [open, deposit, balance as current]
+<h3><code>exposing:</code> brings names in <span class="badge b-works">Works today</span></h3>
+<div class="run"><div class="fname">exposing_import.hey</div><pre data-example="runnable" data-file="exposing_import.hey" class="src"><code>import &#39;./bank_account.hey&#39; exposing: [open, deposit, balance]
 
 program
   let account = open(&#39;Ada&#39;, 100)
-  says current(deposit(account, 25))
+  says balance(deposit(account, 25))
 end
 </code></pre><div class="cmd"><span class="prompt">$</span> hey exposing_import.hey</div><pre data-example="runnable" class="out"><code>125
 </code></pre></div>
-<h3><code>as</code> renames the module <span class="badge b-partly">Partly works</span></h3>
-<div class="run"><div class="fname">alias_import.hey</div><pre data-example="runnable" data-file="alias_import.hey" class="src"><code>import &#39;./bank_account.hey&#39; as Accounts
+<p>Renaming one name, <code>exposing: [balance as current]</code>, is refused: a file has one way to rename what it imports, the module alias below, so a reader never has to hunt for where a bare name came from.<sup><a href="#n7">7</a></sup> <span class="badge b-decided">Decided, coming</span> The current build still accepts it.</p>
+<h3><code>as</code> renames the module <span class="badge b-decided">Decided, coming</span></h3>
+<div class="run"><div class="fname">alias_import.hey</div><pre data-example="decided-coming" data-file="alias_import.hey" class="src"><code>import &#39;./bank_account.hey&#39; as Accounts
 
 program
   says Accounts.open(&#39;Ada&#39;, 100).owner
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey alias_import.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=4245f5a27db86cfcfec0625e96d68f2852d77332958ec51c78d6375b49a773eb
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: &lt;docs&gt;/r2/alias_import.hey:4:8: Accounts.open
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
-<h3><code>exposing: *</code> <span class="badge b-partly">Partly works</span></h3>
-<div class="run"><div class="fname">star_import.hey</div><pre data-example="runnable" data-file="star_import.hey" class="src"><code>import &#39;./bank_account.hey&#39; exposing: *
+</code></pre><div class="cmd"><span class="prompt">$</span> hey alias_import.hey</div><pre data-example="decided-coming" class="out"><code>Ada
+</code></pre></div>
+<h3><code>exposing: *</code> <span class="badge b-decided">Decided, coming</span></h3>
+<p>Every name on the module's surface, bare. A name you list explicitly, or define yourself, beats a star import whatever the order (rule C5 below).</p>
+<div class="run"><div class="fname">star_import.hey</div><pre data-example="decided-coming" data-file="star_import.hey" class="src"><code>import &#39;./bank_account.hey&#39; exposing: *
 
 program
   says balance(open(&#39;Ada&#39;, 100))
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey star_import.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=adf10cb5b24e10857036718ecb14cd49053246173b03a30de550c48b59962603
-selfhost_build_outcome=started
-hey error: hey-selfc: semantic HIR emission failed (exit 70): hey error: admitted HIR boundary: admitted call occurrence has no resolution classification
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey star_import.hey</div><pre data-example="decided-coming" class="out"><code>100
+</code></pre></div>
 <h3><code>forms: [:dotted]</code> means dotted only <span class="badge b-works">Works today</span></h3>
 <p>The first program imports the module twice: plainly (for <code>BankAccount.open</code>) and with dotted forms. The second shows that a dotted-only import really doesn't adopt the bare name.<sup><a href="#n1">1</a></sup></p>
 <div class="run"><div class="fname">dotted_import.hey</div><pre data-example="runnable" data-file="dotted_import.hey" class="src"><code>import &#39;./bank_account.hey&#39;
@@ -373,27 +368,10 @@ program
   let account = {owner: &#39;Ada&#39;, balance: 100}
   says deposit(account, 25)
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey dotted_only_bare.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=f1d22dac2e248391ca5ab7a38b6dac744753820344f1ebe351d066a628ff250d
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: &lt;docs&gt;/r2/dotted_only_bare.hey:5:8: deposit
+</code></pre><div class="cmd"><span class="prompt">$</span> hey dotted_only_bare.hey</div><pre data-example="runnable" class="out fail"><code>...
+...dotted_only_bare.hey:5:8: deposit
+...</code></pre><div class="exit">exit status 70</div></div>
 
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
-<h3>Builtins are an outer import you can conceal <span class="badge b-partly">Partly works</span></h3>
-<p>By design the bare builtins (<code>len</code>, <code>split</code>, <code>put</code> …) are the outer surface of <code>stdlib:BuiltIns</code>, so <code>conceals:</code> would hide them. The 606a parser doesn't accept <code>conceals:</code> at all:</p>
-<div class="run"><div class="fname">builtins_conceal.hey</div><pre data-example="runnable" data-file="builtins_conceal.hey" class="src"><code>import &#39;stdlib:BuiltIns&#39; conceals: [len]
-
-program
-  says len([1, 2, 3])
-end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey builtins_conceal.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=2f82d647b8200ea9e51bba3c2df3ecf23fe6a11ccf7dd73854e7f08346a87f2b
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: name traversal incomplete across 1 of 2 units (token-budget=0, depth=0); first incomplete unit: &lt;docs&gt;/r2/builtins_conceal.hey:1:26: parse error invalid_import_clause: unexpected token after import clause
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
 
 <h2 id="receiver">4. Receiver calls are static</h2>
 <figure class="fig" aria-labelledby="recv-cap">
@@ -419,8 +397,8 @@ hey error: hey: script compilation failed
 <figcaption id="recv-cap">Figure 2. Each dot is decided on its own, at compile time. Nothing searches for a method while the program runs.</figcaption>
 </figure>
 <p><code>x.f(a)</code> is <code>f(x, a)</code>, chosen by the compiler from this file's imports. <code>x.name</code> with no parentheses reads a field. The <code>dotted_import.hey</code> run above shows a two-segment chain. <span class="badge b-works">Works today</span></p>
-<p>By design, a field holding a function (<code>{run: shout}</code>) is called with only the arguments you wrote, and when a dotted call could mean either a callable field or an imported receiver function, the nearest and latest binding wins with a warning naming both places. To be explicit: <code>value['name'](arg)</code> for the field, <code>Module.name(value, arg)</code> for the function. On 606a the field call itself is refused, so the conflict rule can't be exercised yet. <span class="badge b-partly">Partly works</span></p>
-<div class="run"><div class="fname">field_vs_receiver.hey</div><pre data-example="runnable" data-file="field_vs_receiver.hey" class="src"><code>fn shout(amount)
+<p>A field holding a function (<code>{run: shout}</code>) is called with only the arguments you wrote. When a dotted call could mean either a callable field or an imported receiver function, the nearest and latest binding wins, and the compiler warns, naming both places.<sup><a href="#n8">8</a></sup> To be explicit: <code>value['name'](arg)</code> for the field, <code>Module.name(value, arg)</code> for the function. <span class="badge b-decided">Decided, coming</span></p>
+<div class="run"><div class="fname">field_vs_receiver.hey</div><pre data-example="decided-coming" data-file="field_vs_receiver.hey" class="src"><code>fn shout(amount)
   return &#39;field called with &#39; + amount.to_s
 end
 
@@ -428,16 +406,11 @@ program
   let account = {owner: &#39;Ada&#39;, run: shout}
   says account.run(25)
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey field_vs_receiver.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=e88534bc6bc9578955b910c5c173cf41b62df8dbadf6d74f56d619b46ffbc610
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: &lt;docs&gt;/r2/field_vs_receiver.hey:7:8: account.run
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey field_vs_receiver.hey</div><pre data-example="decided-coming" class="out"><code>field called with 25
+</code></pre></div>
 
 <h2 id="sugar">5. Collection method sugar</h2>
-<p><code>names.uniq()</code> isn't a method on arrays. It's <code>uniq(names)</code>, made available as a dotted form by importing it that way. Each file chooses its own vocabulary; Hey never patches a global method table. A few small helpers such as <code>.to_json</code> and <code>.length</code> work with a dot without an import (shown here and in <a href="2026-10-25-hey-the-language.html#collections">The language</a>). <span class="badge b-works">Works today</span></p>
+<p><code>names.uniq()</code> isn't a method on arrays. It's <code>uniq(names)</code>, made available as a dotted form by importing it that way. Each file chooses its own vocabulary; Hey never patches a global method table. A few small helpers such as <code>.to_json</code> and <code>.len</code> work with a dot without an import (shown here and in <a href="2026-10-25-hey-the-language.html#collections">The language</a>). <span class="badge b-works">Works today</span></p>
 <div class="run"><div class="fname">collection_sugar.hey</div><pre data-example="runnable" data-file="collection_sugar.hey" class="src"><code>import &#39;stdlib:Collections&#39; exposing: [uniq, includes?, take] forms: [:dotted]
 
 program
@@ -452,22 +425,24 @@ true
 </code></pre></div>
 
 <h2 id="private">6. Private things, no leaks, explicit re-export</h2>
-<p><code>private fn</code> is meant to make a helper unreachable from outside its module. 606a accepts the word but doesn't enforce it:<sup><a href="#n2">2</a></sup> <span class="badge b-partly">Partly works</span></p>
-<div class="run"><div class="fname">private_call.hey</div><pre data-example="runnable" data-file="private_call.hey" class="src"><code>import &#39;./bank_account.hey&#39;
+<p><code>private fn</code> makes a helper unreachable from outside its module; with reopening, "its module" means every file that opens it.<sup><a href="#n2">2</a></sup> <span class="badge b-decided">Decided, coming</span> The current build accepts the word but doesn't enforce it yet, so this call still prints <code>true</code>; it will be refused.</p>
+<div class="run"><div class="fname">private_call.hey</div><pre data-example="decided-coming" data-file="private_call.hey" class="src"><code>import &#39;./bank_account.hey&#39;
 
 program
   says BankAccount.valid_amount?(5)
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey private_call.hey</div><pre data-example="runnable" class="out"><code>true
-</code></pre></div>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey private_call.hey</div><pre data-example="decided-coming" class="out fail"><code>...
+...private_call.hey:4:...valid_amount?...
+...
+</code></pre><div class="exit">exit status 70</div></div>
 <p>Imports are file-local. If <code>Reports</code> imports <code>Tokens</code>, a file that imports <code>Reports</code> does <em>not</em> get <code>Tokens</code>. This works for your own modules: <span class="badge b-works">Works today</span></p>
-<div class="run"><div class="fname">tokens.hey</div><pre data-example="fragment" data-needs="REVIEW" class="src"><code>module Tokens
+<div class="run"><div class="fname">tokens.hey</div><pre data-example="runnable" data-file="tokens.hey" class="src"><code>module Tokens
   fn first_word(text)
     return split(text, &#39; &#39;)[0]
   end
 end
 </code></pre></div>
-<div class="run"><div class="fname">reports.hey</div><pre data-example="runnable" data-file="no_leak.hey" class="src"><code>import &#39;./tokens.hey&#39;
+<div class="run"><div class="fname">reports.hey</div><pre data-example="runnable" data-file="reports.hey" class="src"><code>import &#39;./tokens.hey&#39;
 
 module Reports
   fn title(text)
@@ -481,14 +456,10 @@ program
   says Reports.title(&#39;quarterly numbers&#39;)
   says Tokens.first_word(&#39;leak?&#39;)
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey no_leak.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=564af8f8dc379076f8e44e43c756639c429f911390590d2770822a1e9df04490
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: missing direct module import: &lt;docs&gt;/r2/no_leak.hey:5:8: Tokens.first_word requires a direct import in this source unit
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
-<p>Standard library modules are the exception: on 606a they resolve without any import, so the rule can't be observed for them. Making every path reject leaks is task <code>reject-transitive-module-visibility-leaks</code> (P0), opened after a real app compiled a name it had only reached through another file.</p>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey no_leak.hey</div><pre data-example="runnable" class="out fail"><code>...
+...no_leak.hey:5:8: Tokens.first_word requires a direct import in this source unit
+...</code></pre><div class="exit">exit status 70</div></div>
+<p>Standard library modules are different on purpose: every built-in lives in a namespace, and a qualified name such as <code>Text.upper</code> is always reachable without an import. An import is how a file asks for the bare or dotted forms.</p>
 <div class="run"><div class="fname">stdlib_ambient.hey</div><pre data-example="runnable" data-file="stdlib_ambient.hey" class="src"><code>program
   says Text.upper(&#39;no import line above&#39;)
 end
@@ -510,7 +481,7 @@ end
 </code></pre></div>
 
 <h2 id="operators">7. Operator imports</h2>
-<p>By design, a module may offer a function as the meaning of an overridable operator: <code>exposes power_mod … infix: '**'</code>. A file that imports it gets that meaning for <code>**</code>, in that file only. The parse never changes: <code>2 + 3 ** 2</code> still groups as <code>2 + (3 ** 2)</code>, because precedence belongs to the parser's table and imports can't touch it. Which operators are overridable is a column in <code>final_syntax_operators.tsv</code>: every arithmetic, comparison, boolean, bitwise and range operator; not <code>=</code>, the <code>set</code> updates, <code>await</code>, <code>spawn</code> or the postfix forms. <span class="badge b-partly">Partly works</span> Because <code>exposes</code> isn't accepted on 606a, an operator module can't be declared; the failure comes from the <code>exposes</code> line in <code>mathx.hey</code>, before <code>**</code> is ever reached:</p>
+<p>A module may offer a function as the meaning of an overridable operator: <code>exposes power_mod … infix: '**'</code>. A file that imports it gets that meaning for <code>**</code>, in that file only. The parse never changes: <code>2 + 3 ** 2</code> still groups as <code>2 + (3 ** 2)</code>, because precedence belongs to the parser's table and imports can't touch it. Every arithmetic, comparison, boolean, bitwise and range operator is overridable; <code>=</code>, the <code>set</code> updates, <code>await</code>, <code>spawn</code> and the postfix forms are not. <span class="badge b-decided">Decided, coming</span></p>
 <div class="run"><div class="fname">mathx.hey</div><pre data-example="runnable" data-file="operator_import.hey" class="src"><code>module MathX
   fn power_mod(base, exponent)
     return Math.pow(base, exponent) % 1000
@@ -519,43 +490,33 @@ end
   exposes power_mod forms: [:qualified, :unqualified, :infix] infix: &#39;**&#39;
 end
 </code></pre></div>
-<div class="run"><div class="fname">operator_import.hey</div><pre data-example="runnable" data-file="operator_import.hey" class="src"><code>import &#39;./mathx.hey&#39; exposing: [power_mod]
+<div class="run"><div class="fname">operator_import.hey</div><pre data-example="decided-coming" data-file="operator_import.hey" class="src"><code>import &#39;./mathx.hey&#39; exposing: [power_mod]
 
 program
-  # By design: 2 + (3 ** 2) with ** meaning power_mod, so 11.
+  # 2 + (3 ** 2), with ** meaning power_mod: 11
   says 2 + 3 ** 2
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey operator_import.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=f9caa5c61fc639ada40a21226672b1d06187eb3a50dab676532425227449d9b4
-selfhost_build_outcome=started
-hey error: hey-selfc: semantic HIR emission failed (exit 70): hey error: self-hosted HIR compiler failed: parser rejected source before HIR emission: exposes power_mod forms: [:qualified, :unqualified, :infix] infix: &quot;**&quot;
-
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
+</code></pre><div class="cmd"><span class="prompt">$</span> hey operator_import.hey</div><pre data-example="decided-coming" class="out"><code>11
+</code></pre></div>
 
 <h2 id="facades">8. Facade modules instead of selector manifests</h2>
-<p>Want one import line that brings in a curated set? The design answer is a <em>facade</em>: an ordinary module that imports what it wants and re-exposes it with <code>exposes *</code>, so re-export is always explicit. A separate "selector manifest" feature (a file listing names to import) was deliberately deferred until something a facade can't do turns up. <span class="badge b-decided">Decided: deferred</span> On 606a the facade itself is refused:</p>
+<p>Want one import line that brings in a curated set? Write a <em>facade</em>: an ordinary module that imports what it wants and re-offers it with <code>exposes *</code>, so re-export is always explicit. <span class="badge b-decided">Decided, coming</span></p>
 <div class="run"><div class="fname">prelude.hey</div><pre data-example="runnable" data-file="facade_use.hey" class="src"><code>module Prelude
   import &#39;stdlib:Text&#39; exposing: [upper, trim]
 
   exposes *
 end
 </code></pre></div>
-<div class="run"><div class="fname">facade_use.hey</div><pre data-example="runnable" data-file="facade_use.hey" class="src"><code>import &#39;./prelude.hey&#39; exposing: [upper, trim]
+<div class="run"><div class="fname">facade_use.hey</div><pre data-example="decided-coming" data-file="facade_use.hey" class="src"><code>import &#39;./prelude.hey&#39; exposing: [upper, trim]
 
 program
   says upper(trim(&#39;  ada  &#39;))
 end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey facade_use.hey</div><pre data-example="runnable" class="out fail"><code>selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=c56dad06080adffee90002826da852eb2da6c2ac55a9a2a3a7225512a0336751
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: import selects an unexposed declaration
+</code></pre><div class="cmd"><span class="prompt">$</span> hey facade_use.hey</div><pre data-example="decided-coming" class="out"><code>ADA
+</code></pre></div>
 
-hey error: hey: script compilation failed
-</code></pre><div class="exit">exit status 70</div></div>
-
-<h2 id="pkg">9. <code>pkg:</code> imports and the proposed <code>native:</code></h2>
-<p><code>import 'pkg:name@version/module'</code> loads a module from a package that <code>hey package ensure</code> has fetched, locked and hash-checked into the project. Adding and locking packages is <a href="2026-10-25-hey-guide-packages.html">Packages guide</a>, where it's shown working. <span class="badge b-works">Works today</span> In a directory with no locked package, the import fails, with an unhelpful message:</p>
+<h2 id="pkg">9. <code>pkg:</code> imports</h2>
+<p><code>import 'pkg:name@version/module'</code> loads a module from a package that <code>hey package ensure</code> has fetched, locked and hash-checked into the project. Adding and locking packages is in the <a href="2026-10-25-hey-guide-packages.html">Packages guide</a>, where it's shown working. <span class="badge b-works">Works today</span> In a folder with no locked package, the import fails:</p>
 <div class="run"><div class="fname">pkg_import.hey</div><pre data-example="runnable" data-file="pkg_import.hey" class="src"><code>import &#39;pkg:hey_cli@0.1.0/main&#39;
 
 program
@@ -563,29 +524,17 @@ program
 end
 </code></pre><div class="cmd"><span class="prompt">$</span> hey pkg_import.hey</div><pre data-example="runnable" class="out fail"><code>hey error: could not open read file
 </code></pre><div class="exit">exit status 70</div></div>
-<p><code>stdlib:</code>, <code>pkg:</code> and relative paths are meant to bind to sealed roots while names are resolved, so a project file called <code>stdlib/Text.hey</code> can't pass itself off as the standard library. Task <code>scheme-qualified-imports-bind-at-build-time</code> (P0) records that the resolver still probes the current directory first. <span class="badge b-proposed">Proposed</span></p>
-<p><code>import 'native:hey_sqlite3'</code> for native packages is an agent's pick from the "calling C directly" proposal, being built on a branch; not ruled. Details in <a href="2026-10-25-hey-native-code-and-c.html">Native code and C</a>. On today's toolchain it's the same "could not open" failure:</p>
-<div class="run"><div class="fname">native_import.hey</div><pre data-example="runnable" data-file="native_import.hey" class="src"><code>import &#39;native:hey_sqlite3&#39;
+<p><code>stdlib:</code> always means the toolchain's own standard library; there's no search path, so a project file called <code>stdlib/Text.hey</code> can't pass itself off as it.<sup><a href="#n9">9</a></sup> <span class="badge b-decided">Decided, coming</span></p>
+<p>A native package (one with C code inside) is imported like any other package, with <code>pkg:</code>; how it reaches C is in <a href="2026-10-25-hey-native-code-and-c.html">Native code and C</a>. A separate <code>native:</code> scheme is <span class="badge b-proposed">Proposed</span>, not ruled.</p>
 
-program
-  says &#39;imported&#39;
-end
-</code></pre><div class="cmd"><span class="prompt">$</span> hey native_import.hey</div><pre data-example="runnable" class="out fail"><code>hey error: could not open read file
-</code></pre><div class="exit">exit status 70</div></div>
-
-<h2 id="flavor">10. "Imports change the flavor": what's real</h2>
-<p>The direction: no privileged built-in layer; every operation lives in a real module; a normal program could start with <code>import 'stdlib:Sys' exposing: *</code>, where <code>Sys</code> is an ordinary facade you can replace with your own. <span class="badge b-partly">Partly works</span></p>
-<ul>
-<li><strong>Real today:</strong> receiver vocabulary is chosen per file (<code>forms: [:dotted]</code>); imports of your own modules don't leak.</li>
-<li><strong>Not done:</strong> there's no <code>stdlib:Sys</code> module;<sup><a href="#n3">3</a></sup> the 261 builtins and every stdlib module are ambient; facades and <code>conceals:</code> are refused (above). Task <code>sys-module-only-language-cutover</code> is open. Separately, Hey&#39;s built-in functions are bound to the runtime inside the toolchain; your code calls them like any other Hey function (see the <a href="2026-10-25-hey-compiler-from-source-to-native.html">compiler article</a>).</li>
-</ul>
+<h2 id="flavor">10. Built-ins live in namespaces</h2>
+<p>Every built-in function has a namespace (<code>Path.basename</code>, <code>Json.encode</code>, <code>Text.upper</code>), and the qualified name is what's reserved, so your own bare <code>basename</code> never collides with it. A small core set (<code>print</code>, <code>len</code>, <code>Int</code> and the like) is visible without a prefix. Strings use the method form, <code>s.upper()</code>. A warning appears only where the syntax tree shows your name changes which function a call reaches.<sup><a href="#n10">10</a></sup> <span class="badge b-decided">Decided, coming</span> The full list is in <a href="2026-10-25-hey-standard-library.html">The standard library</a>.</p>
 
 <h2 id="additions">11. Seven additions from a look at other languages <span class="badge b-decided">Decided, coming</span></h2>
 <p>Hey's module design was checked against what Python, JavaScript and TypeScript, Node, Rust, Swift, Go, Gleam, Zig,
 Elixir and others have changed recently.<sup><a href="#n4">4</a></sup> The verdict: keep the design (imports belong to
 one file, each file picks its receiver forms, re-export is always explicit through a facade, conflicts follow one lexical
-rule with warnings, packages are locked and hashed), and add the seven rules below. <strong>None of them works on
-0.99.606a.</strong> They are planned for the next release, 0.99.607a; the examples show the intended behaviour.</p>
+rule with warnings, packages are locked and hashed), and add the seven rules below. They are decided; the examples show what they do.</p>
 
 <h3>C1. A module body holds declarations, imports and constants only <span class="badge b-decided">Decided, coming</span></h3>
 <p>Nothing runs just because a module was imported. A constant whose value is a literal is worked out at compile time.
@@ -593,7 +542,7 @@ Any other constant is computed once, the first time something reads it, safely a
 first reader fails fast. A call written at the top of a module is a compile error, and so is a constant that needs itself.
 Python and JavaScript are adding "lazy import" features to cope with slow, side-effecting module bodies; Hey never has
 the problem.</p>
-<div class="run"><div class="fname">prices.hey (planned)</div><pre data-example="fragment" data-needs="REVIEW" class="src"><code>module Prices
+<div class="run"><div class="fname">prices.hey</div><pre data-example="fragment" data-needs="shows a decided rule; not a complete program" class="src"><code>module Prices
   let TAX_RATE = 0.08                 # a literal: worked out at compile time
   let RATES = Text.split(&#39;a,b,c&#39;, &#39;,&#39;) # computed once, on first use
 
@@ -607,7 +556,7 @@ end</code></pre></div>
 <h3>C2. Functions may import each other in a cycle <span class="badge b-decided">Decided, coming</span></h3>
 <p>The compiler resolves the whole program at once, so two files may import each other, as items in one Rust crate can.
 The only cycle that is an error is between constants (C1), because one of them would have to be computed first.</p>
-<div class="run"><div class="fname">even.hey and odd.hey (planned)</div><pre data-example="fragment" data-needs="REVIEW" class="src"><code># even.hey
+<div class="run"><div class="fname">even.hey and odd.hey</div><pre data-example="fragment" data-needs="shows a decided rule; not a complete program" class="src"><code># even.hey
 import &#39;./odd.hey&#39;
 module Even
   fn even(n)
@@ -636,7 +585,7 @@ shouldn't become part of your public API. Hey adds one clause to the <code>expos
 gets an <code>exposes</code> list naming the modules outsiders may import with <code>pkg:</code>; importing any other
 module of the package from outside is refused with a message naming the manifest. The facts come from the syntax tree and
 the manifest, never from directory names.</p>
-<div class="run"><div class="fname">csv.hey (planned)</div><pre data-example="fragment" data-needs="REVIEW" class="src"><code>module Csv
+<div class="run"><div class="fname">csv.hey</div><pre data-example="fragment" data-needs="shows a decided rule; not a complete program" class="src"><code>module Csv
   fn parse_row(line)
     return Text.split(line, &#39;,&#39;)
   end
@@ -648,7 +597,7 @@ end</code></pre></div>
 <p>With nested modules, the nearest name wins. That can hide the module you meant, with no way left to name it; Swift
 recently added module selectors for this. Hey borrows Ruby's answer for constants: a leading <code>::</code> starts the
 path at the root. The nearest-path warning suggests it as the fix.</p>
-<div class="run"><div class="fname">root_path.hey (planned)</div><pre data-example="fragment" data-needs="REVIEW" class="src"><code>module Report
+<div class="run"><div class="fname">root_path.hey</div><pre data-example="fragment" data-needs="shows a decided rule; not a complete program" class="src"><code>module Report
   module Shapes                  # a nearer Shapes hides the top-level one
     fn area(w, h)
       return 0
@@ -666,7 +615,7 @@ decided by which import line comes later. So, following Rust's rule for glob imp
 listed in <code>exposing:</code> always beats a star import, whatever the order. If two star imports both supply a name
 your file actually uses, that is a compile error asking you to pick one by name. A clash on a name you never use stays
 silent. This narrows the general "later binding wins, with a warning" rule for star imports only.</p>
-<div class="run"><div class="fname">stars.hey (planned)</div><pre data-example="fragment" data-needs="REVIEW" class="src"><code>import &#39;./bank.hey&#39; exposing: *      # exposes open, balance
+<div class="run"><div class="fname">stars.hey</div><pre data-example="fragment" data-needs="shows a decided rule; not a complete program" class="src"><code>import &#39;./bank.hey&#39; exposing: *      # exposes open, balance
 import &#39;./files.hey&#39; exposing: *     # exposes open, read
 import &#39;./bank.hey&#39; exposing: [balance]
 
@@ -680,7 +629,7 @@ end</code></pre></div>
 always safe to delete, and the compiler warns about it. A rename tool works from resolved identities: it rewrites only the
 call sites that resolve to that function, never other things that happen to share its spelling. A module can keep the old
 name working for a while with a deprecation message.</p>
-<div class="run"><div class="fname">rename (planned)</div><pre data-example="runnable" class="src"><code>$ hey fix rename Files.read Files.read_text
+<div class="run"><div class="fname">rename</div><pre data-example="decided-coming" class="src"><code>$ hey fix rename Files.read Files.read_text
 
 module Files
   exposes read_text forms: [:qualified]
@@ -692,7 +641,7 @@ end</code></pre></div>
 unchanged. But a published package's surface should be deliberate, so <code>hey package publish</code> refuses any module
 the manifest exposes that has no <code>exposes</code> line. (The JSR registry for JavaScript is strict about published
 APIs in the same way.)</p>
-<div class="run"><div class="fname">publish (planned)</div><pre data-example="runnable" class="src"><code>$ hey package publish
+<div class="run"><div class="fname">publish</div><pre data-example="decided-coming" class="src"><code>$ hey package publish
 refused: module Csv is exposed by the manifest but has no exposes line</code></pre></div>
 
 <h3>Looked at and turned down</h3>
@@ -702,14 +651,14 @@ refused: module Csv is exposed by the manifest but has no exposes line</code></p
 <li><strong>Separate type or interface files (like TypeScript's <code>.d.ts</code>).</strong> Hey has no type annotations in user code; the build cache can fingerprint each module's surface instead.</li>
 </ul>
 
-<h2 id="gaps">Known gaps</h2>
+<h2 id="gaps">Still coming, in one list</h2>
 <ul id="gaplist">
-<li><strong>Refused on 606a although documented:</strong> <code>exposes</code> and therefore operator imports and facades; <code>as Alias</code>, <code>exposing: *</code> and <code>conceals:</code>; unqualified calls between functions of one module; callable-field calls with a dot.</li>
-<li><strong>Accepted but not enforced:</strong> <code>private fn</code>. <strong>Not required:</strong> imports of standard library modules (they resolve without one), which hides the no-leak rule for stdlib.</li>
-<li><strong>Misleading message:</strong> a missing <code>pkg:</code> or <code>native:</code> import says only "could not open read file".</li>
-<li><strong>Proposed or deferred:</strong> sealed scheme roots (scheme-qualified imports that bind at build time); <code>native:</code> imports (see <a href="2026-10-25-hey-native-code-and-c.html">Native code and C</a>); the <code>stdlib:Sys</code> cutover; selector manifests deferred in favor of facades.</li>
-<li>The feature inventory and <code>implementation-status.md</code> list <code>exposes</code> forms, operator exposure, import aliases and <code>private fn</code> as built; this page shows them failing on 606a and doesn't resolve the disagreement.</li>
-<li>The repository's <code>test/language_decisions/mod_*</code> programs agree: of the 10 run on this toolchain, only <code>mod_import_qualified_only</code> printed its expected output.</li>
+<li>Module surface: <code>exposes</code> lines, enforced <code>private fn</code>, bare sibling calls, facades with <code>exposes *</code>, operator imports.</li>
+<li>Splitting modules: reopening across files, <code>Outer/Inner</code> sub-modules.</li>
+<li>Import forms: <code>as Alias</code>, <code>exposing: *</code>, refusing per-name renames.</li>
+<li>Calls: callable fields with a dot, and the warning when a field and an imported function share a name.</li>
+<li>Roots: <code>stdlib:</code> sealed to the toolchain's own library; built-ins in namespaces.</li>
+<li>The seven additions C1 to C7.</li>
 </ul>
 
 <h2 id="sources">Sources</h2>
@@ -717,16 +666,20 @@ refused: module Csv is exposed by the manifest but has no exposes line</code></p
 <h2 id="notes-h">Notes</h2>
 <ol>
 <li id="n1">A bare call through a dotted-only import is refused, and a gate fixture asserts the refusal: cb4930.</li>
-<li id="n2">Until this fix the resolver did not see a <code>private fn</code> declaration at all; the keyword is still not enforced: 138f5d.</li>
-<li id="n3">The no-built-ins end state (every function in a module, imported through <code>stdlib:Sys</code>) was recorded as a ruling: 102194.</li>
+<li id="n2">The resolver sees <code>private fn</code> declarations: 138f5d. Enforcement and module-wide privacy: ledger row L-IMP-15 and L-IMP-42.</li>
+<li id="n3">Superseded by the namespace ruling, ledger row L-LAN-56.</li>
+<li id="n5">A sibling member answers before a bare built-in: ledger row L-IMP-52.</li>
+<li id="n6">Sub-modules and their one call spelling: ledger rows L-IMP-50 and L-IMP-56.</li>
+<li id="n7">The module alias is the only alias, and there is no <code>Module.load</code>: the import-scope ruling (docket question C11).</li>
+<li id="n8">Callable field versus imported receiver: ledger row L-IMP-51.</li>
+<li id="n9"><code>stdlib:</code> always resolves to the toolchain's own library: the docket ruling C12.</li>
+<li id="n10">Built-ins live in namespaces: ledger rows L-LAN-56 and L-LAN-61.</li>
 <li id="n4">Sources opened for the review include Python's PEP 810 (explicit lazy imports) and PEP 690 (rejected); TC39's import defer proposal; the Node.js modules and packages documentation; the Rust Reference on use declarations and on visibility and privacy; Swift Evolution SE-0386 (package access), SE-0409, SE-0444 and SE-0491 (module selectors); the Gleam language tour; Zig 0.15 release notes; JSR's "slow types" rule; and Go's internal packages.</li>
 </ol>
 </section>
 <footer>
 <ul>
-<li>Hey source: <code>docs/developers/13-language-reference.md</code> (Modules, Imports, Field/receiver forms), <code>modules-and-packages.md</code>, <code>visibility-and-private-imports.md</code>, <code>object-field-access.md</code>, <code>collection-method-sugar.md</code>, <code>immutable-object-style.md</code>, <code>implementation-status.md</code>, <code>docs/migrations/v0.99.364a-camelcase-modules.md</code>.</li>
-<li><code>compiler/schema/final_syntax_operators.tsv</code> (the <code>overridable</code> column), <code>final_syntax_nodes.tsv</code> (nodes 3, 4, 51, 52, 61, 62), <code>compiler/module_exposure_forms.json</code>, <code>stdlib/module_exposure_catalog.json</code>, <code>stdlib/HeyProgramResolution.hey</code>, <code>stdlib/HeySyntaxTree.hey</code>.</li>
-<li>Every sample run with <code>hey FILE.hey</code> from its own directory on the docs toolchain,.</li>
+<li>Every <em>Works today</em> sample is run by the documentation test with <code>hey FILE.hey</code> from its own folder.</li>
 </ul>
 <h3>Read next</h3>
 <ul>
