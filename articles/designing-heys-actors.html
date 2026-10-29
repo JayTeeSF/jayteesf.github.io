@@ -83,65 +83,50 @@
   </style>
 </head>
 <body>
-<p data-superseded-by="2026-10-25-hey-actors-and-failure.html" style="margin:0 auto;max-width:960px;padding:.6rem 1rem;border:1px solid currentColor;border-radius:8px;font-size:.95rem"><strong>Superseded on 28 October 2026</strong> by <a href="2026-10-25-hey-actors-and-failure.html">Hey actors and failure</a>. This page is kept as dated research history.</p>
   <header>
     <h1>Designing Hey's Actors</h1>
     <p class="lede">
-      Hey's actor runtime is being redesigned around a simple goal: support millions of actors on a
-      small, fixed set of operating-system threads. The design is not based on intuition alone. It
-      follows the research summarized in
-      <a href="2026-10-25-hey-actors-and-failure.html">&ldquo;What Makes an Actor
-      Cheap?&rdquo;</a>, then turns that research into five concrete engineering decisions. This article
-      explains those decisions, the evidence behind them, the benefits they should provide, and the
-      costs or risks that remain.
+      Hey runs millions of actors on a small, fixed set of operating-system threads. That takes five
+      engineering decisions: a fixed worker pool, <code>receive</code> only at the top of an actor's loop,
+      a lock-free mailbox, a work-stealing scheduler, and messages shared by reference instead of copied.
+      This article explains each one: the evidence behind it, what it buys, and what it costs.
+      <a href="2026-10-25-hey-actors-and-failure.html">Reference 3: actors and failure</a> says which parts run today.
     </p>
-    <p class="vernote">
-      <strong>Dated design record, 26 July 2026.</strong> Every measurement below was taken that day,
-      and every &ldquo;current&rdquo; describes the runtime as it stood then. The decisions are the
-      durable part; the footprint numbers are receipts for a specific afternoon and have not been
-      re-measured for this page. Where a later article contradicts a number here, the later one wins.
-    </p>
-  </header>
+</header>
 
   <main>
     <div class="tldr">
       <h2>TL;DR</h2>
       <ul>
         <li>
-          <strong>As measured on 26 July 2026, Hey used about 258 bytes for each idle actor, down
-          from 403 bytes that same morning.</strong> The struct-diet slice landed the same day it was cut, beating its own
-          ~303-byte target. That puts the measured footprint below Go's 2,048-byte initial goroutine
-          stack and BEAM's roughly 2,616-byte process, and essentially at Pony's roughly 240-byte actor
-          &mdash; and the bare <code>sizeof(HeyActor)</code> struct, 192 bytes, is already below Pony's
-          figure, though the two numbers measure different things: struct size versus full measured
-          footprint. Tokio's 64-byte task is still about 4x smaller.
+          <strong>An idle Hey actor costs about 136 bytes.</strong> That is below Pony's roughly 240-byte
+          actor, far below Go's 2,048-byte starting goroutine stack and BEAM's roughly 2,616-byte process, and
+          about twice Tokio's 64-byte task.
         </li>
-        <li>
+<li>
           <strong>The main way to make an actor cheap is to remove its private call stack.</strong>
           Tokio and Pony are small because a task or actor does not pause in the middle of an arbitrary
           function call. Go and BEAM allow that kind of suspension, so each worker needs a real stack.
         </li>
         <li>
-          <strong>Hey will only allow <code>receive</code> at the top of the actor loop.</strong> The
-          team briefly planned to support receives in the middle of a handler by compiling handlers
+          <strong>Hey allows <code>receive</code> only at the top of the actor loop.</strong> Hey briefly planned to support receives in the middle of a handler by compiling handlers
           into state machines, but rejected that plan after estimating its compiler complexity and
           memory cost.
         </li>
         <li>
-          <strong>The mailbox and scheduler are being redesigned together.</strong> The mailbox will
-          use a lock-free multi-producer, single-consumer queue. The scheduler will use per-worker
-          queues and work stealing instead of routing almost every external message through one global
-          lock.
+          <strong>The mailbox and scheduler were redesigned together.</strong> The mailbox is a lock-free
+          many-sender, one-reader queue. The scheduler gives each worker its own queue and lets idle workers
+          steal, instead of routing messages through one global lock.
         </li>
         <li>
-          <strong>Large immutable messages should be shared by reference instead of copied.</strong>
-          The proposed design uses reference counting so that sending a value can usually update a
+          <strong>Messages are to be shared by reference instead of copied.</strong>
+          The design uses reference counting so that sending a value can usually update a
           counter rather than duplicate the entire value.
         </li>
         <li>
-          <strong>The design still has important open risks.</strong> Blocking I/O needs a separate
-          worker pool, mailboxes need a backpressure policy, and reference counting will only be fast
-          enough if the compiler preserves a cheap single-owner path.
+          <strong>The open risks have answers.</strong> Blocking calls belong in a Job or a worker pool, not
+          an actor; a fast sender is slowed down and a mailbox past its ceiling fails fast; and reference counting
+          stays fast only while the compiler keeps a cheap single-owner path.
         </li>
       </ul>
     </div>
@@ -199,26 +184,21 @@
 </div>
 <div class="ff-legend">
 <span class="ff-key"><span class="ff-sw" style="background:var(--text-secondary);opacity:.55"></span>other runtimes</span>
-<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight)"></span><strong>Hey, now (measured)</strong></span>
-<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight);opacity:.35"></span><strong>Hey, one day earlier (measured)</strong></span>
+<span class="ff-key"><span class="ff-sw" style="background:var(--bar-highlight)"></span><strong>Hey (measured)</strong></span>
 </div>
 <div class="ff-plot">
-<svg aria-label="Horizontal bar chart, logarithmic axis, of per-actor memory in bytes. Tokio task: 64. Pony actor: 240. Hey, now, measured after the struct-diet slice, shown bold and highlighted in blue: 258. Hey, one day earlier, measured before the diet, shown bold with a faded highlight: 403. Go goroutine: 2,048. BEAM process: 2,616. The two Hey rows are marked additionally with bold text and distinct fill styles so the highlight does not depend on color alone." id="ff-svg2" role="img" viewbox="0 0 780 320"></svg>
+<svg aria-label="Horizontal bar chart, logarithmic axis, of per-actor memory in bytes. Tokio task: 64. Pony actor: 240. Hey actor, measured, highlighted: 136. Go goroutine: 2,048. BEAM process: 2,616." id="ff-svg2" role="img" viewbox="0 0 780 320"></svg>
 </div>
-<p class="ff-foot">Direct-labeled bars carry the story; hover any bar for its source. Go's number is
-        its initial stack only &mdash; it grows on demand. The campaign's ~303-byte target was set in the
-        morning and beaten by evening, so the dashed-target convention used elsewhere on this site is
-        retired for this figure. Hey's two bars mark the same struct one day apart: 403 bytes that
-        morning, faded to show it is superseded, and 258 bytes solid and bold the same evening, after the
-        struct-diet slice landed.</p>
+<p class="ff-foot">Hover any bar for its source. Go's number is its initial stack only; it grows on demand.
+        Hey's bar is the median of three runs holding a million idle actors (the program's peak memory, less
+        its peak with none, divided by a million), built with 0.99.606a on an Apple M3 Pro.</p>
 </figure>
 <script>
     (function(){
       var ROWS=[
         {label:'Tokio task',           sub:'no stack — single allocation',          bytes:64,   kind:'plain',  src:'Tokio Tutorial: Spawning — tokio.rs'},
         {label:'Pony actor',           sub:'no stack — mailbox + GC bookkeeping',   bytes:240,  kind:'plain',  src:'Pony Runtime FAQ — ponylang.io'},
-        {label:'Hey, now',             sub:'measured — after the struct-diet slice', bytes:258, kind:'today',  src:'actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins both 403 and 258)'},
-        {label:'Hey, one day earlier', sub:'measured — before the diet',            bytes:403,  kind:'before', src:'actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins both 403 and 258)'},
+        {label:'Hey actor',            sub:'measured, a million parked',            bytes:136,  kind:'today',  src:'concurrency trade-offs suite, idle case'},
         {label:'Go goroutine',         sub:'initial growable stack',                bytes:2048, kind:'plain',  src:'runtime/stack.go, stackMin — github.com/golang/go'},
         {label:'BEAM process',         sub:'327 words: stack + heap + GC state',    bytes:2616, kind:'plain',  src:'Processes — Erlang System Documentation'}
       ];
@@ -252,10 +232,8 @@
     <div class="aside">
       <h3>This article is a follow-up</h3>
       <p>
-        <a href="2026-10-25-hey-actors-and-failure.html">The earlier
-        article</a> explains the basic actor model and compares BEAM, Pony, Go, and Tokio in
-        detail. This article assumes that background. It gives short reminders where needed, but does
-        not repeat the earlier article's full explanations of actors, stacks, mailboxes, work stealing,
+        <a href="2026-10-25-hey-actors-and-failure.html">Reference 3</a> explains the actor model as you
+        write it. This article gives short reminders where needed, but does not repeat full explanations of actors, stacks, mailboxes, work stealing,
         or immutability.
       </p>
     </div>
@@ -268,14 +246,13 @@
       cheap enough, that the system still works at very large scale.
     </p>
     <p>
-      <a href="2026-10-25-hey-actors-and-failure.html">The earlier
-      article</a> compared the memory and scheduling models used by BEAM, Pony, Go, and Tokio.
-      The follow-up work converted that comparison into an engineering program. Each part of the program
+      The research compared the memory and scheduling models used by BEAM, Pony, Go, and Tokio, and
+      converted that comparison into an engineering program. Each part of the program
       names an existing runtime, paper, or algorithm to use as a model. Each part also has a measurable
       completion condition, such as actor size, lock contention, mailbox behavior, or benchmark results.
     </p>
     <p>
-      Five decisions define the current design: remove per-actor stacks, restrict where actors may
+      Five decisions define the design: remove per-actor stacks, restrict where actors may
       receive messages, replace the mailbox queue, replace the scheduler's global bottleneck, and share
       immutable values by reference. These choices are related, but they solve different problems and
       carry different risks.
@@ -295,7 +272,7 @@
       <strong>2,048-byte</strong> growable stack. A BEAM process uses about <strong>2,616 bytes</strong>
       at its minimum size and includes space for a stack, heap, mailbox, and garbage-collection state.
       Go uses mutable data and BEAM uses immutable data, yet both pay for a stack. That is why the
-      earlier article concludes that the strongest predictor of per-worker memory is whether the worker
+      comparison concludes that the strongest predictor of per-worker memory is whether the worker
       can suspend anywhere, not whether its values are mutable.
       &mdash; <a href="https://github.com/golang/go/blob/master/src/runtime/stack.go">golang/go, runtime/stack.go</a>,
       <a href="https://www.erlang.org/doc/system/eff_guide_processes.html">Processes &mdash; Erlang System Documentation</a>
@@ -308,9 +285,8 @@
 
     <h2>3. Decision one: actors run on a fixed worker pool</h2>
     <p>
-      Hey's current thread-per-actor path calls <code>pthread_create</code>, which gives every actor an
-      operating-system thread and a C stack. The runtime source already describes that path as
-      temporary. The replacement is a pooled design: a fixed number of workers repeatedly take runnable
+      A thread-per-actor runtime calls <code>pthread_create</code>, which gives every actor an
+      operating-system thread and a C stack. Hey started that way. The replacement is a pooled design: a fixed number of workers repeatedly take runnable
       actors from queues and execute one step of each actor.
     </p>
     <p>
@@ -360,14 +336,13 @@
       representation and a new transformation pass. The language documentation shows the canonical
       shape: an actor is a loop that receives a message at its top &mdash; see the simplest example in
       the Hey docs.
-      &mdash; <a href="https://www.jayteesf.com/hey_docs/docs__humans__features__05-actors-and-mailboxes.html">Hey docs: Actors and mailboxes</a>
+      &mdash; <a href="2026-10-25-hey-actors-and-failure.html">Reference 3: actors and failure</a>
     </p>
     <p>
-      In code, the whole model fits in ten lines. This is a complete, runnable Hey program (verified
-      on <abbr class="ver" title="v0.99.438a">438a</abbr>): an actor whose loop top is a single <code>receive</code>, and a
+      In code, the whole model fits in ten lines. This is a complete Hey program: an actor whose loop top is a single <code>receive</code>, and a
       <code>program</code> block that spawns it, sends it one message, and stops it.
     </p>
-<pre data-example="fragment" data-needs="REVIEW"><code>actor echo
+<pre data-example="runnable" data-file="echo.hey"><code>actor echo
   receive msg
   says msg
 end
@@ -377,18 +352,18 @@ program
   send p, 'ping'
   stop p
 end</code></pre>
+<pre data-example="runnable"><code>$ hey echo.hey
+ping</code></pre>
     <p>
       Running it prints <code>ping</code>. The <code>receive msg</code> line is the actor's entire
       waiting behavior: the actor sleeps until a message arrives, binds it to <code>msg</code>, runs
       the body below it, and returns to the top of the loop for the next message. There is no way to
       pause partway down the body &mdash; everything this article says about &ldquo;top-only
-      receive&rdquo; is a statement about where that one keyword may appear. A gentler walk through
-      the same model is in the Hey course
-      &mdash; <a href="https://www.jayteesf.com/hey_docs/docs__course__chapter-05.html">Chapter 5: The Concurrency Model</a> &mdash;
-      and the feature reference above.
+      receive&rdquo; is a statement about where that one keyword may appear. A gentler walk through the same model is in
+      <a href="2026-10-25-hey-guide-first-steps.html">Guide 1</a>.
     </p>
     <p>
-      The team briefly chose the more expressive state-machine design instead. Under that plan, every
+      For a while Hey chose the more expressive state-machine design instead. Under that plan, every
       mid-handler <code>receive</code> would become a suspension point. The compiler would record a
       state number, preserve only local variables that remain in use after the suspension, and resume
       the handler at the correct state when another message arrived. Rust's coroutine lowering was one
@@ -404,7 +379,7 @@ end</code></pre>
       <a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust Project Goals 2026</a>
     </p>
     <p>
-      Later that day, the decision was reversed. Hey will keep <code>receive</code> at the top of the
+      The decision was reversed. Hey will keep <code>receive</code> at the top of the
       actor loop. The state-machine research remains available in case the language revisits the trade
       later, but it is no longer part of the current actor-runtime plan.
     </p>
@@ -440,10 +415,10 @@ end</code></pre>
       usually abbreviated MPSC.
     </p>
     <p>
-      Hey's current mailbox is a linked list protected by a mutex. The planned replacement is an
+      Hey's first mailbox was a linked list protected by a mutex. Its replacement is an
       intrusive, lock-free MPSC queue based on Dmitry Vyukov's design. &ldquo;Intrusive&rdquo; means the message
       object contains its own queue link; the runtime does not allocate a second wrapper object merely
-      to put the message in the queue. Hey's existing message structure already contains a value and a
+      to put the message in the queue. Hey's message structure already contained a value and a
       next pointer, so it already has the required shape.
     </p>
     <p>
@@ -474,28 +449,22 @@ end</code></pre>
       </div>
     </div>
     <p>
-      Hey still needs an explicit backpressure policy. Pony originally allowed mailboxes to grow
-      without limit and later added &ldquo;muting,&rdquo; which temporarily stops scheduling actors that continue
-      sending to an overloaded receiver. Hey should decide in advance whether to use bounded queues,
-      muting, sender suspension, message rejection, or some combination of those behaviors.
+      Hey's overload answer: the scheduler slows a sender that outruns its receiver, as Pony's "muting"
+      does, and a mailbox past a hard ceiling makes the receiving actor fail fast. Nothing is dropped.
+      <a href="should-heys-mailboxes-have-limits.html">Should Hey's Mailboxes Have Limits?</a> compares
+      the options.
       &mdash; <a href="https://github.com/ponylang/ponyc/pull/2264">Pony muting change</a>
     </p>
 
     <h2>6. Decision four: finish the work-stealing scheduler</h2>
     <p>
-      Hey already has the outline of a work-stealing scheduler: worker-local queues, a shared injection
-      queue for work submitted from elsewhere, and counters for stealing, spinning, parking, and waking.
-      The current implementation does not yet receive the main benefit of that structure because
-      nearly every send made outside a worker thread passes through one global mutex.
+      Hey's first scheduler had the outline of work stealing: worker-local queues, a shared injection
+      queue for work submitted from elsewhere, and counters for stealing, spinning, parking and waking.
+      It got little of the benefit, because nearly every send from outside a worker thread went through
+      one global mutex. Adding cores made it slower.
     </p>
     <p>
-      In one recorded run, <strong>20,000 of 20,000</strong> external sends used that lock. Only 448
-      tasks were handled locally, only two steals succeeded, and the runtime paid almost one park/wake
-      cycle per message. The scheduler therefore has worker-local data structures, but the hot path
-      still behaves like a centralized scheduler.
-    </p>
-    <p>
-      The replacement follows techniques already used by Tokio and Go:
+      The replacement follows techniques Tokio and Go already use:
     </p>
     <ul>
       <li>
@@ -579,32 +548,21 @@ end</code></pre>
       &mdash; <a href="http://janvitek.org/pubs/oopsla17a.pdf">ORCA, OOPSLA 2017</a>
     </p>
 
-    <h3>What the current copying costs</h3>
+    <h3>Why copying costs so much</h3>
     <p>
-      This change targets measured overhead in Hey's current value representation. On a request using
-      a 46-key object containing mostly small integers and short strings, the current implementation
-      performs about <strong>124 clones and 204 releases per request</strong>. The same benchmark shows
-      a throughput gap of roughly <strong>47.8 microseconds per request</strong> compared with Go.
-    </p>
-    <p>
-      A separate single-threaded probe shows how quickly the cost grows for large values. Reading one
-      4,096-element value from an object triggered about <strong>8,198 clone operations per access</strong>
-      and took roughly <strong>48.5 microseconds</strong>. Reading a plain integer in the same probe took
-      about <strong>215 nanoseconds</strong> and recorded seven clones. The large-value result has the
-      signature of a recursive deep copy: approximately two clone operations per element.
-    </p>
-    <p>
-      Reference sharing is intended to flatten that cost. The work required to send or read a large,
-      already-existing immutable value should be much closer to the cost of updating ownership metadata
-      than to the cost of walking and copying the full value graph.
+      Today every send makes one copy of the message. Within one thread a copy of an object or list is just
+      a count increase, but a value handed to another thread is copied deeply, so the cost of a send grows
+      with the size of the message: a list of four thousand elements is walked and copied element by
+      element. Reference sharing flattens that: sending a large, already-built immutable value should cost
+      about as much as updating its ownership record, whatever its size.
     </p>
 
-    <div class="pc-grid">
+<div class="pc-grid">
       <div class="pc-pro">
         <h4>Benefit</h4>
         <p>
-          Large values can be sent between actors without being duplicated. This directly addresses
-          both the request-level clone counts and the 4,096-element deep-copy measurement.
+          Large values can be sent between actors without being duplicated. This removes the deep copy
+          described above.
         </p>
       </div>
       <div class="pc-con">
@@ -627,64 +585,36 @@ end</code></pre>
       of immutability.
     </p>
 
-    <h2>8. Where the actor campaign stands</h2>
+    <h2>8. Where the five decisions stand</h2>
     <p>
       Together, the five decisions combine ideas that existing runtimes usually provide separately.
       BEAM provides immutable data and very scalable processes, but its receive-anywhere semantics
       require a stack and its isolated heaps usually require messages to be copied. Pony removes the
       actor stack and supports zero-copy messages, but it needs a capability type system and the ORCA
-      collector because the shared data may be mutable. Hey's design tries to combine stackless actors
-      with reference-shared immutable values.
+      collector because the shared data may be mutable. Hey combines stackless actors with
+      reference-shared immutable values.
     </p>
-    <p>
-      The runtime is not finished, but the actor record already got smaller. The struct-diet slice
-      landed the same day it was cut: the measured actor footprint at N=100K went from <strong>403 to
-      258 bytes</strong>, beating the slice's own ~303-byte target, and <code>sizeof(HeyActor)</code>
-      itself dropped from 288 to 192 bytes. 258 bytes is essentially at Pony's 240-byte figure and well
-      below Go's 2,048-byte stack and BEAM's roughly 2,616-byte process; Tokio's 64-byte task is now
-      about 4x away. The mutex-and-condition-variable pair remaining in the struct accounts for 112
-      bytes, 58% of the current footprint, and is the next argued slice. The mailbox conversion is
-      intended to land before the scheduler conversion so that the scheduler can build on the new
-      queue. A separate blocking-work pool can be developed in parallel because it has fewer
-      dependencies on the other changes.
-      &mdash; actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins
-      both 403 and 258)
-    </p>
-    <p>
-      Two design questions should remain visible while the implementation proceeds. First, the blocking
-      bridge must exist before actor handlers can safely call operations that may stop a worker thread.
-      Second, the runtime needs a mailbox-overload policy before an unbounded queue causes production
-      failures. Both are part of a complete actor system even though neither directly reduces the actor
-      record's byte count.
-    </p>
-    <p>
-      The current runtime can already execute a 100,000-actor spawn-and-sum tree based on the
-      <a href="https://github.com/atemerev/skynet">Skynet benchmark</a>. Repeated runs complete in about
-      <strong>15 to 21 seconds</strong> and return the correct result. Measurements indicate that the
-      largest current cost is a quadratic list-append operation while partial results move back up the
-      tree, not actor creation itself.
-    </p>
-    <p>
-      That distinction matters. The benchmark proves that the current actor path works at 100,000
-      actors, but it does not yet measure the expected benefit of the new mailbox, scheduler, actor
-      layout, or reference-sharing design. The research has produced a specific implementation plan.
-      The remaining work is to build each part, measure it independently, and then show that the pieces
-      improve the complete runtime when used together.
-    </p>
-
-    <div class="callout">
-      <h2>Update, 2026-10-09: where this went</h2>
-      <p>
-        The mailbox and work-stealing decisions have now been built and measured on a branch that has not shipped
-        yet. A million idle actors take about 137 bytes each, ping-pong runs at about 110&nbsp;ns per message (on par
-        with Go), and throughput now grows with cores instead of shrinking. Decision five did not happen yet:
-        messages are still copied on send. The plan now is to <em>move</em> a message when the compiler proves the
-        sender is done with it. <a href="how-hey-runs-a-million-actors.html">"How Hey Runs a Million Actors"</a>
-        has the pictures, the numbers, how one actor's failure stays its own, and the order of the remaining work.
-      </p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Decision</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>1. Actors run on a fixed worker pool</td><td>Works today. Supervised actors still take their own threads; moving them onto the pool is decided, coming.</td></tr>
+        <tr><td>2. <code>receive</code> stays at the top of the actor loop</td><td>Works today</td></tr>
+        <tr><td>3. A lock-free many-sender mailbox</td><td>Works today. Backpressure and the fail-fast ceiling are decided, coming.</td></tr>
+        <tr><td>4. A work-stealing scheduler</td><td>Works today</td></tr>
+        <tr><td>5. Messages shared by reference</td><td>Decided, coming. Today each send copies the message.</td></tr>
+      </tbody>
+    </table>
     </div>
+    <p>
+      Blocking calls are kept off the worker pool by a rule rather than a second pool inside the actor
+      runtime: a blocking native call is allowed only in a Job, a worker or the <code>program</code> block.
+      <a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4</a> says when to use each, with
+      measured costs. <a href="how-hey-runs-a-million-actors.html">How Hey Runs a Million Actors</a> shows the
+      scheduler in pictures and how one actor's failure stays its own.
+    </p>
 
-    <h2>Glossary</h2>
+<h2>Glossary</h2>
     <dl class="glossary">
       <dt>actor</dt>
       <dd>An independently scheduled unit with private state that communicates by sending messages.</dd>
@@ -716,10 +646,6 @@ end</code></pre>
 
     <h2>Sources</h2>
 <ul>
-<li>Hey's own stack-removal campaign synthesis and per-workstream research briefs, 2026-07-26 (internal; the basis for every "today," "planned," and "struck" claim above)</li>
-<li>actor-diet slice landing report, 2026-07-26 (internal; exact-counter regression pins both 403 and 258 bytes at N=100K, and the 288-to-192-byte <code>sizeof(HeyActor)</code> change; no public URL)</li>
-<li>Tagged-value representation brief, bench repo, 2026-07-26 (internal; source of the 124-clone/204-release/~47.8 &micro;s (microseconds)-per-request figures)</li>
-<li>PER-ACCESS DECOMPOSITION PROBE, bench repo dated log entry, 2026-07-26 ~14:20 PDT &mdash; <code>bench/probes/access-decomposition.hey</code> (internal, counter-attributed and checksummed; no public URL; source of the 4,096-element and int-access figures)</li>
 <li><a href="https://www.ponylang.io/faq/runtime/">Pony Runtime FAQ</a> (per-actor memory, no-stack model, blocking I/O)</li>
 <li><a href="https://tutorial.ponylang.io/types/actors.html">Pony tutorial: actors</a> (behaviors, no synchronous return)</li>
 <li><a href="https://github.com/ponylang/ponyc/pull/2264">ponylang/ponyc PR #2264</a> (the "muting" backpressure retrofit)</li>
@@ -740,25 +666,19 @@ end</code></pre>
 <li><a href="https://docs.rs/cordyceps/latest/cordyceps/mpsc_queue/struct.MpscQueue.html">cordyceps::MpscQueue docs</a></li>
 <li><a href="https://xnning.github.io/papers/perceus.pdf">Reinking, Xie, de Moura, Leijen, "Perceus: Garbage Free Reference Counting with Reuse," PLDI 2021 (PDF)</a></li>
 <li><a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_mir_transform/coroutine/index.html">rustc coroutine (MIR) transform docs</a></li>
-<li><a href="https://www.jayteesf.com/hey_docs/docs__humans__features__05-actors-and-mailboxes.html">Hey docs: Actors and mailboxes</a> (the canonical <code>actor echo</code> / <code>receive msg</code> example)</li>
+<li><a href="2026-10-25-hey-actors-and-failure.html">Hey docs: Actors and mailboxes</a> (the canonical <code>actor echo</code> / <code>receive msg</code> example)</li>
 <li><a href="https://tmandry.gitlab.io/blog/posts/optimizing-await-1/">Mandry, "How Rust optimizes async/await" (parts I &amp; II)</a></li>
 <li><a href="https://rust-lang.github.io/rust-project-goals/2026/async-statemachine-optimisation.html">Rust Project Goals 2026: async state-machine optimisation</a></li>
 <li><a href="https://doc.rust-lang.org/error_codes/E0733.html">Rust error E0733</a> (recursion requires boxing in async fns)</li>
 <li><a href="https://llvm.org/docs/Coroutines.html">LLVM Coroutines documentation</a></li>
 <li><a href="https://llvm.org/devmtg/2021-11/slides/2021-AsyncFunctionsInSwift.pdf">Swift's async functions, LLVM Dev Meeting 2021</a></li>
-<li><a href="https://github.com/atemerev/skynet">atemerev/skynet</a> (the benchmark shape Hey's own 100K-actor probe follows)</li>
 </ul>
   </main>
 
   <footer>
     <p>
-      Based on Hey's stack-removal campaign research, compiled July 26, 2026, and on
-      <a href="2026-10-25-hey-actors-and-failure.html">&ldquo;What Makes an Actor
-      Cheap?&rdquo;</a>, the comparison that became the campaign's starting point. Primary sources are linked
-      where they are discussed and listed above.
+      Primary sources are linked where they are discussed and listed above.
     </p>
-  
-    <p class="vernote">Version numbers are shown short: <abbr class="ver" title="v0.99.443a">443a</abbr> means v0.99.443a &mdash; the pre-beta series.</p>
   </footer>
 </body>
 </html>
