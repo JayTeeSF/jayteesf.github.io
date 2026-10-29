@@ -1,7 +1,7 @@
 from pathlib import Path
 from datetime import datetime,timezone
 import hashlib,importlib.util,json,os,subprocess,sys,traceback
-root=Path('/private/tmp/hey-600a-feature-batch');scratch=Path('/private/tmp/hey-600a-local-resume-validation')
+root=Path('<private-dir>');scratch=Path('<private-dir>')
 plan_path=scratch/'supported-efficiency-plan.json';plan=json.loads(plan_path.read_text())
 head=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
 assert head==next(l['source_sha'] for l in plan['lanes'] if l['id']=='hey600a_runtime')
