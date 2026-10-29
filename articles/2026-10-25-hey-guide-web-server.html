@@ -132,7 +132,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#db">A database</a></li>
 <li><a href="#jobs">Background work with Jobs</a></li>
 <li><a href="#fail">When a handler fails</a></li>
-<li><a href="#binary">Build it: the binary you get</a></li>
+<li><a href="#binary">Build it: the binary you ship</a></li>
 <li><a href="#lanes">Going fast: the two transport lanes</a></li>
 <li><a href="#limits">Known limits</a></li>
 <li><a href="#status">Everything on this page, with its status</a></li>
@@ -165,7 +165,7 @@ program
   let served = Web.serve(routes, {host: &#39;127.0.0.1&#39;, port: 8080, workers: 4})
 end</code></pre>
 <p><code>:name</code> in the path is a <strong>path parameter</strong>: whatever sits in that spot of the URL shows up as <code>request.params.name</code>. Start it with <code>hey hello_web.hey</code> (it compiles to native code and caches it, like <code>go run</code>), then from a second terminal:</p>
-<pre data-example="runnable" data-background="hey hello_web.hey" data-wait="curl -s -f localhost:8080/health"><code>$ curl -s -i localhost:8080/hello/Ada
+<pre data-example="runnable" data-background="hey hello_web.hey" data-wait="curl -s -f localhost:8080/health"><code>$ curl -si localhost:8080/hello/Ada
 HTTP/1.1 200 OK
 content-type: text/plain
 content-length: 11
@@ -174,7 +174,7 @@ connection: keep-alive
 Hello, Ada
 $ curl -s localhost:8080/health
 {"ok":true}
-$ curl -s -i localhost:8080/nope
+$ curl -si localhost:8080/nope
 HTTP/1.1 404 Not Found
 content-type: application/json
 content-length: 21
@@ -526,7 +526,7 @@ PASS: cards routes answer without a socket</code></pre>
 {"front":"hola","back":"hello"}
 $ curl -s -X POST localhost:3000/cards -d '{"front":"&lt;b&gt;x&lt;/b&gt;","back":"tags &amp; such"}'
 {"front":"&lt;b&gt;x&lt;/b&gt;","back":"tags &amp; such"}
-$ curl -s -i localhost:3000/
+$ curl -si localhost:3000/
 HTTP/1.1 500 Internal Server Error
 content-type: application/json
 content-length: 24
@@ -571,7 +571,7 @@ $ curl -s 'localhost:3000/search?q=cats'
 <h2 id="jobs">7. Background work with Jobs <span class="tag t-good">Works today</span></h2>
 <p>A <strong>Job</strong> is a named pool of worker threads with a bounded queue. You hand it a message, you get a <strong>receipt</strong> back right away, and a worker runs the function later. Retries, dead letters and how to choose between Jobs, workers and actors are in <a href="2026-10-25-hey-workers-jobs-streams.html">Workers, Jobs and streams</a>; here's the web part.</p>
 <p><code>WelcomeJob.pool()</code> in <code>app/jobs/welcome_job.hey</code> calls <code>Jobs.define</code> with a fixed name; defining the same name again hands back the pool that already exists, so a handler can call it every time. The controller's <code>signup</code> calls <code>HeyWebJobs.accepted(WelcomeJob.pool(), {email: body.email})</code>. That enqueues the work and answers <code>202 Accepted</code> with the receipt, so the client can ask about it later (<code>HeyWebJobs.await(job, receipt, timeout_ms)</code> waits for the result). If the queue is full the client gets a <code>500</code> with <code>job_queue_full</code> instead of the request hanging.</p>
-<pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ curl -s -i -X POST localhost:3000/signup -d '{"email":"ada@example.com"}'
+<pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ curl -si -X POST localhost:3000/signup -d '{"email":"ada@example.com"}'
 HTTP/1.1 202 Accepted
 content-type: application/json
 content-length: 51
@@ -594,7 +594,7 @@ connection: keep-alive
 <figcaption>Figure 3. Hey fails fast: an error stops the unit of work it happened in, and nothing else. For a web server that unit is one request.</figcaption>
 </figure>
 <p>Hey <strong>fails fast</strong>: there's no <code>try</code>/<code>rescue</code>. A runtime error or a <code>fail</code> stops the <em>unit of work</em> it happened in, and for a server that unit is one request. The <code>/boom</code> handler always fails. Here's the server answering it, then answering the next request as if nothing happened:</p>
-<pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ curl -s -i localhost:3000/boom
+<pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ curl -si localhost:3000/boom
 HTTP/1.1 500 Internal Server Error
 content-type: application/json
 content-length: 24
@@ -605,13 +605,29 @@ $ curl -s localhost:3000/health
 {"ok":true}</code></pre>
 <p>The server log names the error and the route: <code>hey error: this handler always fails</code>, then <code>hey: web handler on GET /boom stopped by a runtime error; answering 500</code>. That holds on the native binary, on <code>hey server.hey</code>, and on both transport lanes.<sup><a href="#n1">1</a></sup> The runtime also releases the values the abandoned calls had registered, so a failing route doesn't pile up memory. What this does <em>not</em> cover: a handler stuck in an endless loop without an error is not stopped, and a call blocked inside C can't be interrupted. The full rules, with actors and Jobs, are in <a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>.</p>
 
-<h2 id="binary">9. Build it: the binary you get <span class="tag t-good">Works today</span></h2>
-<p><code>hey server.hey</code> is for development: the first run compiles and caches, later runs reuse the cache. <code>hey build</code> writes a standalone executable where you say:</p>
+<h2 id="binary">9. Build it: the binary you ship <span class="tag t-good">Works today</span></h2>
+<p><code>hey server.hey</code> is for development: the first run compiles and caches, later runs reuse the cache. To ship, build one executable. It's called exactly what you pass to <code>-o</code>:</p>
 <pre data-example="runnable"><code>$ hey build server.hey -o build/cards
-built .../build/cards</code></pre>
-<pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; ./build/cards --port 3001" data-wait="curl -s -f localhost:3001/health"><code>$ curl -s localhost:3001/cards
+built .../build/cards
+$ ls -lh build/cards
+-rwxr-xr-x  1 ... 447K ... build/cards
+$ otool -L build/cards
+build/cards:
+	/usr/lib/libSystem.B.dylib (...)</code></pre>
+<p>Under half a megabyte, linking only the system C library. Hey's runtime, the standard library parts you use and the hey_web modules are all inside it. The SQLite library isn't linked in: the app loads it at run time from the path in <code>HEY_SQLITE3_LIBRARY</code>.</p>
+<p><strong>Run it</strong> from the app folder (it reads <code>config/hey_web.json</code> and <code>db/</code> from there), on any port you like:</p>
+<pre data-example="fragment" data-needs="a second terminal; the next block runs it for you"><code>$ HEY_SQLITE3_LIBRARY="$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib" ./build/cards --port 3001</code></pre>
+<p><strong>Point a client at it:</strong></p>
+<pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; ./build/cards --port 3001" data-wait="curl -s -f localhost:3001/health"><code>$ curl -si http://localhost:3001/health
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 11
+connection: keep-alive
+
+{"ok":true}
+$ curl -s http://localhost:3001/cards
 {"cards":[{"id":1,"front":"hola","back":"hello"},{"id":2,"front":"&lt;b&gt;x&lt;/b&gt;","back":"tags &amp; such"}]}</code></pre>
-<p>That's <code>./build/cards --port 3001</code> answering. The executable's only dynamic library is the system C library. Hey's runtime, the standard library parts you use and the hey_web modules are all inside it. The SQLite library isn't linked in: the app loads it at run time from the path you give it, so ship <code>libhey_sqlite3</code> next to the binary and set <code>HEY_SQLITE3_LIBRARY</code>. What else is in the file, how it links on Linux, and how to put it in a container: <a href="2026-10-25-hey-guide-build-and-deploy.html">Build and deploy</a>.</p>
+<p><strong>Copy it to a server</strong> of the same kind (same operating system and CPU): <code>build/cards</code>, <code>libhey_sqlite3</code>, <code>config/</code> and <code>db/</code> are the whole app. <code>scp</code> them over, set <code>HEY_SQLITE3_LIBRARY</code> to where the library landed, and start <code>./cards</code>. <a href="2026-10-25-hey-guide-build-and-deploy.html#measured">Build and deploy</a> shows the copy-and-run check, containers and deploying.</p>
 
 <h2 id="lanes">10. Going fast: the two transport lanes</h2>
 <figure class="fig">
