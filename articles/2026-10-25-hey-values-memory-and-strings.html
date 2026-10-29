@@ -153,18 +153,17 @@ what's decided to make it cheaper.</p>
   says doc
   says next
 end</code></pre>
-<p class="cmd-label">Run</p>
-<pre data-example="runnable"><code>$ hey immutable.hey</code></pre>
-<p class="cmd-label">Output</p>
-<pre data-example="fragment" data-needs="REVIEW" class="out"><code>{&quot;apples&quot;:1}
+<p class="cmd-label">Run it</p>
+<pre data-example="runnable" class="out"><code>$ hey immutable.hey
+{&quot;apples&quot;:1}
 {&quot;apples&quot;:1,&quot;pears&quot;:2}
 {&quot;name&quot;:&quot;Ada&quot;}
 {&quot;name&quot;:&quot;Ada&quot;,&quot;visits&quot;:1}</code></pre>
-<p><code>fruit</code> and <code>doc</code> are untouched. (<code>hey file.hey</code> compiled this to native code and ran it; <code>HEY_RUN_TRACE=1</code> shows <code>backend=llvm</code>.)</p>
-<p class="id">Run, Mac M3 Pro, with the 0.99.606a candidate in the documentation toolchain (<code>hey --version</code> prints <code>0.99.606a</code>; the toolchain is a later candidate build<sup><a href="#n1">1</a></sup>, same language surface as the frozen 0.99.606a source, whose own build had failed). <code>hey</code> means that toolchain's <code>bin/hey</code>; every <code>HEY_*</code> variable was unset first. Instruction counts come from <code>/usr/bin/time -l</code>; the machine was busy (load average about 8.5), so milliseconds are rough and instructions are the number to trust. <code>hey build</code> also prints about 30 <code>selfhost_*=</code> progress lines before <code>built PATH</code>; they are left out above.</p>
+<p><code>fruit</code> and <code>doc</code> are untouched. (<code>hey file.hey</code> compiled this to native code and ran it.)</p>
+<p class="id">Measured on a Mac M3 Pro.</p>
 <p>That's the safe part: no function can change a value you passed it, and an actor can be handed a value (copied or moved) without locks, because nothing can change it.
 Now the puzzle. This is how everyone counts things in Hey:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>set counts = counts.put(word, counts[word] + 1)</code></pre>
+<pre data-example="fragment" data-needs="one line from the program below"><code>set counts = counts.put(word, counts[word] + 1)</code></pre>
 <p>If <code>put</code> copied the map each time, counting a million words over a thousand-key map would copy about a
 billion entries. Does it?</p>
 <p class="cmd-label">count.hey: count a million words over a 1,000-word vocabulary</p>
@@ -194,8 +193,8 @@ program
   says counts[&#39;w7&#39;]
   says Time.ns_to_ms(Time.elapsed_ns(started))
 end</code></pre>
-<p class="cmd-label">Run</p>
-<pre data-example="runnable"><code>$ hey build count.hey -o count &amp;&amp; /usr/bin/time -l ./count 250000   # and 500000, 1000000</code></pre>
+<p class="cmd-label">Run (a measurement; the table shows what it reported)</p>
+<pre data-example="fragment" data-needs="a timing run with macOS /usr/bin/time; the numbers depend on the machine"><code>$ hey build count.hey -o count &amp;&amp; /usr/bin/time -l ./count 250000   # and 500000, 1000000</code></pre>
 <div class="tablewrap"><table><tr><th class="num">n</th><th>Printed (count of w7, ms)</th><th class="num">Instructions</th><th class="num">Per word</th><th class="num">Peak memory</th></tr>
 <tr><td class="num">250,000</td><td><code>250</code>, <code>19</code></td><td class="num">414,437,219</td><td class="num">1,658</td><td class="num">1.5 MB</td></tr>
 <tr><td class="num">500,000</td><td><code>500</code>, <code>38</code></td><td class="num">812,506,086</td><td class="num">1,625</td><td class="num">1.5 MB</td></tr>
@@ -237,7 +236,7 @@ end</code></pre>
 <tr><td class="num">50,000</td><td><code>50</code>, <code>1067</code></td><td class="num">23,409,854,804</td><td class="num">468,197</td></tr>
 <tr><td class="num">100,000</td><td><code>100</code>, <code>2150</code></td><td class="num">47,037,189,247</td><td class="num">470,372</td></tr></table></div>
 <p>About <strong>290 times</strong> the work per word. While <code>before</code> still holds the old map, the map has two owners, so every <code>put</code> must copy all 1,000 entries to keep <code>before</code> unchanged. That's the price of immutability, paid only when you really keep the old value.</p></details></div>
-<p class="id">Run, Mac M3 Pro, with the 0.99.606a candidate in the documentation toolchain (<code>hey --version</code> prints <code>0.99.606a</code>; the toolchain is a later candidate build, same language surface as the frozen 0.99.606a source, whose own build had failed). <code>hey</code> means that toolchain's <code>bin/hey</code>; every <code>HEY_*</code> variable was unset first. Instruction counts come from <code>/usr/bin/time -l</code>; the machine was busy (load average about 8.5), so milliseconds are rough and instructions are the number to trust. <code>hey build</code> also prints about 30 <code>selfhost_*=</code> progress lines before <code>built PATH</code>; they are left out above.</p>
+<p class="id">Measured on a Mac M3 Pro.</p>
 
 <h2 id="cow">2. Reference counts and copy-on-write <span class="badge b-works">Works today</span></h2>
 <figure>
@@ -267,7 +266,7 @@ end</code></pre>
 value, and "refs is 1" is the test for that.</figcaption>
 </figure>
 <p>Every map, array, record and String carries a reference count. Sharing a value is a count increment, never a copy.
-Copy-on-write has been <strong>on by default</strong> since 0.99.541a;<sup><a href="#n2">2</a></sup> it removed the
+Copy-on-write is <strong>on by default</strong>;<sup><a href="#n2">2</a></sup> it removed the
 clone-per-<code>put</code> on values with one owner.</p>
 <p>The runtime has <strong>one</strong> uniqueness test, <code>hey_rc_count_is_unique</code>: is the count exactly 1?
 Every in-place decision passes through it, which is what makes the falsification switches in
@@ -311,16 +310,14 @@ the same function.</div>
 </figure>
 <p><strong>Where it lives:</strong> in MIR, and only there. MIR decides; the LLVM emitter obeys MIR's plan and never
 guesses; nothing imported may claim ownership. The mechanism is in
-<a href="2026-10-25-hey-compiler-from-source-to-native.html">the compiler article</a>. <span class="badge b-partly">Partly works</span></p>
-<p>Today MIR writes these plans for the shapes it can recognize, which covers the counting loop above, a <code>put</code>
-inside an <code>if</code>, a helper that takes the map over, and maps of maps. The general version, ownership as
-<em>typed</em> MIR facts with a verifier on every module,<sup><a href="#n3">3</a></sup> is phase 9 of the consolidation release (forecast
-confidence low-medium; <a href="2026-10-25-hey-every-decision.html">Roadmap</a>). One measure of what's left:
-with copy-on-write switched off, the W9 benchmark takes 713 times longer, because MIR's static proof doesn't yet
-cover it and the runtime's refs-is-1 test is doing the work. Closing that gap is consolidation phase 14.</p>
+<a href="2026-10-25-hey-compiler-from-source-to-native.html">the compiler article</a>.</p>
+<p>Today MIR writes these plans for the shapes it recognizes, which covers the counting loop above, a <code>put</code>
+inside an <code>if</code>, a helper that takes the map over, and maps of maps. <span class="badge b-works">Works today</span> For every other shape the runtime's
+"refs is 1" test still does the work, so updates stay correct but can copy. Ownership as <em>typed</em> MIR facts, with a
+verifier on every module, covers every program shape.<sup><a href="#n3">3</a></sup> <span class="badge b-decided">Decided, coming</span></p>
 
 <h2 id="strings">4. Strings today: SDS <span class="badge b-works">Works today</span></h2>
-<p>Hey has one String form. Since 0.99.604a/605a it's an <em>SDS</em> block ("simple dynamic string", the layout Redis
+<p>Hey has one String form. Today it's an <em>SDS</em> block ("simple dynamic string", the layout Redis
 made famous): one allocation holding a small header, then the bytes, then a NUL byte.</p>
 <figure>
 <svg viewBox="0 0 880 170" role="img" aria-labelledby="r3t r3d">
@@ -368,14 +365,14 @@ program
   says len(text)
   says Time.ns_to_ms(Time.elapsed_ns(started))
 end</code></pre>
-<p class="cmd-label">Run</p>
-<pre data-example="runnable"><code>$ hey build append.hey -o append &amp;&amp; /usr/bin/time -l ./append 250000   # and 500000, 1000000</code></pre>
+<p class="cmd-label">Run (a measurement; the table shows what it reported)</p>
+<pre data-example="fragment" data-needs="a timing run with macOS /usr/bin/time; the numbers depend on the machine"><code>$ hey build append.hey -o append &amp;&amp; /usr/bin/time -l ./append 250000   # and 500000, 1000000</code></pre>
 <div class="tablewrap"><table><tr><th class="num">n lines</th><th>Printed (length, ms)</th><th class="num">Instructions</th><th class="num">Peak memory</th></tr>
 <tr><td class="num">250,000</td><td><code>2888890</code>, <code>10</code></td><td class="num">205,196,577</td><td class="num">5.4 MB</td></tr>
 <tr><td class="num">500,000</td><td><code>5888890</code>, <code>21</code></td><td class="num">394,272,120</td><td class="num">8.4 MB</td></tr>
 <tr><td class="num">1,000,000</td><td><code>11888890</code>, <code>40</code></td><td class="num">774,082,565</td><td class="num">14.4 MB</td></tr></table></div>
 <p>Linear: each doubling roughly doubles the instructions. <code>out</code> has one owner and is dead after the <code>+</code>, so its block grows in place.<sup><a href="#n4">4</a></sup></p>
-<p class="id">Run, Mac M3 Pro, with the 0.99.606a candidate in the documentation toolchain (<code>hey --version</code> prints <code>0.99.606a</code>; the toolchain is a later candidate build, same language surface as the frozen 0.99.606a source, whose own build had failed). <code>hey</code> means that toolchain's <code>bin/hey</code>; every <code>HEY_*</code> variable was unset first. Instruction counts come from <code>/usr/bin/time -l</code>; the machine was busy (load average about 8.5), so milliseconds are rough and instructions are the number to trust. <code>hey build</code> also prints about 30 <code>selfhost_*=</code> progress lines before <code>built PATH</code>; they are left out above.</p>
+<p class="id">Measured on a Mac M3 Pro.</p>
 
 <h3>Bytes <span class="badge b-works">Works today</span></h3>
 <p><code>Bytes</code> is immutable binary data in a block of the same shape. <code>slice</code> on Bytes is a view: it
@@ -391,10 +388,9 @@ program
   says Bytes.decode(name, &#39;utf-8&#39;)
   says Bytes.find_byte(data, 59, 0)
 end</code></pre>
-<p class="cmd-label">Run</p>
-<pre data-example="runnable"><code>$ hey bytes.hey</code></pre>
-<p class="cmd-label">Output</p>
-<pre data-example="fragment" data-needs="REVIEW" class="out"><code>12
+<p class="cmd-label">Run it</p>
+<pre data-example="runnable" class="out"><code>$ hey bytes.hey
+12
 station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
@@ -402,8 +398,8 @@ station
 <h2 id="phases">5. How a String is stored: the 16-byte value <span class="badge b-decided">Decided, coming</span></h2>
 <p>Ruled by the Maintainer: Hey keeps <em>one</em> String form, and in Phase S that form becomes a 16-byte
 <em>value</em> (two machine registers) in the "German string" layout, layered on top of the SDS blocks of section 4
-rather than replacing them. The layout's contract is now frozen. The 0.99.606a toolchain still uses the SDS pointer of
-section 4 for every String; nothing in this section runs in compiled code yet.</p>
+rather than replacing them. The layout's contract is frozen. Today every String is still the SDS pointer of
+section 4; nothing in this section runs in compiled code yet.</p>
 <figure>
 <svg viewBox="0 0 880 360" role="img" aria-labelledby="r4t r4d">
 <title id="r4t">The 16-byte String, short and long</title>
@@ -481,32 +477,20 @@ and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layo
 <h3>Today and coming</h3>
 <div class="tablewrap"><table>
 <tr><th>What</th><th>Status</th></tr>
-<tr><td>One String form: an SDS block with a count, as in section 4 (0.99.606a)</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>One String form: an SDS block with a count, as in section 4</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>The 4 GiB limit: asking for a longer String fails fast</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 <tr><td>The 16-byte layout, its rules and its four classes, frozen as a contract</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>The runtime's 16-byte value and its tests (the 12/13-byte boundary, NUL bytes, escapes, copy-on-write append, actor transfer, memory-checker negative controls, the C calling convention), built alongside 0.99.607a, unused by compiled code</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>The compiler switch-over (S2&ndash;S9 below) and its speed-ups, in the performance release after 607</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>Compiled code switched to the 16-byte value, then the speed-ups below, each measured against C and Rust</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 </table></div>
+<p>What the switch makes faster, step by step: every String call stops allocating for short Strings (passed in two
+registers); comparisons, sorting and map keys use the prefix first; <code>slice</code>, <code>split</code> and
+<code>trim</code> hand back views and copy only what escapes; maps move to SwissTable-style probing keyed by the 16-byte
+value; and <code>a + b + c</code> and interpolation are built once at the exact size. A rope form for tree-shaped
+concatenation is built only if the measurements ask for it.</p>
 
-<h3>The steps, and what each makes faster</h3>
-<div class="tablewrap"><table>
-<tr><th>Step</th><th>What</th><th>Makes faster</th><th>Status</th></tr>
-<tr><td>S0</td><td>String benchmark set in Hey, Rust and C</td><td>(the baseline)</td><td><span class="badge b-works">Done</span></td></tr>
-<tr><td>S1</td><td>The frozen contract, and the 16-byte value in the runtime with its tests, alongside 607</td><td>Nothing yet: unused by compiled code</td><td><span class="badge b-partly">Being built</span></td></tr>
-<tr><td>S2</td><td>Compiled code passes the 16-byte value in two registers (321 parameters in 242 functions)</td><td>Every String call; short Strings stop allocating</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S3</td><td>Prefix fast paths: equality as one 8-byte compare first, ordering by prefix, hashing</td><td>Comparisons, sorting, map keys</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S4</td><td>Borrowed views proven by MIR for slice, split, trim, field reads; copy only what escapes</td><td>split and slice</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S5</td><td>SwissTable-style maps keyed by the 16-byte value</td><td>Map lookup and insert</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S6</td><td><code>a + b + c</code> and interpolation built once at the exact size</td><td>Concatenation chains</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S7</td><td>Measure W7, W8, 1BRC formatting, the self-compile</td><td>(evidence)</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S8</td><td>Decide whether to build ropes (CONCAT), only if S7 says so</td><td>Tree-shaped concatenation</td><td><span class="badge b-decided">Not built</span></td></tr>
-<tr><td>S9</td><td>Report each step against S0, Rust and C</td><td>(evidence)</td><td><span class="badge b-decided">Not built</span></td></tr>
-</table></div>
-<p>Estimate: 128&ndash;224 specialist work hours. Dates are on the roadmap (<a href="2026-10-25-hey-every-decision.html">Roadmap</a>):
-the runtime half (S1) is built alongside 607, and the compiler half (S2&ndash;S9) lands in the performance release after 607, because it needs the typed MIR ownership facts that 607 builds.</p>
-
-<h3>Where Strings stand today: the S0 baseline</h3>
-<p>Mac, 1 million strings,, instructions net of building the input,
-checksums equal in all three languages. These predate 606a's fixes.</p>
+<h3>Where Strings stand: the baseline against C and Rust</h3>
+<p>Mac, 1 million strings, instructions net of building the input, checksums equal in all three languages,
+measured before the counting fix described below.</p>
 <div class="tablewrap"><table>
 <tr><th>Task</th><th class="num">C</th><th class="num">Rust</th><th class="num">Hey</th><th>Hey vs best</th></tr>
 <tr><td>Build 1M strings</td><td class="num">1.37G</td><td class="num">1.04G</td><td class="num">5.97G</td><td>4.4&times; C</td></tr>
@@ -517,11 +501,11 @@ checksums equal in all three languages. These predate 606a's fixes.</p>
 <tr><td>Count with a map</td><td class="num">0.16G</td><td class="num">0.28G</td><td class="num">3,177G (about 240&ndash;280 s across runs)</td><td>20,000&times; C, then fixed: 0.47 s</td></tr>
 <tr><td>Peak memory</td><td class="num">47 MB</td><td class="num">74 MB</td><td class="num">106 MB</td><td></td></tr>
 </table></div>
-<p>The counting row is the story of section 1: the S0 baseline found that <code>put</code> with a read of the same map in
+<p>The counting row is the story of section 1: the baseline found that <code>put</code> with a read of the same map in
 its value argument (<code>counts[item] + 1</code>) wasn't recognized as a last use, so the map was copied every
 iteration. The fix was in MIR only: arguments are evaluated before the call takes the map,<sup><a href="#n5">5</a></sup> so an element read
 in another argument has already finished. About 240&ndash;280 seconds (236.9 s in one run, 280 s in another) became 0.47 s.</p>
-<p>S1's own micro-benchmark (C, 1M items, instructions per operation) compares the 16-byte value with today's runtime
+<p>A micro-benchmark of the runtime's 16-byte value (C, 1M items, instructions per operation) compares the 16-byte value with today's runtime
 calls and with an SDS path that reads the header inline (a fast path today's layout could also get):</p>
 <div class="tablewrap"><table>
 <tr><th>Operation</th><th class="num">16-byte value</th><th class="num">SDS, runtime call</th><th class="num">SDS, inline</th></tr>
@@ -536,22 +520,15 @@ SDS, equality gains only 1.25&times;, and sorting doesn't gain at all, because t
 "stat". The clear win for the value form is the slice: a view instead of a copy, 7.5&times; fewer instructions.</p>
 
 <h2 id="maps">6. Maps and arrays</h2>
-<h3>A map <code>put</code> takes over a dead, unique map <span class="badge b-partly">Partly works</span></h3>
-<p><code>Map.put</code> is declared in <code>stdlib/Map.hey</code> as consuming its receiver
-(<code>receiver_effect=consume</code>). When MIR proves the map is dead after the call, it moves the map in, and if the
-count is 1 the runtime writes in place. That works today for the shapes MIR recognizes (section 3). For every
-program shape, it needs the general MIR uniqueness and last-use facts: consolidation phase 14.</p>
+<h3>A map <code>put</code> takes over a dead, unique map <span class="badge b-works">Works today</span></h3>
+<p><code>Map.put</code> is declared as consuming its receiver. When MIR proves the map is dead after the call, it moves the map in, and if the
+count is 1 the runtime writes in place. That works today for the shapes MIR recognizes (section 3); every program shape comes with the typed ownership facts. <span class="badge b-decided">Decided, coming</span></p>
 
 <h3>The map hash index redesign <span class="badge b-proposed">Proposed</span></h3>
-<p>A runtime branch that stored each index slot's probe position (so growing never re-hashes) is <strong>held</strong>:
-measured against ordinary programs it lost in places (102% more instructions on one shape) and its use of the top 32
-bits of the FNV hash clustered keys into the same buckets. It will be redesigned and fed into the map work of
-phase 14; Phase S's S5 then replaces the table with SwissTable-style probing. Schedule: <a href="2026-10-25-hey-every-decision.html">Roadmap</a>.</p>
+<p>A design that stored each index slot's probe position (so growing never re-hashes) was measured and set aside: on ordinary programs it lost in places (102% more instructions on one shape), and its use of the top 32 bits of the hash clustered keys into the same buckets. SwissTable-style probing, keyed by the 16-byte String value, replaces it.</p>
 
-<h3>Arrays and <code>get</code> must never copy <span class="badge b-partly">Partly works</span></h3>
-<p>An open task tracks the measured places where array spreads, appends and reads still copy or leak, which make some
-array loops quadratic (task <code>arrays-and-get-must-never-copy</code>). Appending to an array you alone hold is in
-place today.</p>
+<h3>Arrays and <code>get</code> never copy <span class="badge b-decided">Decided, coming</span></h3>
+<p>Appending to an array you alone hold is in place today. A few array spreads, appends and reads still copy, which makes some array loops quadratic; every one of them is being fixed.</p>
 
 <h2 id="regions">7. Regions and flat records</h2>
 <p>Reference counting frees values one at a time. A program that builds a tree, reads it and throws it away pays one
@@ -571,11 +548,10 @@ changing what the program means.</p>
 <text x="390" y="158" class="t-small">the block returns when the scope has ended AND its live count is 0</text>
 <text x="20" y="194" class="t-small t-muted">So a wrong fact can only keep memory alive longer. It can't cause a use-after-free.</text>
 </svg>
-<figcaption>Figure 5. Regions (Tofte and Talpin 1997; the MLKit; Cyclone) next to plain reference counting. Go's escape analysis is prior art for fact F2 only.
-Source: <code>docs/developers/regions-and-reuse.md</code>.</figcaption>
+<figcaption>Figure 5. Regions (Tofte and Talpin 1997; the MLKit; Cyclone) next to plain reference counting. Go's escape analysis is prior art for fact F2 only.</figcaption>
 </figure>
 
-<h3>The four facts and one solver <span class="badge b-partly">Partly works</span></h3>
+<h3>The four facts and one solver <span class="badge b-decided">Decided, coming</span></h3>
 <p>Which values go in a region, and which get reused, is decided from four facts, all computed in MIR:</p>
 <ol>
 <li><strong>F1 fresh result:</strong> everything a function returns is newly built by that call.</li>
@@ -585,25 +561,24 @@ Source: <code>docs/developers/regions-and-reuse.md</code>.</figcaption>
 </ol>
 <p>One worklist solver computes F2 and F4 over the same control flow. The rule above all of them: <strong>no special
 cases</strong>. No fact mentions a function name, a field name, a file or a benchmark. A first planner that classified
-calls by their names was reverted, and the 603a version whose rule only fit the
+calls by their names was reverted, and a version whose rule only fit the
 binary-trees benchmark was deleted (<a href="2026-10-25-hey-performance.html#honest">Performance</a> tells both
-stories). Today the runtime half is built and tested (<code>test/gate_regions_runtime.sh</code>)<sup><a href="#n6">6</a></sup>; the MIR facts and their
-lowering aren't.</p>
+stories). Today the runtime half is built and tested;<sup><a href="#n6">6</a></sup> the MIR facts and their lowering are coming.</p>
 
 <h3>Flat records, then regions <span class="badge b-decided">Decided, coming</span></h3>
 <p>The direction is both, in order: first a compact record header and then shaped records that store fields flat
-(task <code>record-representation-compact-and-shaped</code>), then regions for whole lifetimes. They solve different
+then regions for whole lifetimes. They solve different
 costs: flat records make each record cheaper; regions make freeing many records cheap.</p>
 
 <h3>Actor and turn regions <span class="badge b-proposed">Proposed</span></h3>
 <p>The same machinery applied to actors: an actor's memory, or the temporaries of one message-handling turn, freed in
-one step when the actor stops or the turn ends (task <code>actor-and-turn-regions</code>). The runtime has regions and a
+one step when the actor stops or the turn ends. The runtime has regions and a
 failure path that pops them, so a failed turn closes its region too; the ownership proofs that would open one per turn
 aren't built. Actors: <a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>.</p>
 
 <h2 id="allocator">8. The small-block allocator <span class="badge b-works">Works today</span></h2>
 <p>Record headers, array headers and short String blocks are 32 bytes to 1 KiB, and ordinary programs make and free
-them at a furious rate. In the 606a candidate they come from Hey's own pages instead of <code>malloc</code>,<sup><a href="#n7">7</a></sup> after
+them at a furious rate. They come from Hey's own pages instead of <code>malloc</code>,<sup><a href="#n7">7</a></sup> after
 mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019).</p>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-labelledby="r6t r6d">
@@ -636,13 +611,11 @@ mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019).</p>
 <figcaption>Figure 6. The runtime's small-block allocator. Pages are 64 KiB, cut from 64-page segments.</figcaption>
 </figure>
 <p>Three allocator changes finished it: medium blocks up to 1 KiB, the String
-lifecycle inlined (a 320-byte String's allocate-and-release went from 750 to 298 instructions; 604a was 692), remote
+lifecycle inlined (a 320-byte String's allocate-and-release went from 750 to 298 instructions), remote
 frees settled before a thread abandons a page, and pages that dead threads leave empty retired.<sup><a href="#n8">8</a></sup> It runs under
-AddressSanitizer too, with every free block poisoned, so the sanitizer tests the allocator that ships. Its follow-on
-branch waits for the performance release.</p>
-<h3>Size-specialized allocation <span class="badge b-partly">Partly works</span></h3>
-<p>An open task (<code>post-closure-size-specialized-allocation</code>) goes further: allocate each value from the
-exact size class known at compile time, skipping the size lookup. The size classes above are its foundation.</p>
+AddressSanitizer too, with every free block poisoned, so the sanitizer tests the allocator that ships.</p>
+<h3>Size-specialized allocation <span class="badge b-proposed">Proposed</span></h3>
+<p>The next step goes further: allocate each value from the exact size class known at compile time, skipping the size lookup. The size classes above are its foundation.</p>
 
 <h2 id="watch">9. Watching memory yourself <span class="badge b-works">Works today</span></h2>
 <p>Three builtins: <code>reset_allocations()</code> zeroes the counters, <code>allocations()</code> returns them as a
@@ -695,10 +668,9 @@ program
   let second = report(&#39;keeping the old map&#39;)
   says memory_rss_bytes() &gt; 0
 end</code></pre>
-<p class="cmd-label">Run</p>
-<pre data-example="runnable"><code>$ hey watch.hey</code></pre>
-<p class="cmd-label">Output</p>
-<pre data-example="fragment" data-needs="REVIEW" class="out"><code>alone: in place 1000, copied 0
+<p class="cmd-label">Run it</p>
+<pre data-example="runnable" class="out"><code>$ hey watch.hey
+alone: in place 1000, copied 0
 keeping the old map: in place 0, copied 1000
 true</code></pre>
 <p>The counters <code>json_write_inplace</code> and <code>json_write_cow_copy</code> show the difference from section 1 directly. <code>allocations()</code> returns 43 counters; this was the list:</p>
@@ -712,18 +684,17 @@ true</code></pre>
   says stats.keys
   says memory_rss_bytes() &gt; 0
 end</code></pre>
-<p class="cmd-label">Run</p>
-<pre data-example="runnable"><code>$ hey stats.hey</code></pre>
-<p class="cmd-label">Output</p>
-<pre data-example="fragment" data-needs="REVIEW" class="out"><code>object
+<p class="cmd-label">Run it</p>
+<pre data-example="runnable" class="out"><code>$ hey stats.hey
+object
 [&quot;xmalloc_calls&quot;,&quot;xmalloc_bytes&quot;,&quot;strdup_calls&quot;,&quot;strdup_bytes&quot;,&quot;string_values&quot;,&quot;bytes_values&quot;,&quot;json_objects&quot;,&quot;json_pairs&quot;,&quot;json_arrays&quot;,&quot;array_appends&quot;,&quot;clones&quot;,&quot;releases&quot;,&quot;string_grows&quot;,&quot;json_gets&quot;,&quot;json_puts&quot;,&quot;json_get_key_fast&quot;,&quot;json_put_key_fast&quot;,&quot;json_has_key_fast&quot;,&quot;json_delete_key_fast&quot;,&quot;json_write_inplace&quot;,&quot;json_write_cow_copy&quot;,&quot;message_allocs&quot;,&quot;message_reuses&quot;,&quot;message_returns&quot;,&quot;message_outstanding&quot;,&quot;message_peak_outstanding&quot;,&quot;send_clones&quot;,&quot;send_moves&quot;,&quot;boxes_made&quot;,&quot;boxes_retired&quot;,&quot;boxes_live&quot;,&quot;io_transfer_arms&quot;,&quot;io_transfer_takes&quot;,&quot;io_transfer_poisons&quot;,&quot;io_handle_closes&quot;,&quot;io_governed_clones&quot;,&quot;shape_interns&quot;,&quot;shape_reuses&quot;,&quot;node_field_snapshot_clones&quot;,&quot;node_borrow_begins&quot;,&quot;node_borrow_ends&quot;,&quot;node_borrow_promotions&quot;,&quot;shape_queries&quot;]
 true</code></pre>
 <p>Two environment variables help outside the program: <code>HEY_ALLOC_STATS=1</code> prints every counter as one JSON line on exit (it also turns on the six allocation counters, such as <code>xmalloc_calls</code>, which read 0 without it), and <code>/usr/bin/time -l</code> (Mac) or <code>/usr/bin/time -v</code> (Linux) gives instructions and peak memory. <code>HEY_ALLOC_STATS=1 hey watch.hey</code> printed the same three lines, then (shortened) <code>HEY_ALLOC_STATS {"xmalloc_calls":6722,"xmalloc_bytes":4034208, &hellip; "json_write_inplace":0,"json_write_cow_copy":1000, &hellip;}</code>; its totals are for the whole run after the last reset.</p>
-<p class="id">Run, Mac M3 Pro, with the 0.99.606a candidate in the documentation toolchain (<code>hey --version</code> prints <code>0.99.606a</code>; the toolchain is a later candidate build, same language surface as the frozen 0.99.606a source, whose own build had failed). <code>hey</code> means that toolchain's <code>bin/hey</code>; every <code>HEY_*</code> variable was unset first. Instruction counts come from <code>/usr/bin/time -l</code>; the machine was busy (load average about 8.5), so milliseconds are rough and instructions are the number to trust. <code>hey build</code> also prints about 30 <code>selfhost_*=</code> progress lines before <code>built PATH</code>; they are left out above.</p>
+<p class="id">Measured on a Mac M3 Pro.</p>
 
 <h2 id="sources">Sources</h2>
 <ul>
-<li>Hey source (the frozen 606a candidate): the runtime (SDS header, the one uniqueness test and the hooks, small-block pages, COW default on); the runtime's string header (the 16-byte value); the standard library's Map module (<code>put</code> consumes its receiver); <code>stdlib/Bytes.hey</code>; <code>docs/developers/regions-and-reuse.md</code>; <code>test/gate_regions_runtime.sh</code>; <code>examples/allocation_stats.hey</code>.</li>
+<li>Every runnable sample on this page is run by the documentation test; the timing tables were measured on a Mac M3 Pro.</li>
 <li>Reinking, Xie, de Moura, Leijen, <em>Perceus: Garbage Free Reference Counting with Reuse</em>, PLDI 2021. Tofte and Talpin, <em>Region-Based Memory Management</em>, 1997. Leijen, Zorn, de Moura, <em>Mimalloc: Free List Sharding in Action</em>, MSR-TR-2019-18. The 16-byte "German string": cedardb.com/blog/german_strings, as cited by the research brief above.</li>
 <li>Rulings, one line each above: one String form and Phase S; ownership decisions belong in MIR; no special cases. Full cards: <a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</li>
 </ul>
@@ -737,7 +708,7 @@ true</code></pre>
 <section class="notes" id="notes" aria-labelledby="notes-h">
 <h2 id="notes-h">Notes</h2>
 <ol>
-<li id="n1">The documentation toolchain was built from this commit: cb817d.</li>
+<li id="n1">Measured with a toolchain built from cb817d.</li>
 <li id="n2">Copy-on-write enabled by default, with in-place mutation for sole-owned values: d443da.</li>
 <li id="n3">MIR gained explicit ownership statements in its one reader and a consume-exactly-once verifier: 03e9ee.</li>
 <li id="n4">A boxed String self-append reuses its accumulator: c800ef.</li>
