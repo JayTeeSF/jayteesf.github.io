@@ -6,8 +6,8 @@
   <meta name="article-index-rank" content="20">
   <meta name="article-index-desc" content="A picture-first explainer: how a million idle actors share a few threads, why one failing actor must not hurt its neighbours, and what other actor runtimes do.">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="How Hey runs millions of actors on a handful of threads, how one actor's failure stays its own, and what Hey is taking from Erlang, Go, Pony, Swift and Tokio. Pictures first.">
-  <meta name="article-desc" content="A picture-first explainer. Hey's actors are not one-per-thread: a million idle actors fit in about 137 MB on 12 worker threads. The new scheduler measures with Go. One actor failing must never hurt the others sharing its thread, and per-actor regions should make an actor's death as cheap as Erlang's. What every major actor runtime does, and the order Hey will do it in.">
+  <meta name="description" content="How Hey runs millions of actors on a handful of threads, how one actor's failure stays its own, and what Hey takes from Erlang, Go, Pony, Swift and Tokio. Pictures first.">
+  <meta name="article-desc" content="A picture-first explainer. Hey actors are not one per thread: a million idle actors fit in about 150 MB on one worker thread per core. One actor failing never hurts the others sharing its thread.">
   <title>How Hey Runs a Million Actors</title>
   <style>
     :root {
@@ -103,14 +103,13 @@
   </style>
 </head>
 <body>
-<p data-superseded-by="2026-10-25-hey-actors-and-failure.html" style="margin:0 auto;max-width:960px;padding:.6rem 1rem;border:1px solid currentColor;border-radius:8px;font-size:.95rem"><strong>Superseded on 28 October 2026</strong> by <a href="2026-10-25-hey-actors-and-failure.html">Hey actors and failure</a>. This page is kept as dated research history.</p>
   <header>
-    <p class="muted"><a href="index.html">Articles</a> &middot; Actors &middot; October 9, 2026</p>
+    <p class="muted"><a href="index.html">Articles</a> &middot; Actors</p>
     <h1>How Hey Runs a Million Actors</h1>
     <p class="lede">
       Is there one actor per thread? No. Hey parks millions of actors in memory and runs whichever ones have
       mail on one worker thread per CPU core. This article shows how that works in pictures, what happens when
-      one actor fails while sharing a thread with thousands of others, and what Hey is taking from Erlang, Go,
+      one actor fails while sharing a thread with thousands of others, and what Hey takes from Erlang, Go,
       Pony, Swift and Tokio.
     </p>
   </header>
@@ -121,20 +120,19 @@
       <ul>
         <li><strong>Many actors per thread.</strong> A compiled Hey actor is a small record (its state plus a
           mailbox) with no stack and no thread of its own. One worker thread per core runs whichever actors have
-          mail. A million idle actors take about <strong>137 MB</strong> and use no CPU.</li>
-        <li><strong>The new scheduler measures with Go.</strong> Copying Go's design took ping-pong from
-          3.5&ndash;4.7&nbsp;&micro;s to <strong>110&nbsp;ns</strong> per message, and throughput now grows with
-          cores instead of falling. It is measured on a branch and <em>has not shipped yet</em>.</li>
+          mail. A million idle actors take about <strong>150 MB</strong> and use no CPU.</li>
+        <li><strong>The scheduler copies Go's design.</strong> Replacing one global lock with a queue per core took
+          ping-pong from microseconds to about a tenth of a microsecond per message, and throughput now grows with
+          cores instead of falling.</li>
         <li><strong>Failure belongs to the actor, not the thread.</strong> Hey fails fast, like Erlang: an error
-          stops that actor's turn, and the thread moves straight on to the next actor. Error state has to live with
+          stops that actor's turn, and the thread moves straight on to the next actor. Error state lives with
           the actor, because thousands of actors share each thread.</li>
-        <li><strong>Next: a memory region per actor.</strong> When an actor dies, its whole memory region should be
-          freed at once, the way Erlang frees a process heap. Regions already cut about a third of the instructions
-          from a record-heavy benchmark.</li>
+        <li><strong>Next: memory freed per turn and per actor.</strong> When an actor dies, its memory should go back
+          in one step, the way Erlang frees a process heap. Regions already do that for temporary record graphs.</li>
       </ul>
     </section>
 
-    <h2>1. One thread per actor, or many actors per thread?</h2>
+<h2>1. One thread per actor, or many actors per thread?</h2>
     <p>
       The obvious way to build actors is to give each one an operating-system thread. That works for a few
       hundred actors. It fails at a million, because every thread reserves a stack (typically 512&nbsp;KB to
@@ -185,7 +183,7 @@
             <circle cx="480" cy="128" r="3"/><circle cx="492" cy="128" r="3"/><circle cx="504" cy="128" r="3"/><circle cx="516" cy="128" r="3"/><circle cx="528" cy="128" r="3"/><circle cx="540" cy="128" r="3"/><circle cx="552" cy="128" r="3"/><circle cx="564" cy="128" r="3"/><circle cx="576" cy="128" r="3"/><circle cx="588" cy="128" r="3"/><circle cx="600" cy="128" r="3"/><circle cx="612" cy="128" r="3"/><circle cx="624" cy="128" r="3"/><circle cx="636" cy="128" r="3"/><circle cx="648" cy="128" r="3"/><circle cx="660" cy="128" r="3"/><circle cx="672" cy="128" r="3"/><circle cx="684" cy="128" r="3"/><circle cx="696" cy="128" r="3"/><circle cx="708" cy="128" r="3"/><circle cx="720" cy="128" r="3"/><circle cx="732" cy="128" r="3"/><circle cx="744" cy="128" r="3"/><circle cx="756" cy="128" r="3"/><circle cx="768" cy="128" r="3"/><circle cx="780" cy="128" r="3"/><circle cx="792" cy="128" r="3"/><circle cx="804" cy="128" r="3"/><circle cx="816" cy="128" r="3"/><circle cx="828" cy="128" r="3"/><circle cx="840" cy="128" r="3"/><circle cx="852" cy="128" r="3"/><circle cx="864" cy="128" r="3"/>
             <circle cx="486" cy="140" r="3"/><circle cx="498" cy="140" r="3"/><circle cx="510" cy="140" r="3"/><circle cx="522" cy="140" r="3"/><circle cx="534" cy="140" r="3"/><circle cx="546" cy="140" r="3"/><circle cx="558" cy="140" r="3"/><circle cx="570" cy="140" r="3"/><circle cx="582" cy="140" r="3"/><circle cx="594" cy="140" r="3"/><circle cx="606" cy="140" r="3"/><circle cx="618" cy="140" r="3"/><circle cx="630" cy="140" r="3"/><circle cx="642" cy="140" r="3"/><circle cx="654" cy="140" r="3"/><circle cx="666" cy="140" r="3"/><circle cx="678" cy="140" r="3"/><circle cx="690" cy="140" r="3"/><circle cx="702" cy="140" r="3"/><circle cx="714" cy="140" r="3"/><circle cx="726" cy="140" r="3"/><circle cx="738" cy="140" r="3"/><circle cx="750" cy="140" r="3"/><circle cx="762" cy="140" r="3"/><circle cx="774" cy="140" r="3"/><circle cx="786" cy="140" r="3"/><circle cx="798" cy="140" r="3"/><circle cx="810" cy="140" r="3"/><circle cx="822" cy="140" r="3"/><circle cx="834" cy="140" r="3"/><circle cx="846" cy="140" r="3"/><circle cx="858" cy="140" r="3"/><circle cx="870" cy="140" r="3"/>
           </g>
-          <text x="675" y="168" font-size="13" text-anchor="middle" class="m">idle actors: state + mailbox, about 137 bytes each, no stack, no thread</text>
+          <text x="675" y="168" font-size="13" text-anchor="middle" class="m">idle actors: state + mailbox, about 150 bytes each, no stack, no thread</text>
         </g>
         <g>
           <rect x="480" y="190" width="28" height="70" rx="5" class="worker"/><rect x="513" y="190" width="28" height="70" rx="5" class="worker"/>
@@ -211,8 +209,8 @@
         </defs>
       </svg>
       <figcaption>Figure 1. Hey's compiled actors use the right-hand model. Two parts of Hey still use the
-        left-hand model: the interpreter, and actors started under <code>supervise</code>. Moving
-        <code>supervise</code> onto the worker pool is on the list in section 7.</figcaption>
+        left-hand model: the REPL, and actors started under <code>supervise</code>. Moving
+        <code>supervise</code> onto the worker pool is decided, coming.</figcaption>
     </figure>
 
     <h3>How small is an idle actor?</h3>
@@ -220,33 +218,29 @@
       Being small is what makes a million actors possible. Each bar below is the memory one idle actor or task costs.
       Shorter is better.
     </p>
-    <div class="bars" role="img" aria-label="Bytes per idle actor: Tokio 64, Hey 137, Pony about 240, BEAM about 2616, Go about 2870">
-      <div class="bar-row"><div class="bar-label">Rust Tokio task</div><div class="bar-track"><div class="bar-fill" style="width:2.2%"></div><span class="bar-val" style="left:calc(2.2% + 0.5rem)">64 B</span></div></div>
-      <div class="bar-row"><div class="bar-label"><strong>Hey actor</strong></div><div class="bar-track"><div class="bar-fill hey" style="width:4.8%"></div><span class="bar-val" style="left:calc(4.8% + 0.5rem)">137 B (measured, 1,000,000 parked)</span></div></div>
-      <div class="bar-row"><div class="bar-label">Pony actor</div><div class="bar-track"><div class="bar-fill" style="width:8.4%"></div><span class="bar-val" style="left:calc(8.4% + 0.5rem)">about 240 B</span></div></div>
-      <div class="bar-row"><div class="bar-label">Erlang process</div><div class="bar-track"><div class="bar-fill" style="width:91%"></div><span class="bar-val">about 2,616 B</span></div></div>
-      <div class="bar-row"><div class="bar-label">Go goroutine</div><div class="bar-track"><div class="bar-fill go" style="width:100%"></div><span class="bar-val">about 2,870 B (measured, same machine)</span></div></div>
+    <div class="bars" role="img" aria-label="Bytes per idle actor: Tokio 64, Hey 150, Pony about 240, Go 2,070, BEAM about 2,616">
+      <div class="bar-row"><div class="bar-label">Rust Tokio task</div><div class="bar-track"><div class="bar-fill" style="width:2.4%"></div><span class="bar-val" style="left:calc(2.4% + 0.5rem)">64 B</span></div></div>
+      <div class="bar-row"><div class="bar-label"><strong>Hey actor</strong></div><div class="bar-track"><div class="bar-fill hey" style="width:5.7%"></div><span class="bar-val" style="left:calc(5.7% + 0.5rem)">150 B (measured, a million parked)</span></div></div>
+      <div class="bar-row"><div class="bar-label">Pony actor</div><div class="bar-track"><div class="bar-fill" style="width:9.2%"></div><span class="bar-val" style="left:calc(9.2% + 0.5rem)">about 240 B</span></div></div>
+      <div class="bar-row"><div class="bar-label">Go goroutine</div><div class="bar-track"><div class="bar-fill go" style="width:79%"></div><span class="bar-val">2,070 B (measured, a million parked)</span></div></div>
+      <div class="bar-row"><div class="bar-label">Erlang process</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div><span class="bar-val">about 2,616 B</span></div></div>
     </div>
     <p class="muted">
-      Hey and Go were measured on the same 12-core Mac with a million parked actors or goroutines. The Tokio,
-      Pony and Erlang figures come from <a href="2026-10-25-hey-actors-and-failure.html">What Makes an Actor Cheap?</a>.
+      Hey and Go were measured on the same Apple M3 Pro (12 cores), Hey built with 0.99.606a: the program's peak
+      memory holding a million parked actors or goroutines (each goroutine waiting on its own channel), less its
+      peak with none, divided by a million; medians of five and three runs. The Tokio, Pony and Erlang figures are
+      from their own documentation.
       Erlang and Go are big for the same reason: every process or goroutine owns a stack, even while idle.
     </p>
 
-    <div class="cards">
-      <div class="card"><div class="big">137 MB</div><p>for 1,000,000 idle Hey actors</p></div>
-      <div class="card"><div class="big">0.11 s</div><p>total CPU for those million actors over 3 seconds, all of it spent spawning them. Idle actors cost nothing.</p></div>
-      <div class="card"><div class="big">0.4&ndash;0.6 s</div><p>to spawn, stop and join a million actors (Go: 0.8&ndash;1.2 s), on the new scheduler</p></div>
-    </div>
-
     <h2>2. How the worker threads share the work</h2>
     <p>
-      Many actors per thread only pays off if the threads don't fight over the work. Until this month they
+      Many actors per thread only pays off if the threads don't fight over the work. At first they
       did: Hey's old scheduler had one global lock that every message went through. Adding cores made it
       <em>slower</em>, because the threads spent their time waiting for each other.
     </p>
     <p>
-      The new scheduler copies the design that Go has refined since 2012. Each core keeps its own queue, and
+      The scheduler that replaced it copies the design Go has refined for years. Each core keeps its own queue, and
       there is no global lock on the path a message takes.
     </p>
 
@@ -319,7 +313,8 @@
     </figure>
 
     <h3>What that changed, measured</h3>
-    <p>Two actors passing one message back and forth, time per message. Shorter is better:</p>
+    <p>Measured when the new scheduler replaced the old one, on a shared 12-core Mac. Two actors passing one
+      message back and forth, time per message. Shorter is better:</p>
     <div class="bars" role="img" aria-label="Ping-pong time per message: Hey before 4,100 nanoseconds, Hey after 112, Go 106">
       <div class="bar-row"><div class="bar-label">Hey, old scheduler</div><div class="bar-track"><div class="bar-fill before" style="width:100%"></div><span class="bar-val">3,500&ndash;4,700 ns</span></div></div>
       <div class="bar-row"><div class="bar-label"><strong>Hey, new scheduler</strong></div><div class="bar-track"><div class="bar-fill hey" style="width:2.7%"></div><span class="bar-val" style="left:calc(2.7% + 0.5rem)">110&ndash;114 ns</span></div></div>
@@ -363,14 +358,13 @@
         on a shared machine, so treat small differences as noise.</figcaption>
     </figure>
 
-    <div class="callout">
-      <h3>Status: measured, not shipped</h3>
-      <p>All the scheduler numbers above come from a dedicated actor-scheduler branch. It passed
-        ThreadSanitizer and AddressSanitizer (40 of 40 runs) and 500 stress runs without a failure. It is not in
-        a Hey release yet. It is queued to land right after the current Elders release round.</p>
-    </div>
+    <p>
+      For today's costs side by side (start-up, round trip, throughput, memory and failure for an actor, a worker
+      pool, a Job and a stream) see the measured table in
+      <a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4</a>.
+    </p>
 
-    <h2>3. When an actor fails, who else gets hurt?</h2>
+<h2>3. When an actor fails, who else gets hurt?</h2>
     <p>
       Hey follows Erlang's rule: <strong>fail fast, keep the failure isolated, restart</strong>. A run-time
       error, such as a failed JSON parse or an explicit <code>fail</code>, stops the current unit of work right
@@ -394,7 +388,7 @@
         <rect x="240" y="80" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="330" y="107" font-size="15" text-anchor="middle">B fails &#10007;</text>
         <rect x="440" y="80" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)" stroke-dasharray="5 4"/><text x="530" y="107" font-size="15" text-anchor="middle">C "fails" too</text>
         <rect x="640" y="80" width="180" height="44" rx="6" fill="var(--bad-soft)" stroke="var(--bad)" stroke-dasharray="5 4"/><text x="730" y="107" font-size="15" text-anchor="middle">D "fails" too</text>
-        <text x="20" y="150" font-size="13" class="m">B's error flag stays on the thread, so innocent actors look broken. Hey had this bug for requests (found October 9).</text>
+        <text x="20" y="150" font-size="13" class="m">B's error flag stays on the thread, so innocent actors look broken. Hey once had this bug for requests.</text>
 
         <text x="20" y="200" font-size="17" font-weight="700">Right: the error belongs to the turn (the request, the job, the actor)</text>
         <line x1="20" y1="242" x2="880" y2="242" stroke="var(--hey)" stroke-width="2"/>
@@ -411,10 +405,8 @@
 
     <h3>Stopping at once, without slowing the normal path</h3>
     <p>
-      Today a Hey handler that hits an error keeps running, using <code>nil</code> for the failed value. The
-      response is 500, but the handler's side effects still happen. The fix being built now makes the handler stop
-      where the error happened. The Maintainer's condition was that this must not turn into a heavyweight exception
-      system that slows every program down. The design meets it this way:
+      A handler that hits an error stops right there; nothing after the error runs. The condition was that this
+      must not turn into a heavyweight exception system that slows every program down. The design meets it this way:
     </p>
     <ul>
       <li>The compiler's middle stage (MIR, the step that already decides who owns each value) marks which calls
@@ -427,10 +419,11 @@
     </ul>
     <p>
       A call that cannot fail pays nothing. A call that can fail pays one branch the CPU almost always predicts
-      correctly. Status: <span class="pill progress">in progress</span>.
+      correctly. <a href="2026-10-25-hey-actors-and-failure.html">Reference 3</a> lists what each kind of unit does
+      when it fails.
     </p>
 
-    <h2>4. Problems that can reach many actors at once</h2>
+<h2>4. Problems that can reach many actors at once</h2>
     <p>
       A failing handler is the easy case. The hard cases are the ones where something goes wrong in a way the
       thread itself feels:
@@ -440,15 +433,15 @@
         <thead><tr><th>Problem</th><th>What happens in Hey today</th><th>Best known fix</th><th>Who does it that way</th></tr></thead>
         <tbody>
           <tr><td><strong>A handler loops forever</strong> or computes for a long time</td>
-            <td><span class="no">Hurts others.</span> It keeps its worker thread, and the actors queued behind it on that core wait (other workers can steal some of them).</td>
+            <td><span class="no">Hurts others today.</span> It keeps its worker thread, and the actors queued behind it on that core wait (other workers can steal some of them). Decided, coming: a time budget per unit, with safe points at function entries and loop back-edges.</td>
             <td><strong>Preemption.</strong> The compiler adds a cheap "time's up?" check at the top of every loop. When a turn runs out of budget, the actor yields its place.</td>
             <td>Erlang counts "reductions" (units of work) and switches process after a budget; Go interrupts long-running goroutines with a timer signal</td></tr>
           <tr><td><strong>A handler sleeps</strong></td>
-            <td><span class="part">Handled on the new scheduler:</span> the sleeping actor's core passes to a spare thread (up to 512).</td>
+            <td><span class="part">Handled:</span> the sleeping actor's core passes to a spare thread. Decided, coming: the actor parks with no thread at all.</td>
             <td>Better: the actor parks, with no thread at all, until a timer wakes it.</td>
             <td>Erlang, Go, Tokio all park rather than block</td></tr>
           <tr><td><strong>A handler blocks on slow I/O</strong></td>
-            <td><span class="no">Not yet covered:</span> it holds a worker thread.</td>
+            <td><span class="part">By rule:</span> <code>await</code> registers the input or output and ends the turn; readiness comes back as a message (decided, coming). A blocking native call belongs in a Job, a worker or the <code>program</code> block.</td>
             <td>Non-blocking I/O: the actor parks, and an event loop wakes it when the data arrives.</td>
             <td>Go's network poller, Tokio, Erlang's I/O ports</td></tr>
           <tr><td><strong>A hard crash</strong> (memory corruption, out of memory)</td>
@@ -475,14 +468,14 @@
           <tr><td><strong>Swift actors</strong></td><td class="yes">yes</td><td class="part">errors are values</td><td class="no">no</td><td class="no">no (cooperative)</td><td class="part">Sendable checks</td><td class="part">reference counting</td></tr>
           <tr><td><strong>Akka (JVM)</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td><td class="part">shares, by convention</td><td class="no">JVM collector</td></tr>
           <tr><td><strong>Rust Tokio</strong></td><td class="yes">yes</td><td class="part">a task's panic is caught</td><td class="no">library</td><td class="part">cooperative budget</td><td class="yes">moves, proved</td><td class="yes">ownership</td></tr>
-          <tr><td><strong>Hey, today</strong></td><td class="yes">yes</td><td class="part">being fixed (section 3)</td><td class="part">yes, but one thread each</td><td class="no">no</td><td class="no">copies</td><td class="part">reference counting</td></tr>
-          <tr><td><strong>Hey, goal</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes, on the pool</td><td class="yes">loop checks</td><td class="yes">moves when MIR proves it</td><td class="yes">regions</td></tr>
+          <tr><td><strong>Hey, today</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="part">yes, but threads each</td><td class="no">no</td><td class="no">copies</td><td class="part">reference counting</td></tr>
+          <tr><td><strong>Hey, decided</strong></td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes, on the pool</td><td class="yes">safe points</td><td class="yes">shared by reference</td><td class="yes">regions</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      The goal row takes the best part of each runtime: Erlang's isolation and supervision, Go's scheduler,
-      Pony's and Rust's compile-time proof that a message can move safely, and a region-based version of Erlang's
+      The decided row takes the best part of each runtime: Erlang's isolation and supervision, Go's scheduler,
+      immutable messages shared by reference instead of copied, and a region-based version of Erlang's
       "free the whole heap at once".
     </p>
 
@@ -493,7 +486,7 @@
     </p>
     <p>
       Hey already has the building block. A <strong>region</strong> is a group of allocations that share one
-      lifetime, allocated side by side and freed together. Since October 3, MIR has proved where a temporary
+      lifetime, allocated side by side and freed together. MIR proves where a temporary
       graph of records, such as decoded JSON, is built, only read, and then dropped. That graph goes into a
       region, and the region is freed in one step instead of one object at a time.
     </p>
@@ -535,32 +528,32 @@
     </figure>
 
     <div class="cards">
-      <div class="card"><h3>What regions did already</h3><div class="big">&minus;35%</div><p>instructions on a record-heavy benchmark (34.2 billion &rarr; 22.3 billion), same output, same peak memory, once MIR put temporary record graphs in regions.</p></div>
       <div class="card"><h3>Why it fits actors</h3><p>An actor's state and the values built during one turn have obvious lifetimes: "until the turn ends" and "until the actor dies". Those are exactly what a region needs.</p></div>
-      <div class="card"><h3>Bonus</h3><p>Allocation is the single largest cost in Hey's own compiler right now (about a third of its CPU, measured October 9). Regions attack the same cost from the other side.</p></div>
     </div>
-    <p>
+<p>
       The background on regions, and why they work together with flat records rather than competing with them,
-      is in <a href="2026-10-25-hey-values-memory-and-strings.html">Flat Records or Regions?</a>.
+      is in <a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: values, memory and Strings</a>.
     </p>
 
-    <h2>7. The order of work</h2>
-    <ol class="steps">
-      <li><strong>Land the new scheduler.</strong> Message throughput about 30 times higher, and it grows with cores
-        instead of shrinking. <span class="pill measured">measured on a branch, not shipped</span> <span class="pill queued">queued after the Elders release</span></li>
-      <li><strong>Fail fast, per unit of work.</strong> An error stops the turn at once, and the error lives with the
-        request, job or actor, never the thread. <span class="pill progress">in progress</span></li>
-      <li><strong>Run <code>supervise</code> on the worker pool.</strong> Today every supervised actor gets an OS
-        thread. On the pool, a million supervised actors need no more threads than one does. <span class="pill queued">queued after the Elders release</span></li>
-      <li><strong>A region per actor and per turn.</strong> Values built during a turn are freed in one step when the
-        turn ends; the actor's state is freed in one step when it dies. <span class="pill queued">queued</span></li>
-      <li><strong>Move, don't copy, when the compiler proves it is safe.</strong> This closes the remaining gap with Go
-        when many senders feed one actor (5 million messages per second versus Go's 20 million). <span class="pill proposed">proposed</span></li>
-      <li><strong>Preemption checks at the top of loops,</strong> so one busy actor cannot hold up the others on its
-        core. <span class="pill proposed">proposed</span></li>
-    </ol>
+    <h2>7. Where each piece stands</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Piece</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>The per-core scheduler, work stealing and the lock-free mailbox</td><td>Works today</td></tr>
+          <tr><td>Fail fast per unit of work: the error lives with the request, Job or actor, never the thread</td><td>Works today</td></tr>
+          <tr><td>Slowing a sender that outruns its receiver</td><td>Works today</td></tr>
+          <tr><td>A fail-fast mailbox ceiling</td><td>Decided, coming</td></tr>
+          <tr><td><code>supervise</code> on the worker pool, so a million supervised actors need no more threads than one</td><td>Decided, coming</td></tr>
+          <tr><td>A stack overflow in an actor ends only that actor</td><td>Decided, coming</td></tr>
+          <tr><td>Time budgets and safe points, so one busy actor can't hold up the others on its core</td><td>Decided, coming</td></tr>
+          <tr><td>Messages shared by reference instead of copied</td><td>Decided, coming</td></tr>
+          <tr><td>A region per actor and per turn</td><td>Proposed</td></tr>
+        </tbody>
+      </table>
+    </div>
 
-    <h2>Glossary</h2>
+<h2>Glossary</h2>
     <dl>
       <dt>actor</dt><dd>An independently scheduled unit with private state that communicates only by sending messages.</dd>
       <dt>M:N scheduling</dt><dd>Running M lightweight tasks (here, actors) on N operating-system threads, with N usually equal to the number of cores.</dd>
@@ -577,9 +570,6 @@
 
     <h2>Sources</h2>
     <ul>
-      <li>Hey actor scheduler receipt and design, October 8, 2026 (internal design record; actor-scheduler branch at 2463cb).</li>
-      <li>Hey region allocation, steps 1 and 2: commits 988414 and 86691a (October 3, 2026).</li>
-      <li>Hey compiler self-compile profile, October 9, 2026 (macOS <code>sample</code> at 90 s and 300 s).</li>
       <li><a href="https://golang.org/s/go11sched">Dmitry Vyukov: Scalable Go Scheduler Design</a>;
         <a href="https://github.com/golang/proposal/blob/master/design/24543-non-cooperative-preemption.md">Go: non-cooperative goroutine preemption</a></li>
       <li><a href="https://tokio.rs/blog/2019-10-scheduler">Tokio: Making the Tokio scheduler 10x faster</a></li>
@@ -589,7 +579,7 @@
       <li><a href="https://github.com/swiftlang/swift-evolution/blob/main/proposals/0306-actors.md">Swift SE-0306: Actors</a>;
         <a href="https://github.com/swiftlang/swift-evolution/blob/main/proposals/0302-concurrent-value-and-concurrent-closures.md">SE-0302: Sendable</a></li>
       <li><a href="https://www.microsoft.com/en-us/research/project/project-verona/">Microsoft Research: Project Verona</a> (regions)</li>
-      <li>Earlier Hey actor articles: <a href="2026-10-25-hey-actors-and-failure.html">What Makes an Actor Cheap?</a>,
+      <li>Related Hey articles: <a href="2026-10-25-hey-actors-and-failure.html">Reference 3: actors and failure</a>,
         <a href="designing-heys-actors.html">Designing Hey's Actors</a>, and
         <a href="should-heys-mailboxes-have-limits.html">Should Hey's Mailboxes Have Limits?</a></li>
     </ul>
@@ -597,9 +587,8 @@
 
   <footer>
     <p>
-      Written October 9, 2026. Hey's numbers were measured on a shared 12-core Apple-silicon Mac while other builds
-      were running, as medians of three runs. They are indicative, not qualified benchmarks. The scheduler results
-      are from a branch that has not shipped yet; this article will be updated when it does.
+      The scheduler comparison was measured on a shared 12-core Apple-silicon Mac as medians of three runs; it is
+      indicative, not a qualified benchmark.
     </p>
   </footer>
 </body>
