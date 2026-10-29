@@ -96,21 +96,22 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
   </defs>
 </svg>
 <div class="wrap">
-<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 3 of 6 · toolchain 0.99.606a (a later candidate build)<sup><a href="#n1">1</a></sup></p>
+<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 3 of 6</p>
 <h1>Build a real command-line tool in Hey</h1>
 <p class="lede">You'll write <code>wordfreq</code>, a small tool that finds the most common words in a folder of text files. Along the way you'll read flags, walk files, count with a map, run another program, report errors with the right exit code, test it, and turn it into one native binary you can copy anywhere.</p>
 
 <section class="note good" aria-labelledby="short">
 <h2 id="short">The short version</h2>
 <ul>
-<li><strong><code>hey wordfreq.hey</code> runs your tool like a script.</strong> The first run compiles it to native code and caches it; later runs start the cached binary in 8.3 ms.</li>
-<li><strong><code>hey build wordfreq.hey -o build/wordfreq</code> makes one 270 KB executable</strong> that needs only the system C library. It starts in 2.1 ms.</li>
+<li><strong><code>hey wordfreq.hey</code> runs your tool like a script.</strong> The first run compiles it to native code and caches it; later runs start the cached program in a few milliseconds.</li>
+<li><strong><code>hey build wordfreq.hey -o build/wordfreq</code> makes one small executable</strong> that needs only the system C library.</li>
 <li><strong><code>stdlib:Cli</code> gives you flags, typed values and a help screen</strong>; <code>Files</code>, <code>Process</code> and <code>Text</code> do the rest.</li>
-<li><strong>Honest gaps, all measured below:</strong> Hey has no statement that sets an exit status (<code>fail</code> always exits 70; tools hand their output to <code>/bin/sh</code>). Flag values need <code>--top=5</code>, not <code>--top 5</code>. And counting real text is slow today: 2.65 s against Ruby&#39;s 66 ms, because of a compiler defect that copies a map on every update.</li>
+<li><strong>Two gaps, both shown below:</strong> Hey has no statement that sets an exit status yet, and flag values need <code>--top=5</code>, not <code>--top 5</code>.</li>
 </ul>
 </section>
 
 <p><span class="tag t-acc">You are here</span> Guide 1 installed Hey and ran hello. Guide 2 added packages. This guide builds a tool. Guide 4 builds a web server, guide 5 builds apps, guide 6 ships them.</p>
+<p><strong>Every command here is run by Hey's documentation test</strong>, and its output must match what you see. A line with <code>...</code> stands for text left out.</p>
 
 <nav class="toc" aria-label="Contents"><strong>Contents</strong>
 <ol>
@@ -120,16 +121,14 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#process">Run another program</a></li>
 <li><a href="#errors">Errors and exit codes</a></li>
 <li><a href="#tests">Test it</a></li>
-<li><a href="#ship">Script or binary? Measure it</a></li>
+<li><a href="#ship">Script or binary?</a></li>
 <li><a href="#package">Ship it as a package command</a></li>
-<li><a href="#scaffold">Start the next one with a generator</a></li>
 <li><a href="#status">What works, at a glance</a></li>
 </ol>
 </nav>
 
 <h2 id="tool">1. The tool, in one picture</h2>
 <p>Every command-line tool is the same shape: arguments come in, some files get read, something gets computed, text comes out. <code>wordfreq</code> is that shape with nothing extra.</p>
-
 <figure class="fig" aria-labelledby="d1cap">
 <svg viewBox="0 0 900 230" role="img" aria-labelledby="d1t d1d">
 <title id="d1t">How data flows through wordfreq</title>
@@ -161,72 +160,22 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </svg>
 <figcaption id="d1cap">Figure 1. Arguments in, files read, a map of counts built, the top lines out. The counting part (green) touches no files, so it's easy to test.</figcaption>
 </figure>
-
 <p class="note"><strong>Hey in five words.</strong> <code>let</code> makes a name, <code>set</code> gives it a new value, <code>says</code> prints a line, <code>program ... end</code> is where the run starts, and <code>[...out, x]</code> is a new list with <code>x</code> added on the end. Values never change in place; you make a new one and <code>set</code> the name to it.</p>
-<p>The project is three files:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>wordfreq/
-  wordfreq.hey      the program: flags, files, output
-  lib/count.hey     the pure part: text in, counts out
-  count_spec.hey    tests for lib/count.hey</code></pre>
-<p>Here's what it does when you're done. Run it on a folder with two short text files:</p>
-<pre data-example="runnable"><code>$ hey wordfreq.hey --top=5 sample
-2 files, 12 different words
-     4  the
-     3  dog
-     2  a
-     2  fox
-     2  is</code></pre>
-
-<h2 id="flags">2. Read flags with <code>Cli</code> <span class="tag t-good">Works today</span></h2>
-<p>You describe your options once, as data. <code>Cli</code> turns that description into a help screen and into checked, typed values. Nothing to subclass, no annotations.</p>
-<pre data-example="runnable" data-file="wordfreq.hey"><code>fn schema()
-  return Cli.schema('wordfreq [FOLDER]', 'Count the most common words in text files.', [
-    Cli.option('top', 'int', 10, 'how many words to show'),
-    Cli.option('ext', 'string', '.txt', 'which file ending to read'),
-    Cli.option('git', 'bool', false, 'only read files git tracks'),
-    Cli.option('help', 'bool', false, 'show this help')
-  ])
-end</code></pre>
-<p>Then the top of <code>program</code> reads the real arguments and checks them:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>  let parsed = Cli.current()                    # reads argv and splits flags from the rest
-  let checked = Cli.validate(parsed, schema())  # a Result: ok, or which flag was wrong
-  ...
-  let folder = Cli.parsed_positionals(parsed).first('.')   # first item, or '.' if there is none
-  let top = Cli.typed_flag(checked, 'top', 10)  # already an Int, not text</code></pre>
-<p><code>.first('.')</code> works because the file has <code>import 'stdlib:Collections' exposing: [first] forms: [:dotted]</code>: that import lets you call <code>first(list, fallback)</code> as <code>list.first(fallback)</code>. (Imports are covered in <a href="2026-10-25-hey-modules-imports-exports.html">Modules, imports and exports</a>.)</p>
-<p>The help screen comes for free:</p>
-<pre data-example="runnable"><code>$ hey wordfreq.hey --help
-Usage: wordfreq [FOLDER] [options]
-Count the most common words in text files.
-Options:
-  --top &lt;int&gt;  how many words to show default=10
-  --ext &lt;string&gt;  which file ending to read default=.txt
-  --git  only read files git tracks default=false
-  --help  show this help default=false</code></pre>
-<p>A <code>bool</code> option is switched on by its name alone (<code>--git</code>) or given <code>=true/false/yes/no/on/off/1/0</code>; <code>--no-git</code> switches it off. Anything that doesn't start with a dash is a <em>positional</em> argument (here, the folder).</p>
-<div class="note warn">
-<p><strong>Write values with <code>=</code>: <code>--top=5</code>, not <code>--top 5</code>.</strong> <span class="tag t-warn">Partly works</span> <code>Cli.parse</code> reads flags before it sees your schema, so it can't tell that <code>--top</code> takes a value. It treats <code>--top</code> as a switch and <code>5</code> as the folder, and then validation says the flag isn't an Int:</p>
-<pre data-example="runnable"><code>$ hey wordfreq.hey --top 5 sample; echo "exit status: $?"
---top expects int
-Usage: wordfreq [FOLDER] [options]
-…  (the rest of the help screen)
-exit status: 64</code></pre>
-<p>The older list helpers (<code>Cli.flag(args, 'top', 10)</code>) do accept <code>--top 5</code>, so the two halves of <code>Cli</code> disagree. No task covers this yet; it is recorded as a known issue.</p>
-</div>
-<p class="note">The full <code>Cli</code>, <code>Files</code>, <code>Process</code> and <code>Env</code> function lists live in the <a href="2026-10-25-hey-standard-library.html">standard library reference</a>. There's also a small <code>hey_cli</code> package (0.1.0) with command and exit-result records; this guide sticks to the standard library because that's all <code>wordfreq</code> needs.</p>
-
-<h2 id="count">3. Walk files and count with a map <span class="tag t-good">Works today</span></h2>
-<p><code>Files.files(folder, '.txt')</code> returns every file under the folder that ends in <code>.txt</code>, sorted, searching subfolders too. <code>Files.read_text(path)</code> reads one file into a String.</p>
-<p>The counting lives in its own module so the tests can call it without touching the disk:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code># The pure part of wordfreq: text in, counts out. No files, no flags.
-import 'stdlib:Text'
-import 'stdlib:Collections'
+<p>Make a folder with two short text files to count:</p>
+<pre data-example="runnable" data-file="sample/a.txt"><code>The quick brown fox jumps over the lazy dog.
+The dog is asleep.</code></pre>
+<pre data-example="runnable" data-file="sample/b.txt"><code>A fox is a dog? No, a fox is not the dog.</code></pre>
+<p>The project is two Hey files. Open each one and save it; the sections below explain them piece by piece.</p>
+<details><summary><code>lib/count.hey</code>: the pure part, text in and counts out</summary>
+<pre data-example="runnable" data-file="lib/count.hey"><code># The pure part of wordfreq: text in, counts out. No files, no flags.
+import &#39;stdlib:Text&#39;
+import &#39;stdlib:Collections&#39;
 
 module WordCount
   # Lower-case a word and peel punctuation off both ends.
   fn clean(word)
     let w = Text.lower(word)
-    let marks = &quot;.,;:!?\&quot;'()[]{}&lt;&gt;*_-#`&quot;
+    let marks = &quot;.,;:!?\&quot;&#39;()[]{}&lt;&gt;*_-#`&quot;
     while len(w) &gt; 0 and Text.contains?(marks, slice(w, 0, 1))
       set w = slice(w, 1, len(w) - 1)
     end
@@ -265,173 +214,40 @@ module WordCount
     return Collections.take(pairs, n)
   end
 end</code></pre>
-
-<div class="note">
-<p><strong>What would you predict?</strong> Hey values never change. <code>put(out, w, 1)</code> returns a <em>new</em> map with one more entry. So does counting a 10,000-word file copy the map 10,000 times?</p>
-<details><summary>Answer (and an honest surprise)</summary>
-<p><strong>It shouldn't.</strong> The compiler's middle stage (MIR, the step that decides when values are created and freed) tracks who still holds each value. In <code>set out = put(out, ...)</code> the old <code>out</code> is never used again and nobody else holds that map, so <code>put</code> may change it in place. You write code that reads as if nothing changes; the machine does the cheap thing. The full story is in <a href="2026-10-25-hey-values-memory-and-strings.html">Values, memory and Strings</a>.</p>
-<p><strong>But today, in this exact shape, it does copy.</strong> We measured the same counting loop two ways on one 245 KB file (32,761 words):</p>
-<table>
-<thead><tr><th>Where the map starts</th><th class="n">Time</th></tr></thead>
-<tbody>
-<tr><td><code>let out = {}</code> inside the function that fills it</td><td class="n">37 ms</td></tr>
-<tr><td><code>let out = counts</code>, where <code>counts</code> is a parameter (as in <code>WordCount.add</code>)</td><td class="n">3.93 s</td></tr>
-</tbody>
-</table>
-<p>When the map arrives as a parameter, every <code>put</code> copies the whole map. That's a compiler defect, not a rule of the language. It is recorded as a known issue with a two-file reproduction, for repair in MIR's ownership plan. The guide keeps the natural code; see <a href="#speed">how fast it is on real text</a> for what it costs today.</p>
 </details>
-</div>
-
-<p>Back in <code>wordfreq.hey</code>, the main loop is four lines:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>  let counts = {}
-  for path in paths
-    set counts = WordCount.add(counts, Files.read_text(path))
-  end</code></pre>
-
-<h2 id="process">4. Run another program <span class="tag t-good">Works today</span></h2>
-<p>With <code>--git</code>, <code>wordfreq</code> asks git which files it tracks instead of walking the folder. <code>Process.run_argv</code> takes the command as a list of words. There's no shell in between, so spaces and quotes in file names arrive exactly as written.</p>
-<pre data-example="runnable" data-file="wordfreq.hey"><code>fn files_from_git(folder, ext)
-  let run = Process.run_argv(['git', '-C', folder, 'ls-files', '*' + ext])
-  if !run.ok
-    return []
-  end
-  let out = []
-  for name in Text.lines(run.stdout)
-    if name != ''
-      set out = [...out, Files.join(folder, name)]
-    end
-  end
-  return out
-end</code></pre>
-<p>The answer is a record: <code>ok</code>, <code>stdout</code>, <code>stderr</code> and the child's status. Here the sample folder is a git repository that tracks only <code>a.txt</code>:</p>
-<pre data-example="runnable"><code>$ hey wordfreq.hey --git --top=3 sample
-1 files, 9 different words
-     3  the
-     2  dog
-     1  brown</code></pre>
-<p>If a child might hang, use <code>Process.run_argv_timeout(args, 30_000)</code>: it kills the whole process group after 30 seconds. For a long-running child you talk to, <code>Process.spawn</code> gives you its stdin and stdout handles.</p>
-
-<h2 id="errors">5. Errors and exit codes</h2>
-<p>Hey separates two kinds of failure, and the difference matters for a tool.</p>
-<div class="cols">
-<div class="note good"><p><strong>Expected failures are values.</strong> A missing folder or a bad flag is something a user will do. Return a <code>Result</code> (<code>Result.ok(v)</code> or <code>Result.error_with(code, message)</code>), check <code>.ok</code>, and print something helpful. <code>Cli.validate</code> already does this for flags.</p></div>
-<div class="note bad"><p><strong>Bugs stop the program.</strong> <code>fail 'message'</code>, or any runtime error, stops the whole process at once. Hey calls the thing a failure stops the <em>unit of work</em>: in a server it's one request, in a tool it's the whole process. It prints the message and exits with status <strong>70</strong>. There's no <code>try/catch</code>; that's a <a href="2026-10-25-hey-every-decision.html">ruled design choice</a> (fail fast, Erlang style).</p></div>
-</div>
-<pre data-example="runnable"><code>$ cat fail_demo.hey
-program
-  says 'checking...'
-  fail 'the config file is missing'
-end
-$ hey fail_demo.hey; echo "exit status: $?"
-checking...
-hey error: the config file is missing
-exit status: 70</code></pre>
-
-<h3>The gap: choosing your own exit code <span class="tag t-warn">Partly works</span></h3>
-<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 (or 2 in many tools) for "you typed it wrong". <strong>Hey has no statement that sets the process exit status today.</strong> A program that ends normally exits 0; <code>fail</code> exits 70. No release, ruling or task covers adding one yet; the gap is recorded as a known issue.</p>
-<p><code>Cli</code> can already work out the right number for you: <code>Cli.exit_status(checked)</code> gives 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag, and <code>Cli.ok_exit</code> / <code>Cli.error_exit</code> build exit records. Nothing applies that number to the process, though.</p>
-<p>The working pattern, used by the published <code>hey_secret_lint</code> package, is to build the whole output as one String and hand it to <code>/bin/sh</code>, which prints it and exits with the code you pick. <code>Process.exec_env_argv</code> replaces the Hey process, so nothing printed earlier can be lost:</p>
-<pre data-example="runnable" data-file="wordfreq.hey"><code># Hey has no statement that sets an exit status yet, so hand the text
-# to /bin/sh, which prints it and exits with the status we choose.
-fn finish(text, status)
-  Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
-end</code></pre>
-<p><code>wordfreq</code> passes <code>Cli.exit_status(checked)</code> to <code>finish</code> for a bad flag, and 1 for a missing folder:</p>
-<pre data-example="runnable"><code>$ hey wordfreq.hey --top=many sample; echo "exit status: $?"
---top expects int
-Usage: wordfreq [FOLDER] [options]
-…  (the rest of the help screen)
-exit status: 64
-
-$ hey wordfreq.hey no-such-folder; echo "exit status: $?"
-wordfreq: no such folder: no-such-folder
-exit status: 1</code></pre>
-<p>It works, but it costs a <code>/bin/sh</code> start and doesn't exist on hosts without a POSIX shell. Treat it as a stopgap.</p>
-
-<h2 id="tests">6. Test it</h2>
-<p>Hey has two kinds of test, and a tool usually wants both.</p>
-<table>
-<thead><tr><th>Kind</th><th>What it checks</th><th>How you run it</th><th>Status</th></tr></thead>
-<tbody>
-<tr><td><code>spec</code> block</td><td>The whole program's stdout, stderr or exit status (a golden test)</td><td><code>heyc file.hey --test</code></td><td><span class="tag t-good">Works today</span></td></tr>
-<tr><td><code>stdlib:Minispec</code></td><td>Individual values: <code>to_equal</code>, <code>to_include</code>, <code>to_be_error</code>, and more</td><td>call it from a <code>program</code>; pair with a <code>spec</code> block</td><td><span class="tag t-good">Works today</span> (reference: <a href="2026-10-25-hey-standard-library.html">Standard library</a>)</td></tr>
-</tbody>
-</table>
-<p>A spec block runs the program with no arguments, so put the tests next to the pure module, not next to the tool:</p>
-<pre data-example="runnable" data-file="count_spec.hey"><code>spec 'WordCount cleans, counts and ranks words'
-  expect stdout &quot;WordCount: 5 passed, 0 failed\n&quot;
-end
-
-import 'stdlib:Minispec'
-import './lib/count.hey'
-
-program
-  let s = Minispec.suite('WordCount')
-  set s = Minispec.to_equal(s, 'strips punctuation', WordCount.clean('&quot;Hello!&quot;'), 'hello')
-  set s = Minispec.to_equal(s, 'keeps inner apostrophes', WordCount.clean(&quot;don't&quot;), &quot;don't&quot;)
-  let counts = WordCount.add({}, 'the cat and the hat. The end')
-  set s = Minispec.to_equal(s, 'counts case-blind', counts['the'], 3)
-  set s = Minispec.to_equal(s, 'top word first', WordCount.top(counts, 1), [['the', 3]])
-  set s = Minispec.to_equal(s, 'ties go A to Z', WordCount.top(counts, 3), [['the', 3], ['and', 1], ['cat', 1]])
-  Minispec.report(s)
-end</code></pre>
-<p>You can run the file as an ordinary program to see the report:</p>
-<pre data-example="runnable"><code>$ hey count_spec.hey
-WordCount: 5 passed, 0 failed</code></pre>
-<div class="note warn">
-<p><strong>Today, <code>heyc --test</code> only finds the standard library when you run it from inside the Hey checkout.</strong> <span class="tag t-warn">Partly works</span> From your own project folder, any spec file that imports a <code>stdlib:</code> module fails before it starts (setting <code>HEY_ROOT</code> doesn't help):</p>
-<pre data-example="runnable"><code>$ heyc count_spec.hey --test
-FAIL: WordCount cleans, counts and ranks words
-expected stdout: WordCount: 5 passed, 0 failed
-
-actual stdout:   
-FAIL: WordCount cleans, counts and ranks words
-unexpected stderr: heyc: file not found: stdlib/Minispec.hey
-
-FAIL: WordCount cleans, counts and ranks words
-expected exit: 0
-actual exit:   1
-exit status: 1</code></pre>
-<p>Until that's fixed, run it from the Hey checkout and pass the full path:</p>
-<pre data-example="runnable"><code>$ cd "$HEY_HOME" &amp;&amp; heyc ~/code/wordfreq/count_spec.hey --test
-PASS: WordCount cleans, counts and ranks words
-exit status: 0</code></pre>
-<p>(<code>$HEY_HOME</code> here means wherever your Hey toolchain lives. A spec with no <code>stdlib:</code> import passes from anywhere.) No task covers this yet; it is recorded as a known issue.</p>
-</div>
-<p>A Minispec suite is a plain value: each assertion returns a new suite with one more result in it. <code>Minispec.report</code> prints the totals, and the <code>spec</code> block checks that line. For a CI job without the golden harness, <code>Minispec.finish(s)</code> prints the report and exits 70 if anything failed.</p>
-
-<details><summary>The whole of <code>wordfreq.hey</code>, in one piece</summary>
-<pre data-example="runnable" data-file="wordfreq.hey"><code># wordfreq: the most common words in the text files under a folder.
-import 'stdlib:Cli'
-import 'stdlib:Files'
-import 'stdlib:Process'
-import 'stdlib:Text'
-import 'stdlib:Collections' exposing: [first] forms: [:dotted]
-import './lib/count.hey'
+<details><summary><code>wordfreq.hey</code>: the program, with flags, files and output</summary>
+<pre data-example="runnable" data-file="wordfreq.hey"><code>#!/usr/bin/env hey
+# wordfreq: the most common words in the text files under a folder.
+import &#39;stdlib:Cli&#39;
+import &#39;stdlib:Files&#39;
+import &#39;stdlib:Process&#39;
+import &#39;stdlib:Text&#39;
+import &#39;stdlib:Collections&#39; exposing: [first] forms: [:dotted]
+import &#39;./lib/count.hey&#39;
 
 fn schema()
-  return Cli.schema('wordfreq [FOLDER]', 'Count the most common words in text files.', [
-    Cli.option('top', 'int', 10, 'how many words to show'),
-    Cli.option('ext', 'string', '.txt', 'which file ending to read'),
-    Cli.option('git', 'bool', false, 'only read files git tracks'),
-    Cli.option('help', 'bool', false, 'show this help')
+  return Cli.schema(&#39;wordfreq [FOLDER]&#39;, &#39;Count the most common words in text files.&#39;, [
+    Cli.option(&#39;top&#39;, &#39;int&#39;, 10, &#39;how many words to show&#39;),
+    Cli.option(&#39;ext&#39;, &#39;string&#39;, &#39;.txt&#39;, &#39;which file ending to read&#39;),
+    Cli.option(&#39;git&#39;, &#39;bool&#39;, false, &#39;only read files git tracks&#39;),
+    Cli.option(&#39;help&#39;, &#39;bool&#39;, false, &#39;show this help&#39;)
   ])
 end
 
 # Hey has no statement that sets an exit status yet, so hand the text
 # to /bin/sh, which prints it and exits with the status we choose.
 fn finish(text, status)
-  Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
+  Process.exec_env_argv({}, [&#39;/bin/sh&#39;, &#39;-c&#39;, &#39;printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;&#39;, &#39;wordfreq&#39;, text, status.to_s])
 end
 
 fn files_from_git(folder, ext)
-  let run = Process.run_argv(['git', '-C', folder, 'ls-files', '*' + ext])
+  let run = Process.run_argv([&#39;git&#39;, &#39;-C&#39;, folder, &#39;ls-files&#39;, &#39;*&#39; + ext])
   if !run.ok
     return []
   end
   let out = []
   for name in Text.lines(run.stdout)
-    if name != ''
+    if name != &#39;&#39;
       set out = [...out, Files.join(folder, name)]
     end
   end
@@ -444,18 +260,18 @@ program
   if !checked.ok
     finish(checked.error + &quot;\n&quot; + Cli.help(schema()) + &quot;\n&quot;, Cli.exit_status(checked))
   end
-  if Cli.typed_flag(checked, 'help', false)
+  if Cli.typed_flag(checked, &#39;help&#39;, false)
     finish(Cli.help(schema()) + &quot;\n&quot;, 0)
   end
 
-  let folder = Cli.parsed_positionals(parsed).first('.')
+  let folder = Cli.parsed_positionals(parsed).first(&#39;.&#39;)
   if !Files.directory?(folder)
-    finish('wordfreq: no such folder: ' + folder + &quot;\n&quot;, 1)
+    finish(&#39;wordfreq: no such folder: &#39; + folder + &quot;\n&quot;, 1)
   end
 
-  let ext = Cli.typed_flag(checked, 'ext', '.txt')
+  let ext = Cli.typed_flag(checked, &#39;ext&#39;, &#39;.txt&#39;)
   let paths = []
-  if Cli.typed_flag(checked, 'git', false)
+  if Cli.typed_flag(checked, &#39;git&#39;, false)
     set paths = files_from_git(folder, ext)
   else
     set paths = Files.files(folder, ext)
@@ -467,64 +283,195 @@ program
   end
 
   says &quot;#{paths.length} files, #{entries(counts).length} different words&quot;
-  for pair in WordCount.top(counts, Cli.typed_flag(checked, 'top', 10))
-    says &quot;#{Text.pad_left(pair[1].to_s, 6, ' ')}  #{pair[0]}&quot;
+  for pair in WordCount.top(counts, Cli.typed_flag(checked, &#39;top&#39;, 10))
+    says &quot;#{Text.pad_left(pair[1].to_s, 6, &#39; &#39;)}  #{pair[0]}&quot;
   end
 end</code></pre>
 </details>
-
-<h2 id="ship">7. Script or binary? Measure it</h2>
-<p>You've been running <code>hey wordfreq.hey</code>. That's the <em>script</em> path: Hey compiles the program to native code the first time and keeps the result in a cache keyed by the source and everything it imports. Change any imported file and the next run recompiles. Nothing goes stale.</p>
-<p>You can also make the file itself executable:</p>
-<pre data-example="runnable"><code>$ head -1 wf
-#!/usr/bin/env hey
-$ chmod +x wf
-$ ./wf --top=3 sample
-2 files, 12 different words
+<p>Run it:</p>
+<pre data-example="runnable"><code>$ hey wordfreq.hey --top=5 sample
+2 files, 13 different words
+     4  dog
      4  the
-     3  dog
-     2  a</code></pre>
+     3  a
+     3  fox
+     3  is</code></pre>
+
+<h2 id="flags">2. Read flags with <code>Cli</code> <span class="tag t-good">Works today</span></h2>
+<p>You describe your options once, as data. <code>Cli</code> turns that description into a help screen and into checked, typed values. Nothing to subclass, no annotations.</p>
+<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>fn schema()
+  return Cli.schema('wordfreq [FOLDER]', 'Count the most common words in text files.', [
+    Cli.option('top', 'int', 10, 'how many words to show'),
+    Cli.option('ext', 'string', '.txt', 'which file ending to read'),
+    Cli.option('git', 'bool', false, 'only read files git tracks'),
+    Cli.option('help', 'bool', false, 'show this help')
+  ])
+end</code></pre>
+<p>Then the top of <code>program</code> reads the real arguments and checks them:</p>
+<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>  let parsed = Cli.current()                    # reads argv and splits flags from the rest
+  let checked = Cli.validate(parsed, schema())  # a Result: ok, or which flag was wrong
+  ...
+  let folder = Cli.parsed_positionals(parsed).first('.')   # first item, or '.' if there is none
+  ...
+  Cli.typed_flag(checked, 'top', 10)            # already an Int, not text</code></pre>
+<p><code>.first('.')</code> works because the file has <code>import 'stdlib:Collections' exposing: [first] forms: [:dotted]</code>: that import lets you call <code>first(list, fallback)</code> as <code>list.first(fallback)</code>. (Imports are covered in <a href="2026-10-25-hey-modules-imports-exports.html">Modules, imports and exports</a>.)</p>
+<p>The help screen comes for free:</p>
+<pre data-example="runnable"><code>$ hey wordfreq.hey --help
+Usage: wordfreq [FOLDER] [options]
+Count the most common words in text files.
+Options:
+  --top &lt;int&gt;  how many words to show default=10
+  --ext &lt;string&gt;  which file ending to read default=.txt
+  --git  only read files git tracks default=false
+  --help  show this help default=false</code></pre>
+<p>A <code>bool</code> option is switched on by its name alone (<code>--git</code>) or given <code>=true/false/yes/no/on/off/1/0</code>; <code>--no-git</code> switches it off. Anything that doesn't start with a dash is a <em>positional</em> argument (here, the folder).</p>
+<div class="note warn">
+<p><strong>Write values with <code>=</code>: <code>--top=5</code>, not <code>--top 5</code>.</strong> <span class="tag t-warn">Partly works</span> <code>Cli.parse</code> reads flags before it sees your schema, so it can't tell that <code>--top</code> takes a value. It treats <code>--top</code> as a switch and <code>5</code> as the folder, and then validation says the flag isn't an Int:</p>
+<pre data-example="runnable"><code>$ hey wordfreq.hey --top 5 sample; echo "exit status: $?"
+--top expects int
+Usage: wordfreq [FOLDER] [options]
+...
+exit status: 64</code></pre>
+<p>The older list helpers (<code>Cli.flag(args, 'top', 10)</code>) do accept <code>--top 5</code>, so the two halves of <code>Cli</code> disagree.</p>
+</div>
+<p class="note">The full <code>Cli</code>, <code>Files</code>, <code>Process</code> and <code>Env</code> function lists live in the <a href="2026-10-25-hey-standard-library.html">standard library reference</a>.</p>
+
+<h2 id="count">3. Walk files and count with a map <span class="tag t-good">Works today</span></h2>
+<p><code>Files.files(folder, '.txt')</code> returns every file under the folder that ends in <code>.txt</code>, sorted, searching subfolders too. <code>Files.read_text(path)</code> reads one file into a String.</p>
+<p>The counting lives in its own module, <code>lib/count.hey</code>, so the tests can call it without touching the disk. This is its heart:</p>
+<pre data-example="fragment" data-needs="an excerpt of lib/count.hey (section 1)"><code>  # Add every word in `text` to the `counts` map and return the new map.
+  fn add(counts, text)
+    let out = counts
+    for raw in Text.words(text)
+      let w = WordCount.clean(raw)
+      if len(w) &gt; 0
+        if has?(out, w)
+          set out = put(out, w, out[w] + 1)
+        else
+          set out = put(out, w, 1)
+        end
+      end
+    end
+    return out
+  end</code></pre>
+<div class="note">
+<p><strong>What would you predict?</strong> Hey values never change. <code>put(out, w, 1)</code> returns a <em>new</em> map with one more entry. So does counting a 10,000-word file copy the map 10,000 times?</p>
+<details><summary>Answer</summary>
+<p><strong>No.</strong> The compiler's middle stage (MIR, the step that decides when values are created and freed) tracks who still holds each value. In <code>set out = put(out, ...)</code> the old <code>out</code> is never used again and nobody else holds that map, so <code>put</code> changes it in place.<sup><a href="#n1">1</a></sup> You write code that reads as if nothing changes; the machine does the cheap thing. The full story is in <a href="2026-10-25-hey-values-memory-and-strings.html">Values, memory and Strings</a>.</p>
+</details>
+</div>
+<p>Back in <code>wordfreq.hey</code>, the main loop is four lines:</p>
+<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>  let counts = {}
+  for path in paths
+    set counts = WordCount.add(counts, Files.read_text(path))
+  end</code></pre>
+
+<h2 id="process">4. Run another program <span class="tag t-good">Works today</span></h2>
+<p>With <code>--git</code>, <code>wordfreq</code> asks git which files it tracks instead of walking the folder. <code>Process.run_argv</code> takes the command as a list of words. There's no shell in between, so spaces and quotes in file names arrive exactly as written.</p>
+<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>fn files_from_git(folder, ext)
+  let run = Process.run_argv(['git', '-C', folder, 'ls-files', '*' + ext])
+  if !run.ok
+    return []
+  end
+  let out = []
+  for name in Text.lines(run.stdout)
+    if name != ''
+      set out = [...out, Files.join(folder, name)]
+    end
+  end
+  return out
+end</code></pre>
+<p>The answer is a record: <code>ok</code>, <code>stdout</code>, <code>stderr</code> and the child's status. Make the sample folder a git repository that tracks only <code>a.txt</code>, and try it:</p>
+<pre data-example="runnable"><code>$ git -C sample init -q &amp;&amp; git -C sample add a.txt
+$ hey wordfreq.hey --git --top=3 sample
+1 files, 10 different words
+     3  the
+     2  dog
+     1  asleep</code></pre>
+<p>If a child might hang, use <code>Process.run_argv_timeout(args, 30_000)</code>: it kills the whole process group after 30 seconds. For a long-running child you talk to, <code>Process.spawn</code> gives you its stdin and stdout handles.</p>
+
+<h2 id="errors">5. Errors and exit codes</h2>
+<p>Hey separates two kinds of failure, and the difference matters for a tool.</p>
+<div class="cols">
+<div class="note good"><p><strong>Expected failures are values.</strong> A missing folder or a bad flag is something a user will do. Return a <code>Result</code> (<code>Result.ok(v)</code> or <code>Result.error_with(code, message)</code>), check <code>.ok</code>, and print something helpful. <code>Cli.validate</code> already does this for flags.</p></div>
+<div class="note bad"><p><strong>Bugs stop the program.</strong> <code>fail 'message'</code>, or any runtime error, stops the unit of work at once: in a server that's one request, in a tool it's the whole process. It prints the message and exits with status <strong>70</strong>. There's no <code>try/catch</code>; that's a <a href="2026-10-25-hey-every-decision.html">ruled design choice</a> (fail fast, Erlang style).</p></div>
+</div>
+<pre data-example="runnable" data-file="fail_demo.hey"><code>program
+  fail 'the config file is missing'
+end</code></pre>
+<pre data-example="runnable"><code>$ hey fail_demo.hey; echo "exit status: $?"
+hey error: the config file is missing
+exit status: 70</code></pre>
+
+<h3>The gap: choosing your own exit code <span class="tag t-warn">Partly works</span></h3>
+<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 for "you typed it wrong". <strong>Hey has no statement that sets the process exit status yet.</strong> A program that ends normally exits 0; <code>fail</code> exits 70.</p>
+<p><code>Cli</code> can already work out the right number for you: <code>Cli.exit_status(checked)</code> gives 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag. Nothing applies that number to the process, though. The working pattern is to build the whole output as one String and hand it to <code>/bin/sh</code>, which prints it and exits with the code you pick. <code>Process.exec_env_argv</code> replaces the Hey process, so nothing printed earlier can be lost:</p>
+<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>fn finish(text, status)
+  Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
+end</code></pre>
+<p><code>wordfreq</code> passes <code>Cli.exit_status(checked)</code> to <code>finish</code> for a bad flag, and 1 for a missing folder:</p>
+<pre data-example="runnable"><code>$ hey wordfreq.hey --top=many sample; echo "exit status: $?"
+--top expects int
+Usage: wordfreq [FOLDER] [options]
+...
+exit status: 64
+$ hey wordfreq.hey no-such-folder; echo "exit status: $?"
+wordfreq: no such folder: no-such-folder
+exit status: 1</code></pre>
+<p>It works, but it costs a <code>/bin/sh</code> start and needs a POSIX shell on the host. Treat it as a stopgap.</p>
+
+<h2 id="tests">6. Test it</h2>
+<p>Hey has two kinds of test, and a tool usually wants both.</p>
+<table>
+<thead><tr><th>Kind</th><th>What it checks</th><th>How you run it</th></tr></thead>
+<tbody>
+<tr><td><code>spec</code> block</td><td>The whole program's stdout, stderr or exit status (a golden test)</td><td><code>heyc --test file.hey</code></td></tr>
+<tr><td><code>stdlib:Minispec</code></td><td>Individual values: <code>to_equal</code>, <code>to_include</code>, <code>to_be_error</code>, and more</td><td>call it from a <code>program</code>; pair it with a <code>spec</code> block</td></tr>
+</tbody>
+</table>
+<p>A spec block runs the program with no arguments, so put the tests next to the pure module, not next to the tool. Save this as <code>count_spec.hey</code>:</p>
+<pre data-example="runnable" data-file="count_spec.hey"><code>spec &#39;WordCount cleans, counts and ranks words&#39;
+  expect stdout &quot;WordCount: 5 passed, 0 failed\n&quot;
+end
+
+import &#39;stdlib:Minispec&#39;
+import &#39;./lib/count.hey&#39;
+
+program
+  let s = Minispec.suite(&#39;WordCount&#39;)
+  set s = Minispec.to_equal(s, &#39;strips punctuation&#39;, WordCount.clean(&#39;&quot;Hello!&quot;&#39;), &#39;hello&#39;)
+  set s = Minispec.to_equal(s, &#39;keeps inner apostrophes&#39;, WordCount.clean(&quot;don&#39;t&quot;), &quot;don&#39;t&quot;)
+  let counts = WordCount.add({}, &#39;the cat and the hat. The end&#39;)
+  set s = Minispec.to_equal(s, &#39;counts case-blind&#39;, counts[&#39;the&#39;], 3)
+  set s = Minispec.to_equal(s, &#39;top word first&#39;, WordCount.top(counts, 1), [[&#39;the&#39;, 3]])
+  set s = Minispec.to_equal(s, &#39;ties go A to Z&#39;, WordCount.top(counts, 3), [[&#39;the&#39;, 3], [&#39;and&#39;, 1], [&#39;cat&#39;, 1]])
+  Minispec.report(s)
+end</code></pre>
+<p>Run the file as an ordinary program to see the report, then as a test:</p>
+<pre data-example="runnable"><code>$ hey count_spec.hey
+WordCount: 5 passed, 0 failed
+$ heyc --test count_spec.hey
+PASS: WordCount cleans, counts and ranks words</code></pre>
+<p>A Minispec suite is a plain value: each assertion returns a new suite with one more result in it. <code>Minispec.report</code> prints the totals, and the <code>spec</code> block checks that line. For a CI job without the golden harness, <code>Minispec.finish(s)</code> prints the report and exits 70 if anything failed.</p>
+
+<h2 id="ship">7. Script or binary?</h2>
+<p>You've been running <code>hey wordfreq.hey</code>. That's the <em>script</em> path: Hey compiles the program to native code the first time and keeps the result in a cache keyed by the source and everything it imports. Change any imported file and the next run recompiles. Nothing goes stale.</p>
+<p>The first line of <code>wordfreq.hey</code> is <code>#!/usr/bin/env hey</code>, so you can also make the file itself executable:</p>
+<pre data-example="runnable"><code>$ chmod +x wordfreq.hey
+$ ./wordfreq.hey --top=3 sample
+2 files, 13 different words
+     4  dog
+     4  the
+     3  a</code></pre>
 <p>Or build one binary to copy to another machine, a container, or a <code>bin/</code> folder:</p>
 <pre data-example="runnable"><code>$ hey build wordfreq.hey -o build/wordfreq
-selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=b82997c69e14dec9a3f54bd271d8f3ef44e7e2f2157e18889a508314cbe68c7b
-selfhost_build_outcome=started
-…  (27 more build-receipt lines)
-built …/build/wordfreq</code></pre>
-
-<p><code>hey build</code> prints a 30-line build receipt (which compiler stages ran, hashes of each stage's output, timings) and then the path it built. The binary links nothing but the system C library:</p>
-<pre data-example="runnable"><code>$ ls -l build/wordfreq
--rwxr-xr-x  1 jthomas  wheel  276408 build/wordfreq
-$ otool -L build/wordfreq
-build/wordfreq:
-	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)
-$ file build/wordfreq
-build/wordfreq: Mach-O 64-bit executable arm64
+built .../build/wordfreq
 $ ./build/wordfreq --top=3 sample
-2 files, 12 different words
+2 files, 13 different words
+     4  dog
      4  the
-     3  dog
-     2  a</code></pre>
-
-<h3>How fast does each one start?</h3>
-<p>We timed all three with <code>hyperfine</code> 1.20.0 on an Apple-silicon Mac: cold means an empty cache (5 runs), warm and direct are 25 runs each after 3 warm-ups. The Mac was busy with other compiler builds while we measured, which is why the cold runs spread from 6.2 to 14.4 seconds; the warm and direct numbers barely moved.</p>
-<pre data-example="runnable"><code>cold: empty cache every run
-$ hyperfine -N --runs 5 --prepare 'rm -rf $CACHE' 'hey wordfreq.hey --top=3 sample'
-  Time (mean ± σ):      8.606 s ±  3.508 s    [User: 0.110 s, System: 0.018 s]
-  Range (min … max):    6.168 s … 14.429 s    5 runs
-
-warm script vs direct binary
-$ hyperfine -N --warmup 3 --runs 25 'hey wordfreq.hey --top=3 sample' './build/wordfreq --top=3 sample'
-Benchmark 1: hey wordfreq.hey --top=3 sample
-  Time (mean ± σ):       8.3 ms ±   0.2 ms    [User: 4.3 ms, System: 3.0 ms]
-  Range (min … max):     7.9 ms …   8.6 ms    25 runs
-Benchmark 2: ./build/wordfreq --top=3 sample
-  Time (mean ± σ):       2.1 ms ±   0.1 ms    [User: 1.0 ms, System: 0.7 ms]
-  Range (min … max):     1.9 ms …   2.5 ms    25 runs</code></pre>
-<p>Hey also ships its own startup benchmark, <code>./bin/perf script-startup</code>. Its <code>--source</code> option is meant to take your program, but today it insists the program prints exactly <code>script-startup-ok</code>, so it fails on any real tool. Its built-in hello-world run gives the same picture:</p>
-<pre data-example="runnable"><code>$ ./bin/perf script-startup --iterations 25 --out /tmp/startup
-script startup benchmark ok iterations=25 compiler_started_on_warm=false backend=llvm cold_ms=5840 warm_mean_ms=8 direct_mean_ms=1</code></pre>
-
+     3  a</code></pre>
+<p>The binary links nothing but the system C library. A warm script start costs a few milliseconds more than starting the binary directly: that's the check that no source changed. <a href="2026-10-25-hey-guide-build-and-deploy.html">Guide 6</a> shows what's inside the binary and how to build for Linux.</p>
 <figure class="fig" aria-labelledby="d2cap">
 <svg viewBox="0 0 900 300" role="img" aria-labelledby="d2t d2d">
 <title id="d2t">Startup time: cold compile, warm cache, direct binary</title>
@@ -554,7 +501,6 @@ script startup benchmark ok iterations=25 compiler_started_on_warm=false backend
 
 <figcaption id="d2cap">Figure 2. Cold compile happens once per change. After that the script path costs about 6.2 ms more than the binary: the time to check that no source changed.</figcaption>
 </figure>
-
 <table>
 <thead><tr><th>Use</th><th>When</th></tr></thead>
 <tbody>
@@ -562,148 +508,42 @@ script startup benchmark ok iterations=25 compiler_started_on_warm=false backend
 <tr><td><code>hey build tool.hey -o build/tool</code></td><td>Anything you copy elsewhere, put in a container, sign, run from a supervisor, or benchmark. The build fails before deploy, never at first run.</td></tr>
 </tbody>
 </table>
-<p>What's inside the binary, how it's linked, and how to cross-build for Linux are in <a href="2026-10-25-hey-guide-build-and-deploy.html">guide 6</a>.</p>
-
-<h3 id="speed">How fast is it on real text? <span class="tag t-warn">Partly works</span></h3>
-<p>Hey's goal is C and Rust speed for every program. Startup is already there. The counting is not, today, because of the copying defect from <a href="#count">section 3</a>. We ran the built binary and a plain Ruby script doing the same job on one 245 KB file of Hey's own docs (32,761 words, 5,188 different ones), 5 runs each:</p>
-<table>
-<thead><tr><th>Program</th><th class="n">Mean time</th></tr></thead>
-<tbody>
-<tr><td><code>build/wordfreq</code> (Hey, native)</td><td class="n">2.65 s</td></tr>
-<tr><td><code>wordfreq.rb</code> (Ruby 4.0.6 with YJIT)</td><td class="n">66 ms</td></tr>
-<tr><td>Same work in Hey (same cleaning and ranking), but the map is created inside the counting function</td><td class="n">68 ms</td></tr>
-</tbody>
-</table>
-<p>The last row does exactly the same work as <code>wordfreq</code>; the only change is where the map starts. It runs level with Ruby, so the whole gap is the copying. That is the number <code>wordfreq</code> should reach once the compiler stops copying a map that arrives as a parameter; it's still short of the C-speed goal. Performance work for the 606a release and after is tracked in <a href="2026-10-25-hey-performance.html">Performance</a>; we'll re-measure this table when the fix lands.</p>
 
 <h2 id="package">8. Ship it as a package command <span class="tag t-good">Works today</span></h2>
-<p>A package can declare commands in its <code>hey-package.json</code>. Anyone who depends on the package gets the command, verified against the lock file's hashes every time it runs. This is how <code>hey_secret_lint</code> ships <code>secret-lint</code>:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>  "commands": {
-    "secret-lint": "bin/secret-lint.hey"
+<p>A package can declare commands in its <code>hey-package.json</code>. Anyone who depends on the package gets the command, checked against the lock file's hashes every time it runs:</p>
+<pre data-example="fragment" data-needs="an excerpt of a package's hey-package.json"><code>  "commands": {
+    "wordfreq": "bin/wordfreq.hey"
   }</code></pre>
-<p>From a project that depends on it:</p>
-<pre data-example="runnable"><code>$ cat hey-package.json
-{
-  &quot;name&quot;: &quot;lintdemo&quot;,
-  &quot;version&quot;: &quot;0.1.0&quot;,
-  &quot;registry&quot;: &quot;https://www.jayteesf.com/packages/registry-v1.json&quot;,
-  &quot;dependencies&quot;: {
-    &quot;hey_secret_lint&quot;: &quot;^0.1.0&quot;
-  }
-}
-$ hey package ensure --project . --update-lock
-ensured hey_packager@0.1.13 from hey_secret_lint
-ensured hey_secret_lint@0.1.2 from project
-updated ./hey.lock.json packages=2 edges=1
-$ hey package commands --project .
-secret-lint hey_secret_lint@0.1.2 bin/secret-lint.hey
-$ cat app.hey
-module Login
-  fn allowed?(row, attempt)
-    return row.key_hash == attempt
-  end
-end
-$ hey secret-lint .; echo &quot;exit status: $?&quot;
-app.hey:3: == on 'row.key_hash' looks like a secret; use Crypto.constant_time_equal?(bytes(a), bytes(b))
-secret-lint: 1 finding in 1 file (1 .hey file scanned)
-exit status: 1</code></pre>
-<p>A package can't shadow a built-in command, and two packages can't claim the same name. Publishing your own package is <a href="2026-10-25-hey-guide-packages.html">guide 2</a>.</p>
+<p><a href="2026-10-25-hey-guide-packages.html#commands">Guide 2</a> installs a package with a command and runs it; <a href="2026-10-25-hey-guide-packages.html#publish">its last section</a> starts your own package.</p>
 
-<h2 id="scaffold">9. Start the next one with a generator</h2>
-<p>Two generators exist. Both are early, and they say so.</p>
-<table>
-<thead><tr><th>Generator</th><th>What it makes today</th><th>Status</th></tr></thead>
-<tbody>
-<tr><td><code>hey_scaffold</code> 0.1.0 (written in Hey)</td><td>A conventional Hey app from a few answers: folder layout, <code>hey-package.json</code>, a hey_web server with two routes, optional Jobs. Its README says the CLI front end works and a generated app builds and serves HTTP; the web-form front end isn't written, and the Jobs variant boots but no Job has run. Not on the package registry yet. <strong>On the toolchain used for this page it doesn't compile</strong> (below).</td><td><span class="tag t-warn">Partly works</span></td></tr>
-<tr><td><code>hey_app</code> (milestone 0)</td><td>A Rails-style generator for CLI, web, mobile and combined layouts: <code>new</code>, <code>generate controller/model/middleware/route</code>. Written in Ruby as a bootstrap; it checks its own output offline but does not claim the generated Hey compiles on your compiler. Meant to become <code>hey app</code>.</td><td><span class="tag t-warn">Partly works</span></td></tr>
-</tbody>
-</table>
-<p>What happened when we ran each one:</p>
-<pre data-example="runnable"><code>$ hey-scaffold new &quot;Word Tools&quot; --description &quot;Counts words.&quot;
-…  (3 build-receipt lines)
-hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: unsupported condition for the Hey LLVM emitter slice: if bool call @r245406630 exists?(dest)
-
-hey error: hey: script compilation failed
-exit status: 70
-
-$ hey-app new wordtools --kind cli
-CREATE …/wordtools
-$ ls wordtools
-app
-bin
-config
-data
-docs
-hey-package.json
-hey-project.json
-README.md
-src
-test
-tmp
-vendor
-$ cat wordtools/src/main.hey
-module Wordtools
-  fn name()
-    return 'wordtools'
-  end
-
-  fn version()
-    return '0.1.0'
-  end
-
-  fn kind()
-    return 'cli'
-  end
-end</code></pre>
-<p>The <code>hey_scaffold</code> failure is a compiler defect: an <code>if</code> whose condition is a bare <code>exists?(path)</code> call can't be turned into native code. A 9-line program shows the same failure; it is recorded as a known issue. The <code>hey_app</code> CLI skeleton is a module with no <code>program</code> block yet, so it isn't something you can run: Milestone 0 makes folders and registries, not a working tool.</p>
-
-<h2 id="status">10. What works, at a glance</h2>
+<h2 id="status">9. What works, at a glance</h2>
 <table>
 <thead><tr><th>Piece</th><th>Status</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td>Flags, help, typed options (<code>stdlib:Cli</code>)</td><td><span class="tag t-good">Works today</span></td><td>Reference: <a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
+<tr><td>Flags, help, typed options (<code>stdlib:Cli</code>)</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
 <tr><td>Files, Process, Env, Text</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
 <tr><td>Minispec and spec blocks</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
-<tr><td>Script run with native cache; <code>#!</code> scripts</td><td><span class="tag t-good">Works today</span></td><td>Guide 1 covers the cache</td></tr>
-<tr><td>One-file native binary (<code>hey build</code>)</td><td><span class="tag t-good">Works today</span></td><td>Guide 6</td></tr>
-<tr><td>Package commands</td><td><span class="tag t-good">Works today</span></td><td>Guide 2</td></tr>
-<tr><td>Setting your own exit status</td><td><span class="tag t-warn">Partly works</span></td><td>No statement; <code>/bin/sh</code> workaround; <code>Cli.exit_status</code> computes the code. No task or ruling yet.</td></tr>
-<tr><td><code>--flag value</code> with <code>Cli.parse</code>/<code>validate</code></td><td><span class="tag t-warn">Partly works</span></td><td>Use <code>--flag=value</code>. No task yet.</td></tr>
-<tr><td><code>heyc --test</code> outside the Hey checkout</td><td><span class="tag t-warn">Partly works</span></td><td>Can't find <code>stdlib:</code> modules; run it from the checkout. No task yet.</td></tr>
-<tr><td><code>bin/perf script-startup --source</code></td><td><span class="tag t-warn">Partly works</span></td><td>Only accepts a program that prints <code>script-startup-ok</code>.</td></tr>
-<tr><td>Counting speed with a map passed in as a parameter</td><td><span class="tag t-warn">Partly works</span></td><td>Correct but copies on every <code>put</code>; reported compiler defect.<sup><a href="#n2">2</a></sup></td></tr>
-<tr><td><code>hey_scaffold</code> generator</td><td><span class="tag t-warn">Partly works</span></td><td>Doesn't compile on the 606a candidate (<code>if exists?(...)</code> defect); web front end not written</td></tr>
-<tr><td><code>hey_app</code> generator</td><td><span class="tag t-warn">Partly works</span></td><td>Milestone 0, Ruby bootstrap</td></tr>
+<tr><td>Script run with native cache; <code>#!</code> scripts</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-guide-first-steps.html#cache">Guide 1</a></td></tr>
+<tr><td>One-file native binary (<code>hey build</code>)</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-guide-build-and-deploy.html">Guide 6</a></td></tr>
+<tr><td>Package commands</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-guide-packages.html#commands">Guide 2</a></td></tr>
+<tr><td>Setting your own exit status</td><td><span class="tag t-warn">Partly works</span></td><td>No statement yet; the <code>/bin/sh</code> stopgap above</td></tr>
+<tr><td><code>--flag value</code> with <code>Cli.parse</code>/<code>validate</code></td><td><span class="tag t-warn">Partly works</span></td><td>Write <code>--flag=value</code></td></tr>
 </tbody>
 </table>
 
 <section class="notes" id="notes" aria-labelledby="notes-h">
 <h2 id="notes-h">Notes</h2>
 <ol>
-<li id="n1">The documentation toolchain was built from this commit: cb817d.</li>
-<li id="n2">Fixed after the documentation toolchain was built: self-updates of a parameter write in place again, with integer-indexed puts kept behind MIR's i64 proof: 903914, 5d59e6.</li>
+<li id="n1">A map or list that is updated through a parameter is written in place when nothing else holds it: 903914, 5d59e6.</li>
 </ol>
 </section>
 <footer>
-<h2 id="sources">Sources</h2>
-<p>Hey source read; the standard-library files cited are byte-identical in the toolchain used. Every command on this page was run on the docs toolchain, 0.99.606a (a later candidate build), on macOS arm64; outputs are pasted unedited except that long scratch-folder paths are shortened to <code>…</code> and the spec path in section 6 is shown as <code>~/code/wordfreq</code>. The toolchain's own note says the toolchain has the same language surface as the newer candidate (whose build failed).</p>
-<ul>
-<li><code>stdlib/Cli.hey</code>:101-198 (flags), 269-310 (<code>parse</code>, <code>args</code>, <code>current</code>), 420-503 (schemas, help, validate, exit helpers)</li>
-<li><code>stdlib/Files.hey</code>:45-166, <code>stdlib/Process.hey</code>:1-79, <code>stdlib/Result.hey</code>:1-129, <code>stdlib/Text.hey</code>:141-172</li>
-<li><code>stdlib/Minispec.hey</code>:1-40 (the immutable-suite contract and why <code>fail</code> exits 70)</li>
-<li><code>docs/developers/script-execution-and-compilation.md</code>; <code>bin/subcmds/hey-script-startup-benchmark</code></li>
-<li><code>docs/developers/3rd-party-packages.md</code>:83-96 (package commands)</li>
-<li><code>hey_secret_lint</code> 0.1.2: <code>bin/secret-lint.hey</code>, <code>docs/DESIGN.md</code> "Exit status"</li>
-<li><code>hey_scaffold</code> 0.1.0 README ("What is not here"); <code>hey_app</code> README; <code>hey_cli</code> 0.1.0</li>
-</ul>
 <h2 id="next">Read next</h2>
 <ul>
 <li><a href="2026-10-25-hey-guide-web-server.html">Guide 4: a web server with hey_web</a></li>
 <li><a href="2026-10-25-hey-guide-build-and-deploy.html">Guide 6: what <code>hey build</code> produces, and deploying it</a></li>
 <li><a href="2026-10-25-hey-standard-library.html">The standard library reference</a>: also <code>Re</code> (regular expressions), <code>Json</code>/<code>Jsonl</code> and <code>Time</code>, the other modules tools reach for</li>
-<li>More real tools to read: <code>examples/jsonl_sort_mailinator_users.hey</code> in the Hey repo (a JSON Lines sorter in 30 lines), and the Maintainer&#39;s own CLIs <code>hey_kamal_cli</code>, <code>hey_bsc_backup_and_restore_cli</code> and <code>hey_ml_cli</code></li>
-<li><a href="2026-10-25-hey-every-decision.html">Every decision, with its ruling</a> · <a href="2026-10-25-hey-compiler-from-source-to-native.html">How the compiler turns source into native code</a></li>
-<li>History: <a href="great-command-line-scripting-with-hey.html">Great command-line scripting with Hey</a> (the dated benchmark story)</li>
+<li><a href="great-command-line-scripting-with-hey.html">Great command-line scripting with Hey</a>: a real script ported from Ruby</li>
 </ul>
 </footer>
 </div>
