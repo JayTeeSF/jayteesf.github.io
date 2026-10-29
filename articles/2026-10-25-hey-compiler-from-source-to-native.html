@@ -6,7 +6,7 @@
 <meta name="article-index-rank" content="01">
 <meta name="article-index-desc" content="How the compiler works: one chain (parser, syntax tree, resolution, HIR, MIR, LLVM), type inference and call-site specialisation, ownership facts, and the optimizations that follow.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="The reference for Hey's compiler: one chain from source to native code, who owns each fact, how builtins and types work, how ownership is planned and checked, what cruft the consolidation release deletes and how we prove it is gone, the optimizations that follow, the Maintainer's rulings, and the forecast.">
+<meta name="description" content="The reference for Hey's compiler: one chain from source to native code, who owns each fact, how builtins and types work, how ownership is planned and checked, what cruft the consolidation release deletes and how we prove it is gone, the optimizations that follow, and the rulings behind it.">
 <meta name="article-index-title" content="Compiler 1: How the Hey compiler turns source into native code">
 <title>How the Hey compiler turns source into native code</title>
 <style>
@@ -98,7 +98,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <div class="wrap">
 <p class="eyebrow"><a href="index.html">&larr; Articles</a> · Compiler 1: From source to native</p>
 <h1>How the Hey compiler turns source into native code</h1>
-<p class="lede">This is the one reference for Hey's compiler. It shows the single road a program takes from source to a native executable, which stage decides each fact, and what each stage must never do. It also covers the release after 0.99.606a, which deletes every other road and then makes the compiler and its programs faster.</p>
+<p class="lede">This is the one reference for Hey's compiler. It shows the single road a program takes from source to a native executable, which stage decides each fact, and what each stage must never do. It also covers the compiler overhaul, which deletes every other road, and the work that then makes the compiler and its programs faster.</p>
 
 <section class="note good" aria-labelledby="short">
 <h2 id="short">The short version</h2>
@@ -108,7 +108,6 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><strong>Types come from two layers.</strong> First the compiler works out each function's types from what its body does. Then, at code-generation time, it makes fast native copies of a function for the concrete types its callers actually pass.</li>
 <li><strong>Ownership is typed and always checked.</strong> MIR records who owns each value as typed facts, not text notes, and a verifier checks every module.</li>
 <li><strong>The consolidation release deletes the other roads</strong> (up to about 48,100 lines of production code) and proves it by making the old entry points crash if anything calls them. Then optimizations land, built only on the one chain.</li>
-<li><strong>Forecast:</strong> release qualified about <strong>day 13</strong> of the port realistically (day 10 on a clean run). <a href="#timeline">See the timeline.</a></li>
 </ul>
 </section>
 
@@ -121,8 +120,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#ownership">Ownership: typed MIR facts, checked everywhere</a></li>
 <li><a href="#cruft">The cruft we delete, and how we prove it's gone</a></li>
 <li><a href="#optimise">Optimizations that follow, on the one chain</a></li>
-<li><a href="#rulings">The Maintainer's rulings, and what's still open</a></li>
-<li><a href="#timeline">Timeline</a></li>
+<li><a href="#rulings">The rulings behind this design</a></li>
 <li><a href="#going">Where the compiler is going</a></li>
 <li><a href="#background">Background: history, checks and inspection</a></li>
 </ol></nav>
@@ -148,11 +146,11 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <path class="ln" d="M220 226H246" marker-end="url(#ar)"/><path class="ln" d="M460 226H486" marker-end="url(#ar)"/><path class="ln" d="M700 226H726" marker-end="url(#ar)"/>
 <text x="10" y="310" class="sm">Blue: structure (what the program says). Green: meaning and plan (what it does, and how). Purple: translation only.</text>
 </g></svg>
-<figcaption id="cap-chain">The target chain from the post-606a plan. Each arrow carries facts forward by numeric identity, never as text to be re-read.</figcaption>
+<figcaption id="cap-chain">The compiler's one chain. Each arrow carries facts forward by numeric identity, never as text to be re-read.</figcaption>
 </figure>
 
 <p>Take a tiny program whose answer you can predict:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>fn add_fee(total)
+<pre data-example="fragment" data-needs="a few lines to illustrate the idea, not a whole program"><code>fn add_fee(total)
   return total + 2
 end
 
@@ -180,11 +178,11 @@ end</code></pre>
 <!-- ============================================================ 2 -->
 <section id="why" aria-labelledby="h-why">
 <h2 id="h-why">2 · Why one chain: today a fact can enter six ways</h2>
-<p class="summary"><strong>In plain English</strong>In the 606a compiler, the main chain exists, but six side roads still let a fact into the program a second way. Whenever two parts of the compiler read the same program separately, they can disagree. That's why the same kinds of bug keep coming back.</p>
+<p class="summary"><strong>In plain English</strong>Before the overhaul, the main chain existed, but six side roads still let a fact into the program a second way. Whenever two parts of the compiler read the same program separately, they can disagree. That's why the same kinds of bug keep coming back.</p>
 
 <figure class="fig" aria-labelledby="cap-roads">
 <svg viewBox="0 0 960 440" role="img" aria-labelledby="t-roads"><title id="t-roads">Today: the main chain with six numbered side roads. Target: one straight chain.</title>
-<text x="10" y="18" class="b">Today (606a source)</text>
+<text x="10" y="18" class="b">Before the overhaul</text>
 <g>
 <rect class="box" x="190" y="30" width="170" height="36" rx="8"/><text x="204" y="53">source</text>
 <rect class="box" x="190" y="84" width="170" height="36" rx="8"/><text x="204" y="107">final syntax tree</text>
@@ -220,7 +218,7 @@ end</code></pre>
 <path class="ln-good" d="M765 66V80M765 120V134M765 174V188M765 228V242M765 282V296M765 336V358" marker-end="url(#arg)"/>
 <text x="600" y="418" class="xs">Kept apart, never a fallback: the C interpreter as</text><text x="600" y="432" class="xs">"stage0-run", for bootstrap and as a test oracle.</text>
 </g></svg>
-<figcaption id="cap-roads">Red dashed: a numbered side road to remove. Road 3 bypasses the chain entirely: the interpreter runs the source itself. The ledger and matrix are the two inventories of the code; some captions mention their STOP items (questions they couldn't settle). "Task N" means a numbered work package in the post-606a plan. Sources: the retirement ledger and construct matrix at release 0.99.606a.<sup><a href="#n1">1</a></sup></figcaption>
+<figcaption id="cap-roads">Red dashed: a numbered side road to remove. Road 3 bypasses the chain entirely: the interpreter runs the source itself. The ledger and matrix are the two inventories of the code; some captions mention their STOP items (questions they couldn't settle). Sources: the retirement ledger and construct matrix from before the overhaul.<sup><a href="#n1">1</a></sup></figcaption>
 </figure>
 
 <div class="scroll"><table>
@@ -312,8 +310,7 @@ end</code></pre>
 </ul>
 <p><strong>Why the generated signature table and the name lists are cruft.</strong> They're a second vocabulary next to Hey source, and it drifts: the HIR lists say they were "transcribed" from the C emitter. A type that lives in a list never reaches the resolver, the docs or an editor. And the lists break the design rule against classifying operations by name. The <em>physical</em> calling details (C symbol, register or boxed slot, borrowed or owned) are legitimate compiler data. They stay, generated from the declarations or checked against them, as Rust checks its intrinsics. The numeric runtime target identity is resolver output and stays too.</p>
 <p><strong>How a declaration is kept honest.</strong> Each declaration has four fields: the name (<code>trim</code>), the parameter types with a borrow mark on each borrowed parameter (as in Koka), the result type, and the runtime provider, which names the registered runtime function. The exact internal spelling is not shown here and is not part of the language. The extern states <em>semantic</em> types only (String, Int, Bool ...), never <code>str</code> or <code>i64</code>, because representation stays MIR&#39;s choice. A verifier, the Hey version of Rust&#39;s <code>check_intrinsic_type</code>, refuses the build unless every extern names a registered runtime function, its arity matches that function&#39;s LLVM ABI row (the table entry saying how arguments and results pass in machine terms; ABI means application binary interface), its borrow marks match what the C code really does, and no runtime function lacks an extern.</p>
-<p><strong>What stays in the compiler universe:</strong> a few builtins whose result depends on their argument, such as <code>len</code> (String, Bytes, arrays or maps), <code>slice</code> (String or Bytes), <code>get</code>, and the compiler-written <code>Ranges.until</code>. With generalisation (<a href="#types">section 4</a>) some become externs with a type variable;<sup><a href="#n4">4</a></sup> the rest keep a small typing rule keyed by the extern&#39;s <em>resolved identity</em>, never by spelling. That list can shrink to a handful but not to zero, which the design rules allow. Whether user code may also write <code>extern</code> (tying in with calling C directly) is a separate ruling.</p>
-<p class="note warn"><strong>History.</strong> The Maintainer first chose the generated table "until the next release". The extern-declaration design replaced that answer later the same day. Later the Maintainer ruled the form internal-only: the syntax is hidden, user code refuses it, and the exact spelling is no longer an open question for users.</p>
+<p><strong>What stays in the compiler universe:</strong> a few builtins whose result depends on their argument, such as <code>len</code> (String, Bytes, arrays or maps), <code>slice</code> (String or Bytes), <code>get</code>, and the compiler-written <code>Ranges.until</code>. With generalisation (<a href="#types">section 4</a>) some become externs with a type variable;<sup><a href="#n4">4</a></sup> the rest keep a small typing rule keyed by the extern&#39;s <em>resolved identity</em>, never by spelling. That list can shrink to a handful but not to zero, which the design rules allow. User code never writes it; your code reaches C through native packages.</p>
 </section>
 
 <!-- ============================================================ 4 -->
@@ -450,11 +447,11 @@ end</code></pre>
 </figure>
 
 <div class="cols">
-<div><h3>The old value is still needed</h3><pre data-example="fragment" data-needs="REVIEW"><code>let before = {tea: 3}
+<div><h3>The old value is still needed</h3><pre data-example="fragment" data-needs="a few lines to illustrate the idea, not a whole program"><code>let before = {tea: 3}
 let after = put(before, 'tea', 4)
 says before.tea
 says after.tea</code></pre><p>Must print <code>3</code> then <code>4</code>. Updating in place would destroy <code>before</code>.</p></div>
-<div><h3>The old value is never used again</h3><pre data-example="fragment" data-needs="REVIEW"><code>let prices = {tea: 3}
+<div><h3>The old value is never used again</h3><pre data-example="fragment" data-needs="a few lines to illustrate the idea, not a whole program"><code>let prices = {tea: 3}
 let updated = put(prices, 'tea', 4)
 says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</code> may consume it and update in place if it's unique.</p></div>
 </div>
@@ -498,7 +495,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <caption>What goes, what replaces it</caption>
 <thead><tr><th>Cruft</th><th>Today</th><th>Replacement and condition</th></tr></thead>
 <tbody>
-<tr><td>Old <code>HeyParser</code> routes and re-parsing</td><td>HIR re-parses each file; the old parser also re-opens imports, flattens modules, skips specs and rewrites <code>job</code> into source text.</td><td>HIR reads the held syntax tree and resolution facts only. Deleted at the cutover (Task 6) with <code>HeyParser</code> (3,402) and <code>HeyCompilerNodes</code> (1,316).</td></tr>
+<tr><td>Old <code>HeyParser</code> routes and re-parsing</td><td>HIR re-parses each file; the old parser also re-opens imports, flattens modules, skips specs and rewrites <code>job</code> into source text.</td><td>HIR reads the held syntax tree and resolution facts only. Deleted at the cutover with <code>HeyParser</code> (3,402) and <code>HeyCompilerNodes</code> (1,316).</td></tr>
 <tr><td>Second LLVM emitter in C</td><td><code>heyc_llvm_*</code>, ~14,524 lines, runs when HeyLlvm declines; <code>heyc --check</code> runs it just to find undefined names.</td><td><strong>First fix HeyLlvm so the 48 examples and 13 stdlib modules it refuses compile through it, then delete the C emitter.</strong> <code>--check</code> moves to the ordinary driver.</td></tr>
 <tr><td>Real IR</td><td>15 schema files, eight generated modules, five importers; about 60 of 1,140 generated functions used.</td><td>Facts are typed, decoded facts inside MIR, as ruled. Delete the rest; don't revive it.</td></tr>
 <tr><td>Alternate backends</td><td><code>--backend llvm-direct</code>, <code>typed-ir-c</code>, <code>--emit-c</code>, <code>--object</code>, <code>HEY_BACKEND</code> all still work.</td><td>Removed. One backend: HeyLlvm.</td></tr>
@@ -527,7 +524,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <rect class="good" x="594" y="168" width="356" height="32" rx="6"/><text x="606" y="189" class="sm">forged facts rejected; withdrawn facts refuse</text>
 <text x="10" y="228" class="sm">If any trap fires, something still uses the old road and the deletion isn't finished.</text>
 </svg>
-<figcaption id="cap-proof">The release-completion rule from the plan's "Mandatory retirement" section and Task 6 negative controls. Linux, Ubuntu and Alpine runs follow. Goldens are saved expected outputs; a round trip writes an IR out and reads it back to check nothing changed; qualification is the full release test run. COW0 and COW1 are the runtime&#39;s two copy-on-write modes: COW1, the default, shares values and copies only when a shared value is changed; COW0 turns sharing off, so only what the compiler proves avoids a copy. Both must print the same output.</figcaption>
+<figcaption id="cap-proof">The release-completion rule from the plan's "Mandatory retirement" section and its negative controls. Linux, Ubuntu and Alpine runs follow. Goldens are saved expected outputs; a round trip writes an IR out and reads it back to check nothing changed; qualification is the full release test run. COW0 and COW1 are the runtime&#39;s two copy-on-write modes: COW1, the default, shares values and copies only when a shared value is changed; COW0 turns sharing off, so only what the compiler proves avoids a copy. Both must print the same output.</figcaption>
 </figure>
 <p>A <strong>negative control</strong> is a test that must fail when the thing it guards is broken. Each trap above is one. Passing gates that never exercise the old code prove little: the matrix found 82 of 115 rows with no negative control, and today's admitted-HIR gate checks for <code>call @t</code> in the output without decoding structure or types. Those controls are part of the deliverable.</p>
 </section>
@@ -554,7 +551,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <text x="80" y="200" class="sm">C</text><rect class="f-good" x="200" y="189" width="95" height="14"/><text x="301" y="201" class="xs">1.35G</text>
 <text x="80" y="220" class="sm">COW1</text><rect class="f-acc" x="200" y="209" width="358" height="14"/><text x="564" y="221" class="xs">76.4G</text>
 <text x="80" y="240" class="sm">COW0</text><rect class="f-bad" x="200" y="229" width="600" height="14"/><text x="806" y="241" class="xs t-bad b">timed out at 300 s</text>
-<text x="10" y="292" class="sm">Instructions executed (log scale; each grid line is 10x). Linux, 605a (604a identical), median of 5 runs; every output equals C's.</text>
+<text x="10" y="292" class="sm">Instructions executed (log scale; each grid line is 10x). Linux, newest published release, median of 5 runs; every output equals C's.</text>
 </svg>
 <figcaption id="cap-cow"><strong>COW1</strong> is the default runtime mode: values are shared and copied only when a shared value is changed. <strong>COW0</strong> (<code>HEY_RC_COW=0</code>) turns that sharing off, so only what the compiler itself proves avoids a copy. W9 under COW0 runs about 1,100 times more instructions than C.</figcaption>
 </figure>
@@ -562,7 +559,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <h3>Runtime</h3>
 <ul>
 <li><strong>Uniqueness and last-use facts in MIR, for in-place updates even under COW0.</strong> W9 runs 1,309.5G instructions under COW0 and W10 680.9G, against under 2G with COW1, and every 1BRC COW0 case (5M and 10M rows) times out at 300 seconds. These are whole-value copies MIR can prove unnecessary: at a value's last use, consume it instead of copying it.</li>
-<li><strong>A map and hash redesign.</strong> W6 and W11 run at about 2.6 times C's instructions, and W11 roughly doubled from 602a to 605a (6.40G to 12.75G, both in the default COW1 mode). A held branch found keys clustering in the table; it needs a redesign.</li>
+<li><strong>A map and hash redesign.</strong> W6 and W11 run at about 2.6 times C's instructions, and W11 roughly doubled over three releases (6.40G to 12.75G). An earlier index design clustered keys in the table, so the map moves to SwissTable-style probing.</li>
 <li><strong>Allocator follow-ups</strong>, such as the page overhead tiny programs pay: an idle one-second program uses 4.8 MB against C's 1.7 MB.</li>
 </ul>
 <figure class="fig" aria-labelledby="cap-ratio">
@@ -577,7 +574,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <text x="10" y="150">W8</text><rect class="f-acc" x="200" y="138" width="217" height="16"/><text x="423" y="151" class="xs">1.30x</text>
 <text x="10" y="174" class="b">W11 (maps)</text><rect class="f-bad" x="200" y="162" width="433" height="16"/><text x="639" y="175" class="xs b">2.60x</text>
 <text x="10" y="198">W12</text><rect class="f-acc" x="200" y="186" width="270" height="16"/><text x="476" y="199" class="xs">1.62x</text>
-<text x="10" y="246" class="sm">Hey 605a COW0 instructions divided by C's, Linux medians. W1 and W3 match C exactly. The target is C parity or better.</text>
+<text x="10" y="246" class="sm">Hey instructions with copy-on-write off, divided by C's, Linux medians. W1 and W3 match C exactly. The target is C parity or better.</text>
 </svg>
 <figcaption id="cap-ratio">Computed from the Linux baselines post. Peak memory also trails: W7 920 MB against C's 383 MB.</figcaption>
 </figure>
@@ -593,147 +590,17 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <rect class="acc" x="715" y="108" width="235" height="58" rx="6"/><text x="727" y="130" class="sm b">parallel + incremental</text><text x="727" y="148" class="xs">per-module object builds</text>
 <text x="10" y="184" class="xs">Every stage plus clang, measured per phase with HEY_PHASE_PROFILE spans. No split between the four inputs is claimed until measured.</text>
 </svg>
-<figcaption id="cap-ct">Target set on the Mac. For scale on Linux: 604a's full native build took 99.6 minutes at 1.48 GB peak.</figcaption>
+<figcaption id="cap-ct">Target set on the Mac. For scale on Linux: a full native build takes about 100 minutes at a 1.5 GB peak.</figcaption>
 </figure>
 <p>Inference and specialisation (<a href="#types">section 4</a>) feed both halves. Inferred parameter types let MIR keep Ints in registers, and the instance cache with cross-module reuse keeps the extra copies from undoing the compile-time gains. Every optimization is measured red-then-green on instructions and peak memory against 604a, 606a and C.</p>
 </section>
 
 <!-- ============================================================ 8 -->
 <section id="rulings" aria-labelledby="h-rul">
-<h2 id="h-rul">8 · The Maintainer's rulings, and what's still open</h2>
-<p class="summary"><strong>In plain English</strong>Four questions about the language and the design have been ruled. Twenty-three decision cards from the inventories are still open; each has a recommendation. Most don't block the early steps; card 10 (<code>await</code>) gates phase 7, and cards 1 and 4 shape the cruft deletion.</p>
-<figure class="fig" aria-labelledby="cap-rul">
-<svg viewBox="0 0 960 220" role="img" aria-labelledby="t-rul"><title id="t-rul">Four ruled decisions and a grid of 24 consolidation cards, with card 9 ruled</title>
-<rect class="good" x="10" y="12" width="225" height="74" rx="8"/><text x="22" y="34" class="b">One lowering</text><text x="22" y="54" class="xs">elsif and case/when: the final</text><text x="22" y="68" class="xs">tree's lowering only</text>
-<rect class="good" x="245" y="12" width="225" height="74" rx="8"/><text x="257" y="34" class="b">1_000 is an Int</text><text x="257" y="54" class="xs">the old "Value 1_000" typing</text><text x="257" y="68" class="xs">was a bug</text>
-<rect class="good" x="480" y="12" width="225" height="74" rx="8"/><text x="492" y="34" class="b">extern builtins</text><text x="492" y="54" class="xs">typed declarations in Hey source;</text><text x="492" y="68" class="xs">name lists and table deleted</text>
-<rect class="good" x="715" y="12" width="235" height="74" rx="8"/><text x="727" y="34" class="b">inference + specialisation</text><text x="727" y="54" class="xs">both layers ship, (a) feeding (b)</text>
-<text x="10" y="114" class="sm b">The 24 consolidation cards (1 to 24):</text>
-<g>
-<rect class="box" x="10" y="126" width="34" height="30" rx="4"/><text x="16" y="146" class="xs">1</text>
-<rect class="box" x="49" y="126" width="34" height="30" rx="4"/><text x="55" y="146" class="xs">2</text>
-<rect class="box" x="88" y="126" width="34" height="30" rx="4"/><text x="94" y="146" class="xs">3</text>
-<rect class="box" x="127" y="126" width="34" height="30" rx="4"/><text x="133" y="146" class="xs">4</text>
-<rect class="box" x="166" y="126" width="34" height="30" rx="4"/><text x="172" y="146" class="xs">5</text>
-<rect class="box" x="205" y="126" width="34" height="30" rx="4"/><text x="211" y="146" class="xs">6</text>
-<rect class="box" x="244" y="126" width="34" height="30" rx="4"/><text x="250" y="146" class="xs">7</text>
-<rect class="box" x="283" y="126" width="34" height="30" rx="4"/><text x="289" y="146" class="xs">8</text>
-<rect class="good" x="322" y="126" width="34" height="30" rx="4"/><text x="328" y="146" class="xs b">9</text>
-<rect class="box" x="361" y="126" width="34" height="30" rx="4"/><text x="364" y="146" class="xs">10</text>
-<rect class="box" x="400" y="126" width="34" height="30" rx="4"/><text x="403" y="146" class="xs">11</text>
-<rect class="box" x="439" y="126" width="34" height="30" rx="4"/><text x="442" y="146" class="xs">12</text>
-<rect class="box" x="478" y="126" width="34" height="30" rx="4"/><text x="481" y="146" class="xs">13</text>
-<rect class="box" x="517" y="126" width="34" height="30" rx="4"/><text x="520" y="146" class="xs">14</text>
-<rect class="box" x="556" y="126" width="34" height="30" rx="4"/><text x="559" y="146" class="xs">15</text>
-<rect class="box" x="595" y="126" width="34" height="30" rx="4"/><text x="598" y="146" class="xs">16</text>
-<rect class="box" x="634" y="126" width="34" height="30" rx="4"/><text x="637" y="146" class="xs">17</text>
-<rect class="box" x="673" y="126" width="34" height="30" rx="4"/><text x="676" y="146" class="xs">18</text>
-<rect class="box" x="712" y="126" width="34" height="30" rx="4"/><text x="715" y="146" class="xs">19</text>
-<rect class="box" x="751" y="126" width="34" height="30" rx="4"/><text x="754" y="146" class="xs">20</text>
-<rect class="box" x="790" y="126" width="34" height="30" rx="4"/><text x="793" y="146" class="xs">21</text>
-<rect class="box" x="829" y="126" width="34" height="30" rx="4"/><text x="832" y="146" class="xs">22</text>
-<rect class="box" x="868" y="126" width="34" height="30" rx="4"/><text x="871" y="146" class="xs">23</text>
-<rect class="box" x="907" y="126" width="34" height="30" rx="4"/><text x="910" y="146" class="xs">24</text>
-</g>
-<text x="10" y="184" class="sm">Green: ruled. Grey: open, with a written recommendation. The extern and inference rulings answered two inventory STOP items</text>
-<text x="10" y="202" class="sm">(builtin result types, and untyped parameters and results), not numbered cards.</text>
-</svg>
-<figcaption id="cap-rul">The elsif ruling and 1_000 are recorded in <code>decisions/606a-performance-regressions-block-release.md</code> (early hours). The extern and both-layers rulings are recorded in the "Maintainer direction" paragraph of the release forecast; they replaced that decisions file's first answers. The 24 cards were first published on the decision page, now folded into this one; each maps to ledger STOP items or matrix rows.</figcaption>
-</figure>
-<ul>
-<li><strong>elsif and case/when.</strong> "Final tree only if it fits with our architecture: parser -&gt; syntax tree -&gt; hir -&gt; mir -&gt; llvm."<sup><a href="#n8">8</a></sup> It fits: the final syntax tree is the parser stage of that chain. The <code>HeyParser</code> and C (<code>heyc_kokoa_*</code>) lowerings are deleted in the control-flow step, after a corpus-wide before-and-after HIR comparison.</li>
-<li><strong>Digit separators.</strong> "1_000 is an Int."<sup><a href="#n9">9</a></sup> The new reader writes <code>Int 1000</code>; the old route's <code>Value 1_000</code>, which MIR refused, was a bug.</li>
-<li><strong>Builtins.</strong> Typed declarations in the built-in library (internal only), as in <a href="#builtins">section 3</a>. This replaced the earlier answer ("generated signature table until the next release").</li>
-<li><strong>Types.</strong> Both layers: inference over each body with an SCC fixpoint and <code>Value</code> where nothing constrains, and call-site specialisation as the code-generation step. This replaced the first answer, which treated specialisation as a possible later addition.</li>
-</ul>
-<details>
-<summary>The 23 open cards, with their recommendations</summary>
-<div class="scroll"><table>
-<thead><tr><th>Card</th><th>Question</th><th>Recommendation</th></tr></thead>
-<tbody>
-<tr><td>1</td><td>What builds the very first compiler once the C path is gone?</td><td>Keep the ~2,000-line stage0 C emitter as a named bootstrap path only, with every public flag removed; name a replacement seed as its removal condition.</td></tr>
-<tr><td>2</td><td>Is the seed copy meant to lag a release?</td><td>No, it's a duplicate: delete one copy.</td></tr>
-<tr><td>3</td><td>What does <code>stage0-run</code> keep of the C loader?</td><td>Only the ~660 lines the interpreter needs; move <code>--check</code> to the driver.</td></tr>
-<tr><td>4</td><td>Does the C LLVM emitter go this release?</td><td>Yes, after HeyLlvm compiles all 61 refused programs. The forecast already plans this.</td></tr>
-<tr><td>5</td><td>Documented check commands (<code>syntax-check</code> and others)?</td><td>Keep, rewritten on the canonical readers, as viewers only.</td></tr>
-<tr><td>6</td><td>Remove <code>HeyParser</code>, <code>HeyC</code>, <code>HeyAst</code>, <code>HeySyntax</code>, <code>HeySemantics</code> from the public stdlib?</td><td>Remove, after confirming no outside user.</td></tr>
-<tr><td>7</td><td>How ownership travels until typed facts exist</td><td>Verify every module always, now; then build the typed facts.</td></tr>
-<tr><td>8</td><td>Can an annotation choose a calling convention?</td><td>No: only typed facts and the runtime ABI tables. (Built-in declarations are internal and do not choose conventions either.)</td></tr>
-<tr><td>10</td><td>What does <code>await</code> mean?</td><td>Read the existing handling, then port with a source-to-native gate; the surface form needs choosing.</td></tr>
-<tr><td>11</td><td><code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code>, <code>%=</code></td><td>Lower in HIR as read, operate, write back, with tests.</td></tr>
-<tr><td>12</td><td>Heredoc raw/dedent disagreement</td><td>The final tree is right; promote the parity test to a HIR gate.</td></tr>
-<tr><td>13</td><td>Adjacent string literals <code>"a" "b"</code></td><td>Keep: join at compile time, keep the warning, add a gate.</td></tr>
-<tr><td>14</td><td>Object shorthand <code>{name}</code></td><td>Implement with the meaning the Maintainer confirms.</td></tr>
-<tr><td>15</td><td><code>exposes</code> and export labels</td><td>Resolution owns them; HIR reads the resolved facts.</td></tr>
-<tr><td>16</td><td>import, module, spec, job rewrites</td><td>Use resolved facts; <code>job</code> lowers straight to its constructor call.</td></tr>
-<tr><td>17</td><td>HIR reads keys nothing writes</td><td>Make each read crash, run the gates, delete if nothing trips.</td></tr>
-<tr><td>18</td><td>The "compatibility namespace" chain</td><td>Keep, rename for what it does, gate it, after the owner reads it.</td></tr>
-<tr><td>19</td><td>Three copies of path canonicalisation</td><td>Test whether the old LLVM limitation holds; keep one copy in resolution.</td></tr>
-<tr><td>20</td><td><code>HEY_PACKAGE_VERIFY=off</code></td><td>Remove.</td></tr>
-<tr><td>21</td><td><code>hey run</code> and <code>Eval</code> escape hatches</td><td>Keep the two run switches as named test controls; give <code>Eval</code> one route.</td></tr>
-<tr><td>22</td><td><code>HeyPropertyIr</code>, <code>HeySymbols</code>, <code>HeyOperatorParser</code></td><td>Fold property decoding into HeyMir; delete the dead operator parser.</td></tr>
-<tr><td>23</td><td>210 unwired tests and 1,226 maybe-dead C lines</td><td>Each owner wires or deletes; confirm dead C with the compiler warning first.</td></tr>
-<tr><td>24</td><td>When do we get a real deletion size?</td><td>Treat 48,100 as a ceiling; measure what each slice deletes.</td></tr>
-</tbody></table></div>
-<p>Also open: the cap on specialised copies (to be measured on the self-compile and apps), and classifying the 302 <code>heyc ... --run</code> test lines (Task 7's table, not a ruling).</p>
-</details>
-</section>
-
-<!-- ============================================================ 9 -->
-<section id="timeline" aria-labelledby="h-time">
-<h2 id="h-time">9 · Timeline: release qualified about day 13 (day 10 on a clean run)</h2>
-<p class="summary"><strong>In plain English</strong>606a ships first. Porting the front end, extern builtins and the two type layers runs mostly in order for about four days. Native <code>--run</code>, ownership and emitter work overlap with it; then HeyLlvm learns the last 61 programs, the cruft goes, and the two kinds of optimization run side by side. A clean run qualifies the release; the realistic estimate is day 13. This is an engineering estimate, not a measurement.</p>
-<figure class="fig" aria-labelledby="cap-time">
-<svg viewBox="0 0 960 510" role="img" aria-labelledby="t-time"><title id="t-time">Forecast timeline: for each phase, a dot at the clean-path day and a bar to the realistic day, counted from the start of the port</title>
-<g>
-<line class="grid" x1="250" y1="34" x2="250" y2="470"/><line class="grid" x1="296" y1="34" x2="296" y2="470"/><line class="grid" x1="342" y1="34" x2="342" y2="470"/><line class="grid" x1="388" y1="34" x2="388" y2="470"/><line class="grid" x1="434" y1="34" x2="434" y2="470"/><line class="grid" x1="480" y1="34" x2="480" y2="470"/><line class="grid" x1="526" y1="34" x2="526" y2="470"/><line class="grid" x1="572" y1="34" x2="572" y2="470"/><line class="grid" x1="618" y1="34" x2="618" y2="470"/><line class="grid" x1="664" y1="34" x2="664" y2="470"/><line class="grid" x1="710" y1="34" x2="710" y2="470"/><line class="grid" x1="756" y1="34" x2="756" y2="470"/><line class="grid" x1="802" y1="34" x2="802" y2="470"/><line class="grid" x1="848" y1="34" x2="848" y2="470"/><line class="grid" x1="894" y1="34" x2="894" y2="470"/><line class="grid" x1="940" y1="34" x2="940" y2="470"/>
-<text x="259" y="26" class="xs">day 0</text><text x="311" y="26" class="xs">1</text><text x="357" y="26" class="xs">2</text><text x="403" y="26" class="xs">3</text><text x="443" y="26" class="xs">4</text><text x="495" y="26" class="xs">5</text><text x="541" y="26" class="xs">6</text><text x="587" y="26" class="xs">7</text><text x="633" y="26" class="xs">8</text><text x="679" y="26" class="xs">9</text><text x="725" y="26" class="xs">10</text><text x="771" y="26" class="xs">11</text><text x="817" y="26" class="xs">12</text><text x="859" y="26" class="xs">13</text><text x="905" y="26" class="xs">14</text>
-<path d="M273 34V470" style="stroke:var(--acc);stroke-width:2;stroke-dasharray:3 3"/><text x="278" y="484" class="xs t-acc">start</text>
-
-<text x="10" y="66" class="sm">0 · 606a deploy</text><rect class="f-acc" x="267" y="56" width="12" height="12" rx="3"/>
-<text x="10" y="92" class="sm">1 · Expressions from the tree</text><rect class="f-good" x="267" y="82" width="12" height="12" rx="3"/>
-<text x="10" y="118" class="sm">2 · Statements, read once</text><rect class="f-acc" x="273" y="112" width="46" height="4"/><circle class="f-acc" cx="273" cy="114" r="6"/><rect class="f-acc" x="313" y="108" width="12" height="12" rx="3"/>
-<text x="10" y="144" class="sm">3 · extern builtins</text><rect class="f-acc" x="319" y="138" width="46" height="4"/><circle class="f-acc" cx="319" cy="140" r="6"/><rect class="f-acc" x="359" y="134" width="12" height="12" rx="3"/>
-<text x="10" y="170" class="sm">4 · Control flow</text><rect class="f-acc" x="319" y="164" width="46" height="4"/><circle class="f-acc" cx="319" cy="166" r="6"/><rect class="f-acc" x="359" y="160" width="12" height="12" rx="3"/>
-<text x="10" y="196" class="sm">5 · Type inference</text><rect class="f-acc" x="365" y="190" width="46" height="4"/><circle class="f-acc" cx="365" cy="192" r="6"/><rect class="f-acc" x="405" y="186" width="12" height="12" rx="3"/>
-<text x="10" y="222" class="sm">6 · Specialisation</text><rect class="f-warn" x="411" y="216" width="92" height="4"/><circle class="f-warn" cx="411" cy="218" r="6"/><rect class="f-warn" x="497" y="212" width="12" height="12" rx="3"/>
-<text x="10" y="248" class="sm">7 · Remaining constructs</text><rect class="f-warn" x="411" y="242" width="92" height="4"/><circle class="f-warn" cx="411" cy="244" r="6"/><rect class="f-warn" x="497" y="238" width="12" height="12" rx="3"/>
-<text x="10" y="274" class="sm">8 · Native --run</text><rect class="f-acc" x="457" y="268" width="46" height="4"/><circle class="f-acc" cx="457" cy="270" r="6"/><rect class="f-acc" x="497" y="264" width="12" height="12" rx="3"/>
-<text x="10" y="300" class="sm">9 · Typed MIR ownership</text><rect class="f-warn" x="457" y="294" width="92" height="4"/><circle class="f-warn" cx="457" cy="296" r="6"/><rect class="f-warn" x="543" y="290" width="12" height="12" rx="3"/>
-<text x="10" y="326" class="sm">10 · Dispatch by identity</text><rect class="f-acc" x="457" y="320" width="92" height="4"/><circle class="f-acc" cx="457" cy="322" r="6"/><rect class="f-acc" x="543" y="316" width="12" height="12" rx="3"/>
-<text x="10" y="352" class="sm">11 · HeyLlvm compiles all 61</text><rect class="f-warn" x="503" y="346" width="92" height="4"/><circle class="f-warn" cx="503" cy="348" r="6"/><rect class="f-warn" x="589" y="342" width="12" height="12" rx="3"/>
-<text x="10" y="378" class="sm">12 · Delete cruft, prove it</text><rect class="f-warn" x="549" y="372" width="92" height="4"/><circle class="f-warn" cx="549" cy="374" r="6"/><rect class="f-warn" x="635" y="368" width="12" height="12" rx="3"/>
-<text x="10" y="404" class="sm">13 · Compile-time optimizations</text><rect class="f-warn" x="641" y="398" width="92" height="4"/><circle class="f-warn" cx="641" cy="400" r="6"/><rect class="f-warn" x="727" y="394" width="12" height="12" rx="3"/>
-<text x="10" y="430" class="sm">14 · Runtime optimizations</text><rect class="f-warn" x="641" y="424" width="138" height="4"/><circle class="f-warn" cx="641" cy="426" r="6"/><rect class="f-warn" x="773" y="420" width="12" height="12" rx="3"/>
-<text x="10" y="456" class="sm b">15 · Qualification and release</text><rect class="f-warn" x="733" y="450" width="138" height="4"/><circle class="f-warn" cx="733" cy="452" r="6"/><rect class="f-warn" x="865" y="446" width="12" height="12" rx="3"/>
-</g>
-<circle class="f-mid" cx="20" cy="500" r="5"/><text x="30" y="504" class="xs">clean path</text><rect class="f-mid" x="104" y="494" width="12" height="12" rx="3"/><text x="122" y="504" class="xs">realistic</text>
-<rect class="f-good" x="190" y="494" width="12" height="12"/><text x="208" y="504" class="xs">high confidence</text><rect class="f-acc" x="310" y="494" width="12" height="12"/><text x="328" y="504" class="xs">medium</text><rect class="f-warn" x="390" y="494" width="12" height="12"/><text x="408" y="504" class="xs">low or low-medium</text>
-</svg>
-<figcaption id="cap-time">From the consolidation release forecast, rewritten. Assumes round-the-clock agents, the Mac's two heavy build slots after 606a ships, the Linux machine for platform runs, and no new design blocker. Phases 1–5 run mostly in series on one owner of the HIR traversal; 3 can start beside 2; 8–10 run beside 6–7; 13 and 14 run in parallel after 12. Phase 2 (medium-high confidence) is drawn as medium. Reforecast after each phase's native build.</figcaption>
-</figure>
-<div class="scroll"><table>
-<caption>The forecast table (days counted from the start of the port)</caption>
-<thead><tr><th>#</th><th>Feature</th><th>Delivers</th><th>Clean (day)</th><th>Realistic (day)</th><th>Confidence</th></tr></thead>
-<tbody>
-<tr><td>0</td><td>606a deploy</td><td>Current release</td><td>0</td><td>0</td><td>Medium</td></tr>
-<tr><td>1</td><td>Expressions from the syntax tree</td><td>Literals, names, operators, calls, interpolation typed from node ids</td><td>0</td><td>0</td><td>High (mostly done)</td></tr>
-<tr><td>2</td><td>Statements and declarations from the syntax tree</td><td><code>let</code>, <code>set</code>, <code>write</code>, <code>sleep</code>, <code>while</code>, functions; HIR reads each file once</td><td>0</td><td>1</td><td>Medium-high</td></tr>
-<tr><td>3</td><td><code>extern</code> builtins</td><td>Runtime functions declared with types in Hey source; generated signature table and name lists deleted (<a href="#builtins">section 3</a>)</td><td>1</td><td>2</td><td>Medium</td></tr>
-<tr><td>4</td><td>Control flow from the syntax tree</td><td><code>if</code>/<code>elsif</code>/<code>case-when</code> (one lowering), <code>for</code> over ranges and collections, mutable places</td><td>1</td><td>2</td><td>Medium</td></tr>
-<tr><td>5</td><td>Type inference</td><td>Layer (a) of <a href="#types">section 4</a></td><td>2</td><td>3</td><td>Medium</td></tr>
-<tr><td>6</td><td>Specialisation</td><td>Layer (b): native code per concrete call-site types, instance cache reused across modules</td><td>3</td><td>5</td><td>Low-medium</td></tr>
-<tr><td>7</td><td>Remaining constructs from the syntax tree</td><td>Records, arrays, maps, closures, actors, workers, jobs, specs, <code>await</code> (with its ruling)</td><td>3</td><td>5</td><td>Low</td></tr>
-<tr><td>8</td><td>Native <code>heyc app.hey --run</code></td><td>Compile and run natively, no interpreter; bootstrap and test-oracle callers moved</td><td>4</td><td>5</td><td>Medium (parallel with 6–7)</td></tr>
-<tr><td>9</td><td>Typed MIR ownership</td><td>Typed facts, verifier on every module</td><td>4</td><td>6</td><td>Low-medium</td></tr>
-<tr><td>10</td><td>Emitter dispatch by resolved identity</td><td>The 133 name tests in HeyLlvm replaced</td><td>4</td><td>6</td><td>Medium (parallel with 9)</td></tr>
-<tr><td>11</td><td>HeyLlvm completes the language</td><td>The 48 examples and 13 stdlib modules that need the C emitter today compile through HeyLlvm</td><td>5</td><td>7</td><td>Low-medium</td></tr>
-<tr><td>12</td><td>Delete all cruft, prove it is gone</td><td>Everything in <a href="#cruft">section 6</a>; old entry points crash; self-build, corpus and apps pass</td><td>6</td><td>8</td><td>Low</td></tr>
-<tr><td>13</td><td>Compile-time optimizations</td><td>Target self-compile about 60% faster</td><td>8</td><td>10</td><td>Low</td></tr>
-<tr><td>14</td><td>Runtime optimizations</td><td>In-place updates with copy-on-write off (W9, W10, 1BRC); map and hash redesign (W6, W11); allocator follow-ups</td><td>8</td><td>11</td><td>Low</td></tr>
-<tr><td>15</td><td>Full qualification and release</td><td>Native self-build, all gates, Linux, Ubuntu, Alpine, image, install check</td><td>10</td><td>13</td><td>Low</td></tr>
-</tbody></table></div>
-<p><strong>Where the work stands.</strong> Task 2's first slice and Task 3's first three slices are green when loaded from source (not yet in a native build). HIR now takes the new route for a program when every construct in it is ported.<sup><a href="#n10">10</a></sup> In a sweep of 35 small corpus programs, 13 produce byte-identical HIR on the new route; the rest stay on the old route, each with a recorded reason. The biggest blockers were untyped parameters (10 of 35), <code>if</code> and runtime builtins; the rulings above unblock all three.</p>
+<h2 id="h-rul">8 · The rulings behind this design</h2>
+<p>Every language and compiler question this design depends on is ruled: the elsif and case/when lowering, digit
+separators, built-ins as internal typed declarations, inference plus specialisation, and the rest. Each ruling, with
+its reason, is a row in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</p>
 </section>
 
 <!-- ============================================================ 10 -->
@@ -802,7 +669,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <details>
 <summary>Inspect the syntax tree yourself</summary>
 <p>This uses the same lexer and parser that resolution uses:</p>
-<pre data-example="fragment" data-needs="REVIEW"><code>import 'stdlib:HeyTokens'
+<pre data-example="fragment" data-needs="a few lines to illustrate the idea, not a whole program"><code>import 'stdlib:HeyTokens'
 import 'stdlib:HeySyntaxTree'
 
 program
@@ -814,7 +681,7 @@ program
   end
   says json_canonical_text(parsed.value.tree)
 end</code></pre>
-<p>With the 606a candidate it prints a <code>syntax_tree</code> containing an <code>infix_expr</code> for the addition, with sealed unit and node identities (the <code>0</code> is this unit's id). By contrast, the old <code>HeyParser</code> tree records the same binding as <code>expr: "2 + 3"</code>, a string later stages had to re-scan; that's exactly what the consolidation removes.</p>
+<p>It prints a <code>syntax_tree</code> containing an <code>infix_expr</code> for the addition, with sealed unit and node identities (the <code>0</code> is this unit's id). By contrast, the old <code>HeyParser</code> tree records the same binding as <code>expr: "2 + 3"</code>, a string later stages had to re-scan; that's exactly what the overhaul removes.</p>
 </details>
 
 <details>
@@ -870,7 +737,7 @@ end</code></pre>
 </ol>
 </section>
 <footer>
-<p><strong>Evidence.</strong> Implementation facts are from the files below. Inventory counts are at release 0.99.606a unless marked.</p>
+<p><strong>Evidence.</strong> Implementation facts are from the files below. Inventory counts are from before the overhaul unless marked.</p>
 <ol>
 <li>Runtime COW modes: <code>runtime/hey_runtime.c</code> comments near <code>hey_rc_write_decision</code>.</li>
 </ol>
@@ -899,7 +766,7 @@ end</code></pre>
 <li id="src-aug28">Step 7: ARCHITECTURE hey restructured. The newer <a href="2026-10-25-hey-compiler-from-source-to-native.html">architecture guide</a> is a separate document.</li>
 </ol>
 </details>
-<p>Written by the maintainers' documentation agent with an independent editor review. <a href="index.html">More Hey articles</a> · <a href="#short">Back to the top</a></p>
+<p><a href="index.html">More Hey articles</a> · <a href="#short">Back to the top</a></p>
 </footer>
 </div>
 <script>
