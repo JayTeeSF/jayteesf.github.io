@@ -128,6 +128,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#publish">A module publishes, an import activates</a></li>
+<li><a href="#reopen">Reopening a module across files</a></li>
 <li><a href="#exposes"><code>exposes</code> and its forms</a></li>
 <li><a href="#forms">Every import form</a></li>
 <li><a href="#receiver">Receiver calls are static</a></li>
@@ -148,6 +149,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <caption>Every form, as run on 0.99.606a</caption>
 <tr><th>Form</th><th>Design says</th><th>606a did</th><th>Status</th></tr>
 <tr><td><code>module Name … end</code></td><td>groups functions</td><td>works; every function is public</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>reopen <code>module Name</code> in a second file</td><td>members combine into one module</td><td>the second file hides the first: calls into the first fail as unresolved</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 <tr><td><code>exposes f forms: […]</code></td><td>the complete public surface</td><td>parser refuses the line</td><td><span class="badge b-partly">Partly works</span></td></tr>
 <tr><td>call a sibling <code>f()</code> inside a module</td><td>works</td><td>refused; write <code>Module.f()</code></td><td><span class="badge b-partly">Partly works</span></td></tr>
 <tr><td><code>private fn</code></td><td>unreachable from outside</td><td>accepted, not enforced</td><td><span class="badge b-partly">Partly works</span></td></tr>
@@ -241,6 +243,34 @@ hey error: hey-selfc: ProgramResolution production failed (one authoritative res
 hey error: hey: script compilation failed
 </code></pre><div class="exit">exit status 70</div></div>
 
+<h2 id="reopen">Reopening a module across files <span class="badge b-decided">Decided, coming</span></h2>
+<p>Like Ruby, a Hey module can be opened in more than one file. Every file that says <code>module Shapes</code> adds its functions to the same module:</p>
+<div class="run"><div class="fname">shapes_area.hey</div><pre class="src"><code>module Shapes
+  fn area(w, h)
+    return w * h
+  end
+end</code></pre></div>
+<div class="run"><div class="fname">shapes_perimeter.hey</div><pre class="src"><code>module Shapes
+  fn perimeter(w, h)
+    return 2 * (w + h)
+  end
+end</code></pre></div>
+<div class="run"><div class="fname">main.hey</div><pre class="src"><code>import './shapes_area.hey'
+import './shapes_perimeter.hey'
+
+program
+  says Shapes.area(3, 4)        # 12
+  says Shapes.perimeter(3, 4)   # 14
+end</code></pre></div>
+<p>The rules:</p>
+<ul>
+<li><strong>Members combine.</strong> The module is every function from every file that opens it. The order the files are imported in doesn't matter.</li>
+<li><strong>One name, one definition.</strong> Defining the same function twice in one module is a compile error that names both files. Ruby only warns about this (with <code>-w</code>); Hey checks the whole program before it runs, so it can always tell you.</li>
+<li><strong><code>private</code> covers the whole module.</strong> A private function in one file can be called from the module's other files, and from nowhere else.</li>
+<li><strong>Built-in namespaces are different.</strong> Reopening a built-in module such as <code>Path</code> is allowed but gives a warning, because it hides the built-in.</li>
+</ul>
+<div class="note"><strong>No runtime cost.</strong> Ruby reopens a module while the program runs, so it has to update its method tables and throw away cached lookups. Hey resolves every name before the program runs, so a function compiles to the same native code whichever file it's written in. The build cache keeps each file's part separately, so editing one file rebuilds only the code that uses what changed.</div>
+<div class="note bad"><strong>Today's toolchain (0.99.606a) doesn't do this yet.</strong> The second <code>module Shapes</code> silently hides the first, so <code>Shapes.area</code> above fails as an unresolved call. Until it changes, keep each module in one file.</div>
 <h2 id="exposes">2. <code>exposes</code> and its forms</h2>
 <p>By design, the <code>exposes</code> lines at the end of a module are its whole public surface; anything not listed stays inside. Each line names the <em>forms</em> a caller may use: <code>:qualified</code> (<code>BankAccount.deposit(a, 1)</code>), <code>:unqualified</code> (<code>deposit(a, 1)</code> after <code>exposing:</code>) and <code>:dotted</code> (<code>a.deposit(1)</code>). A facade module may write <code>exposes *</code>. The syntax tree has nodes for it (<code>exposes_decl</code>, <code>export_label</code>) and <code>compiler/module_exposure_forms.json</code> defines the forms. <span class="badge b-partly">Partly works</span> On 606a the self-hosted compiler's parser rejects the line, and none of the standard library's modules use it (their public names come from the generated exposure catalog instead):</p>
 <div class="run"><div class="fname">bank_exposes.hey</div><pre class="src"><code>module BankAccount
