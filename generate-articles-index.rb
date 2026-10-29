@@ -12,20 +12,17 @@ class ArticlesIndex
   # question it answers. These buckets are those questions, in reading order.
   BUCKET_HEADINGS = {
     "start" => "Start here",
-    "how-it-works" => "How Hey works",
-    "build" => "Build with Hey",
-    "actors" => "Actors",
-    "research" => "Ideas and research",
-    "status" => "Current project status",
-    "reference" => "Reference"
+    "guides" => "Guides",
+    "reference" => "Reference",
+    "compiler" => "How the compiler works",
+    "decisions" => "Decisions",
+    "articles" => "Articles"
   }.freeze
 
-  BUCKET_ORDER = %w[start how-it-works build actors research status reference].freeze
+  BUCKET_ORDER = %w[start guides reference compiler decisions articles].freeze
 
-  # Within a bucket the default order is newest first, which is wrong exactly
-  # where two pages were published the same day and one is the prerequisite for
-  # the other. article-index-rank is the escape hatch: lower sorts first, and it
-  # is compared as TEXT so a page may simply omit it and take the default.
+  # Within a bucket, pages sort by article-index-rank (lower first, compared as
+  # TEXT so a page may omit it and take the default), then by file name.
   DEFAULT_RANK = "50"
 
   def initialize(articles_dir)
@@ -80,8 +77,8 @@ class ArticlesIndex
   #
   # This mirrors generate-articles-index.hey, its Hey twin. The two generators
   # disagreeing was itself the bug -- a fact restated in two programs, corrected
-  # in one -- so any change here belongs in both. The dailies pair that once made
-  # this a foursome was retired on 2026-08-29 along with the dailies category.
+  # in one -- so any change here belongs in both. Run both and diff
+  # the two index.html files after any change.
   def parse_article(path)
     content = path.read
     filename = path.basename.to_s
@@ -90,14 +87,12 @@ class ArticlesIndex
     title = extract_title(content) if title.nil? || title.strip.empty?
     title = path.basename(".html").to_s if title.nil? || title.strip.empty?
 
-    date = extract_meta(content, "article-date")
     bucket = extract_meta(content, "article-bucket")
 
     desc = extract_meta(content, "article-index-desc")
     desc = extract_meta(content, "article-desc") if desc.nil? || desc.empty?
 
     missing = []
-    missing << "article-date" if date.nil? || date.empty?
     missing << "article-bucket" if bucket.nil? || bucket.empty?
     missing << "article-desc" if desc.nil? || desc.empty?
 
@@ -113,7 +108,7 @@ class ArticlesIndex
     rank = extract_meta(content, "article-index-rank")
     rank = DEFAULT_RANK if rank.nil? || rank.strip.empty?
 
-    { filename: filename, title: title, date: date, bucket: bucket, desc: desc, rank: rank }
+    { filename: filename, title: title, bucket: bucket, desc: desc, rank: rank }
   end
 
   def articles
@@ -122,9 +117,6 @@ class ArticlesIndex
 
   def compare_entries(left, right)
     comparison = left[:rank] <=> right[:rank]
-    return comparison unless comparison.zero?
-
-    comparison = right[:date] <=> left[:date]
     return comparison unless comparison.zero?
 
     left[:filename] <=> right[:filename]
@@ -145,7 +137,6 @@ class ArticlesIndex
       "    <li>",
       %(      <a href="#{article[:filename]}">#{article[:title]}</a>),
       %(      <p class="desc">#{article[:desc]}</p>),
-      %(      <span class="date">#{article[:date]}</span>),
       "    </li>"
     ]
   end
@@ -216,7 +207,6 @@ class ArticlesIndex
       "  }",
       "  ul.articles a:hover { text-decoration: underline; }",
       "  .desc { color: var(--muted); margin: 0.15rem 0 0; }",
-      '  .date { font-size: 0.85rem; color: var(--muted); }',
       '  .home { display: inline-block; margin-bottom: 2rem; color: var(--muted);',
       "          text-decoration: none; font-size: 0.9rem; }",
       "  .home:hover { color: var(--accent); }",
@@ -226,10 +216,10 @@ class ArticlesIndex
       "<main>",
       '  <a class="home" href="../index.html">&larr; www.jayteesf.com</a>',
       "  <h1>Articles</h1>",
-      '  <p class="sub">Essays, guides, research and current reference material from',
-      "  building the Hey programming language — how the language works, how its",
-      "  compiler is being made trustworthy and fast, and what its actor and",
-      "  distributed systems are trying to become.</p>",
+      '  <p class="sub">The Hey programming language: start here, six guides, the',
+      "  reference, how the compiler works, every decision, and a few longer articles.",
+      "  Every page describes Hey as it works now; anything not built yet is labelled",
+      "  Decided, coming.</p>",
       *sections,
       "</main>",
       "</body>",
@@ -244,8 +234,8 @@ end
 USAGE = <<~TEXT
   usage: generate-articles-index [ARTICLES_DIR]
 
-  Regenerates ARTICLES_DIR/index.html from the article-date,
-  article-bucket and article-desc meta tags of the articles in
+  Regenerates ARTICLES_DIR/index.html from the article-bucket,
+  article-index-rank and article-desc meta tags of the articles in
   that directory. Default ARTICLES_DIR: ./articles
 
     -h, --help   show this help and exit
