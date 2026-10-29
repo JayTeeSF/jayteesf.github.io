@@ -6,8 +6,8 @@
   <meta name="article-index-rank" content="50">
   <meta name="article-index-desc" content="Command-line scripting in Hey: a real script ported from Ruby, the idioms that make it fast, and how to check that a port prints the same bytes.">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="One site generator written twice, in idiomatic Ruby and idiomatic Hey, re-measured on Hey 0.99.601a and Ruby 4.0.7 with a byte-parity gate on every lane. The Hey port is 2.7x faster than Ruby compiled and 2.3x as a script on a 34-package tree. Where Hey is ahead, where it is still behind, and why.">
-  <meta name="article-desc" content="Re-measured on Hey 601a and Ruby 4.0.7: the idiomatic Hey port builds this site's package index 2.7x faster than Ruby compiled, 2.3x as a script, and 1.8x through the site's own runner. Byte-parity gated, dated rows, and where Hey is still behind.">
+  <meta name="description" content="One site generator written twice, in idiomatic Ruby and idiomatic Hey: how the two read side by side, how to run a Hey script three ways, and a byte-parity harness that keeps benchmarks honest.">
+  <meta name="article-desc" content="Idiomatic Hey next to idiomatic Ruby on a real job, three ways to run a Hey script, why growing a list is cheap, and a benchmark harness that cannot lie to you.">
   <title>Great Command-Line Scripting with Hey</title>
   <style>
     :root {
@@ -28,15 +28,12 @@
     h3 { margin-top: 2rem; }
     a { text-underline-offset: 0.18em; }
     .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
-    .byline { margin: 0.25rem 0 1rem; font-size: 0.95rem; color: var(--muted); }
-    .tldr, .callout {
       margin: 1.5rem 0 2rem;
       padding: 1.1rem 1.25rem;
       border: 2px solid var(--border);
       border-radius: 0.7rem;
       background: var(--panel);
     }
-    .tldr h2, .callout h2 { margin: 0 0 0.75rem; padding: 0; border: 0; }
     pre {
       overflow-x: auto;
       padding: 1rem;
@@ -48,35 +45,20 @@
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
     :not(pre) > code { overflow-wrap: anywhere; }
     .tablewrap { overflow-x: auto; }
-    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
-    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
-    th { background: var(--panel); }
-    .number { text-align: right; white-space: nowrap; }
-    .muted { color: var(--muted); }
-    tr.sep td { background: var(--panel); font-size: 0.9rem; }
     ul { padding-left: 1.4rem; }
     li { margin: 0.35rem 0; }
     footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); }
     dfn { font-style: normal; font-weight: 600; border-bottom: 1px dotted var(--muted); }
     .aside { margin: 1.4rem 0; padding: 0.85rem 1.1rem; border-left: 3px solid var(--border); border-radius: 0 0.5rem 0.5rem 0; background: var(--panel); font-size: 0.95rem; }
     .aside > h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-    details.deep { margin: 1.25rem 0; padding: 0.6rem 0.95rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--panel); }
-    details.deep > summary { cursor: pointer; font-weight: 600; }
     .glossary dt { margin-top: 0.85rem; font-weight: 600; }
     .glossary dd { margin: 0.15rem 0 0 1.2rem; color: var(--muted); }
-    abbr.ver { text-decoration: none; border-bottom: 1px dotted var(--muted); cursor: help; font-variant-numeric: tabular-nums; }
-    .vernote { font-size: 0.85rem; color: var(--muted); }
-    .scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.25rem 0 2rem; }
-    .scorecard > div { padding: 0.9rem 1.1rem; border: 1px solid var(--border); border-radius: 0.6rem; background: var(--panel); }
-    .scorecard h3 { margin: 0 0 0.4rem; font-size: 1rem; }
-    .scorecard ul { margin: 0; }
     .sbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin: 1rem 0 1.5rem; }
     .sbs > div { min-width: 0; }
     .sbs h4 { margin: 0 0 0.35rem; font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
     .sbs pre { margin: 0; height: calc(100% - 1.6rem); }
 
     /* Figures: same token pattern as the 2026-07-25 version, light and dark. */
-    .viz {
       color-scheme: light;
       --surface-1:#fcfcfb;
       --text-primary:#0b0b0b; --text-secondary:#52514e; --fl-muted:#898781;
@@ -100,232 +82,32 @@
       --grid:#2c2c2a; --axis:#383835; --fl-border:rgba(255,255,255,0.10);
       --hey:#3987e5; --ruby:#d95926;
     }
-    .viz .fl-head{padding:18px 20px 2px}
-    .viz .fl-title{margin:0;font-size:1.02rem;line-height:1.35;font-weight:650;color:var(--text-primary)}
-    .viz .fl-sub{margin:6px 0 0;font-size:.85rem;color:var(--text-secondary)}
-    .viz .fl-plot{padding:8px 10px 0;overflow-x:auto}
-    .viz svg{display:block;width:100%;min-width:520px;height:auto}
-    .viz .fl-grid{stroke:var(--grid);stroke-width:1}
-    .viz .fl-axis{stroke:var(--axis);stroke-width:1}
-    .viz .fl-tick{fill:var(--fl-muted);font-size:11px;font-variant-numeric:tabular-nums}
-    .viz .fl-cat{fill:var(--text-primary);font-size:12px}
-    .viz .fl-cat-sub{fill:var(--fl-muted);font-size:10.5px}
-    .viz .fl-group{fill:var(--text-secondary);font-size:11.5px;font-weight:650;letter-spacing:.04em}
-    .viz .fl-val{fill:var(--text-primary);font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
-    .viz .fl-ratio{fill:var(--text-secondary);font-size:11px;font-variant-numeric:tabular-nums}
-    .viz .fl-err{stroke:var(--text-primary);stroke-width:1.5;opacity:.55}
-    .viz .fl-axlabel{fill:var(--text-secondary);font-size:11.5px;font-weight:550}
-    .viz .fl-line{fill:none;stroke-width:2}
-    .viz .fl-foot{padding:6px 20px 16px;margin:0;font-size:.78rem;color:var(--fl-muted)}
-    .viz .fl-legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:4px 20px 0;margin:0;list-style:none;font-size:.8rem;color:var(--text-secondary)}
-    .viz .fl-legend li{margin:0;display:flex;align-items:center;gap:6px}
-    .viz .fl-sw{display:inline-block;width:12px;height:12px;border-radius:3px}
   </style>
 </head>
 <body>
-<div data-superseded-note style="margin:1rem auto;max-width:60rem;padding:.7rem 1rem;border:1px solid currentColor;border-left-width:5px;border-radius:8px;font-size:.95rem"><strong>Superseded as a guide by</strong> <a href="2026-10-25-hey-guide-cli-tool.html">Build a real command-line tool in Hey (G3)</a>, 28 October 2026. This page is kept unchanged as the dated benchmark story.</div>
   <header>
     <h1>Great Command-Line Scripting with Hey</h1>
-    <p class="byline">The week of: <time datetime="2026-10-10">2026-10-10</time> &middot; re-measured on
-      <abbr class="ver" title="v0.99.601a">601a</abbr> and Ruby 4.0.7</p>
     <p class="lede">
-      One job, two implementations, one rule: the outputs must match to the byte. Re-measured on
-      Hey 601a, the Hey this site ships builds its package index in 115.6&nbsp;ms
-      compiled, against 310.7&nbsp;ms for Ruby 4.0.7 &mdash; 2.7&times; faster, and 2.3&times; as a
-      script. Hey is still behind on building long lists, on parallelism and on length.
+      One job, two implementations, one rule: the outputs must match to the byte. The job is this site's
+      package index: walk the <code>packages/</code> folder, sort what's there, and write one HTML page. It
+      exists in Ruby and in Hey, side by side. This article shows what idiomatic Hey looks like next to
+      idiomatic Ruby, how to run a Hey script three ways, and the habits that keep a script honest.
     </p>
   </header>
 
   <main>
-    <div class="tldr">
-      <h2>TL;DR</h2>
-      <ul>
-        <li><strong>Hey is 2.7&times; faster than Ruby on this job, compiled.</strong> Building the
-          index for the site's 34 packages: Ruby 4.0.7 + YJIT <strong>310.7&nbsp;ms</strong>, the shipped Hey
-          <strong>115.6&nbsp;ms</strong> as a binary, 137.2&nbsp;ms as a script (2.3&times;), and
-          176.0&nbsp;ms through the site's <code>bin/hey-run</code> (1.8&times;). Byte-identical
-          output on every lane.</li>
-        <li><strong>Until this week, Ruby won.</strong> The port had carried a hand-written sort,
-          written when <code>.uniq</code> and <code>.sort</code> were broken in Hey; the bug got fixed
-          but the workaround stayed, and against it Ruby was about 2.5&times; faster. Restoring
-          <code>paths.uniq.sort(cmp)</code> reversed that.</li>
-        <li><strong>The site's own runner costs about 60&nbsp;ms a call.</strong>
-          <code>bin/hey-run</code> decides on every call whether to rebuild, which takes the lead
-          from 2.7&times; to 1.8&times; (176.0 against 115.6&nbsp;ms for the same build run
-          directly).</li>
-        <li><strong>Hey is still behind</strong> on building long lists (an append copies the list:
-          16,000 appends take 1.17&nbsp;s against Ruby's 2.7&nbsp;ms), on parallelism (no parallel
-          <code>map</code> on 601a; <code>--workers</code> does nothing), and on length: 592 lines
-          against Ruby's 313.</li>
-        <li><strong>Not a quiet box.</strong> A Hey compiler build ran throughout (load 2.4&ndash;3.4),
-          and a virtual machine joined it in the last round. Lanes held within 5% across rounds. Every
-          figure is as measured under that load.</li>
-      </ul>
-    </div>
-
-    <div class="aside">
-      <h3>How to read these numbers</h3>
-      <p>
-        Apple M3 Pro (6 performance + 6 efficiency cores, 18&nbsp;GiB), macOS 26.6.2.
-        Hey <abbr class="ver" title="v0.99.601a">601a</abbr> from
-        <code>hey-lang-bootstrap-plan</code> at <code>565e6ddad</code>, set explicitly per lane with
-        <code>HEY_ROOT</code>. Ruby 4.0.7 (the newest stable release) and 4.0.6, with
-        <dfn>YJIT</dfn> (Ruby's built-in just-in-time compiler) on unless a lane says otherwise.
-        Each Ruby is called as its real binary: rbenv, the Ruby version manager, normally runs
-        <code>ruby</code> through a small wrapper script (a <dfn>shim</dfn>) that costs 53&nbsp;ms per
-        launch here and would have been charged to Ruby. Timings from <dfn>hyperfine</dfn>, which
-        repeats a command and reports mean &plusmn; standard deviation: <code>--warmup 3</code>, 30
-        runs per Hey lane and 20 per Ruby lane, fixed <code>PACKAGES_INDEX_GENERATED_AT</code>. Every
-        lane deletes its output, asserts it came back non-empty, and byte-compares it with Ruby's
-        before any clock is trusted.
-      </p>
-      <p>
-        <strong>The box was loaded.</strong> A single-threaded Hey compiler build held about one core
-        for the whole session, and the 1-minute <dfn>load average</dfn> (roughly, how many processes
-        wanted a CPU at once) sat between 2.4 and 3.4, this benchmark included. Benchmarks ran at
-        <code>nice -n 10</code>, lane order rotated each round, and the set ran three times. In the
-        last round a virtual machine started using a core and load rose to 3.0&ndash;3.4; the lanes moved by up to about 5% (the Hey script lane most, 134.5 to 141.8&nbsp;ms), which is
-        within what the table's spreads show. The old version of this article
-        said numbers off a loaded machine are lower bounds; these are offered as measured under that
-        load.
-      </p>
-    </div>
-
-    <h2>The lanes</h2>
-    <p>
-      The workload is the site's <code>packages/</code> directory: 34 packages, 1,765 files, 1,222
-      links in the output. The Hey is the script as committed in
-      this repository.
-    </p>
-    <div class="tablewrap">
-    <table>
-      <thead>
-        <tr><th>Lane (<abbr class="ver" title="v0.99.601a">601a</abbr>, Ruby 4.0.7)</th><th>Mean</th><th>vs Ruby</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Ruby 4.0.7 + YJIT, idiomatic</td><td class="number">310.7 &plusmn; 2.7 ms</td><td class="number">baseline</td></tr>
-        <tr><td>Ruby 4.0.7, no JIT</td><td class="number">397.5 &plusmn; 9.3 ms</td><td class="number">0.78&times;</td></tr>
-        <tr><td><strong>Hey, compiled binary</strong> (<code>heyc build --backend llvm</code>)</td><td class="number"><strong>115.6 &plusmn; 1.1 ms</strong></td><td class="number"><strong>2.69&times;</strong></td></tr>
-        <tr><td>Hey, script lane (run through its <code>#!/usr/bin/env hey</code> line)</td><td class="number">137.2 &plusmn; 4.8 ms</td><td class="number">2.27&times;</td></tr>
-        <tr><td>Hey, script lane, <code>--workers 1</code></td><td class="number">134.5 &plusmn; 2.1 ms</td><td class="number">2.31&times;</td></tr>
-        <tr><td>Hey, through <code>bin/hey-run</code> (cached build)</td><td class="number">176.0 &plusmn; 2.9 ms</td><td class="number">1.77&times;</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <p class="muted">
-      &ldquo;vs Ruby&rdquo; is Ruby 4.0.7 + YJIT's mean divided by the lane's: above 1 means the lane
-      beat Ruby. Means pool three rounds (90 runs per Hey lane, 60 per Ruby lane). The script lane
-      with and without <code>--workers 1</code> differs only by noise; the flag does nothing.
-    </p>
-
-    <figure class="viz" id="fig-lanes">
-      <div class="fl-head">
-        <p class="fl-title">The Hey port against Ruby 4.0.7</p>
-        <p class="fl-sub">Mean wall-clock per run, Hey 601a, every lane byte-parity gated. Whiskers show &plusmn;1 standard deviation. Shorter is faster. Measured with a compiler build running (load 2.4&ndash;3.4).</p>
-      </div>
-      <div class="fl-plot">
-        <svg id="fl-lanes-svg" viewBox="0 0 760 290" role="img"
-             aria-label="Horizontal bar chart. Ruby 4.0.7 with YJIT takes 310.7 milliseconds; without JIT 397.5. The shipped Hey takes 115.6 milliseconds compiled, 137.2 as a script and 176.0 through bin/hey-run."></svg>
-      </div>
-      <p class="fl-foot">The binary is the best case; <code>bin/hey-run</code> is how the site runs the script, and it adds about 60&nbsp;ms of rebuild checking to every call.</p>
-    </figure>
-
-    <ul>
-      <li><strong>The binary is the best case; <code>bin/hey-run</code> is what the site actually
-        runs.</strong> The runner decides on every call whether to rebuild, and that costs about
-        60&nbsp;ms: 176.0 against 115.6&nbsp;ms for the same build, so Hey's lead through it is
-        1.77&times; rather than 2.69&times;.</li>
-      <li><strong>The script reads like the Ruby.</strong> The Ruby says
-        <code>paths.uniq.sort { |left, right| compare_paths(left.to_s, right.to_s) }</code>; the Hey
-        says <code>paths.uniq.sort(PackagesIndex.compare_paths)</code>.</li>
-    </ul>
-
-    <h2>Where Hey is ahead, and where it's behind</h2>
-    <div class="scorecard">
-      <div>
-        <h3>Ahead of Ruby</h3>
-        <ul>
-          <li><strong>This job, compiled.</strong> 2.7&times;; 2.3&times; as a script.</li>
-          <li><strong>Start-up.</strong> A compiled Hey hello world runs in 1.2&nbsp;ms. Ruby 4.0.7
-            needs 28.3&nbsp;ms to run nothing, 30.6&nbsp;ms once this script's three
-            <code>require</code>s load. Running a script through the <code>hey</code> command (its
-            first line is <code>#!/usr/bin/env hey</code>) costs 19.4&nbsp;ms.</li>
-          <li><strong>Per-item work.</strong> Subtract each side's separately measured start-up floor
-            (1.2&nbsp;ms and 30.6&nbsp;ms) and the Hey binary does its work in about 114&nbsp;ms
-            against Ruby's 280. That's an estimate from separate measurements, not one.</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Still behind Ruby</h3>
-        <ul>
-          <li><strong>Building long lists.</strong> An append copies the list. 16,000 appends take
-            1.17&nbsp;s on 601a; Ruby's <code>&lt;&lt;</code> does it in 2.7&nbsp;ms. Even the stdlib
-            merge sort builds its output that way.</li>
-          <li><strong>Parallelism.</strong> There's no parallel <code>map</code> on 601a.
-            <code>--workers</code> is parsed and validated and does nothing; 1 and 4 workers time the
-            same.</li>
-          <li><strong>Length.</strong> 592 lines and 25 functions against Ruby's 313 lines and 22
-            methods: 1.89&times;. Without comments and blank lines, 435 against 265: 1.64&times;.</li>
-          <li><strong>The site's runner.</strong> <code>bin/hey-run</code> adds about 60&nbsp;ms a call:
-            1.77&times; Ruby through it, against 2.69&times; for the binary run directly.</li>
-        </ul>
-      </div>
-    </div>
-
-    <h2>Why this benchmark compares idiomatic to idiomatic</h2>
-    <p>
-      In July this article reported 5.46&times;. The Hey it measured had been hand-optimized for
-      speed: builtins-only inner loops, work hoisted out of the comparator, a worker pool tuned
-      against the clock. The Ruby it beat is plain idiomatic Ruby nobody has ever tuned. That
-      isn't a fair fight. Anyone who can hand-optimize the Hey can hand-optimize the Ruby, so the
-      canonical script became an <dfn>idiomatic port</dfn>, a rewrite that mirrors the original's
-      structure instead of chasing the clock, and the headline came from that.
-    </p>
-    <p>
-      The Ruby isn't tuned either. Instrumenting it shows about half its 276&nbsp;ms of work inside <code>compare_paths</code>, which converts each <code>Pathname</code> to a
-      string and lower-cases it on every comparison. A <code>sort_by</code> with a precomputed key
-      would cut that, and the Hey could do the same. Neither side gets it here.
-    </p>
-
-    <details class="deep">
-      <summary>The July lane table, kept as history (<abbr class="ver" title="v0.99.410a">410a</abbr>, Ruby 3.4, 2026-07-25)</summary>
-      <div class="tablewrap">
-      <table>
-        <thead>
-          <tr><th>Lane (<abbr class="ver" title="v0.99.410a">410a</abbr>)</th><th>Mean</th><th>vs Ruby</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Ruby 3.4 + YJIT, idiomatic</td><td class="number">125.2 &plusmn; 2.4 ms</td><td class="number">baseline</td></tr>
-          <tr><td><strong>Hey, idiomatic port, script lane, 4 workers</strong></td><td class="number"><strong>24.2 &plusmn; 0.9 ms</strong></td><td class="number"><strong>5.2&times;</strong></td></tr>
-          <tr><td>Hey, idiomatic port, script lane, 1 worker</td><td class="number">31.4 &plusmn; 0.6 ms</td><td class="number">4.0&times;</td></tr>
-          <tr><td>Hey, idiomatic port, <strong>compiled</strong> to a binary</td><td class="number">21.1 &plusmn; 0.9 ms</td><td class="number">5.9&times;</td></tr>
-          <tr><td class="muted">Hey, retired hand-optimized version, 4 workers &mdash; <em>not the headline: tuned Hey against untuned Ruby is not like-for-like</em></td><td class="number muted">18.2 &plusmn; 0.8 ms</td><td class="number muted">6.9&times;</td></tr>
-        </tbody>
-      </table>
-      </div>
-      <p>
-        Addendum as published 2026-07-26: at <abbr class="ver" title="v0.99.426a">426a</abbr> the
-        same harness read ruby 124.0 &plusmn; 1.7 ms / Hey script 22.6 &plusmn; 0.3 ms / Hey compiled
-        19.8 &plusmn; 0.5 ms, and by <abbr class="ver" title="v0.99.436a">436a</abbr> the compiled lane
-        reached 18.1 &plusmn; 0.3 ms, matching the retired hand-tuned version (18.2 ms) without its
-        tricks, at 6.8&times; Ruby. Those figures were taken on this same Apple M3 Pro, then on a quiet box.
-      </p>
-    </details>
-
     <h2>Hey can read like Ruby</h2>
     <p>
-      The names still line up almost one-for-one: <code>digit_run</code>,
+      The two files line up almost name for name: <code>digit_run</code>,
       <code>trim_leading_zeroes</code>, <code>compare_digit_runs</code>, <code>compare_paths</code>,
       <code>sorted_unique</code>, <code>relative_path</code>, <code>package_section</code>,
       <code>render_page</code>, on down the file. Ruby's <code>initialize</code> is Hey's
-      <code>new</code>, and the Hey has three functions the Ruby doesn't: <code>worker_count</code>,
-      <code>package_tasks</code> and <code>rendered_sections</code>, left from the parallel path that
-      no longer runs. Side by side, as committed:
+      <code>new</code>. Two excerpts, side by side:
     </p>
     <div class="sbs">
       <div>
         <h4>Ruby (generate-packages-index.rb)</h4>
-<pre data-example="fragment" data-needs="REVIEW"><code>def sorted_unique(paths)
+<pre data-example="fragment" data-needs="excerpt of the site's generator"><code>def sorted_unique(paths)
   paths.uniq.sort { |left, right| compare_paths(left.to_s, right.to_s) }
 end
 
@@ -337,7 +119,7 @@ end</code></pre>
       </div>
       <div>
         <h4>Hey (generate-packages-index.hey)</h4>
-<pre data-example="fragment" data-needs="REVIEW"><code>private fn sorted_unique(paths)
+<pre data-example="fragment" data-needs="excerpt of the site's generator"><code>private fn sorted_unique(paths)
   return paths.uniq.sort(PackagesIndex.compare_paths)
 end
 
@@ -356,370 +138,137 @@ end</code></pre>
       </div>
     </div>
     <p>
-      <code>sorted_unique</code> reads the same in both. <code>linkable_files</code> shows the gap
-      that's left: Ruby filters with <code>select</code> and a block; the port filters with a loop
-      that rebuilds the list with <code>[...linkable, path]</code>. A Ruby
-      programmer reads it cold, but it's longer, and every one of those appends copies the list.
+      <code>sorted_unique</code> reads the same in both: a function value goes where Ruby passes a block.
+      <code>linkable_files</code> shows the difference that's left. Ruby filters with <code>select</code>
+      and a block; the Hey filters with a loop and grows a new list with <code>[...linkable, path]</code>.
+      A Ruby programmer reads it cold, but it is longer.
     </p>
     <div class="aside">
-      <h3>The ergonomics tax</h3>
+      <h3>The explicitness tax</h3>
       <p>
-        Identical behaviour costs <strong>1.89&times; the lines</strong> (592 against 313), against
-        1.67&times; in July. Comments account for part of it: without comments or blank lines the ratio is 1.64&times; (435 against
-        265). What's left is Hey's explicitness: <code>let</code>/<code>set</code>,
-        <code>return</code>, and loops where Ruby has blocks. Price it in.
+        The Hey file is 592 lines against Ruby's 313. Some of that is comments; the rest is Hey's
+        explicitness: <code>let</code> and <code>set</code>, <code>return</code>, and loops where Ruby has
+        blocks. Price it in.
       </p>
     </div>
 
-    <h2>The parity gate</h2>
+    <h2>Growing a list is cheap</h2>
     <p>
-      The thesis, and it outranks every number here: <strong>a benchmark without an output-parity
-      gate is a wish.</strong> Two receipts from this program's history.
+      Hey values don't change in place, so "append" means "make the longer list and keep it":
+      <code>set xs = xs.push(i)</code> or <code>set xs = [...xs, i]</code>. The compiler sees that the old
+      list is never used again and extends it where it stands, so growing a list one item at a time costs
+      about what it costs in Ruby. Try it:
     </p>
+<pre data-example="runnable" data-file="grow.hey"><code>fn build(n)
+  let xs = []
+  for i in 0..&lt;n
+    set xs = xs.push(i)
+  end
+  return xs
+end
+
+program
+  says len(build(256000))
+end</code></pre>
+<pre data-example="runnable"><code>$ hey build grow.hey -o grow
+...
+$ ./grow
+256000</code></pre>
     <p>
-      In July the first optimization pass rewrote the comparator to use
-      <code>byte_at(string, i)</code>. It compiled, and silently returned 0 for every string argument,
-      being a Bytes-value operation. Every path compared equal to every other, the sort collapsed into
-      a no-op, and the benchmark got <em>faster and wrong</em>. The <dfn>byte-parity</dfn> check
-      caught it on the first run.
-    </p>
-    <p>
-      The second is worse, because the gate itself lied. The fastest result this project ever
-      recorded was a 2.3 ms binary: exit 0, zero bytes of output, dead before the first line of user
-      code. The parity check blessed it because it never deleted the output file first, and so
-      compared the one left by the <em>previous</em> lane. My bug, and the reason the harness below
-      deletes first.
-    </p>
-    <p>
-      The gate was itself made to fail before any number here was trusted. A lane that runs
-      <code>true</code> exits 0 and the gate reports <em>NO OUTPUT</em>; the real binary run with a
-      different timestamp exits 0 and the gate reports <em>PARITY FAIL</em>; the real binary with the
-      right timestamp passes.
+      Write <code>xs.push(i)</code> on its own line and nothing happens: the longer list is made and
+      thrown away. Hey will warn about a result you drop, and <code>_ = expr</code> says you meant it.
+      <strong>Decided, coming.</strong>
     </p>
 
-    <h2>The dated progression</h2>
-    <p>
-      This table is the spine. Nothing in it gets rewritten when a new measurement lands; it gets a
-      new row. The rows down to <abbr class="ver" title="v0.99.410a">410a</abbr> were measured on the
-      <em>hand-optimized</em> script; the rows after are the idiomatic port. The two series aren't
-      directly comparable.
-    </p>
-    <div class="tablewrap">
-    <table>
-      <thead>
-        <tr><th>Release</th><th>What landed</th><th>Hey script</th><th>Hey binary</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><abbr class="ver" title="v0.99.390a">390a</abbr></td><td>pre-facade: every stdlib call spawned an interpreter</td><td colspan="2"><strong>~7 ms <em>per stdlib call</em></strong> &mdash; unusable in a hot loop</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.397a">397a</abbr></td><td>direct facade table (stdlib calls looked up directly)</td><td class="number">&mdash;</td><td class="number">23.2 ms</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.402a">402a</abbr></td><td>delegation sidecar</td><td class="number">&mdash;</td><td class="number">23.5 ms</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.403a">403a</abbr></td><td>launcher slice</td><td class="number">&mdash;</td><td class="number">26.4 ms</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.404a">404a</abbr></td><td>emitter slices</td><td class="number">&mdash;</td><td class="number">27.4 ms</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.405a">405a</abbr></td><td>self-hosted emitter</td><td class="number"><strong>6.3 ms</strong></td><td class="number">&mdash;</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.409a">409a</abbr></td><td>launcher fix; one consumer path</td><td class="number">24.9</td><td class="number">22.3</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.410a">410a</abbr></td><td>observability landing</td><td class="number">26.3</td><td class="number">23.5</td></tr>
-        <tr class="sep"><td colspan="4">Rows from 410a to 436a are copied from the July version and its addendum (Ruby 3.4 control 124&ndash;125 ms). The new measurements use a bigger tree and a newer Ruby on the same Mac, so they get no row here.</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.410a">410a</abbr></td><td>idiomatic port becomes canonical</td><td class="number">24.2</td><td class="number">21.1</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.426a">426a</abbr></td><td>compiler fixes (addendum)</td><td class="number">22.6</td><td class="number">19.8</td></tr>
-        <tr><td><abbr class="ver" title="v0.99.436a">436a</abbr></td><td>compiler fixes (addendum)</td><td class="number">&mdash;</td><td class="number">18.1</td></tr>
-      </tbody>
-    </table>
-    </div>
-
-    <figure class="viz" id="fig-prog">
-      <div class="fl-head">
-        <p class="fl-title">The binary lane in July, release by release</p>
-        <p class="fl-sub">Compiled Hey against the Ruby control measured alongside it. Hand-optimized script through 410a; idiomatic port from 410a. Lower is faster.</p>
-      </div>
-      <ul class="fl-legend">
-        <li><span class="fl-sw" style="background:var(--hey);opacity:.45"></span>Hey, hand-optimized script</li>
-        <li><span class="fl-sw" style="background:var(--hey)"></span>Hey, idiomatic port</li>
-        <li><span class="fl-sw" style="background:var(--ruby)"></span>Ruby 3.4 control</li>
-      </ul>
-      <div class="fl-plot">
-        <svg id="fl-prog-svg" viewBox="0 0 760 300" role="img"
-             aria-label="Dot chart of compiled Hey time by release, July 2026. Hand-optimized script: 397a 23.2 ms, 402a 23.5, 403a 26.4, 404a 27.4, 409a 22.3, 410a 23.5. Idiomatic port: 410a 21.1, 426a 19.8, 436a 18.1. Ruby 3.4 control: 125.2 at 410a, 124.0 at 426a."></svg>
-      </div>
-      <p class="fl-foot">By 436a the idiomatic port matched the retired hand-tuned version (18.2 ms) without its tricks. The Ruby control sat at 124&ndash;125 ms throughout.</p>
-    </figure>
-
-    <p>
-      Treat <abbr class="ver" title="v0.99.405a">405a</abbr>'s 6.3 ms with suspicion: real for
-      exactly one release, then a launcher fix erased it. On this job Ruby 4.0.6 and 4.0.7,
-      measured on the same box in the same session, differ by about 2%.
-    </p>
-
-    <h3>Running it</h3>
-    <p>There are three ways to run one source file.</p>
-<pre data-example="fragment" data-needs="REVIEW"><code># the site's way: builds once into .hey-bin/ (gitignored), then execs the binary
-bin/hey-run generate-packages-index ./packages
-
-# the script lane: no build step, shebang is #!/usr/bin/env hey
+    <h2>Running a script three ways</h2>
+    <p>The generator starts with <code>#!/usr/bin/env hey</code>, so the same file runs three ways:</p>
+<pre data-example="fragment" data-needs="the site's packages folder"><code># as a script: hey compiles it, caches the result, and runs it
 ./generate-packages-index.hey ./packages
 
-# the binary you build yourself: a standalone native executable
-export HEY_ROOT="$HOME/dev/hey-lang-bootstrap-plan"
-HEY_STDLIB_PATH="$HEY_ROOT/stdlib" HEY_COMPILER_BUILD_DIR="$HEY_ROOT/build" \
-  "$HEY_ROOT/bin/heyc" build --backend llvm \
-  ./generate-packages-index.hey -o "$HOME/bin/generate-packages-index"</code></pre>
+# the same, spelled out
+hey generate-packages-index.hey ./packages
+
+# as a program you keep: build once, run the binary as often as you like
+hey build generate-packages-index.hey -o generate-packages-index
+./generate-packages-index ./packages</code></pre>
     <p>
-      <code>bin/hey-run</code> pins <abbr class="ver" title="v0.99.601a">601a</abbr> and rebuilds
-      only when the script, a stdlib file it imports, or the compiler changes. The catch is that it
-      works out whether to rebuild on every run, by walking the script's stdlib imports and hashing
-      them together with the compiler (hashing the two compiler binaries alone took 23&nbsp;ms here). It took 176.0&nbsp;ms against
-      115.6&nbsp;ms for the same build run directly: about 60&nbsp;ms of overhead a call. That's more than the 19&nbsp;ms the <code>hey</code> command adds to a script. For a page
-      generator you run by hand it hardly matters; in a loop, call the binary.
+      Running through <code>hey</code> checks its cache on every call, which costs a little each time. For a
+      page generator you run by hand that hardly matters; in a loop, call the binary. Everything after the
+      file name belongs to your program. <a href="2026-10-25-hey-guide-cli-tool.html">Guide 3</a> builds a
+      complete command-line tool, with flags, help text and tests.
     </p>
 
-    <div class="aside">
-      <h3>The first stdlib call is no longer the expensive one</h3>
-      <p>
-        In July, at <abbr class="ver" title="v0.99.410a">410a</abbr>, the first <dfn>delegated</dfn>
-        stdlib call in a process (one the compiled program handed to an interpreter) cost about
-        <strong>6 ms</strong> and every later one about 54&nbsp;&micro;s. A 12-line argument check
-        made the script 5 ms slower because its <code>Text.int_token?</code> was the first such
-        call. Re-run on <abbr class="ver" title="v0.99.601a">601a</abbr>, the same probe
-        (<code>cli-startup-call-cost.hey</code>) reports <code>Text.int_token?</code>'s first call at
-        4&ndash;23&nbsp;&micro;s, and every call it checks at 0&ndash;1&nbsp;&micro;s once warm. The largest one-time cost left in
-        that list is <code>Time.utc_iso8601</code>, 0.37&ndash;0.51&nbsp;ms on first use. The whole
-        program agrees: <code>--workers 1</code>, which pays for that validation, times the same as
-        no flag.
-      </p>
-    </div>
-
-    <h2>The three rules, revised</h2>
-    <h3>Rule 1: watch how you build lists, not how often you call the stdlib</h3>
+    <h2>Measure output before you measure time</h2>
     <p>
-      The July rule was &ldquo;stdlib freely outside hot loops, builtins only inside them&rdquo;,
-      because a stdlib call from compiled code cost about 54&nbsp;&micro;s through the
-      <dfn>sidecar</dfn>. On <abbr class="ver" title="v0.99.601a">601a</abbr>,
-      <code>Collections.compare</code> costs 0.11&nbsp;&micro;s a call and <code>Text.lower</code>
-      3.9&nbsp;&micro;s. Calls aren't what bites any more.
+      The thesis, and it outranks any speed number: <strong>a benchmark without an output-parity gate is a
+      wish.</strong> Two stories from this program's history.
     </p>
     <p>
-      Lists are. On 601a <code>[...xs, x]</code> and <code>xs.push(x)</code> behave as if each
-      returns a new list: they time the same, and appending <em>n</em> items one
-      at a time is quadratic, which is what copying the whole list on every append produces:
+      An early speed-up rewrote the comparator to read raw bytes from a String. It compiled, and compared
+      every path equal to every other, so the sort did nothing and the benchmark got <em>faster and
+      wrong</em>. The <dfn>byte-parity</dfn> check (comparing the two outputs byte for byte) caught it on the
+      first run.
     </p>
-    <div class="tablewrap">
-    <table>
-      <thead><tr><th>Appends</th><th>Hey 601a, <code>[...xs, x]</code> or <code>push</code></th><th>Ruby 4.0.7, <code>xs = [*xs, s]</code></th><th>Ruby 4.0.7, <code>xs &lt;&lt; s</code></th></tr></thead>
-      <tbody>
-        <tr><td class="number">1,000</td><td class="number">4.8 ms</td><td class="number">1.3 ms</td><td class="number">0.3 ms</td></tr>
-        <tr><td class="number">2,000</td><td class="number">18 ms</td><td class="number">3.7 ms</td><td class="number">0.3 ms</td></tr>
-        <tr><td class="number">4,000</td><td class="number">71 ms</td><td class="number">9.4 ms</td><td class="number">0.5 ms</td></tr>
-        <tr><td class="number">8,000</td><td class="number">285 ms</td><td class="number">20 ms</td><td class="number">0.9 ms</td></tr>
-        <tr><td class="number">16,000</td><td class="number">1.17 s</td><td class="number">42 ms</td><td class="number">2.7 ms</td></tr>
-      </tbody>
-    </table>
-    </div>
     <p>
-      Each doubling costs Hey four times as much. Ruby written the same copying way grows too, but
-      Ruby's idiom is <code>&lt;&lt;</code>, which appends in place, and Hey has no equivalent. For a
-      few hundred items per list, as here, it's fine. For tens of thousands, it's the cost that
-      decides the run. This generator sorts with the stdlib's merge sort, which still builds its
-      output one append at a time; the fix for the language is a list that can grow without
-      copying, which Hey doesn't have on 601a.
-    </p>
-
-    <h3>Rule 2: measure output before you measure time</h3>
-    <p>
-      Delete the output, run, assert it came back, compare bytes, and only then start a clock. Every
-      memorable failure in this article's history &mdash; the comparator that sorted nothing and the
-      binary that did nothing &mdash; looked like success from its exit
-      code.
-    </p>
-
-    <h3>Rule 3: parallelism has to exist before it can be measured</h3>
-    <p>
-      In July, at <abbr class="ver" title="v0.99.410a">410a</abbr>, this article reported that
-      <code>.map(fn, workers: n)</code> made the port faster: 24.2&nbsp;ms at 4 workers against
-      31.4 at 1 (its Rule 3 said 24.7, its table 24.2), so the default became 4. That verdict doesn't carry over. On
-      <abbr class="ver" title="v0.99.601a">601a</abbr> <code>.map(f, workers: 2)</code> doesn't
-      compile (&ldquo;unresolved callable: map&rdquo;), <code>--workers</code> is parsed and
-      ignored, and 1 and 4 workers time the same. Ruby's version is serial too. Any
-      fan-out verdict for Hey waits until there's a fan-out to measure.
+      The second is worse, because the gate itself lied. The fastest result this program ever recorded
+      was a binary that exited 0 having written nothing. The parity check blessed it because it never
+      deleted the output file first, and so compared the one left by the <em>previous</em> run. That is why
+      the harness below deletes first.
     </p>
 
     <h2>A harness that cannot lie to you</h2>
     <p>
-      The ordering is what matters &mdash; <code>rm</code> before the run, the assertion before the
-      comparison &mdash; so a program producing nothing fails here instead of posting a record. This
-      is the shape of the one used for every figure above.
+      The ordering is what matters: delete before the run, check the output exists before comparing it,
+      compare before timing. A program that produces nothing fails here instead of posting a record.
+      Make the gate fail on purpose once (run <code>true</code> as a lane; it must report NO OUTPUT) before
+      you trust it. Timing uses <a href="https://github.com/sharkdp/hyperfine">hyperfine</a>, which repeats a
+      command and reports the mean and spread.
     </p>
-<pre data-example="fragment" data-needs="REVIEW"><code>set -eu
-export PACKAGES_INDEX_GENERATED_AT=2026-10-10T00:00:00Z
-R="$HOME/dev/hey-lang-bootstrap-plan"                       # 601a, pinned per lane
-export HEY_ROOT=$R HEY_STDLIB_PATH=$R/stdlib HEY_COMPILER_BUILD_DIR=$R/build
-export PATH="$R/bin:$PATH"                                  # the shebang's hey
-RUBY="$HOME/.rbenv/versions/4.0.7/bin/ruby"                 # the real binary, not the shim
+<pre data-example="fragment" data-needs="the site's packages folder and hyperfine"><code>set -eu
+export PACKAGES_INDEX_GENERATED_AT=2026-01-01T00:00:00Z   # a fixed timestamp, so outputs can match
 
-lane() {                      # $1 = label, $2.. = command
+lane() {                      # $1 = label, then the command
   rm -f packages/index.html
-  "${@:2}" >/dev/null
+  "${@:2}" &gt;/dev/null
   test -s packages/index.html || { echo "$1: NO OUTPUT"; exit 1; }
   cp packages/index.html "out.$1.html"
 }
 
-lane ruby   "$RUBY" --yjit ./generate-packages-index.rb ./packages
+hey build generate-packages-index.hey -o generate-packages-index
+lane ruby   ruby --yjit ./generate-packages-index.rb ./packages
 lane script ./generate-packages-index.hey ./packages
 lane binary ./generate-packages-index ./packages
-
 cmp out.ruby.html out.script.html
 cmp out.ruby.html out.binary.html
 
-uptime; ps -Ao pcpu,pid,comm -r | head -6                   # load travels with the number
+uptime                        # the machine's load travels with the number
 hyperfine -N --warmup 3 --runs 30 \
-  "$RUBY --yjit ./generate-packages-index.rb ./packages" \
+  'ruby --yjit ./generate-packages-index.rb ./packages' \
   './generate-packages-index.hey ./packages' \
-  './generate-packages-index ./packages'
-uptime; ps -Ao pcpu,pid,comm -r | head -6</code></pre>
+  './generate-packages-index ./packages'</code></pre>
     <p>
-      When a lane dies silently (exit 0, no output), suspect the caches before the compiler: in July
-      a racy publish minted a corrupted entry that deterministically produced do-nothing programs,
-      and a dead run wrote its own entry into the <dfn>run cache</dfn>. The cache layout has moved
-      since then; the July advice's <code>~/.cache/hey/run</code> doesn't exist any more. Ask Hey
-      where its caches are, look before deleting, then delete:
-    </p>
-<pre data-example="fragment" data-needs="REVIEW"><code>hey cache path          # run_cache=~/Library/Caches/Hey/run, compiler_sidecar_cache=$HEY_ROOT/build/compiler-sidecars, ...
-hey cache clear --dry-run   # lists every entry it would remove
-hey cache clear             # removes all Hey caches
-rm -rf .hey-bin             # bin/hey-run's own build cache, in the site repo</code></pre>
-    <p class="muted">
-      Checked on 601a: <code>hey cache path</code> and <code>hey cache clear
-      --dry-run</code> report the paths above. No poisoned entry was reproduced this time, so this is
-      layout advice, not a re-test of the July failure.
+      Compare idiomatic to idiomatic. Anyone who can hand-tune the Hey can hand-tune the Ruby, so a tuned
+      script against an untuned one measures the tuning, not the language.
     </p>
 
-    <div class="aside">
-      <h3>Where Hey loses</h3>
-      <p>
-        On this job: nowhere, compiled, scripted or through
-        <code>bin/hey-run</code>. Beyond it, long-list batch work is still Ruby's. The append
-        table above is the re-measured reason, on 601a. The sibling <code>source-zip</code>
-        port that first showed it was published here in July 2026 as Hey 66.5 ms against Ruby's 153.3
-        at 500 files, a tie at 2,000, and 2.16 s against 672 ms at 8,000, without the release it was
-        measured on. (The project's findings log has a 402a run of the same port, 2026-07-24, with
-        different figures and the same shape: Hey ahead at 500 files, behind from 2,000, Ruby 5&times;
-        faster at 8,000.) It hasn't been re-run on 601a, so read those as July's numbers.
-      </p>
-    </div>
+    <h2>Doing work in parallel</h2>
+    <p>
+      The generator is serial, like its Ruby twin. When a script has many independent items, Hey's streams
+      run a <code>map</code> on several workers, and worker pools and Jobs handle bigger fan-outs.
+      <a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4</a> says which to pick, with measured costs.
+    </p>
 
     <h2>Glossary</h2>
     <dl class="glossary">
-      <dt>hyperfine</dt>
-      <dd>A benchmark runner: repeats a command, reports mean &plusmn; standard deviation.</dd>
-      <dt>idiomatic port</dt>
-      <dd>A rewrite mirroring the original's structure rather than tuning for speed.</dd>
-      <dt>byte-parity</dt>
-      <dd>Comparing outputs byte for byte, not &ldquo;looks right&rdquo;.</dd>
-      <dt>sidecar</dt>
-      <dd>A long-lived helper process that serviced stdlib calls for compiled programs in the July-era toolchain.</dd>
-      <dt>delegation</dt>
-      <dd>A compiled program handing a call to the interpreter instead of running it.</dd>
-      <dt>builtin</dt>
-      <dd>A primitive the compiler lowers straight to machine code.</dd>
-      <dt>worker pool</dt>
-      <dd>A fixed set of workers taking items from a shared queue.</dd>
-      <dt>exit code</dt>
-      <dd>The integer a process returns on termination; 0 means success, and doesn't mean the output is right.</dd>
-      <dt>run cache</dt>
-      <dd>Where the toolchain stores compiled artifacts for scripts already run (<code>hey cache path</code> prints it).</dd>
-      <dt>quadratic</dt>
-      <dd>Cost growing with the square of the input: double the items, four times the work.</dd>
+      <dt>idiomatic port</dt><dd>A rewrite that mirrors the original's structure rather than tuning for speed.</dd>
+      <dt>byte-parity</dt><dd>Comparing outputs byte for byte, not "looks right".</dd>
+      <dt>hyperfine</dt><dd>A benchmark runner: repeats a command, reports mean &plusmn; standard deviation.</dd>
+      <dt>exit code</dt><dd>The number a process returns when it ends; 0 means success, which doesn't mean the output is right.</dd>
     </dl>
-    <p>
-      More on choosing between the script lane and the binary:
-      <a href="2026-10-25-hey-commands-and-platforms.html">hey or heyc? Choose by what you need</a>. Terms used across the
-      site's Hey articles: <a href="2026-10-25-hey-commands-and-platforms.html">the Hey Project Glossary</a>.
-    </p>
   </main>
 
   <footer>
-    <p>
-      Written 2026-07-24; rewritten 2026-07-25 for hey <abbr class="ver" title="v0.99.410a">410a</abbr>,
-      when the canonical Hey became an idiomatic port of the Ruby; addendum 2026-07-26
-      (<abbr class="ver" title="v0.99.426a">426a</abbr>&ndash;<abbr class="ver" title="v0.99.436a">436a</abbr>).
-    </p>
-    <p>
-      <strong>Re-measured the week of 2026-10-10</strong> on Hey
-      <abbr class="ver" title="v0.99.601a">0.99.601a</abbr> (<code>hey-lang-bootstrap-plan</code> @
-      <code>565e6ddad</code>) and Ruby 4.0.7 (4.0.6 as a control), on an Apple M3 Pro with a compiler
-      build running. Changed since the July version: the newest Ruby, the shipped script as the
-      headline, <code>bin/hey-run</code> as a lane, re-counted lines,
-      re-measured costs, the workers verdict withdrawn and the cache advice updated.
-    </p>
-    <p class="vernote">Version numbers are shown short: <abbr class="ver" title="v0.99.601a">601a</abbr> means v0.99.601a &mdash; the pre-beta series.</p>
+    <p>The two generators live in this site's repository: <code>generate-packages-index.rb</code> and <code>generate-packages-index.hey</code>.</p>
   </footer>
-
-  <script>
-  (function(){
-    function el(id){return document.getElementById(id);}
-    // Lane chart.
-    var ROWS=[
-      {label:'Ruby 4.0.7 + YJIT', sub:'idiomatic',       ms:310.7, sd:2.7, ratio:'baseline',      c:'--ruby', dim:false},
-      {label:'Ruby 4.0.7',        sub:'no JIT',          ms:397.5, sd:9.3, ratio:'0.78× vs Ruby', c:'--ruby', dim:false},
-      {label:'Hey port',          sub:'compiled binary', ms:115.6, sd:1.1, ratio:'2.69× vs Ruby', c:'--hey',  dim:false},
-      {label:'Hey port',          sub:'script lane',     ms:137.2, sd:4.8, ratio:'2.27× vs Ruby', c:'--hey',  dim:false},
-      {label:'Hey port',          sub:'via bin/hey-run', ms:176.0, sd:2.9, ratio:'1.77× vs Ruby', c:'--hey',  dim:false}
-    ];
-    var W=760,H=290,L=170,R=100,T=20,B=44,XMAX=450;
-    var bandH=(H-T-B)/ROWS.length, barH=19;
-    function px(v){return L+v/XMAX*(W-L-R);}
-    var o=[];
-    [0,100,200,300,400].forEach(function(v){
-      o.push('<line class="fl-grid" x1="'+px(v).toFixed(1)+'" y1="'+T+'" x2="'+px(v).toFixed(1)+'" y2="'+(H-B)+'"/>');
-      o.push('<text class="fl-tick" x="'+px(v).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+v+'</text>');
-    });
-    o.push('<text class="fl-axlabel" x="'+((L+W-R)/2).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">mean wall-clock per run (milliseconds)</text>');
-    ROWS.forEach(function(r,i){
-      var cy=T+bandH*i+bandH/2, y=cy-barH/2, w=px(r.ms)-L, op=r.dim?0.45:1;
-      o.push('<text class="fl-cat" x="'+(L-12)+'" y="'+(cy-1).toFixed(1)+'" text-anchor="end">'+r.label+'</text>');
-      o.push('<text class="fl-cat-sub" x="'+(L-12)+'" y="'+(cy+12).toFixed(1)+'" text-anchor="end">'+r.sub+'</text>');
-      o.push('<rect x="'+L+'" y="'+y.toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+barH+'" rx="4" fill="var('+r.c+')" opacity="'+op+'"/>');
-      var e1=px(r.ms-r.sd), e2=px(r.ms+r.sd);
-      o.push('<line class="fl-err" x1="'+e1.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+e2.toFixed(1)+'" y2="'+cy.toFixed(1)+'"/>');
-      o.push('<text class="fl-val" x="'+(px(r.ms)+12).toFixed(1)+'" y="'+(cy-1).toFixed(1)+'">'+r.ms.toFixed(1)+' ± '+r.sd.toFixed(1)+'</text>');
-      o.push('<text class="fl-ratio" x="'+(px(r.ms)+12).toFixed(1)+'" y="'+(cy+12).toFixed(1)+'">'+r.ratio+'</text>');
-    });
-    o.push('<line class="fl-axis" x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'"/>');
-    el('fl-lanes-svg').innerHTML=o.join('');
-
-    // Progression chart: categorical x (release), linear y (ms).
-    var CATS=['397a','402a','403a','404a','409a','410a','426a','436a'];
-    var PTS=[
-      {x:'397a',v:23.2,s:'opt'},{x:'402a',v:23.5,s:'opt'},{x:'403a',v:26.4,s:'opt'},{x:'404a',v:27.4,s:'opt'},
-      {x:'409a',v:22.3,s:'opt'},{x:'410a',v:23.5,s:'opt'},
-      {x:'410a',v:21.1,s:'port'},{x:'426a',v:19.8,s:'port'},{x:'436a',v:18.1,s:'port'},
-      {x:'410a',v:125.2,s:'ruby',lab:'125.2 (Ruby 3.4)'},{x:'426a',v:124.0,s:'ruby'}
-    ];
-    var W2=760,H2=300,L2=56,R2=150,T2=16,B2=44,YMAX=140;
-    function xp(c){return L2+(CATS.indexOf(c)+0.5)*(W2-L2-R2)/CATS.length;}
-    function yp(v){return T2+(1-v/YMAX)*(H2-T2-B2);}
-    var p=[];
-    [0,20,40,60,80,100,120,140].forEach(function(v){
-      p.push('<line class="fl-grid" x1="'+L2+'" y1="'+yp(v).toFixed(1)+'" x2="'+(W2-R2)+'" y2="'+yp(v).toFixed(1)+'"/>');
-      p.push('<text class="fl-tick" x="'+(L2-8)+'" y="'+(yp(v)+4).toFixed(1)+'" text-anchor="end">'+v+'</text>');
-    });
-    CATS.forEach(function(c){
-      p.push('<text class="fl-tick" x="'+xp(c).toFixed(1)+'" y="'+(H2-B2+16)+'" text-anchor="middle">'+c+'</text>');
-    });
-    p.push('<text class="fl-axlabel" x="14" y="'+((T2+H2-B2)/2).toFixed(1)+'" text-anchor="middle" transform="rotate(-90 14 '+((T2+H2-B2)/2).toFixed(1)+')">ms per run</text>');
-    function line(series,color,op){
-      var pts=PTS.filter(function(q){return q.s===series;});
-      if(pts.length<2)return;
-      p.push('<polyline class="fl-line" stroke="var('+color+')" opacity="'+op+'" points="'+pts.map(function(q){return xp(q.x).toFixed(1)+','+yp(q.v).toFixed(1);}).join(' ')+'"/>');
-    }
-    line('opt','--hey',0.45); line('port','--hey',1);
-    PTS.forEach(function(q){
-      var color=q.s==='ruby'?'--ruby':'--hey', op=q.s==='opt'?0.45:1;
-      var dx=(q.s==='opt'&&q.x==='410a')?-6:0;
-      p.push('<circle cx="'+(xp(q.x)+dx).toFixed(1)+'" cy="'+yp(q.v).toFixed(1)+'" r="5" fill="var('+color+')" opacity="'+op+'"/>');
-      if(q.lab){p.push('<text class="fl-val" x="'+(xp(q.x)+10).toFixed(1)+'" y="'+(yp(q.v)+4).toFixed(1)+'">'+q.lab+'</text>');}
-    });
-    p.push('<line class="fl-axis" x1="'+L2+'" y1="'+T2+'" x2="'+L2+'" y2="'+(H2-B2)+'"/>');
-    el('fl-prog-svg').innerHTML=p.join('');
-  })();
-  </script>
 </body>
 </html>
