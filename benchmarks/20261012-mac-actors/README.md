@@ -9,3 +9,7 @@ Application throughput/latency uses fixture timing windows. CPU user+system, wal
 1BRC's current billion-row Mac comparison is unmeasured. The site's older Linux 10-million-row sample remains explicitly historical, including unfavorable Hey/C results. CAF and Akka have no validated fixture here. The cooperative runtime was rejected for two reproduced deadlocks and was not executed in this matrix.
 
 Timer scaling is a separate 88-execution study, 10k/20k sleepers at 500ms with1/8workers. A deadline min-heap remains O(log N); this milestone does not close the O(1)-amortized wheel task. Its one-worker memory increase is retained.
+
+The controllers `run-supported-efficiency.rb` and `run-timer-scale.rb` run the Hey checkout's `tools/actor_bench/efficiency_scorecard.rb` on `supported-efficiency-plan.json` and `timer-scale-plan.json` and write the controller receipts. Ported from the original Python harness; the measurements were produced by the original, whose source is in the site's history.
+
+The measuring scorecard is now the Ruby `tools/actor_bench/efficiency_scorecard.rb` (same command line). The measurements recorded here were produced by its original Python version, whose hash is in `llvm-archive-identity.json`.
