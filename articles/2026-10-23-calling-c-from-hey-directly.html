@@ -193,9 +193,9 @@
   <main>
     <section class="status" aria-labelledby="status-h">
       <h2 id="status-h">Status, 24 October 2026: being built now, each pick reversible</h2>
-      <p>As of about 05:00 PDT, GippiPiTy is <strong>implementing the recommended picks</strong> so the work isn't blocked waiting for rulings. Each pick goes in its own change, so any one can be reversed. <a href="#decisions">The five decisions</a> each show the options, what's being done, and what a "no" costs.</p>
+      <p>As of about 05:00 PDT, the compiler team is <strong>implementing the recommended picks</strong> so the work isn't blocked waiting for rulings. Each pick goes in its own change, so any one can be reversed. <a href="#decisions">The five decisions</a> each show the options, what's being done, and what a "no" costs.</p>
       <ul>
-        <li><strong>Branch:</strong> <code>gippipity/606a-native-calls</code>, worktree <code>.worktrees/606a-native-calls</code>, made from <code>gippipity/606a-integration</code> at <code>b8a1cd1f9</code>.</li>
+        <li><strong>Branch:</strong> a dedicated native-calls branch, made from the integration branch.</li>
         <li><strong>First step:</strong> a measurement gate on hey_sqlite3's cheapest call (<code>changes</code>, gate 2) and a resolver gate for <code>import 'native:'</code>, both committed failing first.</li>
         <li><strong>Checked at 05:11 PDT:</strong> the branch is pushed to origin with no commits of its own yet; no files changed. No compiler code has changed.</li>
       </ul>
@@ -362,7 +362,7 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
 </details>
 
 <h2 id="decisions">8. Decisions: import with <code>native:</code>, check blocking calls, fail fast, carry the source, typed handles later</h2>
-<p class="muted">Picks are GippiPiTy's (the AI agent that wrote the design); 1 and 3 follow the design, 2, 4 and 5 are new. GippiPiTy is building the picks now (see Status at the top). Each card shows every option, what's being done for the pick, and what a "no" costs. To answer, copy the reply line. Reversal estimates are GippiPiTy's judgment, not measurements.</p>
+<p class="muted">Picks are the author's; 1 and 3 follow the design, 2, 4 and 5 are new. The compiler team is building the picks now (see Status at the top). Each card shows every option, what's being done for the pick, and what a "no" costs. To answer, copy the reply line. Reversal estimates are the author's judgment, not measurements.</p>
 
 <article class="dcard" id="n1">
   <h3><span class="chip">Native 1</span>How does a program import a native package's functions?</h3>
@@ -386,7 +386,7 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
 <article class="dcard" id="n2">
   <h3><span class="chip">Native 2</span>Where may blocking native calls (SQLite's <code>open</code>, <code>step</code>) run?</h3>
   <p class="now"><b>Why now:</b> step 4's verifier either has this rule or doesn't, and a static call skips the run-time check <code>Native.call</code> does today.</p>
-  <p class="muted" style="font-size:0.93rem">Today: <code>Native.call</code> refuses a function marked blocking (<code>runtime/hey_runtime.c:2976</code> on 606a-integration). <code>Native.call_blocking</code> doesn't check where it runs; the Job-or-worker rule is a comment (<code>stdlib/Native.hey:1</code>).</p>
+  <p class="muted" style="font-size:0.93rem">Today: <code>Native.call</code> refuses a function marked blocking (in the runtime). <code>Native.call_blocking</code> doesn't check where it runs; the Job-or-worker rule is a comment in the standard library's Native module.</p>
   <div class="table-wrap"><table class="dopts">
     <tr><th>Option</th><th>Costs</th><th>Risks</th><th>Enables later</th></tr>
     <tr class="picked"><td><span class="pick-chip">Pick</span> Only inside a Job or worker, checked by the compiler</td>
@@ -398,7 +398,7 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
       <td>Loses today's guard: nothing stops a blocking call on an actor thread.</td>
       <td>Simplest; effects can come later.</td></tr>
     <tr><td>Check at run time that the caller is a worker <span class="tag profile">new, from the code</span></td>
-      <td>One thread-local read per blocking call. The runtime already keeps <code>hey_current_worker_index</code> (<code>runtime/hey_runtime.c:1535</code>). <em>GippiPiTy's inference</em>; not in the design.</td>
+      <td>One thread-local read per blocking call. The runtime already keeps <code>hey_current_worker_index</code>. <em>The author's inference</em>; not in the design.</td>
       <td>Found when the program runs, not when it's built.</td>
       <td>No effect system needed.</td></tr>
   </table></div>
@@ -417,8 +417,8 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
       <td>A program that used to recover now stops its unit of work.</td>
       <td>No <code>Result</code> per call. SQLite's own failures stay a <code>Result</code> where the manifest says so.</td></tr>
     <tr><td>Keep the <code>Result</code></td>
-      <td>Every call builds, reads and frees a <code>Result</code> again: about 9% of today's 606a call by profile (building it, 4.6%, and reading <code>.value</code>, 4.2%; <code>profile-606a-by-callee.txt</code>) plus its share of the 30% spent freeing.</td>
-      <td><em>GippiPiTy's inference:</em> the 40-to-90 estimate no longer holds.</td>
+      <td>Every call builds, reads and frees a <code>Result</code> again: about 9% of today's 606a call by profile (building it, 4.6%, and reading <code>.value</code>, 4.2%) plus its share of the 30% spent freeing.</td>
+      <td><em>The author's inference:</em> the 40-to-90 estimate no longer holds.</td>
       <td>No change for callers.</td></tr>
   </table></div>
   <p class="path"><b>Being done for the pick:</b> not started; the generator (step 2) emits the error path only for <code>failure: result</code>.</p>
@@ -486,7 +486,6 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
         <dt>static / shared binding</dt><dd>Static: the package's C code is compiled into the program. Shared: it stays in a separately built library, opened once at start-up.</dd>
         <dt>ABI</dt><dd>Application binary interface: the rules for how compiled code passes arguments and lays out data. "ABI v2" is Hey's current native boundary.</dd>
         <dt>Job, bounded worker</dt><dd>Hey's ways to run work off the shared threads that run actors, so waiting doesn't stall other actors.</dd>
-        <dt>GippiPiTy</dt><dd>The AI agent that wrote the design and this page's recommendations.</dd>
       </dl>
     </details>
 
@@ -496,7 +495,7 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
         boxing would remain, because <code>Native.call</code> takes any function name and any list at run time; it can't
         know the types in advance. Recognising the string <code>'changes'</code> at compile time and calling it directly
         would be a fact taken from a spelling, which the compiler's rules forbid. The 606a branch has already halved the
-        call by building <code>Result</code> as one block (commit <code>647f26a81</code>); what's left is the general
+        call by building <code>Result</code> as one block; what's left is the general
         path itself.</p>
     </details>
 
@@ -556,7 +555,7 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
       <p>Re-measured by the editor on 2026-10-23 at 22:39 PDT, Apple M3 Pro, every inherited <code>HEY_*</code> variable
         unset, <code>/usr/bin/time -l</code> instructions retired, median of 5 runs, 100,000 iterations.</p>
       <div class="table-wrap"><table>
-        <tr><th>Program</th><th>0.99.605a (634f63311)</th><th>606a branch (589f6c22d)</th></tr>
+        <tr><th>Program</th><th>0.99.605a (634f63)</th><th>606a branch (589f6c)</th></tr>
         <tr><th colspan="3">Instructions per iteration, minus the zero-iteration program (33.0M instructions of start-up)</th></tr>
         <tr><td>Loop with no call</td><td>74</td><td>75</td></tr>
         <tr><td>Also builds <code>'changes'</code> and <code>[database]</code>, then drops them</td><td>2,321</td><td>1,911</td></tr>
@@ -573,24 +572,24 @@ local b3 changed:i64 = call @n1.8 (b2)</code></pre>
     <details>
       <summary>Evidence register</summary>
       <ul>
-        <li>Design: cagents <code>projects/hey/tasks/v606a-performance-release/design-statically-bound-native-calls.md</code>, written against <code>gippipity/606a-performance</code> at <code>589f6c22d</code>.</li>
-        <li>Measurements, same task folder, <code>native-call-measurements-2026-10-23/</code>: <code>RESULTS-605a-and-606a-2026-10-23-2239PDT.txt</code> (the table above); <code>long-606a-40M.sample.txt</code> and <code>profile-606a-by-callee.txt</code> (606a profile, grouped by <code>profile-by-callee.rb</code>); <code>long.sample.txt</code> (605a profile); <code>loop_only.hey</code>, <code>marshal.hey</code>, <code>long.hey</code>. Morning baseline: <code>native-call-baseline.md</code>.</li>
-        <li>Today's call path, 606a worktree at <code>589f6c22d</code>, <code>runtime/hey_runtime.c</code>: <code>:2636</code> package opened with <code>dlopen</code> (refused on Win32 at <code>:2639</code>); <code>:2714</code> function found by <code>strcmp</code> (line 2722); <code>:2942</code> <code>hey_native_call_builtin</code>; <code>:2975</code> blocking functions refused through <code>Native.call</code>; <code>:2985</code> C argument array allocated per call; <code>:2986</code> 1 KB error buffer zeroed; <code>:2989</code> per-argument conversion; <code>:3004</code>&ndash;<code>3006</code> mutex around <code>invoke</code>; <code>:3017</code> <code>Result</code> built; <code>:2540</code> one-block <code>hey_result_make</code>.</li>
-        <li><code>stdlib/Native.hey:1</code> (the documented Job/worker rule), <code>:16</code> and <code>:20</code> (<code>Native.call</code>, <code>Native.call_blocking</code>).</li>
-        <li><code>tools/hey_native_generate.hey:447</code>: one exported typed C wrapper per function.</li>
-        <li><code>stdlib/HeyMir.hey:1217</code>: the existing <code>@r</code> identity marker that <code>@n</code> would sit beside.</li>
-        <li>hey_sqlite3 at <code>2ac3b56</code> (0.5.2): <code>hey.native.json:2</code> schema v1; <code>:8</code> links the system <code>sqlite3</code>; <code>:18</code> <code>changes</code> with <code>"thread_safe":false</code>, ninth function (index 8); <code>Native.hey:10</code> wraps <code>Native.call_blocking</code> in an ordinary helper.</li>
+        <li>Design: internal design record, written against the performance branch at 589f6c.</li>
+        <li>Measurements: internal measurement records: the results behind the table above; the 606a profile, grouped by callee; the 605a profile; the loop-only, marshal and long probe programs; a morning baseline.</li>
+        <li>Today's call path, 606a branch at 589f6c, in the runtime: package opened with <code>dlopen</code> (refused on Win32); function found by <code>strcmp</code>; <code>hey_native_call_builtin</code>; blocking functions refused through <code>Native.call</code>; C argument array allocated per call; 1 KB error buffer zeroed; per-argument conversion; mutex around <code>invoke</code>; <code>Result</code> built; one-block <code>hey_result_make</code>. The one-block <code>Result</code>: commit 647f26.</li>
+        <li>The standard library's Native module: the documented Job/worker rule, <code>Native.call</code> and <code>Native.call_blocking</code>.</li>
+        <li>The native wrapper generator: one exported typed C wrapper per function.</li>
+        <li>The MIR stage: the existing <code>@r</code> identity marker that <code>@n</code> would sit beside.</li>
+        <li>hey_sqlite3 at 2ac3b5 (0.5.2): <code>hey.native.json:2</code> schema v1; <code>:8</code> links the system <code>sqlite3</code>; <code>:18</code> <code>changes</code> with <code>"thread_safe":false</code>, ninth function (index 8); <code>Native.hey:10</code> wraps <code>Native.call_blocking</code> in an ordinary helper.</li>
         <li>hey_roaring: <code>native/hey_roaring.c:1</code> wraps a vendored CRoaring amalgamation (<code>vendor/</code>).</li>
         <li>Package count: 16 repositories with <code>hey.native.json</code>, all <code>hey-native-package-v1</code>: hey_duckdb, hey_durable_log, hey_epoll, hey_io_uring, hey_iocp, hey_jose, hey_kqueue, hey_mysql, hey_postgres, hey_roaring, hey_s3, hey_scrypt, hey_sqlite3, hey_toml, hey_tsv, hey_zstd.</li>
         <li>External, fetched 2026-10-23: AAPCS64 rules B.4 and C.12; x86-64 psABI <code>low-level-sys-info.tex</code>, aggregate classification; Microsoft x64 calling convention; Apple App Review Guidelines 2.5.2; Android NDK native APIs page (no SQLite entry); Android 7.0 behavior changes, "NDK Apps Linking to Platform Libraries"; Android <code>SQLiteDatabase</code> reference.</li>
-        <li>Rules: cagents <code>projects/hey/evidence/BRIEF-compiler-design-rules-for-agents.md</code>; lesson <code>20261023T-lesson-the-stdlib-wrapper-costs-more-than-the-work.md</code>.</li>
+        <li>Rules: the internal compiler design rules, and the internal lesson that the standard-library wrapper costs more than the work.</li>
       </ul>
     </details>
   </main>
 
   <footer>
     <p>
-      Written October 23, 2026; status and decision cards added October 24, when implementation of the picks began on <code>gippipity/606a-native-calls</code>. "Measured" numbers come from the dated records
+      Written October 23, 2026; status and decision cards added October 24, when implementation of the picks began on a dedicated native-calls branch. "Measured" numbers come from the dated records
       above, on one Apple M3 Pro; "from profile" numbers are profile shares turned into instructions; "estimate"
       numbers are the design's arithmetic and will be replaced by gate 2's measurement. Related:
       <a href="2026-10-23-optimizing-hey-within-its-architecture.html">Fast for every program, not for one benchmark</a>.
