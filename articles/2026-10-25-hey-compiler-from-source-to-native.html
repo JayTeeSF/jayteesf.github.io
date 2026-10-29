@@ -226,8 +226,8 @@ end</code></pre>
 <caption>The six side roads</caption>
 <thead><tr><th>#</th><th>Side road</th><th>Where it is today</th></tr></thead>
 <tbody>
-<tr><td>1</td><td>The old parser feeds HIR</td><td>HIR checks the admitted snapshot, then re-parses the file with <code>HeyParser</code> (<code>HeyHir.hey:13441</code>). 78 of the matrix's 115 construct rows were read only that way.</td></tr>
-<tr><td>2</td><td>A second LLVM emitter, written in C</td><td><code>heyc_llvm_*</code>, about 14,524 lines, runs whenever HeyLlvm declines a program (<code>tools/hey_selfc.hey:2277</code>). HeyLlvm still refuses 48 examples and 13 stdlib modules.</td></tr>
+<tr><td>1</td><td>The old parser feeds HIR</td><td>HIR checks the admitted snapshot, then re-parses the file with <code>HeyParser</code> (in the HIR stage). 78 of the matrix's 115 construct rows were read only that way.</td></tr>
+<tr><td>2</td><td>A second LLVM emitter, written in C</td><td><code>heyc_llvm_*</code>, about 14,524 lines, runs whenever HeyLlvm declines a program (in the self-compile driver). HeyLlvm still refuses 48 examples and 13 stdlib modules.</td></tr>
 <tr><td>3</td><td>An interpreter behind the public <code>--run</code></td><td><code>heyc app.hey --run</code> interprets the program instead of compiling it.</td></tr>
 <tr><td>4</td><td>Ownership as text notes</td><td>MIR lines end in <code>; own bN</code>, <code>; takeowned</code>, <code>; reuse</code>, <code>; move</code>. The verifier rechecks them only for modules that opt in.</td></tr>
 <tr><td>5</td><td>Operations chosen by name</td><td>HeyLlvm makes 133 tests on operation-name prefixes such as <code>div(</code> and <code>Text.lower(</code>.</td></tr>
@@ -284,7 +284,7 @@ end</code></pre>
 <text x="10" y="262" class="sm">Deleted: the six lists, the comment annotations and their regex, the semantic half of the generated table,</text>
 <text x="10" y="280" class="sm">and the HIR code that guessed a parameter's type from where it appeared inside a named builtin call.</text>
 </svg>
-<figcaption id="cap-ext">Counts from the research audit of the consolidation work: <code>HeyHir.hey:668-691</code>, <code>BuiltIns.hey:247-252</code>, <code>HeyRuntimeCallables.hey:1902-1915</code>.</figcaption>
+<figcaption id="cap-ext">Counts from the research audit of the consolidation work: the HIR stage, the built-in library and the runtime callables table.</figcaption>
 </figure>
 
 <p>Mature compilers split builtins into two layers. A small, closed set of true primitives lives inside the compiler, because the language can't express them. Everything a user calls is declared in the language's own source:</p>
@@ -390,7 +390,7 @@ end</code></pre>
 <li><strong>A cap and a depth limit.</strong> Each function gets a limit on copies, as Julia&#39;s <code>max_methods</code> (3) limits its analysis; past it, calls go to the general <code>Value</code> version, which always exists so public and imported functions keep a stable entry point. A depth limit, like Rust&#39;s <code>type_length_limit</code>, stops a recursive function asking for ever-deeper keys; it widens to <code>Value</code> instead.</li>
 <li><strong>Sharing across modules.</strong> In development builds, a module reuses a copy another module already made, as Rust does with <code>share_generics</code> (its data showed up to 30% fewer LLVM definitions). Release builds make local copies so LLVM can inline them, emitted with <code>linkonce_odr</code> linkage so the linker merges duplicates.</li>
 </ul>
-<p><strong>Who owns it:</strong> HIR owns the type summary (layer a). MIR owns representation, so MIR decides which copies to make (layer b). Today a "specialised copies" plan runs inside HIR and restarts inference (<code>HeyHir.hey:13232-13237</code>); it moves to MIR.</p>
+<p><strong>Who owns it:</strong> HIR owns the type summary (layer a). MIR owns representation, so MIR decides which copies to make (layer b). Today a "specialised copies" plan runs inside HIR and restarts inference (in the HIR stage); it moves to MIR.</p>
 </section>
 
 <!-- ============================================================ 5 -->
@@ -416,7 +416,7 @@ end</code></pre>
 <rect class="vio" x="670" y="164" width="280" height="44" rx="8"/><text x="682" y="182" class="sm b">LLVM obeys the plan</text><text x="682" y="198" class="xs">missing or contradictory fact: refuse</text>
 <text x="10" y="242" class="sm">No file, snapshot, annotation or import can assert ownership unchecked. MIR derives it and checks it.</text>
 </svg>
-<figcaption id="cap-own">Today's side from the retirement ledger (<code>HeyMir.hey:2571-2580</code>). The typed record is illustrative; its exact shape belongs to the MIR owner.</figcaption>
+<figcaption id="cap-own">Today's side from the retirement ledger (in the MIR stage). The typed record is illustrative; its exact shape belongs to the MIR owner.</figcaption>
 </figure>
 
 <p>The technique is <a href="https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf">Perceus</a> (Reinking, Xie, de Moura and Leijen, PLDI 2021), also used by Koka. Every intermediate value in MIR gets a name. <strong>dup</strong> (add a reference) and <strong>drop</strong> (remove one) are explicit MIR steps, placed at each value's last use. A value nobody uses again is dropped at once. When a dead value is passed to a call, the call <em>consumes</em> it instead of copying it. So <code>m2 = put(m, k, v)</code> with <code>m</code> dead can update <code>m</code> in place if the runtime confirms nobody else holds it. These are compiler facts. You don't write them.</p>
@@ -506,7 +506,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 <tr><td>Builtin name lists</td><td>231 spellings in six HIR lists; comment annotations; a semantic string table.</td><td>Typed <code>extern</code> declarations (<a href="#builtins">section 3</a>).</td></tr>
 <tr><td>Stale switches</td><td>21 ledger rows of options and environment variables, for example <code>HEY_STRICT_DISPATCH</code> and <code>HEY_PACKAGE_VERIFY=off</code>.</td><td>Removed, or kept only as named test controls with a written reason.</td></tr>
 <tr><td>Duplicate selfhost bundle</td><td><code>compiler/generated/selfhost</code> and <code>selfhost_seed</code> are byte-identical: 13,073 duplicated lines.</td><td>One copy.</td></tr>
-<tr><td>Unchecked ownership inputs</td><td>Text tags; opt-in verification; <code>HeyExtern.annotate</code> rewriting MIR text; <code>-&gt; boxed</code> choosing a calling convention (<code>hey_selfc_pipeline.hey:188</code>).</td><td>Typed MIR facts derived and verified by MIR; annotations make no semantic claim (ruling).</td></tr>
+<tr><td>Unchecked ownership inputs</td><td>Text tags; opt-in verification; <code>HeyExtern.annotate</code> rewriting MIR text; <code>-&gt; boxed</code> choosing a calling convention (in the self-compile pipeline tool).</td><td>Typed MIR facts derived and verified by MIR; annotations make no semantic claim (ruling).</td></tr>
 </tbody></table></div>
 
 <h3>How we prove it's gone</h3>
