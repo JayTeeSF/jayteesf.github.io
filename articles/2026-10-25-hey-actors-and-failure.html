@@ -114,11 +114,17 @@ what happens when something breaks: <strong>a failure ends the actor that had it
 
 <div class="summary"><strong>On one screen</strong>
 Actors, sending, asking with a timeout, links, monitors and supervisors all <span class="badge b-works">Works today</span>.
-A <code>fail</code> or runtime error inside an actor ends that actor only, and the actors that care are told.<sup><a href="#n1">1</a></sup>
-An actor finishes one message before it starts the next, so its state never races. Thousands of actors run on a few
-threads. Not sure an actor is the right tool? <a href="2026-10-25-hey-workers-jobs-streams.html#choose">Actor, worker pool, Job, stream or a plain function</a> answers that, with measured costs.</div>
+A <code>fail</code> or runtime error inside an actor ends that actor only, and the actors that care are told<sup><a href="#n1">1</a></sup>
+(<span class="badge b-partly">Partly works</span>: web requests are fully contained; actor and Job containment is
+being finished). Thousands of actors run on a few threads. Next, decided for the 0.99.606a release: messages shared
+instead of copied, and short sends to idle actors run straight away on the sender's thread.</div>
 
-<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test. <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet. <span class="badge b-proposed">Proposed</span> not ruled.</p>
+<p class="legend">Status badges used on every Hey reference page:
+<span class="badge b-works">Works today</span>
+<span class="badge b-partly">Partly works</span>
+<span class="badge b-decided">Decided, coming</span>
+<span class="badge b-proposed">Proposed</span>
+<span class="badge b-removing">Being removed</span>.</p>
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#owner">Give state an owner</a></li>
@@ -212,7 +218,7 @@ actor can see <code>count</code>, and an actor handles one message at a time, on
 atomic by construction, with no atomic instructions and no locks. That's also why Hey has no shared mutable variable
 between actors or jobs: a counter that many parties update lives in an actor, and each update is a message. The short
 form <code>set count += 1</code> means the same thing and applies only to actor state.
-<span class="badge b-decided">Decided, coming</span> (the <code>+=</code> spelling; the long form works today)</div>
+<span class="badge b-decided">Decided, coming</span> (the <code>+=</code> spelling; the long form above works today)</div>
 
 <h2 id="words">2. The actor words</h2>
 <p>Every word below is part of the language; no import is needed. Status is for the compiled road
@@ -281,8 +287,11 @@ target gives <code>actor_unavailable</code>; a timeout outside 1 to 3,600,000 ms
 <code>await handles, timeout_ms, tag</code> registers the handles with the runtime's one I/O reactor (kqueue on macOS,
 epoll on Linux, poll as a fallback) and <strong>ends the turn</strong>. When a handle is ready, the actor gets an
 ordinary message with <code>kind: 'io_completion'</code> and your <code>tag</code>.
- Because the turn has ended, the actor is free: it doesn't start its next message early (an actor never runs two handlers at once), but it isn't holding a thread either. There's no <code>await</code> that hands back a value in the middle of a handler, so one actor can never sit waiting on another.<sup><a href="#n6">6</a></sup> <span class="badge b-decided">Decided, coming</span> The runtime side works today; the current build's parser refuses the statement.</p>
-<p class="runlabel">await_actor.hey</p><pre data-example="decided-coming" data-file="await_actor.hey"><code>import &#39;stdlib:Files&#39;
+ <span class="badge b-partly">Partly works</span>: the runtime side (the reactor, the
+parked turn, the <code>io_completion</code> message) exists and is checked by spec 966, but on this toolchain the
+source form below does <strong>not compile</strong>. The compiler consolidation lists "<code>await</code> (with its
+ruling)" as an open item (see the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>).</p>
+<p class="runlabel">await_actor.hey</p><pre data-example="runnable" data-file="await_actor.hey"><code>import &#39;stdlib:Files&#39;
 import &#39;stdlib:Io&#39;
 import &#39;stdlib:Pipes&#39;
 
@@ -320,12 +329,27 @@ program
   let writer_closed = writer.close()
   let reader_closed = reader.close()
 end</code></pre>
-<p class="runlabel">Run it (the output it will give)</p><pre data-example="decided-coming" class="out"><code>$ hey await_actor.hey
-true
-true
-true
-true</code></pre>
-<p>Until then, <code>Io.select_async</code> from <code>stdlib:Io</code> delivers the same tagged completion message to an actor.</p>
+<p class="runlabel">Run it (trimmed; full output below)</p><pre data-example="runnable" class="out failed"><code>$ hey await_actor.hey
+[3 selfhost_ diagnostic lines hidden here; full output below]
+hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: name traversal incomplete across 1 of 5 units (token-budget=0, depth=0); first incomplete unit: ~/myapp/await_actor.hey:8:19: parse error unexpected_expression_token: unexpected token after expression: ,
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre data-example="runnable" class="out failed"><code>$ hey await_actor.hey
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=16f95d2bb13b4017670caa6156e34bf0ae7dcda4f4cf5cadc5e5da3a0b8502ec
+selfhost_build_outcome=started
+hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: name traversal incomplete across 1 of 5 units (token-budget=0, depth=0); first incomplete unit: ~/myapp/await_actor.hey:8:19: parse error unexpected_expression_token: unexpected token after expression: ,
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre></details>
+<div class="note bad"><p><strong>Fails on this toolchain.</strong> The new parser refuses the comma after
+<code>await [reader]</code>, so the program never runs. Through the interpreter
+(<code>HEY_STDLIB_PATH=$TOOLCHAIN/stdlib heyc await_actor.hey --run</code>) it printed nothing for 120 seconds and was
+stopped. Tracked as the consolidation release's open "<code>await</code> (with its ruling)" item, and reported to the Hey maintainers. Until it lands, use
+<code>Io.select_async</code> from <code>stdlib:Io</code>, which delivers the same tagged completion message to an
+actor.</p></div>
 
 
 <h2 id="watch">5. Links, monitors and supervisors</h2>
@@ -479,8 +503,9 @@ $ echo $?
 <div class="scroll"><table>
 <thead><tr><th>Piece</th><th>Status</th></tr></thead><tbody>
 <tr><td><code>supervise child max N</code>; strategy <code>one_for_one</code> reported by <code>actor_info</code></td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>Restart intensity, as in Erlang/OTP: more than MaxR restarts within MaxT seconds (default 1 in 5) stops the supervisor's children and ends the supervisor with an error, so <em>its</em> parent or link sees it; it never exits the process. A supervisor hears of a child's death at once, by monitor.</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>A supervised actor runs on the shared thread pool like any other actor, so a large supervision tree isn't limited by the operating system's thread ceiling.</td><td><span class="badge b-decided">Decided, coming</span> Today each supervised actor still takes two threads, so a tree meets the limit near 4,096 on macOS.</td></tr>
+<tr><td>Erlang/OTP restart intensity: more than MaxR restarts within MaxT seconds (default 1 in 5) stops the supervisor's children and ends the supervisor with an error, so <em>its</em> parent or link sees it; it never exits the process. A supervisor hears of a child's death at once (by monitor), not on its next message.</td><td><span class="badge b-partly">Partly works</span> task <code>actor-and-job-failure-containment</code></td></tr>
+<tr><td>Restart count. On this toolchain the sample above reports <code>2</code> restarts after two handled messages; the repository example it comes from (<code>examples/supervisor_hardening.hey</code>) still expects <code>1</code>. The example and the runtime disagree; which is right is part of the restart-intensity work.</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td>Supervised actors use two threads each today (the supervisor waits in its own loop and starts the child on its own thread), so a supervision tree still meets the operating system's thread ceiling, near 4,096 on macOS.</td><td><span class="badge b-partly">Partly works</span></td></tr>
 </tbody></table></div>
 
 <h2 id="failfast">6. Fail fast, Erlang style</h2>
@@ -502,7 +527,7 @@ check <code>ok</code>. Anyone proposing a catch form must first write the full c
 <text x="110" y="124" text-anchor="middle" class="small">error → 500</text>
 <text x="110" y="140" text-anchor="middle" class="small">server_error</text>
 <text x="110" y="168" text-anchor="middle" class="small muted">told: the client</text>
-<text x="110" y="198" text-anchor="middle" class="small t-good bold">contained</text>
+<text x="110" y="198" text-anchor="middle" class="small t-good bold">contained (604a)</text>
 <rect x="210" y="50" width="170" height="190" rx="80" class="warn"/>
 <text x="295" y="100" text-anchor="middle" class="bold">actor turn</text>
 <text x="295" y="124" text-anchor="middle" class="small">error → actor exits</text>
@@ -530,9 +555,9 @@ check <code>ok</code>. Anyone proposing a catch form must first write the full c
 
 <div class="scroll"><table>
 <thead><tr><th>Unit of work</th><th>A runtime error or <code>fail</code> inside it ends</th><th>Who is told</th><th>Status</th></tr></thead><tbody>
-<tr><td>Web request (handler or middleware)</td><td>that request only: answers 500 <code>server_error</code> and logs the route<sup><a href="#n2">2</a></sup></td><td>the client</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>Actor turn (pooled, own-thread, or resumed after an <code>await</code>)</td><td>that actor: exit reason <code>error: &lt;message&gt;</code>; its mailbox is released</td><td>links get <code>linked_exit</code>; monitors get the reason; its supervisor restarts it</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>Job attempt</td><td>that attempt: the Job's declared retries, then a dead letter of kind <code>runtime_error</code></td><td>the Job result and dead-letter list</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Web request (handler or middleware)</td><td>that request only: answers 500 <code>server_error</code> and logs the route<sup><a href="#n2">2</a></sup></td><td>the client</td><td><span class="badge b-works">Works today</span> since 0.99.604a</td></tr>
+<tr><td>Actor turn (pooled, own-thread, or resumed after an <code>await</code>)</td><td>that actor: exit reason <code>error: &lt;message&gt;</code>; its mailbox is released</td><td>links get <code>linked_exit</code>; monitors get the reason; its supervisor restarts it</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td>Job attempt</td><td>that attempt: the Job's declared retries, then a dead letter of kind <code>runtime_error</code></td><td>the Job result and dead-letter list</td><td><span class="badge b-partly">Partly works</span></td></tr>
 <tr><td>Main program (outside any unit)</td><td>the process, with exit status 70</td><td>the operating system or an outer supervisor</td><td><span class="badge b-works">Works today</span></td></tr>
 </tbody></table></div>
 
@@ -540,11 +565,11 @@ check <code>ok</code>. Anyone proposing a catch form must first write the full c
 <div class="note warn"><strong>The rule does not change for deep recursion.</strong> Jobs and actors exit without taking down any other Job, actor or the process. Running out of stack is a runtime failure like any other, so it ends only its unit of work.<sup><a href="#n3">3</a></sup></div>
 <div class="scroll"><table>
 <thead><tr><th>Where the recursion runs out of stack</th><th>What stops</th><th>What you see</th><th>Status</th></tr></thead><tbody>
-<tr><td>Main program</td><td>the process (main is its own unit)</td><td><code>hey: stack overflow (recursion too deep): the stack is exhausted</code>, exit status 70</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>Actor turn</td><td>that actor only; siblings keep answering, the process continues</td><td>exit reason <code>error: stack overflow</code> to its links, monitors and supervisor</td><td><span class="badge b-decided">Decided, coming</span> Today it still ends the whole process.</td></tr>
-<tr><td>Job attempt</td><td>that attempt only; retries, then a dead letter</td><td>the failure in the Job result, like any <code>runtime_error</code></td><td><span class="badge b-decided">Decided, coming</span> Today it still ends the whole process.</td></tr>
+<tr><td>Main program</td><td>the process (main is its own unit)</td><td><code>hey: stack overflow (recursion too deep): the stack is exhausted</code>, exit status 70</td><td><span class="badge b-decided">Coming in 0.99.606a</span></td></tr>
+<tr><td>Actor turn</td><td>that actor only; siblings keep answering, the process continues</td><td>exit reason <code>error: stack overflow</code> to its links, monitors and supervisor</td><td><span class="badge b-decided">Decided, coming</span> &mdash; until then it still crashes the whole process</td></tr>
+<tr><td>Job attempt</td><td>that attempt only; retries, then a dead letter</td><td>the failure in the Job result, like any <code>runtime_error</code></td><td><span class="badge b-decided">Decided, coming</span> &mdash; until then it still crashes the whole process</td></tr>
 </tbody></table></div>
-<p>How it works: each thread has a guard page below its stack and a small emergency stack for the signal handler. When the guard page is hit, the handler reports the overflow; on an actor or Job thread it returns to that unit&#39;s failure point instead of ending the program, then resets the guard so the thread can run more work.</p>
+<p>How it works: each thread has a guard page below its stack and a small emergency stack for the signal handler. When the guard page is hit, the handler reports the overflow; on an actor or Job thread it returns to that unit&#39;s failure point instead of ending the program, then resets the guard so the thread can run more work. A later release also gives the main program a large stack that only uses memory as it grows, so deep recursion like the cfold benchmark fits.</p>
 <h3>See it: a failing actor and a steady one</h3>
 <div class="puzzle"><strong>Predict it.</strong> <code>Fragile</code> fails on its first message. Will
 <code>Steady</code> still print? Will <code>main finished</code> print, and what will the exit status be?</div>
@@ -755,23 +780,44 @@ ones. Each mailbox accepts many senders without a lock.</figcaption>
 </figure>
 <div class="scroll"><table>
 <thead><tr><th>Piece</th><th>What it means for you</th><th>Status</th></tr></thead><tbody>
-<tr><td>Fixed worker pool, many actors on few threads ("M:N": M actors on N threads), work stealing, a lock-free many-sender mailbox (the Vyukov MPSC queue: many producers, single consumer), fibers that park a turn during <code>await</code></td><td>Spawning is cheap; an actor with no mail costs memory only, no CPU. <code>HEY_WORKERS=4</code> sets the thread count.</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>Which actors get their own thread</td><td>A compiled <code>spawn</code> is pooled. Supervised actors and every actor in the REPL still get a thread each, so they meet the operating system's limit near 4,096 threads.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Fixed worker pool, many actors on few threads ("M:N": M actors on N threads), work stealing, a lock-free many-sender mailbox (the Vyukov MPSC queue: many producers, single consumer), fibers that park a turn during <code>await</code></td><td>Spawning is cheap; an actor with no mail costs memory only, no CPU. <code>HEY_WORKERS=4</code> sets the thread count.</td><td><span class="badge b-works">Works today</span> since 0.99.597a</td></tr>
+<tr><td>Which actors get their own thread</td><td>A compiled <code>spawn</code> is pooled. Supervised actors and every actor in the interpreter (the REPL) still get a thread each, so they meet the operating system's limit near 4,096 threads.</td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td>A million resident actors</td><td>Capacity is bounded by memory, not threads. Measured below.</td><td><span class="badge b-works">Works today</span></td></tr>
 </tbody></table></div>
-<p>What an idle actor costs in memory, and how that compares with a worker pool, a Job and a stream, is measured in <a href="2026-10-25-hey-workers-jobs-streams.html#tradeoffs">Reference 4</a>. <a href="how-hey-runs-a-million-actors.html">How Hey runs a million actors</a> explains why the cost stays that low.</p>
+<p>Measure it yourself with the repository's capacity benchmark (<code>benchmarks/hey/actor_capacity.hey</code>), which
+spawns parked actors and reports resident memory. It caps itself below 80% of your memory.</p>
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey build actor_capacity.hey -o actor_capacity &amp;&amp; ./actor_capacity 1000000
+status=ok
+actors=1000000
+requested=1000000
+cores=12
+spawn_ms=56
+rss_before=2473984
+rss_after=91570176
+rss_delta=89096192
+estimated_bytes_per_actor=96
+observed_bytes_per_actor=89
+memory_limit_percent=80
+memory_limit_bytes=1599700992
+stopped_for_memory=false
+$ echo $?
+0</code></pre>
+<p>A million parked actors: 89 bytes each by resident memory (about 89 MB in all), spawned in 56 milliseconds, on a
+12-core Mac. That is one run, not a benchmark series; the older articles report 132 to 225 bytes per actor on earlier
+releases.</p>
 
 
 <h2 id="messages">8. What a message costs, and what changes next</h2>
-<p>Today, every <code>send</code> makes one copy of the message for the mailbox. With reference counting, a copy of an
-object or list is just a count increase, but a value handed to another thread is copied deeply, because the counts
-aren't thread-safe. Two decisions change that:</p>
+<p>Today, every <code>send</code> makes one copy of the message for the mailbox (the runtime counts these as
+<code>send_clones</code>). With reference counting on, a copy of an object or list is just a count increase, but a
+value handed to another thread is copied deeply, because the counts are not thread-safe. Two decisions change that for 0.99.606a:</p>
 <div class="scroll"><table>
 <thead><tr><th>Change</th><th>What it buys</th><th>Status</th></tr></thead><tbody>
-<tr><td><strong>Messages shared by reference, not copied.</strong> An immutable message is marked "shared between threads" once and then passed by pointer. Sharing never changes who fails.</td><td>No deep copy per send, whatever the message size.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td><strong>Inline turns.</strong> A send to an <em>idle</em> actor may run its handler right away on the sender's thread. The inline turn is still its own unit of work, with its own recovery point: a failure ends the receiver, never the sender.</td><td>No queue hop, no thread wake-up for the common request/response shape.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>Move a uniquely owned message instead of copying it</td><td>When the sender never uses the value again, hand it over.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
-<tr><td>Fan-in: a sender pauses for a receiver that is queued but not yet running</td><td>Many senders to one receiver can't pile up unbounded memory.<sup><a href="#n5">5</a></sup></td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><strong>Messages shared by reference, not copied.</strong> An immutable message is marked "shared between threads" once and then passed by pointer. Sharing never changes who fails.</td><td>No deep copy per send, whatever the message size.</td><td><span class="badge b-decided">Decided, coming</span> (606a; not in the 607 source this page was checked against, where <code>hey_actor_enqueue</code> still clones)</td></tr>
+<tr><td><strong>Inline turns.</strong> A send to an <em>idle</em> actor may run its handler right away on the sender's thread. The inline turn is still its own unit of work, with its own recovery point: a failure ends the receiver, never the sender.</td><td>No queue hop, no thread wake-up for the common request/response shape.</td><td><span class="badge b-decided">Decided, coming</span> (606a; the runtime still says "no actor runs inline on the sender's stack")</td></tr>
+<tr><td>Move a uniquely owned message instead of copying it</td><td>When the sender never uses the value again, hand it over.</td><td><span class="badge b-partly">Partly works</span> task <code>actor-owned-message-move</code>, waiting</td></tr>
+<tr><td>Batched fan-in: many senders splice into one mailbox once per batch</td><td>8 senders to 1 receiver no longer fight over one memory location.</td><td><span class="badge b-partly">Partly works</span> (0.99.602a kept the receiver-progress fix: starved fan-in peak memory 99.4 MB to 3.7 MB)<sup><a href="#n5">5</a></sup></td></tr>
+<tr><td>Message passing faster than Go</td><td>Measured on 0.99.597a to 600a: pairs tie Go (17.2 vs 17.0 million messages a second); 8-to-1 fan-in is about 5 million against Go's 19 million.</td><td><span class="badge b-partly">Partly works</span></td></tr>
 </tbody></table></div>
 <figure class="fig">
 <svg viewBox="0 0 760 200" role="img" aria-labelledby="d5t">
@@ -790,23 +836,35 @@ aren't thread-safe. Two decisions change that:</p>
 <text x="395" y="170" text-anchor="middle" class="small t-bad">if it fails: the receiver ends, the jump stops here,</text>
 <text x="395" y="186" text-anchor="middle" class="small t-bad">and the sender carries on</text>
 </svg>
-<figcaption>Figure 5. Decided: an inline turn is its own unit of work.</figcaption>
+<figcaption>Figure 5. Decided for 606a: an inline turn is its own unit of work.</figcaption>
 </figure>
 
-<h2 id="next">9. Mailboxes, long turns and stopping</h2>
+<h2 id="next">9. Decided and proposed, beyond 606a</h2>
 <div class="scroll"><table>
-<thead><tr><th>Item</th><th>What happens</th><th>Status</th></tr></thead><tbody>
-<tr><td>A sender that outruns its receiver</td><td>The runtime slows the sender down, as Pony does: past a backlog, or after a run of sends to a receiver that hasn't run yet, the sender pauses until the receiver gets a turn. Nothing is dropped, and there's no <code>try_send</code>.</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>A mailbox past its hard ceiling</td><td>The receiving actor fails fast, like any other runtime error, and its links, monitors and supervisor are told. Nothing is silently dropped.<sup><a href="#n7">7</a></sup></td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>A turn that runs too long</td><td>Each unit of work has a time budget. The compiler places safe points (a flag check at function entries and loop back-edges); past a soft limit the runtime warns, past the budget it ends the turn as a failure. <code>stop</code> and <code>Jobs.cancel</code> are graceful first and interrupt after a shutdown timeout of 5 seconds. Everything the ended unit held (handles, sockets, memory) is released.<sup><a href="#n8">8</a></sup></td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>Native calls can't be interrupted</td><td>True in Erlang, Go and Wasmtime too: the unit is answered for (a web client gets its 500) and the thread unwinds when the C call returns. See <a href="2026-10-25-hey-native-code-and-c.html#limits">Native code and C</a>.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>Freeing everything a turn allocated in one step</td><td>Owned by <a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: Values, memory and Strings</a>.</td><td>see Reference 8</td></tr>
+<thead><tr><th>Item</th><th>What and where</th><th>Status</th></tr></thead><tbody>
+<tr><td>Mailbox limits and backpressure</td><td>Today a mailbox has no hard cap and <code>send</code> never fails. The runtime already slows a sender down: past a backlog threshold, or after a run of sends to a receiver that has not run yet, the sender pauses until the receiver gets a turn (<code>hey_send_backpressure</code> in the runtime). Bounded mailboxes with a chosen overflow rule stay proposed; the research article recommends keeping today's default and adding bounded options. Task <code>actor-scheduling-admission-backpressure</code> found that a long producer turn can starve a receiver; no fix is claimed.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Per-core timer wheel</td><td>Sleeping actors placed on a timer structure per core instead of an ordered list. Task <code>actor-per-core-timer-wheel</code>, waiting.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Stopping a turn that loops forever</td><td>A turn that never errors and never ends cannot be stopped today, and <code>stop</code> cannot interrupt a busy turn. The fix is compiler-placed <em>safe points</em> at loop back-edges and function entries where a turn checks "have I run too long?" (Erlang counts work in <em>reductions</em>; Wasmtime bumps an <em>epoch</em>
+counter). Still to be decided.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Native calls cannot be interrupted by any scheme</td><td>True in Erlang, Go and Wasmtime too. See <a href="2026-10-25-hey-native-code-and-c.html#limits">Native code and C</a>.</td><td>a fact</td></tr>
+<tr><td>Actor and turn regions: free everything a turn allocated in one step</td><td>Owned by <a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: Values, memory and Strings</a>.</td><td>see Reference 8</td></tr>
 </tbody></table></div>
 
 <h2 id="sources">Sources</h2>
 <ul>
-<li>Every <em>Works today</em> sample on this page is run by the documentation test.</li>
-<li>Rulings, with details in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>: fail fast, no catch; actor errors must not kill the process; a turn runs to completion; shared messages and inline turns; mailbox backpressure and ceiling; budgets and safe points.</li>
+<li>Hey source (samples run on the 0.99.606a candidate): the standard library's Actor module;
+the runtime header (HeyRuntimeRecovery); the runtime
+(<code>hey_runtime_recovery_push</code>, <code>hey_web_call_contained</code>,
+<code>hey_actor_enqueue</code>, the "no actor runs inline" comment);
+<code>docs/actor-local-call.md</code>; <code>docs/developers/actor-scalability.md</code> (pooled vs dedicated-thread actors; supervised actors cost two threads, lines 46-50);
+<code>hey_send_backpressure</code> in the runtime; <code>docs/developers/io.md</code>.</li>
+<li>Samples: <code>examples/tour_03_actors.hey</code>, <code>links_and_monitors.hey</code>, <code>monitor_delivery.hey</code>,
+<code>supervisor_hardening.hey</code>; <code>test/fixtures/actors/containment/fail_ends_actor.hey</code>;
+<code>test/fixtures/io/await_actor.hey</code>; <code>benchmarks/hey/actor_capacity.hey</code>; the rest written for this page.
+Gate: <code>test/gate_actor_failure_containment.sh</code>.</li>
+<li>Rulings, one line each, with details in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>:
+fail fast, no catch; actor errors must not kill the process; shared messages and
+inline turns for 606a.</li>
 </ul>
 
 <h2>Read next</h2>
@@ -816,8 +874,8 @@ aren't thread-safe. Two decisions change that:</p>
 <li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the Hey compiler turns source into native code</a>: where actor turns are compiled.</li>
 <li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>: the rulings behind this page.</li>
 </ul>
-<details><summary>Background reading</summary>
-<p>These articles explain the design choices behind this page. This page is the reference.</p>
+<details><summary>History: the research this page replaces</summary>
+<p>These dated articles hold the research and measurements behind the design. This page is the current reference.</p>
 <ul>
 <li><a href="designing-heys-actors.html">Designing Hey's actors</a></li>
 <li><a href="how-hey-runs-a-million-actors.html">How Hey runs a million actors</a></li>
@@ -826,14 +884,11 @@ aren't thread-safe. Two decisions change that:</p>
 <section class="notes" id="notes" aria-labelledby="notes-h">
 <h2 id="notes-h">Notes</h2>
 <ol>
-<li id="n1">A failure ends only its own actor, Job attempt or request: 14d886.</li>
+<li id="n1">Release 0.99.605a made a failure end only its own actor, Job attempt or request: 14d886.</li>
 <li id="n2">A runtime error in a web handler stops it and fails only its request with 500: 1bf9dc.</li>
 <li id="n3">Stack overflow fails fast with a named message instead of a crash: 057b49.</li>
 <li id="n4">A recovery jump releases an abandoned caller's frame owners: 509eca.</li>
 <li id="n5">A sender stops for a fan-in receiver that is queued but not running: 87dbc1.</li>
-<li id="n6"><code>await</code> ends the turn and a turn runs to completion: ledger rows L-ACT-14 and L-ACT-40.</li>
-<li id="n7">Backpressure plus a fail-fast mailbox ceiling: ledger row L-ACT-15.</li>
-<li id="n8">Budgets, safe points, stopping and cleanup: ledger rows L-ACT-17, L-ACT-20 to L-ACT-23 and L-ACT-35.</li>
 </ol>
 </section>
 </div>
