@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Hey's three tools for background and parallel work: stateless worker pools, Jobs with receipts, retries, dead letters and journals, and bounded parallel streams. How to choose, every option, what happens when a Job fails. Every sample compiled and run.">
+<meta name="article-date" content="2026-10-25">
+<meta name="article-bucket" content="reference">
+<meta name="article-index-title" content="Reference 4: Hey workers, Jobs and streams">
+<meta name="article-index-desc" content="Worker pools, Jobs (receipts, retries, backoff, idempotency, dead letters, partitions, adaptive scaling, journals) and parallel streams: how to choose, every sample run.">
+<title>Hey workers, Jobs and streams</title>
+<style>
+:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
+--link:#1d4fb8;--acc:#1d4fb8;--acc-bg:#e7eefc;--good:#17703a;--good-bg:#e3f3e8;--warn:#875700;--warn-bg:#fcf1d6;--bad:#a8261d;--bad-bg:#fbe7e4;--violet:#5a3a9c;--violet-bg:#efe9fb;
+--code-bg:#f0eee8;--code-fg:#17181c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}}
+:root[data-theme="dark"]{--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:1.4rem 16px 4rem}
+a{color:var(--link);text-underline-offset:.16em}
+h1{font-size:clamp(1.9rem,5vw,2.8rem);line-height:1.12;margin:.3rem 0 .8rem}
+h2{font-size:1.5rem;line-height:1.22;margin:3rem 0 .5rem;padding-top:.6rem;border-top:1px solid var(--line)}
+h3{font-size:1.12rem;margin:1.8rem 0 .4rem}
+p,li{max-width:76ch}
+.eyebrow{color:var(--muted);font-size:.88rem;margin:0}
+.lede{font-size:1.16rem;max-width:68ch}
+.summary{background:var(--acc-bg);border-left:5px solid var(--acc);border-radius:8px;padding:.75rem 1rem;margin:.6rem 0 1rem}
+.summary strong:first-child{display:block;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:.85rem 1rem;overflow-x:auto;line-height:1.45;font-size:.9rem}
+pre code{overflow-wrap:normal}
+pre.out{background:var(--surface);border-left:5px solid var(--good)}
+pre.out.failed{border-left-color:var(--bad)}
+.runlabel{font-size:.8rem;color:var(--muted);margin:-.4rem 0 .2rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.note{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--acc);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+.note.warn{border-left-color:var(--warn)}.note.good{border-left-color:var(--good)}.note.bad{border-left-color:var(--bad)}
+.note>p:first-child{margin-top:0}.note>p:last-child{margin-bottom:0}
+.puzzle{background:var(--violet-bg);border:1px dashed var(--violet);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.6rem 1rem;margin:1rem 0}
+summary{font-weight:700;cursor:pointer}
+details[open]>summary{margin-bottom:.6rem}
+.fig{margin:1.2rem 0 1.4rem;padding:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:600px}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.5rem}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--surface2)}
+.badge{display:inline-block;padding:.02rem .45rem;border-radius:4px;font-size:.76rem;font-weight:700;border:1px solid currentColor;white-space:nowrap;vertical-align:.08em}
+.b-works{background:var(--good-bg);color:var(--good)}
+.b-partly{background:var(--warn-bg);color:var(--warn)}
+.b-decided{background:var(--acc-bg);color:var(--acc)}
+.b-proposed{background:var(--violet-bg);color:var(--violet)}
+.b-removing{background:var(--bad-bg);color:var(--bad)}
+.legend span{margin-right:.5rem}
+.id{font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:var(--muted)}
+nav.toc ol{columns:2;column-gap:2rem;padding-left:1.2rem;margin:.4rem 0}
+nav.toc li{break-inside:avoid;margin:.15rem 0}
+.youarehere{display:flex;flex-wrap:wrap;gap:.3rem;margin:.8rem 0 1.2rem;font-size:.8rem}
+.youarehere a,.youarehere span{padding:.15rem .5rem;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--muted);background:var(--surface)}
+.youarehere span.here{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
+/* SVG classes: every diagram colour comes from the tokens above, so light and dark both work */
+svg text{fill:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:13px}
+svg .muted{fill:var(--muted)}
+svg .small{font-size:11px}
+svg .bold{font-weight:700}
+svg .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+svg .box2{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+svg .acc{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.5}
+svg .good{fill:var(--good-bg);stroke:var(--good);stroke-width:1.5}
+svg .warn{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.5}
+svg .bad{fill:var(--bad-bg);stroke:var(--bad);stroke-width:1.5}
+svg .vio{fill:var(--violet-bg);stroke:var(--violet);stroke-width:1.5}
+svg .line{stroke:var(--mid);stroke-width:1.6;fill:none}
+svg .dash{stroke:var(--muted);stroke-width:1.4;fill:none;stroke-dasharray:5 4}
+svg .badline{stroke:var(--bad);stroke-width:2;fill:none}
+svg .goodline{stroke:var(--good);stroke-width:2;fill:none}
+svg .accline{stroke:var(--acc);stroke-width:2;fill:none}
+svg .arrowhead{fill:var(--mid)}
+svg .t-good{fill:var(--good)}svg .t-bad{fill:var(--bad)}svg .t-acc{fill:var(--acc)}svg .t-warn{fill:var(--warn)}svg .t-vio{fill:var(--violet)}
+@media (max-width:700px){nav.toc ol{columns:1}body{font-size:16px}}
+
+.notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
+.notes ol{padding-left:1.4rem}
+sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="eyebrow">Reference 4 of 11 · toolchain 0.99.606a (candidate build)</p>
+<h1>Workers, Jobs and streams: parallel work without the plumbing</h1>
+
+<nav class="youarehere" aria-label="Where this page sits in the Hey documentation">
+<a href="2026-10-25-hey-index.html">Index</a>
+<a href="2026-10-25-hey-the-language.html">Reference 1: Language</a>
+<a href="2026-10-25-hey-actors-and-failure.html">Reference 3: Actors and failure</a>
+<span class="here">Reference 4: Workers, Jobs, streams</span>
+<a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed</a>
+<a href="2026-10-25-hey-native-code-and-c.html">Reference 7: Native code</a>
+<a href="2026-10-25-hey-performance.html">Reference 9: Performance</a>
+</nav>
+
+<p class="lede">Resize a thousand images. Import a CSV file one row at a time. Send a welcome email that must not go out
+twice. None of these needs a long-lived owner of state, so an actor is the wrong shape. Hey gives you three
+tools for this: a <strong>worker pool</strong> for raw parallel work, a <strong>Job</strong> when you want receipts,
+retries and results, and a <strong>stream</strong> when your work is a chain of <code>map</code> and
+<code>filter</code>.</p>
+
+<div class="summary"><strong>On one screen</strong>
+<code>worker</code>, <code>workers(...)</code>, <code>Jobs.define</code>, receipts, results, retries,
+backoff, idempotency keys, dead letters, cancellation and parallel streams all <span class="badge b-works">Works today</span>.
+Three samples fail to compile on the 0.99.606a toolchain: the <code>job</code> declaration, <code>partition_by:</code>,
+and the adaptive-scaling test clock <span class="badge b-partly">Partly works</span>. Every queue has a fixed size and says "no" when full instead of
+growing. A local journal can replay accepted Jobs after a restart <span class="badge b-partly">Partly works</span>. A
+runtime error inside a Job attempt now ends only that attempt on this toolchain<sup><a href="#n1">1</a></sup>; the containment task is still open
+<span class="badge b-partly">Partly works</span>.</div>
+
+<p class="legend">Badges: <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span>
+<span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span>
+<span class="badge b-removing">Being removed</span>.</p>
+
+<nav class="toc" aria-label="Contents"><ol>
+<li><a href="#choose">Which tool?</a></li>
+<li><a href="#workers">Worker pools</a></li>
+<li><a href="#jobs">Jobs</a></li>
+<li><a href="#reliability">Retries, backoff, idempotency, dead letters</a></li>
+<li><a href="#more">Cancel, partitions, adaptive scaling</a></li>
+<li><a href="#streams">Streams</a></li>
+<li><a href="#failure">When a Job attempt fails</a></li>
+<li><a href="#durable">Durability</a></li>
+<li><a href="#across">Across machines</a></li>
+<li><a href="#sources">Sources and read next</a></li>
+</ol></nav>
+
+<h2 id="choose">1. Which tool? Answer two questions</h2>
+<figure class="fig">
+<svg viewBox="0 0 760 300" role="img" aria-labelledby="c1t">
+<title id="c1t">Choosing chart. Does the work need state that lives between messages? Yes: an actor. No: do you need a receipt, a stored result, retries, a journal or metrics? Yes: a Job. No: is it a map or filter over a collection? Yes: a stream. No: a worker pool. A plain synchronous transformation is a function.</title>
+<defs><marker id="c1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<rect x="20" y="20" width="270" height="56" rx="10" class="box2"/>
+<text x="155" y="44" text-anchor="middle" class="bold">Must state live between messages?</text>
+<text x="155" y="63" text-anchor="middle" class="small muted">a counter, a cache, a connection</text>
+<path d="M290 48 L470 48" class="line" marker-end="url(#c1a)"/><text x="380" y="40" text-anchor="middle" class="small t-good bold">yes</text>
+<rect x="475" y="22" width="265" height="52" rx="10" class="acc"/><text x="607" y="45" text-anchor="middle" class="bold">actor</text><text x="607" y="63" text-anchor="middle" class="small">Reference 3: identity + private state</text>
+<path d="M155 76 L155 110" class="line" marker-end="url(#c1a)"/><text x="170" y="98" class="small t-bad bold">no</text>
+<rect x="20" y="112" width="270" height="56" rx="10" class="box2"/>
+<text x="155" y="136" text-anchor="middle" class="bold">Need a receipt, a result, retries,</text>
+<text x="155" y="155" text-anchor="middle" class="bold">a journal or metrics?</text>
+<path d="M290 140 L470 140" class="line" marker-end="url(#c1a)"/><text x="380" y="132" text-anchor="middle" class="small t-good bold">yes</text>
+<rect x="475" y="114" width="265" height="52" rx="10" class="good"/><text x="607" y="137" text-anchor="middle" class="bold">Job</text><text x="607" y="155" text-anchor="middle" class="small">the runtime owns the lifecycle</text>
+<path d="M155 168 L155 202" class="line" marker-end="url(#c1a)"/><text x="170" y="190" class="small t-bad bold">no</text>
+<rect x="20" y="204" width="270" height="56" rx="10" class="box2"/>
+<text x="155" y="228" text-anchor="middle" class="bold">Is it map / filter over a list</text>
+<text x="155" y="247" text-anchor="middle" class="bold">or a file's lines?</text>
+<path d="M290 232 L470 210" class="line" marker-end="url(#c1a)"/><text x="380" y="210" text-anchor="middle" class="small t-good bold">yes</text>
+<rect x="475" y="186" width="265" height="44" rx="10" class="warn"/><text x="607" y="213" text-anchor="middle"><tspan class="bold">stream</tspan> with <tspan font-family="monospace">workers:</tspan></text>
+<path d="M290 240 L470 264" class="line" marker-end="url(#c1a)"/><text x="380" y="268" text-anchor="middle" class="small t-bad bold">no</text>
+<rect x="475" y="242" width="265" height="44" rx="10" class="vio"/><text x="607" y="269" text-anchor="middle"><tspan class="bold">worker pool</tspan>, reply by message</text>
+</svg>
+<figcaption>Figure 1. Choosing a primitive. A synchronous transformation is just a function: actors, workers and Jobs all
+call the same compiled function body, so a faster function speeds up all three.
+<span class="badge b-works">Works today</span></figcaption>
+</figure>
+<div class="scroll"><table>
+<thead><tr><th>You need</th><th>Use</th><th>What the envelope adds</th></tr></thead><tbody>
+<tr><td>a pure synchronous transformation</td><td><code>fn</code></td><td>nothing: a call</td></tr>
+<tr><td>long-lived identity and private state</td><td><code>actor</code></td><td>a mailbox, ordering, lifecycle</td></tr>
+<tr><td>the same stateless work, many at once</td><td><code>worker</code> + <code>workers(...)</code></td><td>a bounded queue and scheduling</td></tr>
+<tr><td>receipts, results, retries, journals, metrics</td><td><code>job</code> or <code>Jobs.define</code></td><td>everything above, owned by the runtime</td></tr>
+<tr><td>a bounded parallel chain of transforms</td><td><code>Streams</code></td><td>per-stage workers and order control</td></tr>
+</tbody></table></div>
+
+<h2 id="workers">2. Worker pools</h2>
+<p>A <code>worker</code> handles one immutable message, keeps nothing between messages, and runs as a lightweight turn
+on the same thread pool actors use. No import is needed.
+<span class="badge b-works">Works today</span></p>
+<p class="runlabel">workers_quickstart.hey</p><pre><code>worker Double(message)
+  send message.reply_to, message.value * 2
+end
+
+actor Collector(expected)
+  state seen = 0
+  state total = 0
+  receive value
+  set seen = seen + 1
+  set total = total + value
+  if seen == expected
+    says total
+    exit
+  end
+end
+
+program
+  let collector = spawn Collector(4)
+  let pool = workers(Double, count: 2, capacity: 8)
+
+  for value in [1, 2, 3, 4]
+    if !pool.enqueue({reply_to: collector, value: value})
+      fail &#39;worker queue is full&#39;
+    end
+  end
+
+  join collector
+  says pool.status().completed
+  let stopped = pool.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey workers_quickstart.hey
+20
+4
+$ echo $?
+0</code></pre>
+
+<ul>
+<li>A worker takes exactly one message; it may use <code>let</code>, call functions, do I/O, return a value or send
+messages. It cannot declare <code>state</code> or use <code>receive</code>.</li>
+<li><code>workers(Worker, count: 8, capacity: 1024)</code>: <code>count</code> is how many may run at once,
+<code>capacity</code> is how many may wait. <code>count: 8</code> does <em>not</em> create eight threads.</li>
+<li>A bare pool throws return values away. To get an answer back, send it to an actor (as above) or use a Job.</li>
+<li><code>pool.stop()</code> refuses new messages, drops queued ones that never started, lets running ones finish.</li>
+</ul>
+<h3>Backpressure: a full queue says no</h3>
+<p><em>Backpressure</em> means the system pushes back on a producer that is going faster than the work can be done,
+instead of storing an ever-growing pile. <code>pool.enqueue(msg)</code> returns <code>true</code> only when the bounded queue accepted the message. It never grows
+a hidden queue. <code>Workers.await_idle(pool, timeout_ms)</code> from <code>stdlib:Workers</code> waits until nothing is
+queued or running. <span class="badge b-works">Works today</span></p>
+<div class="puzzle"><strong>Predict it.</strong> One worker, a waiting room of 2, six messages sent as fast as
+possible. How many are accepted?</div>
+<p class="runlabel">backpressure.hey</p><pre><code>import &#39;stdlib:Workers&#39;
+
+worker Nap(ms)
+  sleep ms
+end
+
+program
+  let pool = workers(Nap, count: 1, capacity: 2)
+  let accepted = 0
+  let refused = 0
+  for ms in [30, 30, 30, 30, 30, 30]
+    if pool.enqueue(ms)
+      set accepted = accepted + 1
+    else
+      set refused = refused + 1
+    end
+  end
+  says &#39;accepted=&#39; + accepted + &#39; refused=&#39; + refused
+  let status = Workers.await_idle(pool, 2000)
+  says &#39;queued=&#39; + status.queued + &#39; active=&#39; + status.active + &#39; completed=&#39; + status.completed + &#39; rejected=&#39; + status.rejected
+  let stopped = pool.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey backpressure.hey
+accepted=2 refused=4
+queued=0 active=0 completed=2 rejected=4
+$ echo $?
+0</code></pre>
+<p><code>pool.status()</code> fields: <code>workers</code>, <code>capacity</code>, <code>queued</code>, <code>active</code>,
+<code>idle</code>, <code>enqueued</code>, <code>started</code>, <code>completed</code>, <code>rejected</code>,
+<code>queue_wait_avg_ns</code>, <code>queue_wait_max_ns</code>, <code>closed</code>.</p>
+
+<h2 id="jobs">3. Jobs: work with a receipt</h2>
+<figure class="fig">
+<svg viewBox="0 0 760 250" role="img" aria-labelledby="c2t">
+<title id="c2t">Job lifecycle: enqueue gives a receipt or is rejected when full. A queued job runs; it completes, or fails; a failed attempt with retries left waits for backoff and runs again; with no retries left it becomes a dead letter and the result is failed. A queued job can be cancelled. A caller who stops waiting sees pending; an unknown receipt gives unknown.</title>
+<defs><marker id="c2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<rect x="10" y="95" width="100" height="44" rx="8" class="box2"/><text x="60" y="122" text-anchor="middle" class="bold">enqueue</text>
+<path d="M110 117 L150 117" class="line" marker-end="url(#c2a)"/>
+<rect x="152" y="95" width="100" height="44" rx="8" class="acc"/><text x="202" y="115" text-anchor="middle" class="bold">queued</text><text x="202" y="131" text-anchor="middle" class="small">(pending)</text>
+<path d="M60 139 L60 190" class="badline" marker-end="url(#c2a)"/>
+<rect x="10" y="192" width="100" height="40" rx="8" class="bad"/><text x="60" y="217" text-anchor="middle">rejected</text>
+<text x="70" y="168" class="small t-bad">queue full</text>
+<path d="M252 117 L300 117" class="line" marker-end="url(#c2a)"/>
+<rect x="302" y="95" width="100" height="44" rx="8" class="acc"/><text x="352" y="115" text-anchor="middle" class="bold">running</text><text x="352" y="131" text-anchor="middle" class="small">(pending)</text>
+<path d="M402 105 L470 60" class="goodline" marker-end="url(#c2a)"/>
+<rect x="472" y="36" width="110" height="40" rx="8" class="good"/><text x="527" y="61" text-anchor="middle" class="bold">completed</text>
+<path d="M402 128 L470 160" class="badline" marker-end="url(#c2a)"/>
+<rect x="472" y="146" width="110" height="40" rx="8" class="warn"/><text x="527" y="171" text-anchor="middle">attempt failed</text>
+<path d="M527 146 Q450 90 402 112" class="dash" marker-end="url(#c2a)"/>
+<text x="452" y="96" class="small muted">retries left: wait backoff_ms</text>
+<path d="M582 166 L630 166" class="badline" marker-end="url(#c2a)"/>
+<rect x="632" y="140" width="120" height="52" rx="8" class="bad"/><text x="692" y="162" text-anchor="middle" class="bold">failed</text><text x="692" y="180" text-anchor="middle" class="small">+ dead letter</text>
+<path d="M202 139 L202 200" class="dash" marker-end="url(#c2a)"/>
+<rect x="152" y="202" width="100" height="40" rx="8" class="box"/><text x="202" y="227" text-anchor="middle">cancelled</text>
+<text x="212" y="176" class="small muted">Jobs.cancel</text>
+<rect x="302" y="200" width="160" height="40" rx="8" class="box"/><text x="382" y="217" text-anchor="middle" class="small">unknown: the receipt</text><text x="382" y="232" text-anchor="middle" class="small">is not this Job's</text>
+</svg>
+<figcaption>Figure 2. A Job result is always one of six states: <code>pending</code>, <code>completed</code>,
+<code>failed</code>, <code>cancelled</code>, <code>rejected</code>, <code>unknown</code>.</figcaption>
+</figure>
+<p>A Job wraps a worker pool and adds what operations people ask for: a <em>receipt</em> per message (a small
+record that names this piece of work so you can ask about it later), kept results, retries,
+cancellation, dead letters, metrics. <code>Jobs.define(name, Worker, options…)</code> builds one; <code>Job.enqueue</code>
+returns a receipt; <code>Jobs.result(job, receipt, timeout_ms)</code> waits for its outcome.<sup><a href="#n2">2</a></sup>
+ <span class="badge b-works">Works today</span></p>
+<p class="runlabel">tour_05_jobs.hey</p><pre><code>worker Thumbnail(image)
+  return {path: &#39;thumbs/&#39; + image.id + &#39;.jpg&#39;}
+end
+
+program
+  let Thumbnails = Jobs.define(&#39;TourThumbnails&#39;, Thumbnail, count: 2, capacity: 8)
+  let receipt = Thumbnails.enqueue({id: &#39;cover&#39;})
+  if !receipt.accepted
+    fail &#39;tour job queue is full&#39;
+  end
+
+  let result = Jobs.result(Thumbnails, receipt, 5000)
+  if !result.ok
+    fail result.error
+  end
+
+  says result.value.path
+  says &#39;completed=&#39; + Thumbnails.status().completed
+  let stopped = Thumbnails.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey tour_05_jobs.hey
+thumbs/cover.jpg
+completed=1
+$ echo $?
+0</code></pre>
+<p>A timeout on <code>Jobs.result</code> only bounds your wait; it never kills a handler that is already running.</p>
+<h3>The <code>job</code> declaration</h3>
+<p>When a Job's name and settings are fixed, declare it at the top level. It is only syntax: it becomes the same
+<code>Jobs.define</code> call. <code>Jobs.await_all(job, receipts, timeout_ms)</code> collects results in order and
+<code>fail</code>s on the first one that did not succeed (<code>Jobs.require</code> does the same for one receipt).
+ <span class="badge b-partly">Partly works</span>: the declaration is in the language, but this
+example does not compile on the 606a toolchain (below).</p>
+<p class="runlabel">jobs_declaration.hey</p><pre><code>import &#39;stdlib:Jobs&#39;
+
+worker Double(message)
+  return message * 2
+end
+
+# `job Name ... end` is syntax only. It lowers to the same Jobs.define call.
+job Doubles
+  worker Double
+  count: 2
+  capacity: 8
+  result_capacity: 8
+end
+
+program
+  let receipts = []
+  for value in [3, 4, 5]
+    set receipts = [...receipts, Doubles.enqueue(value)]
+  end
+  says join(Jobs.await_all(Doubles, receipts, 1000), &#39;,&#39;)
+  let stopped = Doubles.stop()
+end</code></pre>
+<p class="runlabel">Run it (trimmed; full output below)</p><pre class="out failed"><code>$ hey jobs_declaration.hey
+[3 selfhost_ diagnostic lines hidden here; full output below]
+hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: MIR checked call body plan refused: ordinary value operand reader refused: call carries no resolved identity
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre class="out failed"><code>$ hey jobs_declaration.hey
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=6e5a44d2afcf16d20800ead1fa1dac5ba2f85b94772a10eea5d7918609ff7d2b
+selfhost_build_outcome=started
+hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: MIR checked call body plan refused: ordinary value operand reader refused: call carries no resolved identity
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre></details>
+<div class="note bad"><p><strong>Fails on this toolchain.</strong> The <code>job Doubles … end</code> form stops in
+the LLVM emitter ("call carries no resolved identity"). Reported to the Hey maintainers for triage. The same Job written with <code>Jobs.define</code> inside the
+program works today:</p>
+<p class="runlabel">jobs_define_form.hey</p><pre><code>import &#39;stdlib:Jobs&#39;
+
+worker Double(message)
+  return message * 2
+end
+
+program
+  let Doubles = Jobs.define(&#39;Doubles&#39;, Double, count: 2, capacity: 8, result_capacity: 8)
+  let receipts = []
+  for value in [3, 4, 5]
+    set receipts = [...receipts, Doubles.enqueue(value)]
+  end
+  says join(Jobs.await_all(Doubles, receipts, 1000), &#39;,&#39;)
+  let stopped = Doubles.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey jobs_define_form.hey
+6,8,10
+$ echo $?
+0</code></pre>
+</div>
+
+
+<div class="scroll"><table>
+<caption>Every Job operation</caption>
+<thead><tr><th>Call</th><th>Returns</th></tr></thead><tbody>
+<tr><td><code>Jobs.define(name, Worker, …)</code> / <code>job Name … end</code></td><td>the Job</td></tr>
+<tr><td><code>Job.enqueue(msg)</code></td><td>a receipt: <code>accepted</code>, <code>id</code>, and <code>duplicate</code>, <code>partition</code> when those options are on</td></tr>
+<tr><td><code>Jobs.result(job, receipt, timeout_ms)</code></td><td><code>ok</code>, <code>status</code> (one of the six), <code>value</code>, <code>error</code>, <code>attempts</code></td></tr>
+<tr><td><code>Jobs.require(job, receipt, timeout_ms)</code></td><td>the value, or <code>fail</code>s with the error</td></tr>
+<tr><td><code>Jobs.await_all(job, receipts, timeout_ms)</code></td><td>a list of values, in receipt order</td></tr>
+<tr><td><code>Jobs.cancel(job, receipt)</code></td><td>a record: <code>kind: 'job_cancel'</code>, the receipt <code>id</code>, <code>cancelled</code> (true if it had not started) and <code>status: 'cancel_requested'</code></td></tr>
+<tr><td><code>Jobs.dead_letters(job)</code></td><td>Jobs that used up their retries, oldest first, with attempts and last error<sup><a href="#n3">3</a></sup></td></tr>
+<tr><td><code>Job.status()</code></td><td>counters: <code>completed</code>, <code>enqueued</code>, <code>retry_delay_total_ms</code>, <code>idempotent_reuses</code>, <code>partition_count</code>, <code>durable</code>, <code>journal_events</code>, and <code>pool</code> (the worker pool's status)</td></tr>
+<tr><td><code>Job.stop()</code></td><td>stops the Job like <code>pool.stop()</code></td></tr>
+</tbody></table></div>
+
+<h2 id="reliability">4. Retries, backoff, idempotency keys, dead letters</h2>
+<p>A <em>dead letter</em> is a message the Job gave up on after its last retry, kept (with its attempts and last
+error) so you can inspect it. A worker that returns <code>Result.error(…)</code> has failed this attempt. With <code>retries: 2</code> the Job tries
+again, up to three attempts in all, then records a dead letter.
+<span class="badge b-works">Works today</span></p>
+<p class="runlabel">jobs_reliability.hey</p><pre><code>import &#39;std:Result&#39;
+
+worker ImportRecord(message)
+  if !message.valid
+    return Result.error(&#39;invalid record&#39;)
+  end
+  return message.value * 2
+end
+
+program
+  let Imports = Jobs.define(
+    &#39;Imports&#39;,
+    ImportRecord,
+    count: 2,
+    capacity: 16,
+    retries: 2,
+    result_capacity: 32,
+    dead_letter_capacity: 8
+  )
+
+  let good = Imports.enqueue({valid: true, value: 21})
+  let bad = Imports.enqueue({valid: false, value: 0})
+
+  let good_result = Jobs.result(Imports, good, 1000)
+  let bad_result = Jobs.result(Imports, bad, 1000)
+
+  says good_result.status
+  says good_result.value
+  says bad_result.status
+  says &#39;attempts=&#39; + bad_result.attempts
+  says &#39;dead_letters=&#39; + Jobs.dead_letters(Imports).length
+
+  let stopped = Imports.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey jobs_reliability.hey
+completed
+42
+failed
+attempts=3
+dead_letters=1
+$ echo $?
+0</code></pre>
+<p><code>backoff_ms</code> and <code>max_backoff_ms</code> space the retries out (doubling, capped). <em>Idempotent</em> means "doing it twice has the
+same effect as doing it once". An <code>idempotency_key</code> in the message makes a repeat enqueue return the first receipt instead of doing the work
+twice; <code>idempotency_capacity</code> bounds how many keys are remembered.</p>
+<div class="puzzle"><strong>Predict it.</strong> The second <code>Imports.enqueue</code> carries the same key but
+<code>value: 999</code>. Which value comes back, 42 or 1998?</div>
+<p class="runlabel">jobs_backoff_idempotency.hey</p><pre><code>import &#39;stdlib:Result&#39;
+
+worker ImportRecord(message)
+  if !message.valid
+    return Result.error(&#39;invalid record&#39;)
+  end
+  return message.value * 2
+end
+
+program
+  let FailingImports = Jobs.define(
+    &#39;FailingImports&#39;,
+    ImportRecord,
+    count: 1,
+    capacity: 8,
+    retries: 2,
+    backoff_ms: 20,
+    max_backoff_ms: 40
+  )
+
+  let failed_receipt = FailingImports.enqueue({valid: false, value: 0})
+  let failed = Jobs.result(FailingImports, failed_receipt, 1000)
+  let failed_status = FailingImports.status()
+
+  says failed.status
+  says failed.attempts
+  says failed_status.retry_delay_total_ms
+  let stopped_failed = FailingImports.stop()
+
+  let Imports = Jobs.define(
+    &#39;Imports&#39;,
+    ImportRecord,
+    count: 2,
+    capacity: 8,
+    idempotency_capacity: 32
+  )
+
+  let first = Imports.enqueue({
+    idempotency_key: &#39;record-42&#39;,
+    valid: true,
+    value: 21
+  })
+  let duplicate = Imports.enqueue({
+    idempotency_key: &#39;record-42&#39;,
+    valid: true,
+    value: 999
+  })
+  let completed = Jobs.result(Imports, duplicate, 1000)
+  let status = Imports.status()
+
+  says duplicate.duplicate
+  says completed.value
+  says status.enqueued
+  says status.idempotent_reuses
+  let stopped = Imports.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey jobs_backoff_idempotency.hey
+failed
+3
+60
+true
+42
+1
+1
+$ echo $?
+0</code></pre>
+<p>Bounded options at a glance: <code>count</code>, <code>capacity</code>, <code>result_capacity</code>,
+<code>dead_letter_capacity</code>, <code>retries</code>, <code>backoff_ms</code>, <code>max_backoff_ms</code>,
+<code>idempotency_capacity</code>, <code>partition_by</code>, <code>partitions</code>, <code>min_workers</code>,
+<code>max_workers</code>, <code>target_queue_latency_ms</code>, <code>journal_path</code>,
+<code>journal_compact_after</code>.</p>
+
+<h2 id="more">5. Cancellation, partitions and adaptive scaling</h2>
+<h3>Cancel a queued Job</h3>
+<p class="runlabel">job_cancel.hey</p><pre><code>import &#39;stdlib:Jobs&#39;
+
+worker Slow(n)
+  sleep 50
+  return n
+end
+
+program
+  let Work = Jobs.define(&#39;SlowWork&#39;, Slow, count: 1, capacity: 8)
+  let first = Work.enqueue(1)
+  let second = Work.enqueue(2)
+  let cancelled = Jobs.cancel(Work, second)
+  says cancelled
+  says Jobs.result(Work, second, 1000).status
+  says Jobs.result(Work, first, 1000).value
+  let stopped = Work.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey job_cancel.hey
+{&quot;kind&quot;:&quot;job_cancel&quot;,&quot;id&quot;:2,&quot;cancelled&quot;:true,&quot;status&quot;:&quot;cancel_requested&quot;}
+cancelled
+1
+$ echo $?
+0</code></pre>
+<p>The first line is the cancel record printed whole: <code>cancelled: true</code> because message 2 was still
+waiting behind message 1, and <code>status: cancel_requested</code> because cancellation is a request. Its result then
+reads <code>cancelled</code>. Cancellation succeeds for work that has not started, and cannot undo an effect that already
+happened.</p>
+<h3>Partitions: never two at once for the same key</h3>
+<p><code>partition_by: SomeFn</code> computes a key from each message; messages with the same key never run at the same
+time, while other keys run in parallel. It guarantees non-overlap per key, not a global order.
+ <span class="badge b-partly">Partly works</span>: the runtime supports it, but passing
+<code>partition_by:</code> a function does not compile on the 606a toolchain (below).</p>
+<p class="runlabel">jobs_partitioned.hey</p><pre><code>fn ByCustomer(message)
+  return message.customer
+end
+
+worker SendCustomerEvent(message)
+  sleep message.delay_ms
+  return message.customer + &#39;:&#39; + message.sequence
+end
+
+program
+  let Events = Jobs.define(
+    &#39;CustomerEvents&#39;,
+    SendCustomerEvent,
+    count: 4,
+    capacity: 32,
+    result_capacity: 32,
+    partition_by: ByCustomer,
+    partitions: 4
+  )
+
+  let first = Events.enqueue({customer: &#39;alpha&#39;, sequence: 1, delay_ms: 20})
+  let second = Events.enqueue({customer: &#39;alpha&#39;, sequence: 2, delay_ms: 20})
+  let third = Events.enqueue({customer: &#39;beta&#39;, sequence: 1, delay_ms: 20})
+
+  let values = [
+    Jobs.result(Events, first, 1000).value,
+    Jobs.result(Events, second, 1000).value,
+    Jobs.result(Events, third, 1000).value
+  ]
+  says join(values, &#39;,&#39;)
+  says first.partition == second.partition
+  says Events.status().partition_count
+  let stopped = Events.stop()
+end</code></pre>
+<p class="runlabel">Run it (trimmed; full output below)</p><pre class="out failed"><code>$ hey jobs_partitioned.hey
+[3 selfhost_ diagnostic lines hidden here; full output below]
+hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: Jobs.define expects a name, worker declaration, and valid bounded Jobs options: local b3 Events:boxed = call @r1241379006 Jobs.define( &quot;CustomerEvents&quot;, workerref @w0.7 SendCustomerEvent, count: 4, capacity: 32, result_capacity: 32, partition_by: fnref @t0.0 ByCustomer, partitions: 4 )
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre class="out failed"><code>$ hey jobs_partitioned.hey
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=88e247c2ab3ecbe68122bc5ab8f7ab3915f820d1d089d5a3e1cc0b7d72e28b96
+selfhost_build_outcome=started
+hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: Jobs.define expects a name, worker declaration, and valid bounded Jobs options: local b3 Events:boxed = call @r1241379006 Jobs.define( &quot;CustomerEvents&quot;, workerref @w0.7 SendCustomerEvent, count: 4, capacity: 32, result_capacity: 32, partition_by: fnref @t0.0 ByCustomer, partitions: 4 )
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre></details>
+<div class="note bad"><p><strong>Fails on this toolchain.</strong> The emitter refuses <code>Jobs.define</code> when
+<code>partition_by:</code> is given a function reference ("expects a name, worker declaration, and valid bounded Jobs
+options"). The same refusal happened on 0.99.604a. Reported to the Hey maintainers for triage.</p></div>
+
+<h3>Adaptive scaling</h3>
+<p>With <code>min_workers</code>, <code>max_workers</code> and <code>target_queue_latency_ms</code>, the oldest waiting
+message drives scale-up, and sustained idleness retires workers back to the minimum. The sample uses a test clock so
+the result does not depend on your machine's speed. <span class="badge b-partly">Partly works</span>:
+the scaling is in the runtime, but the sample's test clock (<code>Jobs.test_clock_set</code>) does not resolve on the
+606a toolchain (below).</p>
+<p class="runlabel">jobs_adaptive_scaling.hey</p><pre><code># Adaptive Jobs use the same lightweight pooled workers as fixed Jobs.
+# Oldest queued work drives bounded scale-up; sustained idleness drives scale-down.
+worker RenderPreview(page)
+  sleep 25
+  return page * 2
+end
+
+program
+  let clock = Jobs.test_clock_set(0)
+  let Previews = Jobs.define(
+    &#39;Previews&#39;,
+    RenderPreview,
+    min_workers: 1,
+    max_workers: 4,
+    target_queue_latency_ms: 1,
+    capacity: 16
+  )
+
+  let one = Previews.enqueue(1)
+  let two = Previews.enqueue(2)
+  let three = Previews.enqueue(3)
+  let four = Previews.enqueue(4)
+
+  let first_tick = Jobs.test_clock_advance(5)
+  let first_scale = Previews.status()
+  let second_tick = Jobs.test_clock_advance(5)
+  let scaled = Previews.status().pool
+  says &#39;workers=&#39; + scaled.current_workers + &#39; peak=&#39; + scaled.peak_workers
+
+  let first = Jobs.result(Previews, one, 1000).value
+  let second = Jobs.result(Previews, two, 1000).value
+  let third = Jobs.result(Previews, three, 1000).value
+  let fourth = Jobs.result(Previews, four, 1000).value
+  says &#39;results=&#39; + first + &#39;,&#39; + second + &#39;,&#39; + third + &#39;,&#39; + fourth
+
+  let idle_tick = Jobs.test_clock_advance(200)
+  let first_retirement = Previews.status()
+  let final_tick = Jobs.test_clock_advance(200)
+  let idle = Previews.status().pool
+  says &#39;workers=&#39; + idle.current_workers + &#39; retired=&#39; + idle.workers_retired
+  let stopped = Previews.stop()
+end</code></pre>
+<p class="runlabel">Run it (trimmed; full output below)</p><pre class="out failed"><code>$ hey jobs_adaptive_scaling.hey
+[3 selfhost_ diagnostic lines hidden here; full output below]
+hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: ~/myapp/jobs_adaptive_scaling.hey:9:15: Jobs.test_clock_set
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre class="out failed"><code>$ hey jobs_adaptive_scaling.hey
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=1e470e87d1bd49e7575c71b86f8e853dc388dc96448fdd971cab4d021696fe98
+selfhost_build_outcome=started
+hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: ~/myapp/jobs_adaptive_scaling.hey:9:15: Jobs.test_clock_set
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre></details>
+<div class="note bad"><p><strong>Fails on this toolchain.</strong> <code>Jobs.test_clock_set</code> is not found by the
+resolver, so this repository example cannot compile. The adaptive options themselves (<code>min_workers</code>,
+<code>max_workers</code>, <code>target_queue_latency_ms</code>) are accepted by <code>Jobs.define</code>; only the
+deterministic test clock is missing from the compiled road. Reported to the Hey maintainers for triage.</p></div>
+
+
+<h2 id="streams">6. Streams: map and filter, in parallel, in order</h2>
+<figure class="fig">
+<svg viewBox="0 0 760 210" role="img" aria-labelledby="c3t">
+<title id="c3t">A stream stage with four workers: items 1 to 4 go in, finish in a different order, and a resequencer puts them back in input order before the next stage. Calling unordered skips the resequencer.</title>
+<defs><marker id="c3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<text x="20" y="24" class="bold">input</text>
+<g><rect x="20" y="40" width="30" height="30" rx="4" class="box2"/><text x="35" y="60" text-anchor="middle">1</text>
+<rect x="20" y="76" width="30" height="30" rx="4" class="box2"/><text x="35" y="96" text-anchor="middle">2</text>
+<rect x="20" y="112" width="30" height="30" rx="4" class="box2"/><text x="35" y="132" text-anchor="middle">3</text>
+<rect x="20" y="148" width="30" height="30" rx="4" class="box2"/><text x="35" y="168" text-anchor="middle">4</text></g>
+<path d="M55 110 L120 110" class="line" marker-end="url(#c3a)"/>
+<rect x="125" y="30" width="230" height="160" rx="10" class="acc"/>
+<text x="240" y="50" text-anchor="middle" class="bold">.map(f, workers: 4)</text>
+<rect x="140" y="62" width="200" height="24" rx="4" class="good"/><text x="240" y="79" text-anchor="middle" class="small">worker: item 4 (fast)</text>
+<rect x="140" y="92" width="200" height="24" rx="4" class="good"/><text x="240" y="109" text-anchor="middle" class="small">worker: item 3</text>
+<rect x="140" y="122" width="200" height="24" rx="4" class="good"/><text x="240" y="139" text-anchor="middle" class="small">worker: item 2</text>
+<rect x="140" y="152" width="200" height="24" rx="4" class="good"/><text x="240" y="169" text-anchor="middle" class="small">worker: item 1 (slow)</text>
+<path d="M355 110 L410 110" class="line" marker-end="url(#c3a)"/>
+<text x="382" y="100" text-anchor="middle" class="small muted">4,3,2,1</text>
+<rect x="415" y="70" width="150" height="80" rx="10" class="warn"/><text x="490" y="102" text-anchor="middle" class="bold">resequence</text><text x="490" y="122" text-anchor="middle" class="small">bounded window</text>
+<path d="M565 110 L620 110" class="line" marker-end="url(#c3a)"/>
+<text x="680" y="105" text-anchor="middle" class="bold">1,2,3,4</text><text x="680" y="124" text-anchor="middle" class="small muted">next stage / collect</text>
+<path d="M490 150 Q490 195 640 190" class="dash" marker-end="url(#c3a)"/><text x="560" y="205" class="small muted">.unordered(): skip it, get completion order</text>
+</svg>
+<figcaption>Figure 3. Ordered output is the default. <code>.unordered()</code> shows completion order;
+<code>.resequence()</code> restores input order inside a bounded window (a <em>resequencer</em> holds early finishers
+until the ones before them arrive).</figcaption>
+</figure>
+<p>Import the stream words with <code>forms: [:dotted]</code> and a list (or <code>Files.lines(path)</code>) gains
+<code>.map</code>, <code>.filter</code>, <code>.each</code>, <code>.through(job)</code>, <code>.unordered()</code>,
+<code>.resequence()</code> and <code>.collect()</code>. Each stage with <code>workers: N</code> runs N at once.
+<code>.through(SomeJob)</code> sends every item through an existing Job.
+<span class="badge b-works">Works today</span></p>
+<p class="runlabel">parallel_streams.hey</p><pre><code>import &#39;stdlib:Streams&#39; exposing: [map, filter, each, through, collect, unordered, resequence] forms: [:dotted]
+
+fn double(value)
+  return value * 2
+end
+
+fn over_twenty(value)
+  return value &gt; 20
+end
+
+fn observe(value)
+  return value
+end
+
+worker AddTen(value)
+  return value + 10
+end
+
+program
+  let Additions = Jobs.define(&#39;ExampleStreamAdditions&#39;, AddTen, count: 2, capacity: 4)
+  let values = [5, 10, 20, 30]
+    .map(double, workers: 2)
+    .filter(over_twenty, workers: 2)
+    .through(Additions)
+    .collect()
+  says join(values, &#39;,&#39;)
+  says values.each(observe, workers: 2)
+  let stopped = Additions.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey parallel_streams.hey
+50,70
+2
+$ echo $?
+0</code></pre>
+<p class="runlabel">stream_resequencing.hey</p><pre><code>import &#39;stdlib:Streams&#39; exposing: [map, filter, each, through, collect, unordered, resequence] forms: [:dotted]
+
+fn SlowFirst(value)
+  sleep (5 - value) * 20
+  return value
+end
+
+program
+  let completion_order = [1, 2, 3, 4]
+    .unordered()
+    .map(SlowFirst, workers: 4)
+    .collect()
+  says join(completion_order, &#39;,&#39;)
+
+  let input_order = [1, 2, 3, 4]
+    .unordered()
+    .map(SlowFirst, workers: 4)
+    .resequence()
+    .collect()
+  says join(input_order, &#39;,&#39;)
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey stream_resequencing.hey
+4,3,2,1
+1,2,3,4
+$ echo $?
+0</code></pre>
+
+<h2 id="failure">7. When a Job attempt fails at run time</h2>
+<p>Returning <code>Result.error</code> is the polite way to fail an attempt. A real runtime error or a <code>fail</code>
+inside the worker is the other way. Hey's fail-fast rule (see <a href="2026-10-25-hey-actors-and-failure.html#failfast">Actors and failure</a>)
+says it should end <em>that attempt</em>: the Job's retries run, then a dead letter of kind <code>runtime_error</code>.
+ <span class="badge b-partly">Partly works</span> task <code>actor-and-job-failure-containment</code>.</p>
+<p class="runlabel">job_failure.hey</p><pre><code>import &#39;stdlib:Jobs&#39;
+
+worker Divide(n)
+  if n == 0
+    fail &#39;cannot divide by zero&#39;
+  end
+  return 100 / n
+end
+
+program
+  let Divisions = Jobs.define(&#39;Divisions&#39;, Divide, count: 1, capacity: 8, retries: 1)
+  let good = Divisions.enqueue(4)
+  let bad = Divisions.enqueue(0)
+  let a = Jobs.result(Divisions, good, 1000)
+  let b = Jobs.result(Divisions, bad, 1000)
+  says a.status + &#39; &#39; + a.value
+  says b.status + &#39; attempts=&#39; + b.attempts
+  says b.error
+  says Jobs.dead_letters(Divisions).length
+  let stopped = Divisions.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey job_failure.hey
+hey error: cannot divide by zero
+hey: worker task stopped by a runtime error; failing this attempt
+hey error: cannot divide by zero
+hey: worker task stopped by a runtime error; failing this attempt
+completed 25
+failed attempts=2
+cannot divide by zero
+1
+$ echo $?
+0</code></pre>
+<div class="note good"><p><strong>What happened.</strong> The attempt with <code>0</code> failed twice (the first try
+plus <code>retries: 1</code>); each time the runtime printed "worker task stopped by a runtime error; failing this
+attempt" on standard error, then the Job recorded <code>failed</code> with the error and one dead letter. The other
+message completed, and the program exited 0. On 0.99.604a the same program ended the whole process with status 70.</p></div>
+
+
+<h2 id="durable">8. Durability: local replay today, a provider contract next</h2>
+<p>Give a Job a <code>journal_path</code> and it writes accepted work to a JSON-lines journal (compacted after
+<code>journal_compact_after</code> events). After a restart, a Job defined with the same journal replays what was accepted and not finished
+(its status counts it under <code>replayed</code>). The sample below shows the journal being written
+(<code>durable</code>, <code>journal_events</code>); it does not restart, so it does not show a replay.
+ <span class="badge b-partly">Partly works</span>: this survives a process restart on one
+machine, not the loss of the disk or the host.</p>
+<p class="runlabel">jobs_durable_replay.hey</p><pre><code>import &#39;stdlib:Files&#39;
+
+worker DoubleRecord(message)
+  return message.value * 2
+end
+
+program
+  let root = &#39;build/jobs-durable-example&#39;
+  let journal = root + &#39;/doubles.jsonl&#39;
+  let cleaned = Files.remove_tree(root)
+  let created = Files.ensure_dir(root)
+
+  let DurableDoubles = Jobs.define(
+    &#39;DurableDoublesExample&#39;,
+    DoubleRecord,
+    count: 2,
+    capacity: 32,
+    result_capacity: 128,
+    idempotency_capacity: 128,
+    journal_path: journal,
+    journal_compact_after: 4096
+  )
+
+  let receipt = DurableDoubles.enqueue({
+    idempotency_key: &#39;double-21&#39;,
+    value: 21
+  })
+
+  let outcome = Jobs.result(DurableDoubles, receipt, 1000)
+  let status = DurableDoubles.status()
+
+  says outcome.value
+  says status.durable
+  says status.journal_events
+  says DurableDoubles.stop()
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey jobs_durable_replay.hey
+42
+true
+2
+true
+$ echo $?
+0</code></pre>
+<div class="note"><p><strong>Where durability goes next.</strong> The design (526, see the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>) keeps storage engines
+out of the standard library: a <em>durability provider</em> package plugs into Jobs through a narrow contract (append, replay,
+who has authority, fencing, retention). <code>hey_durable_log</code> is the first provider; it already replicates to a
+quorum of machines and fences old leaders. The modes, from cheapest to strongest: ephemeral messaging, recoverable
+local Jobs, quorum-backed Jobs, and "effectively once" business effects (which also need an idempotent or transactional
+sink in your application; no scheduler option can promise exactly once).</p></div>
+<h2 id="across">9. Across machines</h2>
+<p>Today a Job runs on one machine. <code>stdlib:JobsRemote</code> can submit to a named Job on a configured peer, and
+the decided cluster (add a machine, existing Jobs use it, no app changes) is task 32 on the cluster ladder. Both are in
+<a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>.</p>
+
+<h2 id="sources">Sources</h2>
+<ul>
+<li>Hey source (samples run on the 0.99.606a candidate): <code>stdlib/Jobs.hey:1-39</code>
+(Jobs.define is a runtime constructor, <code>repl_jobs_define_builtin</code>), <code>stdlib/Workers.hey:1-16</code>,
+<code>stdlib/Streams.hey</code>; <code>docs/developers/workers.md</code>, <code>concurrency-and-jobs.md</code>;
+<code>docs/humans/actor-worker-function-optimization.md</code>; <code>docs/humans/distributed-hey-work-and-durability.md</code>
+(durability modes and provider boundary).</li>
+<li>Samples: <code>examples/workers_quickstart.hey</code>, <code>tour_05_jobs.hey</code>, <code>jobs_declaration.hey</code>,
+<code>jobs_reliability.hey</code>, <code>jobs_backoff_idempotency.hey</code>, <code>jobs_partitioned.hey</code>,
+<code>jobs_adaptive_scaling.hey</code>, <code>jobs_durable_replay.hey</code>, <code>parallel_streams.hey</code>,
+<code>stream_resequencing.hey</code> (spec headers removed; <code>jobs_reliability</code> imports
+<code>'std:Result'</code> and <code>jobs_backoff_idempotency</code> imports <code>'stdlib:Result'</code>: both prefixes
+name the same standard library and both ran); <code>backpressure.hey</code>, <code>job_cancel.hey</code>,
+<code>job_failure.hey</code> written for this page.</li>
+<li>History: <code>docs/humans/design/41-jobs-modules-queues-rfc.md</code>, the original RFC for Jobs, modules and queues,
+a history record rather than a feature, so it carries no badge. This page supersedes it and the
+repository pages <code>docs/developers/workers.md</code> and <code>concurrency-and-jobs.md</code>.</li>
+</ul>
+<h2>Read next</h2>
+<ul>
+<li><a href="2026-10-25-hey-actors-and-failure.html">Reference 3: Actors and failure</a>: state with an owner, and fail-fast containment.</li>
+<li><a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>: Jobs on other machines.</li>
+<li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the Hey compiler turns source into native code</a>.</li>
+<li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>.</li>
+</ul>
+<section class="notes" id="notes" aria-labelledby="notes-h">
+<h2 id="notes-h">Notes</h2>
+<ol>
+<li id="n1">Release 0.99.605a made a failure end only its own actor, Job attempt or request: 14d886.</li>
+<li id="n2"><code>Jobs.result</code> carries a declared runtime identity and boxed calling convention: e91a9f.</li>
+<li id="n3"><code>Jobs.cancel</code> and <code>Jobs.dead_letters</code> are standard-library facades over declared runtime operations: 8a77b1.</li>
+</ol>
+</section>
+</div>
+</body>
+</html>

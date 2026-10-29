@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="What hey build produces, measured: binary name and location, size, what it links statically and dynamically, startup time, the run cache, platform targets, a 9.4 MB container image, and a Kamal deploy.">
+<meta name="article-date" content="2026-10-25">
+<meta name="article-bucket" content="start">
+<meta name="article-index-rank" content="60">
+<meta name="article-index-title" content="Guide 6: Build and deploy">
+<meta name="article-index-desc" content="What hey build produces, measured on macOS (606a) and Linux (605a): a 134 KB hello world, a 273 KB web server, the Hey runtime linked in statically, only the C library loaded at start; 1 ms direct startup; the run cache; platform targets; a 9.4 MB container image; and the Kamal recipe a real Hey app deploys with.">
+<title>Build and deploy Hey programs</title>
+<style>
+:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
+--link:#1d4fb8;--acc:#1d4fb8;--acc-bg:#e7eefc;--good:#17703a;--good-bg:#e3f3e8;--warn:#875700;--warn-bg:#fcf1d6;--bad:#a8261d;--bad-bg:#fbe7e4;--violet:#5a3a9c;--violet-bg:#efe9fb;
+--code-bg:#f0eee8;--code-fg:#17181c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}}
+:root[data-theme="dark"]{--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:1.4rem 16px 4rem}
+a{color:var(--link);text-underline-offset:.16em}
+h1{font-size:clamp(1.9rem,5vw,2.7rem);line-height:1.12;margin:.3rem 0 .8rem}
+h2{font-size:1.5rem;line-height:1.22;margin:2.8rem 0 .5rem;padding-top:.6rem;border-top:1px solid var(--line)}
+h3{font-size:1.12rem;margin:1.6rem 0 .4rem}
+p,li{max-width:74ch}
+.eyebrow{color:var(--muted);font-size:.88rem;margin:0}
+.lede{font-size:1.16rem;max-width:68ch}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem;overflow-x:auto;line-height:1.45;font-size:.92rem}
+pre code{overflow-wrap:normal}
+pre .cmd{color:var(--acc);font-weight:600}
+pre .out{color:var(--mid)}
+.cap{font-size:.8rem;color:var(--muted);margin:.8rem 0 -.4rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.note{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--acc);border-radius:8px;padding:.7rem 1.05rem;margin:1.1rem 0}
+.note.warn{border-left-color:var(--warn)}.note.good{border-left-color:var(--good)}.note.bad{border-left-color:var(--bad)}.note.vio{border-left-color:var(--violet)}
+.note p{margin:.35rem 0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.6rem 1rem;margin:1rem 0}
+summary{font-weight:700;cursor:pointer}
+details[open]>summary{margin-bottom:.6rem}
+.fig{margin:1.2rem 0 1.4rem;padding:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:600px}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.5rem;max-width:none}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--surface2)}
+td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.badge{display:inline-block;padding:.05rem .5rem;border-radius:999px;font-size:.76rem;font-weight:700;border:1px solid currentColor;white-space:nowrap;vertical-align:.08em}
+.b-works{background:var(--good-bg);color:var(--good)}
+.b-partly{background:var(--warn-bg);color:var(--warn)}
+.b-decided{background:var(--acc-bg);color:var(--acc)}
+.b-proposed{background:var(--violet-bg);color:var(--violet)}
+.b-removing{background:var(--bad-bg);color:var(--bad)}
+.rows{font-size:.8rem;color:var(--muted)}
+.puzzle{background:var(--warn-bg);border:1px dashed var(--warn);border-radius:10px;padding:.7rem 1.05rem;margin:1.2rem 0}
+.puzzle strong:first-child{color:var(--warn)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.9rem;margin:1rem 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.8rem 1rem}
+.card h3{margin:.1rem 0 .4rem}
+.card p{margin:.35rem 0;font-size:.95rem}
+nav.toc ol{columns:2;column-gap:2rem;padding-left:1.2rem;margin:.4rem 0}
+nav.toc li{break-inside:avoid;margin:.15rem 0}
+a:focus-visible,summary:focus-visible{outline:3px solid var(--link);outline-offset:3px}
+footer{margin-top:3rem;border-top:1px solid var(--line);padding-top:1rem;font-size:.9rem;color:var(--mid)}
+footer li{margin:.3rem 0;max-width:none}
+svg text{fill:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px}
+svg .sm{font-size:12px;fill:var(--mid)}
+svg .xs{font-size:11px;fill:var(--muted)}
+svg .b{font-weight:700}
+svg .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+svg .box{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+svg .acc{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.8}
+svg .good{fill:var(--good-bg);stroke:var(--good);stroke-width:1.8}
+svg .warnb{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.8}
+svg .bad{fill:var(--bad-bg);stroke:var(--bad);stroke-width:1.8}
+svg .vio{fill:var(--violet-bg);stroke:var(--violet);stroke-width:1.8}
+svg .ln{stroke:var(--mid);stroke-width:1.8;fill:none}
+svg .ln-dash{stroke:var(--mid);stroke-width:1.6;fill:none;stroke-dasharray:6 4}
+svg .ln-good{stroke:var(--good);stroke-width:2.2;fill:none}
+svg .ln-acc{stroke:var(--acc);stroke-width:2.2;fill:none}
+svg .grid{stroke:var(--line);stroke-width:1}
+svg .f-good{fill:var(--good)}svg .f-bad{fill:var(--bad)}svg .f-warn{fill:var(--warn)}svg .f-acc{fill:var(--acc)}svg .f-mid{fill:var(--muted)}svg .f-vio{fill:var(--violet)}
+@media (max-width:640px){nav.toc ol{columns:1}}
+.notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
+.notes ol{padding-left:1.4rem}
+sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="eyebrow"><a href="2026-10-25-hey-index.html">Hey documentation</a> › Guide 6 of 6 · macOS: 0.99.606a candidate · Linux: 0.99.605a toolchain image</p>
+<figure class="fig" aria-label="You are here: guide 6 of 6"><svg viewBox="0 0 900 70" role="img" aria-labelledby="yah-t"><title id="yah-t">You are here: guide 6 of 6</title>
+<a href="2026-10-25-hey-guide-first-steps.html"><rect x="10" y="10" width="145" height="46" rx="8" class="box"/><text x="82" y="30" text-anchor="middle" class="b">Guide 1</text><text x="82" y="48" text-anchor="middle" class="xs">First steps</text></a>
+<a href="2026-10-25-hey-guide-packages.html"><rect x="160" y="10" width="145" height="46" rx="8" class="box"/><text x="232" y="30" text-anchor="middle" class="b">Guide 2</text><text x="232" y="48" text-anchor="middle" class="xs">Packages</text></a>
+<a href="2026-10-25-hey-guide-cli-tool.html"><rect x="310" y="10" width="145" height="46" rx="8" class="box"/><text x="382" y="30" text-anchor="middle" class="b">Guide 3</text><text x="382" y="48" text-anchor="middle" class="xs">CLI tool</text></a>
+<a href="2026-10-25-hey-guide-web-server.html"><rect x="460" y="10" width="145" height="46" rx="8" class="box"/><text x="532" y="30" text-anchor="middle" class="b">Guide 4</text><text x="532" y="48" text-anchor="middle" class="xs">Web server</text></a>
+<a href="2026-10-25-hey-guide-apps.html"><rect x="610" y="10" width="145" height="46" rx="8" class="box"/><text x="682" y="30" text-anchor="middle" class="b">Guide 5</text><text x="682" y="48" text-anchor="middle" class="xs">Apps</text></a>
+<a href="2026-10-25-hey-guide-build-and-deploy.html"><rect x="760" y="10" width="145" height="46" rx="8" class="good"/><text x="832" y="30" text-anchor="middle" class="b">Guide 6 (here)</text><text x="832" y="48" text-anchor="middle" class="xs">Build and deploy</text></a>
+</svg></figure>
+
+<h1>Build and deploy Hey programs</h1>
+<p class="lede"><code>hey build app.hey -o build/app</code> gives you one native file. On a Mac it's 134 KB for hello world and needs nothing but the operating system's C library to start. This guide opens that file up, measures it, and follows it into a container and onto a server.</p>
+
+<div class="note">
+<p><strong>Badges:</strong> <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span> <span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span> <span class="badge b-removing">Being removed</span> (meanings in <a href="2026-10-25-hey-index.html#legend">the index</a>).</p>
+<p><strong>Two toolchains, said plainly.</strong> macOS numbers come from the 0.99.606a candidate on an Apple M3 Pro. Linux numbers come from the released 0.99.605a toolchain image (<code>hey-toolchain:0.99.605a-amd64</code>, Alpine, run under emulation on the same Mac), because 606a for Linux is built on its own machine and wasn't available to this page. The two versions link differently (section 2), so don't compare a Mac row with a Linux row as if only the operating system changed. Nobody had recorded these facts before; every number here was measured.</p>
+</div>
+
+<nav class="toc" aria-label="Contents"><ol>
+<li><a href="#what">What comes out of <code>hey build</code></a></li>
+<li><a href="#measured">Measured: size, linkage, startup</a></li>
+<li><a href="#cache">The run cache</a></li>
+<li><a href="#targets">Targets and platforms</a></li>
+<li><a href="#containers">Containers</a></li>
+<li><a href="#kamal">Deploy with Kamal</a></li>
+<li><a href="#deps">Install layout and hidden host dependencies</a></li>
+</ol></nav>
+
+<h2 id="what">1. What comes out of <code>hey build</code></h2>
+<p><span class="badge b-works">Works today</span></p>
+<pre><code><span class="cmd">$ hey build hello.hey -o build/hello</span>
+<span class="out">built /Users/you/g6/build/hello</span>
+<span class="cmd">$ ls -l build/hello</span>
+<span class="out">-rwxr-xr-x  1 you  wheel  134328 build/hello</span>
+<span class="cmd">$ otool -L build/hello</span>
+<span class="out">build/hello:
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)</span></code></pre>
+<p class="rows">The <code>hey build</code> line also printed 30 <code>selfhost_</code> diagnostic lines on 606a (trimmed; see <a href="2026-10-25-hey-guide-first-steps.html#build">Guide 1</a>).</p>
+<p><strong>Name and place:</strong> exactly what you pass to <code>-o</code>. Leave the folder out and it lands next to where you ran the command. <code>heyc build app.hey -o build/app</code> does the same thing.</p>
+<figure class="fig" aria-labelledby="dg6-1-cap">
+<svg viewBox="0 0 900 330" role="img" aria-labelledby="dg6-1-title dg6-1-desc">
+<title id="dg6-1-title">Anatomy of a Hey executable</title>
+<desc id="dg6-1-desc">The executable file holds three layers, all linked in statically: your compiled code; only the standard library pieces your program calls, taken from libhey_stdlib.a; and only the runtime pieces it needs, such as the actor scheduler and memory management. Outside the file, loaded by the operating system at start: the C library (libSystem on macOS, musl or glibc on Linux). On Linux 605a, OpenSSL is linked when a program can reach TLS; on macOS 606a, OpenSSL is opened only when a program first uses TLS, from the Homebrew path written into the binary.</desc>
+<defs><marker id="g6a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker></defs>
+<rect x="20" y="20" width="430" height="290" rx="12" class="good"/>
+<text x="235" y="46" text-anchor="middle" class="b mono">build/app (one file)</text>
+<rect x="45" y="62" width="380" height="64" rx="8" class="acc"/><text x="235" y="88" text-anchor="middle" class="b">your code</text><text x="235" y="108" text-anchor="middle" class="xs">compiled to machine code by LLVM</text>
+<rect x="45" y="138" width="380" height="64" rx="8" class="acc"/><text x="235" y="164" text-anchor="middle" class="b">standard library pieces you call</text><text x="235" y="184" text-anchor="middle" class="xs">pulled from libhey_stdlib.a; the rest is left out</text>
+<rect x="45" y="214" width="380" height="64" rx="8" class="acc"/><text x="235" y="240" text-anchor="middle" class="b">Hey runtime pieces you need</text><text x="235" y="260" text-anchor="middle" class="xs">actors, scheduler, reference counts, strings, I/O</text>
+<text x="235" y="300" text-anchor="middle" class="sm">all static: copied in at build time</text>
+<rect x="540" y="60" width="340" height="80" rx="8" class="box"/><text x="710" y="86" text-anchor="middle" class="b">C library (always)</text><text x="710" y="106" text-anchor="middle" class="xs mono">macOS: /usr/lib/libSystem.B.dylib</text><text x="710" y="124" text-anchor="middle" class="xs mono">Alpine: musl libc</text>
+<rect x="540" y="170" width="340" height="110" rx="8" class="warnb"/><text x="710" y="196" text-anchor="middle" class="b">OpenSSL (only for TLS)</text><text x="710" y="218" text-anchor="middle" class="xs">Linux 605a: linked when the program can reach TLS</text><text x="710" y="236" text-anchor="middle" class="xs">(libssl.so.3, libcrypto.so.3)</text><text x="710" y="256" text-anchor="middle" class="xs">macOS 606a: opened on first TLS use, from</text><text x="710" y="272" text-anchor="middle" class="xs mono">/opt/homebrew/opt/openssl@3/lib</text>
+<path d="M450,100H538" class="ln-dash" marker-end="url(#g6a)"/><path d="M450,225H538" class="ln-dash" marker-end="url(#g6a)"/>
+<text x="495" y="92" text-anchor="middle" class="xs">dynamic</text><text x="495" y="217" text-anchor="middle" class="xs">dynamic</text>
+</svg>
+<figcaption id="dg6-1-cap">Figure 1. What's inside a Hey executable, and what it still needs from the machine it runs on. The dashed arrows are the only things the file doesn't carry.</figcaption>
+</figure>
+
+<p>Three layers are copied into the file when it's built. Only what your program can reach is kept: the linker drops unused code and unused libraries (<code>-dead_strip</code> and <code>-dead_strip_dylibs</code> on macOS). The proof is in the symbol table (the list of named functions inside the file, which <code>nm</code> prints): hello world's file defines 20 functions; a small web server's defines 87 Hey runtime functions, including the actor scheduler.</p>
+<div class="puzzle"><p><strong>Predict:</strong> on Linux 605a, hello world is 18 KB, but the three-line actor program from Guide 1 is 1.6 MB. What did the actor program pull in that hello didn't? (Answer in the table: look at the linkage column.)</p></div>
+
+<h2 id="measured">2. Measured: size, linkage, startup</h2>
+<p>Four programs: <code>hello.hey</code>; <code>tour_03_actors.hey</code> (Guide 1's counter actor); <code>tour_08_web.hey</code> (routes dispatched in memory, no sockets); and <code>health.hey</code>, a real HTTP server with one <code>/health</code> route (section 5 shows its source). "Stripped" is after <code>strip</code>, which removes debugging symbols.</p>
+<div class="scroll"><table>
+<tr><th>Program</th><th>macOS 606a size</th><th>stripped</th><th>macOS links</th><th>Linux 605a size</th><th>stripped</th><th>Linux links</th></tr>
+<tr><td><code>hello</code></td><td class="n">134,328</td><td class="n">120,520</td><td>libSystem</td><td class="n">18,152</td><td class="n">13,896</td><td>musl libc</td></tr>
+<tr><td><code>tour_03_actors</code></td><td class="n">153,952</td><td class="n">137,584</td><td>libSystem</td><td class="n">1,594,488</td><td class="n">1,387,480</td><td>musl, libssl.so.3, libcrypto.so.3</td></tr>
+<tr><td><code>tour_08_web</code></td><td class="n">192,152</td><td class="n">171,568</td><td>libSystem</td><td class="n">1,596,128</td><td class="n">1,388,584</td><td>musl, libssl, libcrypto</td></tr>
+<tr><td><code>health</code> (HTTP server)</td><td class="n">273,176</td><td class="n">239,752</td><td>libSystem</td><td class="n">1,597,584</td><td class="n">1,389,824</td><td>musl, libssl, libcrypto</td></tr>
+</table></div>
+<p class="rows">Bytes, from <code>stat</code>/<code>ls -l</code>. Unstripped Linux sizes move by a few bytes with the folder you build in, because the debug information records the path (an editor's rebuild of <code>tour_03_actors</code> came out 16 bytes smaller); the stripped sizes don't. The plan asked for the Guide 3 tool here; <a href="2026-10-25-hey-guide-cli-tool.html">Guide 3</a> measures its own tool (270 KB, 2.1 ms start), so this table uses two web programs instead. Startup per program was measured on macOS only (next section); timing Linux under emulation would mean nothing. Linkage from <code>otool -L</code> (macOS) and <code>ldd</code> (Linux). Linux file type: <code>ELF 64-bit LSB pie executable, x86-64, dynamically linked, interpreter /lib/ld-musl-x86_64.so.1, with debug_info, not stripped</code>.</p>
+<p><strong>Answer to the puzzle:</strong> OpenSSL. On 605a for Linux, any program that pulls in the runtime's I/O layer links <code>libssl</code> and <code>libcrypto</code> and carries the TLS code, even if it never opens a secure connection. On 606a for macOS, OpenSSL isn't linked at all: the runtime opens it the first time a program actually uses TLS (section 7 covers what that means for deploys). So the Mac files stay small. Whether 606a for Linux shrinks the same way wasn't measured here, but its source suggests it does: Linux links with <code>-Wl,--as-needed</code> (drop unused libraries; <code>runtime/heyc.c:26680-26684</code>) and the runtime loads OpenSSL with <code>dlopen</code> on Linux too (<code>runtime/hey_runtime.c:235-252</code>).</p>
+<p><strong>Static or dynamic?</strong> Both, by layer. Your code, the standard library pieces and the Hey runtime are <em>static</em>: inside the file, nothing to install. The C library is <em>dynamic</em> on both systems, as it is for almost every program on them. OpenSSL is dynamic on Linux 605a and loaded on demand on macOS 606a.</p>
+<h3>Startup</h3>
+<p><span class="badge b-works">Works today</span></p>
+<p>Hey ships a benchmark that times the three ways to start a program, from one empty cache. During the warm runs it replaces the compiler with a file that fails if started, so a passing run proves warm starts never touch the compiler.</p>
+<pre><code><span class="cmd">$ ./bin/perf script-startup --iterations 25 --out /tmp/startup</span>
+<span class="out">script startup benchmark ok iterations=25 compiler_started_on_warm=false backend=llvm cold_ms=11772 warm_mean_ms=7 direct_mean_ms=1 receipt=/tmp/startup/summary.tsv</span></code></pre>
+<div class="scroll"><table>
+<tr><th>How you start it</th><th>Time (macOS, 606a)</th></tr>
+<tr><td>First <code>hey app.hey</code> (cold: compile, then run)</td><td class="n">11,772 ms</td></tr>
+<tr><td>Later <code>hey app.hey</code> (warm: cache check, then run)</td><td class="n">7 ms average</td></tr>
+<tr><td><code>./build/app</code> directly</td><td class="n">1 ms average</td></tr>
+</table></div>
+<p>So the cache check costs about 6 ms per start. For a server that's nothing; for a tool run in a tight shell loop, build it. The benchmark's own program printed <code>script-startup-ok</code>; the cold time includes compiling it from an empty cache.</p>
+<div class="note warn"><p><code>./bin/perf script-startup --source FILE.hey</code>, which Hey's docs suggest with <code>examples/hello.hey</code>, fails with <code>cold script output mismatch</code>: the benchmark insists the program print exactly <code>script-startup-ok</code>. It also has to be run from inside the Hey checkout (from elsewhere it stops with <code>heyc: file not found: stdlib/Cli.hey</code>).</p></div>
+
+<h2 id="cache">3. The run cache</h2>
+<p><span class="badge b-works">Works today</span></p>
+<p><code>hey app.hey</code> keeps its compiled program in your user cache, keyed by the content of your file, every file it imports, and the compiler itself. <code>hey cache path</code> shows where:</p>
+<pre><code><span class="cmd">$ hey cache path</span>
+<span class="out">cache_home=/Users/you/Library/Caches/Hey
+parser_cache=/Users/you/Library/Caches/Hey/parser
+run_cache=/Users/you/Library/Caches/Hey/run
+source_index_cache=/Users/you/Library/Caches/Hey/source-index
+runtime_object_cache=/Users/you/Library/Caches/Hey/runtime-objects
+compiler_build_dir=/path/to/hey/build
+compiler_ir_cache=/path/to/hey/build/compiler-sidecars</span></code></pre>
+<p class="rows">Run with <code>HEY_CACHE_HOME</code> pointed at a scratch folder; shown here with the default location (macOS <code>~/Library/Caches/Hey</code>, Linux <code>$XDG_CACHE_HOME/hey</code> or <code>~/.cache/hey</code>) substituted. <code>HEY_CACHE_HOME</code> moves all of it.</p>
+<p>Each cached program is a folder with three files: <code>program</code> (the executable), <code>backend.txt</code> and <code>compiler-authority.json</code> (what compiler made it). Entries are never overwritten; a change makes a new one. To diagnose a slow start, <code>HEY_RUN_TRACE=1</code> prints the decision (<code>index=hit</code>, <code>cache=hit backend=llvm</code>, or the reason for a miss such as <code>index_reason=dependencies</code>). <a href="2026-10-25-hey-guide-first-steps.html#cache">Guide 1</a> walks through a miss and a hit.</p>
+<pre><code><span class="cmd">$ hey cache gc --dry-run</span>
+<span class="out">cache_gc_removed=0 all=false days=30 dry_run=true skipped_in_use=0 reclaimed_orphan=0</span></code></pre>
+<p><code>hey cache gc</code> removes entries unused for 30 days (<code>--days N</code> to change, <code>--all</code> for everything) and never touches one that's in use.</p>
+
+<h2 id="targets">4. Targets and platforms</h2>
+<figure class="fig" aria-labelledby="dg6-2-cap">
+<svg viewBox="0 0 900 270" role="img" aria-labelledby="dg6-2-title dg6-2-desc">
+<title id="dg6-2-title">Platform matrix</title>
+<desc id="dg6-2-desc">Rows are platforms, columns are what you can do there. macOS arm64: compiler works, built apps run, release archive command exists but nothing is published. Linux x64: compiler works, apps run, release archive command exists and has passed a native receipt in the past, nothing published; Docker toolchain image works. Windows x64: no compiler; runtime pieces and a test bundle only. Phones and TVs are covered in Guide 5.</desc>
+<rect x="20" y="20" width="200" height="40" class="box"/><text x="120" y="45" text-anchor="middle" class="b">platform</text>
+<rect x="220" y="20" width="160" height="40" class="box"/><text x="300" y="45" text-anchor="middle" class="b">Hey compiler</text>
+<rect x="380" y="20" width="160" height="40" class="box"/><text x="460" y="45" text-anchor="middle" class="b">apps built for it</text>
+<rect x="540" y="20" width="180" height="40" class="box"/><text x="630" y="45" text-anchor="middle" class="b">one-download archive</text>
+<rect x="720" y="20" width="160" height="40" class="box"/><text x="800" y="45" text-anchor="middle" class="b">container image</text>
+<rect x="20" y="60" width="200" height="56" class="box"/><text x="120" y="84" text-anchor="middle" class="b">macOS arm64</text><text x="120" y="102" text-anchor="middle" class="xs mono">darwin-arm64</text>
+<rect x="220" y="60" width="160" height="56" class="good"/><text x="300" y="92" text-anchor="middle" class="sm">works today</text>
+<rect x="380" y="60" width="160" height="56" class="good"/><text x="460" y="92" text-anchor="middle" class="sm">works today</text>
+<rect x="540" y="60" width="180" height="56" class="warnb"/><text x="630" y="84" text-anchor="middle" class="sm">command built,</text><text x="630" y="102" text-anchor="middle" class="sm">nothing published</text>
+<rect x="720" y="60" width="160" height="56" class="box"/><text x="800" y="92" text-anchor="middle" class="sm">n/a</text>
+<rect x="20" y="116" width="200" height="56" class="box"/><text x="120" y="140" text-anchor="middle" class="b">Linux x64</text><text x="120" y="158" text-anchor="middle" class="xs mono">linux-x64 (Ubuntu, Alpine)</text>
+<rect x="220" y="116" width="160" height="56" class="good"/><text x="300" y="148" text-anchor="middle" class="sm">works today</text>
+<rect x="380" y="116" width="160" height="56" class="good"/><text x="460" y="148" text-anchor="middle" class="sm">works today</text>
+<rect x="540" y="116" width="180" height="56" class="warnb"/><text x="630" y="140" text-anchor="middle" class="sm">receipt passed once,</text><text x="630" y="158" text-anchor="middle" class="sm">nothing published</text>
+<rect x="720" y="116" width="160" height="56" class="good"/><text x="800" y="148" text-anchor="middle" class="sm">works today</text>
+<rect x="20" y="172" width="200" height="56" class="box"/><text x="120" y="196" text-anchor="middle" class="b">Windows x64</text><text x="120" y="214" text-anchor="middle" class="xs mono">windows-x64</text>
+<rect x="220" y="172" width="160" height="56" class="bad"/><text x="300" y="204" text-anchor="middle" class="sm">not available</text>
+<rect x="380" y="172" width="160" height="56" class="warnb"/><text x="460" y="196" text-anchor="middle" class="sm">runtime pieces,</text><text x="460" y="214" text-anchor="middle" class="sm">test bundle only</text>
+<rect x="540" y="172" width="180" height="56" class="bad"/><text x="630" y="204" text-anchor="middle" class="sm">not available</text>
+<rect x="720" y="172" width="160" height="56" class="box"/><text x="800" y="204" text-anchor="middle" class="sm">n/a</text>
+<text x="20" y="254" class="sm">iPhone, iPad, Apple TV and Android are build targets driven from a Mac; see Guide 5.</text>
+</svg>
+<figcaption id="dg6-2-cap">Figure 2. Where Hey runs today. Green works; amber works with a stated hole; red isn't there.</figcaption>
+</figure>
+
+<p><span class="badge b-works">Works today</span> macOS arm64, Linux x64. <span class="badge b-partly">Partly works</span> Windows x64.</p>
+<p>A Hey build makes a program for the machine you're on. To make Hey itself installable without a C compiler, the release command packs the whole toolchain into one archive per system (target archive v3): compiler, linker, standard library, a precompiled runtime and native libraries, with a <code>SHA256SUMS</code> file and an <code>install.sh</code>. <span class="badge b-partly">Partly works</span>: the commands work, a Linux archive passed a full native receipt (installed into an unrelated folder and used to compile and run a program with <code>PATH=/nonexistent</code>) in release 0.99.282a, and every archive still says <code>publication_ready=false</code> because signing, a license inventory and an SBOM (software bill of materials: a list of every third-party component and version) aren't done. No archive is published for download.</p>
+<pre><code><span class="cmd">$ hey target matrix</span>
+<span class="out">target matrix version=0.99.606a host=darwin-arm64 verify=false
+target=linux-x64 product_release=true native_receipt=native-host-required publication_ready=false
+  ...
+  next_action=./bin/hey target release prepare --target linux-x64
+target=darwin-arm64 product_release=true native_receipt=native-host-required publication_ready=false
+  ...
+  next_action=./bin/hey target release prepare --target darwin-arm64
+target=windows-x64 product_release=false native_receipt=runtime-policy-receipt-required publication_ready=false
+  ...
+  next_action=./bin/hey windows runtime-test-bundle --out FILE.zip
+target_matrix_ok=true</span>
+<span class="cmd">$ hey target doctor --target darwin-arm64</span>
+<span class="out">target doctor target=darwin-arm64 host=darwin-arm64
+clang=ready path=/opt/homebrew/opt/llvm/bin/clang
+ld64_lld=ready path=/opt/homebrew/opt/lld/bin/ld64.lld
+macos_sdk=ready path=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
+openssl=ready path=/opt/homebrew/opt/openssl@3
+release_ready=true</span></code></pre>
+<p class="rows">Matrix trimmed: each target also lists its gates, all <code>status=not-run</code> in this run (<code>--verify</code> runs them).</p>
+<p>The release itself is <code>hey target release --target linux-x64 --out hey-VERSION-linux-x64.tar.gz</code> on a matching machine (it refuses a mismatch); <code>hey target pack</code> and <code>hey target verify</code> are the separate steps. A full release compiles the toolchain, so it wasn't run for this page. A user installs an archive with <code>./install.sh --user</code> (into <code>~/.local/hey/VERSION</code>) or <code>sudo ./install.sh --system</code> (into <code>/opt/hey/VERSION</code>).</p>
+<p><strong>Windows:</strong> there's no Windows compiler. <code>hey windows runtime-test-bundle --out FILE.zip</code> builds a ZIP that exercises the native Windows runtime pieces (I/O completion ports, HTTP, processes) on a Windows machine, and temporarily needs Microsoft's Build Tools to do it. It's evidence for future work, not a product (task <code>windows-ordinary-toolchain-target</code>, deliberately last). Phones and TVs are in <a href="2026-10-25-hey-guide-apps.html">Guide 5</a>.</p>
+
+<h2 id="containers">5. Containers</h2>
+<p><span class="badge b-works">Works today</span></p>
+<p>The <strong>toolchain image</strong> is Hey's compiler in an Alpine Linux image, tagged with the exact version and CPU (<code>hey-toolchain:0.99.605a-amd64</code>). It's built by <code>bin/toolchain-image</code> in the elders_prayer_app repository; because it's cached by its version tag, every Hey release bumps the version so an app never compiles against a stale compiler. It's big (3.33 GB for 605a on this Mac) and it never ships: you compile in it, then copy the result out.</p>
+<p>Here's the whole thing for a server. <code>health.hey</code>:</p>
+<pre><code>import 'stdlib:Web'
+
+fn health(request)
+  return Web.json({ok: true})
+end
+
+program
+  let routes = Web.routes([Web.get('/health', health)])
+  Web.serve(routes, {host: '0.0.0.0', port: 8080})
+end</code></pre>
+<p>A two-stage <code>Dockerfile</code>: compile in the toolchain image, ship only the binary.</p>
+<pre><code># Stage 1: compile with the Hey toolchain image
+FROM hey-toolchain:0.99.605a-amd64 AS build
+WORKDIR /app
+COPY health.hey .
+RUN heyc build health.hey -o /out/health
+
+# Stage 2: ship only the binary and the libraries it links
+FROM alpine:3.21
+RUN apk add --no-cache libssl3 libcrypto3
+COPY --from=build /out/health /app/health
+EXPOSE 8080
+ENTRYPOINT ["/app/health"]</code></pre>
+<pre><code><span class="cmd">$ docker build --platform linux/amd64 -t hey-docs-health:605a .</span>     <span class="out"># 22 s</span>
+<span class="cmd">$ docker image inspect hey-docs-health:605a --format '{{.Size}}'</span>
+<span class="out">9417519</span>
+<span class="cmd">$ docker run -d --rm --platform linux/amd64 -p 18080:8080 hey-docs-health:605a</span>
+<span class="cmd">$ curl -s -i localhost:18080/health</span>
+<span class="out">HTTP/1.1 200 OK
+content-type: application/json
+content-length: 11
+connection: keep-alive
+
+{"ok":true}</span></code></pre>
+<p><strong>9.4 MB in all</strong>, of which Alpine itself is 7.8 MB and the server binary 1.6 MB. (Alpine 3.21 already includes <code>libssl3</code> and <code>libcrypto3</code>; the <code>apk add</code> line just makes the dependency explicit.)</p>
+<div class="note"><p>The repository's <code>docker/README.md</code> still describes images for version 0.49.0 and a <code>heyc build --native</code> flag that no longer exists. Use the pattern above, or <code>hey_container</code>, a package that generates release Dockerfiles for hey_web apps.</p></div>
+
+<h2 id="kamal">6. Deploy with Kamal</h2>
+<p><span class="badge b-works">Works today</span> in a real app</p>
+<p><a href="https://kamal-deploy.org">Kamal</a> deploys a container image to your own servers over SSH and swaps traffic only when the new container answers its health check. The elders_prayer_app, a Hey web app with a SQLite database, deploys this way to a Hetzner server.</p>
+<figure class="fig" aria-labelledby="dg6-3-cap">
+<svg viewBox="0 0 900 250" role="img" aria-labelledby="dg6-3-title dg6-3-desc">
+<title id="dg6-3-title">Deploy pipeline</title>
+<desc id="dg6-3-desc">Five steps left to right. One: compile inside the Hey toolchain image. Two: copy only the binary and its libraries into a small runtime image. Three: push the image to a registry. Four: Kamal pulls it on the server and starts the new container next to the old one. Five: kamal-proxy polls the health path; only when it answers does traffic move and the old container stop.</desc>
+<defs><marker id="g6c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker></defs>
+<rect x="10" y="40" width="160" height="110" rx="8" class="warnb"/><text x="90" y="64" text-anchor="middle" class="b">1. build stage</text><text x="90" y="86" text-anchor="middle" class="xs mono">FROM hey-toolchain</text><text x="90" y="104" text-anchor="middle" class="xs mono">package ensure --locked</text><text x="90" y="122" text-anchor="middle" class="xs mono">heyc build app.hey</text><text x="90" y="140" text-anchor="middle" class="xs">compiler stays here</text>
+<rect x="190" y="40" width="160" height="110" rx="8" class="good"/><text x="270" y="64" text-anchor="middle" class="b">2. runtime stage</text><text x="270" y="86" text-anchor="middle" class="xs mono">FROM alpine</text><text x="270" y="104" text-anchor="middle" class="xs">binary + its libraries</text><text x="270" y="122" text-anchor="middle" class="xs">+ templates, assets</text><text x="270" y="140" text-anchor="middle" class="xs">no source, no compiler</text>
+<rect x="370" y="40" width="160" height="110" rx="8" class="box"/><text x="450" y="64" text-anchor="middle" class="b">3. registry</text><text x="450" y="86" text-anchor="middle" class="xs mono">ghcr.io/you/app</text><text x="450" y="104" text-anchor="middle" class="xs">tag = version + commit</text><text x="450" y="122" text-anchor="middle" class="xs">or an exact digest</text>
+<rect x="550" y="40" width="160" height="110" rx="8" class="acc"/><text x="630" y="64" text-anchor="middle" class="b">4. kamal deploy</text><text x="630" y="86" text-anchor="middle" class="xs">pull on the server</text><text x="630" y="104" text-anchor="middle" class="xs">start new container</text><text x="630" y="122" text-anchor="middle" class="xs">volume keeps the data</text>
+<rect x="730" y="40" width="160" height="110" rx="8" class="good"/><text x="810" y="64" text-anchor="middle" class="b">5. health check</text><text x="810" y="86" text-anchor="middle" class="xs mono">GET /health</text><text x="810" y="104" text-anchor="middle" class="xs">kamal-proxy switches</text><text x="810" y="122" text-anchor="middle" class="xs">traffic, then drains</text><text x="810" y="140" text-anchor="middle" class="xs">the old container</text>
+<path d="M170,95H188" class="ln" marker-end="url(#g6c)"/><path d="M350,95H368" class="ln" marker-end="url(#g6c)"/><path d="M530,95H548" class="ln" marker-end="url(#g6c)"/><path d="M710,95H728" class="ln" marker-end="url(#g6c)"/>
+<path d="M810,150 C810,200 630,200 630,152" class="ln-dash" marker-end="url(#g6c)"/><text x="720" y="215" text-anchor="middle" class="sm">no answer: the old container keeps serving</text>
+<text x="10" y="240" class="sm">Steps 1 and 2 are one Dockerfile. Steps 3 to 5 are Kamal. The server never sees Hey source or a compiler.</text>
+</svg>
+<figcaption id="dg6-3-cap">Figure 3. The deploy pipeline used by the elders_prayer_app, a real Hey web app.</figcaption>
+</figure>
+
+<p>The parts that matter, quoted from its <code>config/deploy.yml</code> (not run for this page; this guide didn't deploy anything):</p>
+<pre><code>service: elders-prayer-app
+image: jayteesf/elders-prayer-app
+registry:
+  server: ghcr.io
+proxy:
+  ssl: true
+  app_port: 3072
+  healthcheck:
+    path: /health
+    interval: 3
+    timeout: 3
+builder:
+  arch: amd64
+  dockerfile: Dockerfile
+  driver: docker
+volumes:
+  - "elders_prayer_data:/var/lib/elders_prayer"
+boot:
+  limit: 1
+  wait: 5
+drain_timeout: 30</code></pre>
+<p>Lessons the app's comments record:</p>
+<ul>
+<li><strong>Match the server's CPU</strong> (<code>arch: amd64</code>) or the deploy ships a binary the server can't run.</li>
+<li><strong>Use <code>driver: docker</code></strong> so Kamal can see the locally built toolchain image.</li>
+<li><strong>Put the database on a volume</strong>; the image is replaced on every deploy.</li>
+<li><strong>Restore packages with <code>hey package ensure --project . --locked</code></strong> in the build stage, never <code>--update-lock</code>, so a new package version can't sneak into a release (<a href="2026-10-25-hey-guide-packages.html#restore">Guide 2</a>).</li>
+<li><strong>A health check proves a status code, not a page.</strong> Its <code>bin/deploy</code> fetches real pages after Kamal finishes, and fails on an empty body.</li>
+<li>The runtime stage preloads <code>mimalloc</code> because musl's allocator takes one lock per allocation; the app's note records stock <code>Web.serve</code> going from 15K to 99K requests per second on one CPU (measured on hey_fast_web).</li>
+</ul>
+<div class="note warn">
+<p><strong>The app builds with <code>heyc stage0-build</code>, not <code>hey build</code>.</strong> <code>stage0-build</code> is Hey's older bootstrap compiler, which goes through C instead of the normal compiler road; <code>heyc --help</code> lists it as "private bootstrap/recovery only". The Dockerfile's comment (written at 601a) says the normal build, for this app's code, fell back to a binary that called <code>heyc</code> at run time. That didn't reproduce for this page's four sample programs, which all ran with an empty environment (<code>env -i</code>) from a different folder, but the app itself wasn't rebuilt with <code>hey build</code>, so its reason isn't disproved. A reason that's certainly still current is the <code>pkg:</code> import gap in <a href="2026-10-25-hey-guide-packages.html#import">Guide 2</a>. Until that's fixed, an app that imports packages with modules in a subfolder can't use <code>hey build</code>.</p>
+</div>
+<p><code>hey_kamal_cli</code> is a shared deploy command for Hey apps built around one rule: build and test the image first, publish it, and deploy only that exact image digest (<code>kamal deploy --skip-push</code>), so the server never receives source or a compiler.</p>
+
+<h2 id="deps">7. Install layout and hidden host dependencies</h2>
+<p><span class="badge b-decided">Decided, coming</span></p>
+<p>The rule: an installed Hey, and the programs it builds, depend on nothing on the machine that isn't declared. Toolchains live in one versioned folder (<code>/opt/hey/VERSION</code> or <code>~/.local/hey/VERSION</code>), caches in the user cache folder, and built apps find their native libraries relative to themselves (<code>@loader_path/../lib/hey/native</code> on macOS, <code>$ORIGIN/../lib/hey/native</code> on Linux).</p>
+<p>What the measurements show:</p>
+<pre><code><span class="cmd">$ cp build/hello build/tour_03_actors build/fetch elsewhere/ &amp;&amp; cd elsewhere</span>
+<span class="cmd">$ env -i ./hello</span>
+<span class="out">Hello, world</span>
+<span class="cmd">$ env -i ./tour_03_actors</span>
+<span class="out">visits=1
+visits=2</span>
+<span class="cmd">$ env -i ./fetch</span>          <span class="out"># Http.get_text of an https:// URL</span>
+<span class="out">true</span></code></pre>
+<p>Copied away from the build and run with an empty environment, the programs work. But the HTTPS one has a dependency you can't see with <code>otool -L</code>:</p>
+<pre><code><span class="cmd">$ otool -l build/fetch | grep -A2 LC_RPATH | grep path</span>
+<span class="out">         path /opt/homebrew/opt/openssl@3/lib (offset 12)</span>
+<span class="cmd">$ DYLD_PRINT_LIBRARIES=1 ./build/fetch 2&gt;&amp;1 | grep openssl</span>
+<span class="out">dyld[88925]: &lt;B5FB28DB-...&gt; /opt/homebrew/Cellar/openssl@3/3.6.4/lib/libcrypto.3.dylib
+dyld[88925]: &lt;1B8AB7A7-...&gt; /opt/homebrew/Cellar/openssl@3/3.6.4/lib/libssl.3.dylib</span></code></pre>
+<p><span class="badge b-partly">Partly works</span> On macOS 606a the runtime opens OpenSSL with <code>dlopen</code><sup><a href="#n1">1</a></sup> (which loads a library while the program is already running) the first time a program uses TLS, searching a library path written into the binary that points at Homebrew's <code>openssl@3</code>. On a Mac without it, a TLS call fails with a named error (<code>could not load OpenSSL ...</code>; that failure wasn't triggered for this page). Programs that never use TLS don't care. On Linux 605a, OpenSSL is an ordinary declared dependency that <code>ldd</code> shows, and the container above provides it. Until the no-hidden-host-dependencies work is finished, ship TLS-using macOS binaries only where <code>openssl@3</code> is installed, or inside a target archive that carries it.</p>
+
+<section class="notes" id="notes" aria-labelledby="notes-h">
+<h2 id="notes-h">Notes</h2>
+<ol>
+<li id="n1">The runtime loads OpenSSL on first TLS or crypto use, not at program start: e18214.</li>
+</ol>
+</section>
+<footer>
+<h3>Status of everything on this page</h3>
+<div class="scroll"><table>
+<tr><th>Feature</th><th>Status</th></tr>
+<tr><td><code>hey build</code> / <code>heyc build</code>: one native executable at the <code>-o</code> path</td><td><span class="badge b-works">Works today</span> (stray <code>selfhost_</code> output)</td></tr>
+<tr><td>Size and linkage facts, measured and published here for the first time</td><td><span class="badge b-works">Works today</span> (Linux 606a not measured)</td></tr>
+<tr><td><code>HEY_RUN_TRACE=1</code> cache diagnosis; <code>hey cache path</code>, <code>hey cache gc</code></td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Startup: cold 11.8 s, warm 7 ms, direct 1 ms (macOS 606a)</td><td><span class="badge b-works">Works today</span>; <code>--source</code> needs a program printing <code>script-startup-ok</code></td></tr>
+<tr><td>macOS arm64 compiler and apps</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Linux x64 (Ubuntu, Alpine); Docker toolchain image cached by version tag</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Windows x64: runtime pieces only, no compiler</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td><code>hey windows runtime-test-bundle</code> (evidence, not a product)</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td><code>hey target doctor | matrix | pack | verify | release</code></td><td><span class="badge b-works">Works today</span> for darwin-arm64 and linux-x64</td></tr>
+<tr><td>Target archive v3: one download, no recipient C compiler, relocatable</td><td><span class="badge b-partly">Partly works</span> built and once natively proven on Linux; not signed or published (the inventory says BUILT; lowered here on purpose because nothing can be downloaded)</td></tr>
+<tr><td>No hidden host dependencies</td><td><span class="badge b-decided">Decided, coming</span>; macOS TLS still reaches Homebrew OpenSSL</td></tr>
+<tr><td>Kamal deploys (elders_prayer_app), <code>hey_kamal_cli</code>, <code>hey_container</code></td><td><span class="badge b-works">Works today</span> in apps and packages</td></tr>
+</table></div>
+<h3>Sources</h3>
+<ul>
+<li>Hey source (the 0.99.606a candidate): <code>docs/developers/distributions.md</code> (target archive v3, install locations, 0.99.282a Linux receipt, Windows status), <code>docs/developers/script-execution-and-compilation.md</code>, <code>docs/humans/24-installed-hey-and-central-caches.md</code>, <code>docs/humans/23-no-hidden-host-dependencies.md</code>, <code>bin/lib/hey-cache-lib</code> (cache locations), <code>bin/subcmds/hey-cache</code>, <code>bin/subcmds/hey-script-startup-benchmark</code>, <code>tools/benchmark_script_startup.hey:65-67</code> (the <code>script-startup-ok</code> check), <code>runtime/heyc.c:26672-26680</code> (OpenSSL link flags and <code>-dead_strip_dylibs</code>), <code>runtime/hey_runtime.c:235-252</code> (<code>hey_openssl_open</code>, loading OpenSSL with <code>dlopen</code>), <code>docker/README.md</code>.</li>
+<li><code>elders_prayer_app</code>: <code>Dockerfile</code>, <code>config/deploy.yml</code>, <code>bin/deploy</code>, <code>bin/containerize</code>, <code>bin/toolchain-image</code>; <code>hey_container/README.md</code>, <code>hey_kamal_cli/README.md</code>.</li>
+<li>Runs: macOS arm64 (Apple M3 Pro) with the 0.99.606a candidate toolchain, every <code>HEY_*</code> variable cleared, scratch cache; Linux x64 Alpine with Docker image <code>hey-toolchain:0.99.605a-amd64</code> (under emulation), output binaries measured inside the container. Images <code>alpine:3.21</code> (7,794,610 bytes) and the built <code>hey-docs-health:605a</code> (9,417,519 bytes).</li>
+</ul>
+<h3>Read next</h3>
+<ul>
+<li><a href="2026-10-25-hey-guide-web-server.html">Guide 4: A web server with hey_web</a> (what you'd put in that container)</li>
+<li><a href="2026-10-25-hey-commands-and-platforms.html">Commands and platforms reference</a></li>
+<li><a href="2026-10-25-hey-performance.html">Performance: Rust speeds, honestly</a></li>
+<li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the compiler turns source into native code</a></li>
+<li><a href="2026-10-25-hey-every-decision.html">Every decision, in one ledger</a></li>
+</ul>
+<p>This guide replaces the repo's <code>docs/developers/distributions.md</code>, <code>script-execution-and-compilation.md</code>, <code>windows-installation.md</code> and <code>docs/humans/24-installed-hey-and-central-caches.md</code> as the reader's guide; those stay as maintainer detail.</p>
+</footer>
+</div>
+</body>
+</html>

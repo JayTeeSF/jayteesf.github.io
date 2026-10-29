@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Build a real command-line tool in Hey: flags with Cli, files, a map of counts, running other programs, exit codes, tests, scripts versus one native binary, package commands and generators, with every command run and every gap measured.">
+<meta name="article-date" content="2026-10-25">
+<meta name="article-bucket" content="guides">
+<meta name="article-index-title" content="Guide 3: Build a real command-line tool in Hey">
+<meta name="article-index-desc" content="Build a real command-line tool in Hey: flags with Cli, files, a map of counts, running other programs, exit codes, tests, scripts versus one native binary, package commands and generators, with every command run and every gap measured.">
+<title>Build a command-line tool in Hey</title>
+<style>
+:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
+--link:#1d4fb8;--acc:#1d4fb8;--acc-bg:#e7eefc;--good:#17703a;--good-bg:#e3f3e8;--warn:#875700;--warn-bg:#fcf1d6;--bad:#a8261d;--bad-bg:#fbe7e4;--violet:#5a3a9c;--violet-bg:#efe9fb;
+--code-bg:#f0eee8;--code-fg:#17181c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}}
+:root[data-theme="dark"]{--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:1.4rem 16px 4rem}
+a{color:var(--link);text-underline-offset:.16em}
+h1{font-size:clamp(1.9rem,5vw,2.9rem);line-height:1.12;margin:.3rem 0 .8rem}
+h2{font-size:1.55rem;line-height:1.22;margin:3rem 0 .5rem;padding-top:.6rem;border-top:1px solid var(--line)}
+h3{font-size:1.15rem;margin:1.8rem 0 .4rem}
+p,li{max-width:76ch}
+.eyebrow{color:var(--muted);font-size:.88rem;margin:0}
+.lede{font-size:1.18rem;max-width:68ch}
+.summary{background:var(--acc-bg);border-left:5px solid var(--acc);border-radius:8px;padding:.75rem 1rem;margin:.6rem 0 1rem;max-width:none}
+.summary strong:first-child{display:block;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:.85rem 1rem;overflow-x:auto;line-height:1.45}
+pre code{overflow-wrap:normal}
+.note{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--acc);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+.note.warn{border-left-color:var(--warn)}.note.good{border-left-color:var(--good)}.note.bad{border-left-color:var(--bad)}
+.note h2{border:0;margin:.2rem 0 .5rem;padding:0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.6rem 1rem;margin:1rem 0}
+summary{font-weight:700;cursor:pointer}
+details[open]>summary{margin-bottom:.6rem}
+.fig{margin:1.2rem 0 1.4rem;padding:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:620px}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.5rem;max-width:none}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--surface2)}
+td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+caption{text-align:left;font-weight:700;padding:.4rem 0}
+.tag{display:inline-block;padding:.05rem .45rem;border-radius:4px;font-size:.78rem;font-weight:700;border:1px solid var(--line)}
+.t-good{background:var(--good-bg);color:var(--good)}.t-warn{background:var(--warn-bg);color:var(--warn)}.t-bad{background:var(--bad-bg);color:var(--bad)}.t-acc{background:var(--acc-bg);color:var(--acc)}
+nav.toc ol{columns:2;column-gap:2rem;padding-left:1.2rem;margin:.4rem 0}
+nav.toc li{break-inside:avoid;margin:.15rem 0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.exercise{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem;margin:1rem 0}
+fieldset{border:0;margin:0;padding:0}legend{font-weight:700;margin-bottom:.4rem}label{display:block;padding:.25rem 0}input{margin-right:.5rem}
+output{display:block;padding:.8rem;background:var(--surface2);border-radius:6px;margin-top:.6rem}
+a:focus-visible,summary:focus-visible,input:focus-visible{outline:3px solid var(--link);outline-offset:3px}
+footer{margin-top:3rem;border-top:1px solid var(--line);padding-top:1rem;font-size:.9rem;color:var(--mid)}
+footer li{margin:.35rem 0;max-width:none}
+dl dt{font-weight:700;margin-top:.5rem}dl dd{margin-left:1rem}
+/* SVG vocabulary: every colour comes from a token so both themes stay legible */
+svg text{fill:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px}
+svg .sm{font-size:12px;fill:var(--mid)}
+svg .xs{font-size:11px;fill:var(--muted)}
+svg .b{font-weight:700}
+svg .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+svg .box{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+svg .acc{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.8}
+svg .good{fill:var(--good-bg);stroke:var(--good);stroke-width:1.8}
+svg .warnb{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.8}
+svg .bad{fill:var(--bad-bg);stroke:var(--bad);stroke-width:1.8}
+svg .vio{fill:var(--violet-bg);stroke:var(--violet);stroke-width:1.8}
+svg .ln{stroke:var(--mid);stroke-width:1.8;fill:none}
+svg .ln-bad{stroke:var(--bad);stroke-width:2;fill:none;stroke-dasharray:6 4}
+svg .ln-good{stroke:var(--good);stroke-width:2.2;fill:none}
+svg .grid{stroke:var(--line);stroke-width:1}
+svg .f-good{fill:var(--good)}svg .f-bad{fill:var(--bad)}svg .f-warn{fill:var(--warn)}svg .f-acc{fill:var(--acc)}svg .f-mid{fill:var(--muted)}
+svg .t-bad{fill:var(--bad)}svg .t-good{fill:var(--good)}svg .t-warn{fill:var(--warn)}svg .t-acc{fill:var(--acc)}
+@media(max-width:640px){nav.toc ol{columns:1}.cols{grid-template-columns:1fr}th,td{padding:.4rem}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
+.notes ol{padding-left:1.4rem}
+sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--bad)"/></marker>
+    <marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--good)"/></marker>
+  </defs>
+</svg>
+<div class="wrap">
+<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 3 of 6 · toolchain 0.99.606a (a later candidate build)<sup><a href="#n1">1</a></sup></p>
+<h1>Build a real command-line tool in Hey</h1>
+<p class="lede">You'll write <code>wordfreq</code>, a small tool that finds the most common words in a folder of text files. Along the way you'll read flags, walk files, count with a map, run another program, report errors with the right exit code, test it, and turn it into one native binary you can copy anywhere.</p>
+
+<section class="note good" aria-labelledby="short">
+<h2 id="short">The short version</h2>
+<ul>
+<li><strong><code>hey wordfreq.hey</code> runs your tool like a script.</strong> The first run compiles it to native code and caches it; later runs start the cached binary in 8.3 ms.</li>
+<li><strong><code>hey build wordfreq.hey -o build/wordfreq</code> makes one 270 KB executable</strong> that needs only the system C library. It starts in 2.1 ms.</li>
+<li><strong><code>stdlib:Cli</code> gives you flags, typed values and a help screen</strong>; <code>Files</code>, <code>Process</code> and <code>Text</code> do the rest.</li>
+<li><strong>Honest gaps, all measured below:</strong> Hey has no statement that sets an exit status (<code>fail</code> always exits 70; tools hand their output to <code>/bin/sh</code>). Flag values need <code>--top=5</code>, not <code>--top 5</code>. And counting real text is slow today: 2.65 s against Ruby&#39;s 66 ms, because of a compiler defect that copies a map on every update.</li>
+</ul>
+</section>
+
+<p><span class="tag t-acc">You are here</span> Guide 1 installed Hey and ran hello. Guide 2 added packages. This guide builds a tool. Guide 4 builds a web server, guide 5 builds apps, guide 6 ships them.</p>
+
+<nav class="toc" aria-label="Contents"><strong>Contents</strong>
+<ol>
+<li><a href="#tool">The tool, in one picture</a></li>
+<li><a href="#flags">Read flags with Cli</a></li>
+<li><a href="#count">Walk files and count with a map</a></li>
+<li><a href="#process">Run another program</a></li>
+<li><a href="#errors">Errors and exit codes</a></li>
+<li><a href="#tests">Test it</a></li>
+<li><a href="#ship">Script or binary? Measure it</a></li>
+<li><a href="#package">Ship it as a package command</a></li>
+<li><a href="#scaffold">Start the next one with a generator</a></li>
+<li><a href="#status">What works, at a glance</a></li>
+</ol>
+</nav>
+
+<h2 id="tool">1. The tool, in one picture</h2>
+<p>Every command-line tool is the same shape: arguments come in, some files get read, something gets computed, text comes out. <code>wordfreq</code> is that shape with nothing extra.</p>
+
+<figure class="fig" aria-labelledby="d1cap">
+<svg viewBox="0 0 900 230" role="img" aria-labelledby="d1t d1d">
+<title id="d1t">How data flows through wordfreq</title>
+<desc id="d1d">Command-line arguments go to Cli, which produces typed flags. Files lists the files, or Process asks git for them. Each file's text goes into WordCount.add, which returns a new map of counts. WordCount.top sorts the pairs and the top lines are printed.</desc>
+<rect class="acc" x="10" y="80" width="140" height="70" rx="10"/>
+<text x="80" y="108" text-anchor="middle" class="b">arguments</text>
+<text x="80" y="130" text-anchor="middle" class="mono">--top=3 sample</text>
+<rect class="box" x="190" y="80" width="140" height="70" rx="10"/>
+<text x="260" y="108" text-anchor="middle" class="b">Cli</text>
+<text x="260" y="130" text-anchor="middle" class="sm">typed flags + help</text>
+<rect class="box" x="370" y="20" width="150" height="70" rx="10"/>
+<text x="445" y="48" text-anchor="middle" class="b">Files.files</text>
+<text x="445" y="70" text-anchor="middle" class="sm">walk the folder</text>
+<rect class="vio" x="370" y="140" width="150" height="70" rx="10"/>
+<text x="445" y="168" text-anchor="middle" class="b">Process</text>
+<text x="445" y="190" text-anchor="middle" class="sm">git ls-files (--git)</text>
+<rect class="good" x="560" y="80" width="150" height="70" rx="10"/>
+<text x="635" y="108" text-anchor="middle" class="b">WordCount.add</text>
+<text x="635" y="130" text-anchor="middle" class="sm">text → map of counts</text>
+<rect class="acc" x="750" y="80" width="140" height="70" rx="10"/>
+<text x="820" y="108" text-anchor="middle" class="b">top N lines</text>
+<text x="820" y="130" text-anchor="middle" class="sm">sorted, printed</text>
+<path class="ln" d="M150 115 H186" marker-end="url(#ar)"/>
+<path class="ln" d="M330 105 L366 60" marker-end="url(#ar)"/>
+<path class="ln" d="M330 125 L366 170" marker-end="url(#ar)"/>
+<path class="ln" d="M520 60 L556 105" marker-end="url(#ar)"/>
+<path class="ln" d="M520 170 L556 125" marker-end="url(#ar)"/>
+<path class="ln" d="M710 115 H746" marker-end="url(#ar)"/>
+</svg>
+<figcaption id="d1cap">Figure 1. Arguments in, files read, a map of counts built, the top lines out. The counting part (green) touches no files, so it's easy to test.</figcaption>
+</figure>
+
+<p class="note"><strong>Hey in five words.</strong> <code>let</code> makes a name, <code>set</code> gives it a new value, <code>says</code> prints a line, <code>program ... end</code> is where the run starts, and <code>[...out, x]</code> is a new list with <code>x</code> added on the end. Values never change in place; you make a new one and <code>set</code> the name to it.</p>
+<p>The project is three files:</p>
+<pre><code>wordfreq/
+  wordfreq.hey      the program: flags, files, output
+  lib/count.hey     the pure part: text in, counts out
+  count_spec.hey    tests for lib/count.hey</code></pre>
+<p>Here's what it does when you're done. Run it on a folder with two short text files:</p>
+<pre><code>$ hey wordfreq.hey --top=5 sample
+2 files, 12 different words
+     4  the
+     3  dog
+     2  a
+     2  fox
+     2  is</code></pre>
+
+<h2 id="flags">2. Read flags with <code>Cli</code> <span class="tag t-good">Works today</span></h2>
+<p>You describe your options once, as data. <code>Cli</code> turns that description into a help screen and into checked, typed values. Nothing to subclass, no annotations.</p>
+<pre><code>fn schema()
+  return Cli.schema('wordfreq [FOLDER]', 'Count the most common words in text files.', [
+    Cli.option('top', 'int', 10, 'how many words to show'),
+    Cli.option('ext', 'string', '.txt', 'which file ending to read'),
+    Cli.option('git', 'bool', false, 'only read files git tracks'),
+    Cli.option('help', 'bool', false, 'show this help')
+  ])
+end</code></pre>
+<p>Then the top of <code>program</code> reads the real arguments and checks them:</p>
+<pre><code>  let parsed = Cli.current()                    # reads argv and splits flags from the rest
+  let checked = Cli.validate(parsed, schema())  # a Result: ok, or which flag was wrong
+  ...
+  let folder = Cli.parsed_positionals(parsed).first('.')   # first item, or '.' if there is none
+  let top = Cli.typed_flag(checked, 'top', 10)  # already an Int, not text</code></pre>
+<p><code>.first('.')</code> works because the file has <code>import 'stdlib:Collections' exposing: [first] forms: [:dotted]</code>: that import lets you call <code>first(list, fallback)</code> as <code>list.first(fallback)</code>. (Imports are covered in <a href="2026-10-25-hey-modules-imports-exports.html">Modules, imports and exports</a>.)</p>
+<p>The help screen comes for free:</p>
+<pre><code>$ hey wordfreq.hey --help
+Usage: wordfreq [FOLDER] [options]
+Count the most common words in text files.
+Options:
+  --top &lt;int&gt;  how many words to show default=10
+  --ext &lt;string&gt;  which file ending to read default=.txt
+  --git  only read files git tracks default=false
+  --help  show this help default=false</code></pre>
+<p>A <code>bool</code> option is switched on by its name alone (<code>--git</code>) or given <code>=true/false/yes/no/on/off/1/0</code>; <code>--no-git</code> switches it off. Anything that doesn't start with a dash is a <em>positional</em> argument (here, the folder).</p>
+<div class="note warn">
+<p><strong>Write values with <code>=</code>: <code>--top=5</code>, not <code>--top 5</code>.</strong> <span class="tag t-warn">Partly works</span> <code>Cli.parse</code> reads flags before it sees your schema, so it can't tell that <code>--top</code> takes a value. It treats <code>--top</code> as a switch and <code>5</code> as the folder, and then validation says the flag isn't an Int:</p>
+<pre><code>$ hey wordfreq.hey --top 5 sample; echo "exit status: $?"
+--top expects int
+Usage: wordfreq [FOLDER] [options]
+…  (the rest of the help screen)
+exit status: 64</code></pre>
+<p>The older list helpers (<code>Cli.flag(args, 'top', 10)</code>) do accept <code>--top 5</code>, so the two halves of <code>Cli</code> disagree. No task covers this yet; it is recorded as a known issue.</p>
+</div>
+<p class="note">The full <code>Cli</code>, <code>Files</code>, <code>Process</code> and <code>Env</code> function lists live in the <a href="2026-10-25-hey-standard-library.html">standard library reference</a>. There's also a small <code>hey_cli</code> package (0.1.0) with command and exit-result records; this guide sticks to the standard library because that's all <code>wordfreq</code> needs.</p>
+
+<h2 id="count">3. Walk files and count with a map <span class="tag t-good">Works today</span></h2>
+<p><code>Files.files(folder, '.txt')</code> returns every file under the folder that ends in <code>.txt</code>, sorted, searching subfolders too. <code>Files.read_text(path)</code> reads one file into a String.</p>
+<p>The counting lives in its own module so the tests can call it without touching the disk:</p>
+<pre><code># The pure part of wordfreq: text in, counts out. No files, no flags.
+import 'stdlib:Text'
+import 'stdlib:Collections'
+
+module WordCount
+  # Lower-case a word and peel punctuation off both ends.
+  fn clean(word)
+    let w = Text.lower(word)
+    let marks = &quot;.,;:!?\&quot;'()[]{}&lt;&gt;*_-#`&quot;
+    while len(w) &gt; 0 and Text.contains?(marks, slice(w, 0, 1))
+      set w = slice(w, 1, len(w) - 1)
+    end
+    while len(w) &gt; 0 and Text.contains?(marks, slice(w, len(w) - 1, 1))
+      set w = slice(w, 0, len(w) - 1)
+    end
+    return w
+  end
+
+  # Add every word in `text` to the `counts` map and return the new map.
+  fn add(counts, text)
+    let out = counts
+    for raw in Text.words(text)
+      let w = WordCount.clean(raw)
+      if len(w) &gt; 0
+        if has?(out, w)
+          set out = put(out, w, out[w] + 1)
+        else
+          set out = put(out, w, 1)
+        end
+      end
+    end
+    return out
+  end
+
+  fn by_count_then_word(left, right)
+    return Collections.compare_chain([
+      Collections.compare_desc(left[1], right[1]),
+      Collections.compare(left[0], right[0])
+    ])
+  end
+
+  # The `n` most common words as [word, count] pairs, ties broken A to Z.
+  fn top(counts, n)
+    let pairs = Collections.sort(entries(counts), WordCount.by_count_then_word)
+    return Collections.take(pairs, n)
+  end
+end</code></pre>
+
+<div class="note">
+<p><strong>What would you predict?</strong> Hey values never change. <code>put(out, w, 1)</code> returns a <em>new</em> map with one more entry. So does counting a 10,000-word file copy the map 10,000 times?</p>
+<details><summary>Answer (and an honest surprise)</summary>
+<p><strong>It shouldn't.</strong> The compiler's middle stage (MIR, the step that decides when values are created and freed) tracks who still holds each value. In <code>set out = put(out, ...)</code> the old <code>out</code> is never used again and nobody else holds that map, so <code>put</code> may change it in place. You write code that reads as if nothing changes; the machine does the cheap thing. The full story is in <a href="2026-10-25-hey-values-memory-and-strings.html">Values, memory and Strings</a>.</p>
+<p><strong>But today, in this exact shape, it does copy.</strong> We measured the same counting loop two ways on one 245 KB file (32,761 words):</p>
+<table>
+<thead><tr><th>Where the map starts</th><th class="n">Time</th></tr></thead>
+<tbody>
+<tr><td><code>let out = {}</code> inside the function that fills it</td><td class="n">37 ms</td></tr>
+<tr><td><code>let out = counts</code>, where <code>counts</code> is a parameter (as in <code>WordCount.add</code>)</td><td class="n">3.93 s</td></tr>
+</tbody>
+</table>
+<p>When the map arrives as a parameter, every <code>put</code> copies the whole map. That's a compiler defect, not a rule of the language. It is recorded as a known issue with a two-file reproduction, for repair in MIR's ownership plan. The guide keeps the natural code; see <a href="#speed">how fast it is on real text</a> for what it costs today.</p>
+</details>
+</div>
+
+<p>Back in <code>wordfreq.hey</code>, the main loop is four lines:</p>
+<pre><code>  let counts = {}
+  for path in paths
+    set counts = WordCount.add(counts, Files.read_text(path))
+  end</code></pre>
+
+<h2 id="process">4. Run another program <span class="tag t-good">Works today</span></h2>
+<p>With <code>--git</code>, <code>wordfreq</code> asks git which files it tracks instead of walking the folder. <code>Process.run_argv</code> takes the command as a list of words. There's no shell in between, so spaces and quotes in file names arrive exactly as written.</p>
+<pre><code>fn files_from_git(folder, ext)
+  let run = Process.run_argv(['git', '-C', folder, 'ls-files', '*' + ext])
+  if !run.ok
+    return []
+  end
+  let out = []
+  for name in Text.lines(run.stdout)
+    if name != ''
+      set out = [...out, Files.join(folder, name)]
+    end
+  end
+  return out
+end</code></pre>
+<p>The answer is a record: <code>ok</code>, <code>stdout</code>, <code>stderr</code> and the child's status. Here the sample folder is a git repository that tracks only <code>a.txt</code>:</p>
+<pre><code>$ hey wordfreq.hey --git --top=3 sample
+1 files, 9 different words
+     3  the
+     2  dog
+     1  brown</code></pre>
+<p>If a child might hang, use <code>Process.run_argv_timeout(args, 30_000)</code>: it kills the whole process group after 30 seconds. For a long-running child you talk to, <code>Process.spawn</code> gives you its stdin and stdout handles.</p>
+
+<h2 id="errors">5. Errors and exit codes</h2>
+<p>Hey separates two kinds of failure, and the difference matters for a tool.</p>
+<div class="cols">
+<div class="note good"><p><strong>Expected failures are values.</strong> A missing folder or a bad flag is something a user will do. Return a <code>Result</code> (<code>Result.ok(v)</code> or <code>Result.error_with(code, message)</code>), check <code>.ok</code>, and print something helpful. <code>Cli.validate</code> already does this for flags.</p></div>
+<div class="note bad"><p><strong>Bugs stop the program.</strong> <code>fail 'message'</code>, or any runtime error, stops the whole process at once. Hey calls the thing a failure stops the <em>unit of work</em>: in a server it's one request, in a tool it's the whole process. It prints the message and exits with status <strong>70</strong>. There's no <code>try/catch</code>; that's a <a href="2026-10-25-hey-every-decision.html">ruled design choice</a> (fail fast, Erlang style).</p></div>
+</div>
+<pre><code>$ cat fail_demo.hey
+program
+  says 'checking...'
+  fail 'the config file is missing'
+end
+$ hey fail_demo.hey; echo "exit status: $?"
+checking...
+hey error: the config file is missing
+exit status: 70</code></pre>
+
+<h3>The gap: choosing your own exit code <span class="tag t-warn">Partly works</span></h3>
+<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 (or 2 in many tools) for "you typed it wrong". <strong>Hey has no statement that sets the process exit status today.</strong> A program that ends normally exits 0; <code>fail</code> exits 70. No release, ruling or task covers adding one yet; the gap is recorded as a known issue.</p>
+<p><code>Cli</code> can already work out the right number for you: <code>Cli.exit_status(checked)</code> gives 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag, and <code>Cli.ok_exit</code> / <code>Cli.error_exit</code> build exit records. Nothing applies that number to the process, though.</p>
+<p>The working pattern, used by the published <code>hey_secret_lint</code> package, is to build the whole output as one String and hand it to <code>/bin/sh</code>, which prints it and exits with the code you pick. <code>Process.exec_env_argv</code> replaces the Hey process, so nothing printed earlier can be lost:</p>
+<pre><code># Hey has no statement that sets an exit status yet, so hand the text
+# to /bin/sh, which prints it and exits with the status we choose.
+fn finish(text, status)
+  Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
+end</code></pre>
+<p><code>wordfreq</code> passes <code>Cli.exit_status(checked)</code> to <code>finish</code> for a bad flag, and 1 for a missing folder:</p>
+<pre><code>$ hey wordfreq.hey --top=many sample; echo "exit status: $?"
+--top expects int
+Usage: wordfreq [FOLDER] [options]
+…  (the rest of the help screen)
+exit status: 64
+
+$ hey wordfreq.hey no-such-folder; echo "exit status: $?"
+wordfreq: no such folder: no-such-folder
+exit status: 1</code></pre>
+<p>It works, but it costs a <code>/bin/sh</code> start and doesn't exist on hosts without a POSIX shell. Treat it as a stopgap.</p>
+
+<h2 id="tests">6. Test it</h2>
+<p>Hey has two kinds of test, and a tool usually wants both.</p>
+<table>
+<thead><tr><th>Kind</th><th>What it checks</th><th>How you run it</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><code>spec</code> block</td><td>The whole program's stdout, stderr or exit status (a golden test)</td><td><code>heyc file.hey --test</code></td><td><span class="tag t-good">Works today</span></td></tr>
+<tr><td><code>stdlib:Minispec</code></td><td>Individual values: <code>to_equal</code>, <code>to_include</code>, <code>to_be_error</code>, and more</td><td>call it from a <code>program</code>; pair with a <code>spec</code> block</td><td><span class="tag t-good">Works today</span> (reference: <a href="2026-10-25-hey-standard-library.html">Standard library</a>)</td></tr>
+</tbody>
+</table>
+<p>A spec block runs the program with no arguments, so put the tests next to the pure module, not next to the tool:</p>
+<pre><code>spec 'WordCount cleans, counts and ranks words'
+  expect stdout &quot;WordCount: 5 passed, 0 failed\n&quot;
+end
+
+import 'stdlib:Minispec'
+import './lib/count.hey'
+
+program
+  let s = Minispec.suite('WordCount')
+  set s = Minispec.to_equal(s, 'strips punctuation', WordCount.clean('&quot;Hello!&quot;'), 'hello')
+  set s = Minispec.to_equal(s, 'keeps inner apostrophes', WordCount.clean(&quot;don't&quot;), &quot;don't&quot;)
+  let counts = WordCount.add({}, 'the cat and the hat. The end')
+  set s = Minispec.to_equal(s, 'counts case-blind', counts['the'], 3)
+  set s = Minispec.to_equal(s, 'top word first', WordCount.top(counts, 1), [['the', 3]])
+  set s = Minispec.to_equal(s, 'ties go A to Z', WordCount.top(counts, 3), [['the', 3], ['and', 1], ['cat', 1]])
+  Minispec.report(s)
+end</code></pre>
+<p>You can run the file as an ordinary program to see the report:</p>
+<pre><code>$ hey count_spec.hey
+WordCount: 5 passed, 0 failed</code></pre>
+<div class="note warn">
+<p><strong>Today, <code>heyc --test</code> only finds the standard library when you run it from inside the Hey checkout.</strong> <span class="tag t-warn">Partly works</span> From your own project folder, any spec file that imports a <code>stdlib:</code> module fails before it starts (setting <code>HEY_ROOT</code> doesn't help):</p>
+<pre><code>$ heyc count_spec.hey --test
+FAIL: WordCount cleans, counts and ranks words
+expected stdout: WordCount: 5 passed, 0 failed
+
+actual stdout:   
+FAIL: WordCount cleans, counts and ranks words
+unexpected stderr: heyc: file not found: stdlib/Minispec.hey
+
+FAIL: WordCount cleans, counts and ranks words
+expected exit: 0
+actual exit:   1
+exit status: 1</code></pre>
+<p>Until that's fixed, run it from the Hey checkout and pass the full path:</p>
+<pre><code>$ cd "$HEY_HOME" &amp;&amp; heyc ~/code/wordfreq/count_spec.hey --test
+PASS: WordCount cleans, counts and ranks words
+exit status: 0</code></pre>
+<p>(<code>$HEY_HOME</code> here means wherever your Hey toolchain lives. A spec with no <code>stdlib:</code> import passes from anywhere.) No task covers this yet; it is recorded as a known issue.</p>
+</div>
+<p>A Minispec suite is a plain value: each assertion returns a new suite with one more result in it. <code>Minispec.report</code> prints the totals, and the <code>spec</code> block checks that line. For a CI job without the golden harness, <code>Minispec.finish(s)</code> prints the report and exits 70 if anything failed.</p>
+
+<details><summary>The whole of <code>wordfreq.hey</code>, in one piece</summary>
+<pre><code># wordfreq: the most common words in the text files under a folder.
+import 'stdlib:Cli'
+import 'stdlib:Files'
+import 'stdlib:Process'
+import 'stdlib:Text'
+import 'stdlib:Collections' exposing: [first] forms: [:dotted]
+import './lib/count.hey'
+
+fn schema()
+  return Cli.schema('wordfreq [FOLDER]', 'Count the most common words in text files.', [
+    Cli.option('top', 'int', 10, 'how many words to show'),
+    Cli.option('ext', 'string', '.txt', 'which file ending to read'),
+    Cli.option('git', 'bool', false, 'only read files git tracks'),
+    Cli.option('help', 'bool', false, 'show this help')
+  ])
+end
+
+# Hey has no statement that sets an exit status yet, so hand the text
+# to /bin/sh, which prints it and exits with the status we choose.
+fn finish(text, status)
+  Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
+end
+
+fn files_from_git(folder, ext)
+  let run = Process.run_argv(['git', '-C', folder, 'ls-files', '*' + ext])
+  if !run.ok
+    return []
+  end
+  let out = []
+  for name in Text.lines(run.stdout)
+    if name != ''
+      set out = [...out, Files.join(folder, name)]
+    end
+  end
+  return out
+end
+
+program
+  let parsed = Cli.current()
+  let checked = Cli.validate(parsed, schema())
+  if !checked.ok
+    finish(checked.error + &quot;\n&quot; + Cli.help(schema()) + &quot;\n&quot;, Cli.exit_status(checked))
+  end
+  if Cli.typed_flag(checked, 'help', false)
+    finish(Cli.help(schema()) + &quot;\n&quot;, 0)
+  end
+
+  let folder = Cli.parsed_positionals(parsed).first('.')
+  if !Files.directory?(folder)
+    finish('wordfreq: no such folder: ' + folder + &quot;\n&quot;, 1)
+  end
+
+  let ext = Cli.typed_flag(checked, 'ext', '.txt')
+  let paths = []
+  if Cli.typed_flag(checked, 'git', false)
+    set paths = files_from_git(folder, ext)
+  else
+    set paths = Files.files(folder, ext)
+  end
+
+  let counts = {}
+  for path in paths
+    set counts = WordCount.add(counts, Files.read_text(path))
+  end
+
+  says &quot;#{paths.length} files, #{entries(counts).length} different words&quot;
+  for pair in WordCount.top(counts, Cli.typed_flag(checked, 'top', 10))
+    says &quot;#{Text.pad_left(pair[1].to_s, 6, ' ')}  #{pair[0]}&quot;
+  end
+end</code></pre>
+</details>
+
+<h2 id="ship">7. Script or binary? Measure it</h2>
+<p>You've been running <code>hey wordfreq.hey</code>. That's the <em>script</em> path: Hey compiles the program to native code the first time and keeps the result in a cache keyed by the source and everything it imports. Change any imported file and the next run recompiles. Nothing goes stale.</p>
+<p>You can also make the file itself executable:</p>
+<pre><code>$ head -1 wf
+#!/usr/bin/env hey
+$ chmod +x wf
+$ ./wf --top=3 sample
+2 files, 12 different words
+     4  the
+     3  dog
+     2  a</code></pre>
+<p>Or build one binary to copy to another machine, a container, or a <code>bin/</code> folder:</p>
+<pre><code>$ hey build wordfreq.hey -o build/wordfreq
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=b82997c69e14dec9a3f54bd271d8f3ef44e7e2f2157e18889a508314cbe68c7b
+selfhost_build_outcome=started
+…  (27 more build-receipt lines)
+built …/build/wordfreq</code></pre>
+
+<p><code>hey build</code> prints a 30-line build receipt (which compiler stages ran, hashes of each stage's output, timings) and then the path it built. The binary links nothing but the system C library:</p>
+<pre><code>$ ls -l build/wordfreq
+-rwxr-xr-x  1 jthomas  wheel  276408 build/wordfreq
+$ otool -L build/wordfreq
+build/wordfreq:
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)
+$ file build/wordfreq
+build/wordfreq: Mach-O 64-bit executable arm64
+$ ./build/wordfreq --top=3 sample
+2 files, 12 different words
+     4  the
+     3  dog
+     2  a</code></pre>
+
+<h3>How fast does each one start?</h3>
+<p>We timed all three with <code>hyperfine</code> 1.20.0 on an Apple-silicon Mac: cold means an empty cache (5 runs), warm and direct are 25 runs each after 3 warm-ups. The Mac was busy with other compiler builds while we measured, which is why the cold runs spread from 6.2 to 14.4 seconds; the warm and direct numbers barely moved.</p>
+<pre><code>cold: empty cache every run
+$ hyperfine -N --runs 5 --prepare 'rm -rf $CACHE' 'hey wordfreq.hey --top=3 sample'
+  Time (mean ± σ):      8.606 s ±  3.508 s    [User: 0.110 s, System: 0.018 s]
+  Range (min … max):    6.168 s … 14.429 s    5 runs
+
+warm script vs direct binary
+$ hyperfine -N --warmup 3 --runs 25 'hey wordfreq.hey --top=3 sample' './build/wordfreq --top=3 sample'
+Benchmark 1: hey wordfreq.hey --top=3 sample
+  Time (mean ± σ):       8.3 ms ±   0.2 ms    [User: 4.3 ms, System: 3.0 ms]
+  Range (min … max):     7.9 ms …   8.6 ms    25 runs
+Benchmark 2: ./build/wordfreq --top=3 sample
+  Time (mean ± σ):       2.1 ms ±   0.1 ms    [User: 1.0 ms, System: 0.7 ms]
+  Range (min … max):     1.9 ms …   2.5 ms    25 runs</code></pre>
+<p>Hey also ships its own startup benchmark, <code>./bin/perf script-startup</code>. Its <code>--source</code> option is meant to take your program, but today it insists the program prints exactly <code>script-startup-ok</code>, so it fails on any real tool. Its built-in hello-world run gives the same picture:</p>
+<pre><code>$ ./bin/perf script-startup --iterations 25 --out /tmp/startup
+script startup benchmark ok iterations=25 compiler_started_on_warm=false backend=llvm cold_ms=5840 warm_mean_ms=8 direct_mean_ms=1</code></pre>
+
+<figure class="fig" aria-labelledby="d2cap">
+<svg viewBox="0 0 900 300" role="img" aria-labelledby="d2t d2d">
+<title id="d2t">Startup time: cold compile, warm cache, direct binary</title>
+<desc id="d2d">Cold compile takes 6.2 to 14.4 seconds once, depending on machine load. After that, the warm cached script starts in 8.3 milliseconds and the direct binary in 2.1 milliseconds. The lower panel is zoomed in to a 0 to 10 millisecond scale.</desc>
+<text x="10" y="24" class="b">Once per change (0 to 15 s)</text>
+<rect class="warnb" x="190" y="38" width="280" height="34" rx="5"/>
+<text x="20" y="60">cold compile</text>
+<path class="ln" style="stroke-dasharray:5 4" d="M470 55 H844"/>
+<text x="844" y="88" text-anchor="end" class="sm">slowest run under load: 14.4 s</text>
+<text x="460" y="60" text-anchor="end" class="b">6.2 s</text>
+<line class="grid" x1="10" y1="100" x2="890" y2="100"/>
+<text x="10" y="128" class="b">Every run after that (zoomed in: 0 to 10 ms)</text>
+<line class="grid" x1="190" y1="140" x2="190" y2="262"/><text x="190" y="282" text-anchor="middle" class="xs">0 ms</text>
+<line class="grid" x1="326" y1="140" x2="326" y2="262"/><text x="326" y="282" text-anchor="middle" class="xs">2 ms</text>
+<line class="grid" x1="462" y1="140" x2="462" y2="262"/><text x="462" y="282" text-anchor="middle" class="xs">4 ms</text>
+<line class="grid" x1="598" y1="140" x2="598" y2="262"/><text x="598" y="282" text-anchor="middle" class="xs">6 ms</text>
+<line class="grid" x1="734" y1="140" x2="734" y2="262"/><text x="734" y="282" text-anchor="middle" class="xs">8 ms</text>
+<line class="grid" x1="870" y1="140" x2="870" y2="262"/><text x="870" y="282" text-anchor="middle" class="xs">10 ms</text>
+<rect class="acc" x="190" y="150" width="564" height="34" rx="5"/>
+<text x="20" y="172">warm script</text>
+<text x="762" y="172" class="b">8.3 ms</text>
+<rect class="good" x="190" y="210" width="143" height="34" rx="5"/>
+<text x="20" y="232">direct binary</text>
+<text x="341" y="232" class="b">2.1 ms</text>
+<text x="403" y="232" class="sm">(the cache check adds the other 6.2 ms)</text>
+</svg>
+
+<figcaption id="d2cap">Figure 2. Cold compile happens once per change. After that the script path costs about 6.2 ms more than the binary: the time to check that no source changed.</figcaption>
+</figure>
+
+<table>
+<thead><tr><th>Use</th><th>When</th></tr></thead>
+<tbody>
+<tr><td><code>hey tool.hey</code> or <code>./tool.hey</code></td><td>Your own scripts, tools you edit often, anything where "always runs the latest source" matters more than a few milliseconds.</td></tr>
+<tr><td><code>hey build tool.hey -o build/tool</code></td><td>Anything you copy elsewhere, put in a container, sign, run from a supervisor, or benchmark. The build fails before deploy, never at first run.</td></tr>
+</tbody>
+</table>
+<p>What's inside the binary, how it's linked, and how to cross-build for Linux are in <a href="2026-10-25-hey-guide-build-and-deploy.html">guide 6</a>.</p>
+
+<h3 id="speed">How fast is it on real text? <span class="tag t-warn">Partly works</span></h3>
+<p>Hey's goal is C and Rust speed for every program. Startup is already there. The counting is not, today, because of the copying defect from <a href="#count">section 3</a>. We ran the built binary and a plain Ruby script doing the same job on one 245 KB file of Hey's own docs (32,761 words, 5,188 different ones), 5 runs each:</p>
+<table>
+<thead><tr><th>Program</th><th class="n">Mean time</th></tr></thead>
+<tbody>
+<tr><td><code>build/wordfreq</code> (Hey, native)</td><td class="n">2.65 s</td></tr>
+<tr><td><code>wordfreq.rb</code> (Ruby 4.0.6 with YJIT)</td><td class="n">66 ms</td></tr>
+<tr><td>Same work in Hey (same cleaning and ranking), but the map is created inside the counting function</td><td class="n">68 ms</td></tr>
+</tbody>
+</table>
+<p>The last row does exactly the same work as <code>wordfreq</code>; the only change is where the map starts. It runs level with Ruby, so the whole gap is the copying. That is the number <code>wordfreq</code> should reach once the compiler stops copying a map that arrives as a parameter; it's still short of the C-speed goal. Performance work for the 606a release and after is tracked in <a href="2026-10-25-hey-performance.html">Performance</a>; we'll re-measure this table when the fix lands.</p>
+
+<h2 id="package">8. Ship it as a package command <span class="tag t-good">Works today</span></h2>
+<p>A package can declare commands in its <code>hey-package.json</code>. Anyone who depends on the package gets the command, verified against the lock file's hashes every time it runs. This is how <code>hey_secret_lint</code> ships <code>secret-lint</code>:</p>
+<pre><code>  "commands": {
+    "secret-lint": "bin/secret-lint.hey"
+  }</code></pre>
+<p>From a project that depends on it:</p>
+<pre><code>$ cat hey-package.json
+{
+  &quot;name&quot;: &quot;lintdemo&quot;,
+  &quot;version&quot;: &quot;0.1.0&quot;,
+  &quot;registry&quot;: &quot;https://www.jayteesf.com/packages/registry-v1.json&quot;,
+  &quot;dependencies&quot;: {
+    &quot;hey_secret_lint&quot;: &quot;^0.1.0&quot;
+  }
+}
+$ hey package ensure --project . --update-lock
+ensured hey_packager@0.1.13 from hey_secret_lint
+ensured hey_secret_lint@0.1.2 from project
+updated ./hey.lock.json packages=2 edges=1
+$ hey package commands --project .
+secret-lint hey_secret_lint@0.1.2 bin/secret-lint.hey
+$ cat app.hey
+module Login
+  fn allowed?(row, attempt)
+    return row.key_hash == attempt
+  end
+end
+$ hey secret-lint .; echo &quot;exit status: $?&quot;
+app.hey:3: == on 'row.key_hash' looks like a secret; use Crypto.constant_time_equal?(bytes(a), bytes(b))
+secret-lint: 1 finding in 1 file (1 .hey file scanned)
+exit status: 1</code></pre>
+<p>A package can't shadow a built-in command, and two packages can't claim the same name. Publishing your own package is <a href="2026-10-25-hey-guide-packages.html">guide 2</a>.</p>
+
+<h2 id="scaffold">9. Start the next one with a generator</h2>
+<p>Two generators exist. Both are early, and they say so.</p>
+<table>
+<thead><tr><th>Generator</th><th>What it makes today</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><code>hey_scaffold</code> 0.1.0 (written in Hey)</td><td>A conventional Hey app from a few answers: folder layout, <code>hey-package.json</code>, a hey_web server with two routes, optional Jobs. Its README says the CLI front end works and a generated app builds and serves HTTP; the web-form front end isn't written, and the Jobs variant boots but no Job has run. Not on the package registry yet. <strong>On the toolchain used for this page it doesn't compile</strong> (below).</td><td><span class="tag t-warn">Partly works</span></td></tr>
+<tr><td><code>hey_app</code> (milestone 0)</td><td>A Rails-style generator for CLI, web, mobile and combined layouts: <code>new</code>, <code>generate controller/model/middleware/route</code>. Written in Ruby as a bootstrap; it checks its own output offline but does not claim the generated Hey compiles on your compiler. Meant to become <code>hey app</code>.</td><td><span class="tag t-warn">Partly works</span></td></tr>
+</tbody>
+</table>
+<p>What happened when we ran each one:</p>
+<pre><code>$ hey-scaffold new &quot;Word Tools&quot; --description &quot;Counts words.&quot;
+…  (3 build-receipt lines)
+hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: unsupported condition for the Hey LLVM emitter slice: if bool call @r245406630 exists?(dest)
+
+hey error: hey: script compilation failed
+exit status: 70
+
+$ hey-app new wordtools --kind cli
+CREATE …/wordtools
+$ ls wordtools
+app
+bin
+config
+data
+docs
+hey-package.json
+hey-project.json
+README.md
+src
+test
+tmp
+vendor
+$ cat wordtools/src/main.hey
+module Wordtools
+  fn name()
+    return 'wordtools'
+  end
+
+  fn version()
+    return '0.1.0'
+  end
+
+  fn kind()
+    return 'cli'
+  end
+end</code></pre>
+<p>The <code>hey_scaffold</code> failure is a compiler defect: an <code>if</code> whose condition is a bare <code>exists?(path)</code> call can't be turned into native code. A 9-line program shows the same failure; it is recorded as a known issue. The <code>hey_app</code> CLI skeleton is a module with no <code>program</code> block yet, so it isn't something you can run: Milestone 0 makes folders and registries, not a working tool.</p>
+
+<h2 id="status">10. What works, at a glance</h2>
+<table>
+<thead><tr><th>Piece</th><th>Status</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Flags, help, typed options (<code>stdlib:Cli</code>)</td><td><span class="tag t-good">Works today</span></td><td>Reference: <a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
+<tr><td>Files, Process, Env, Text</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
+<tr><td>Minispec and spec blocks</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-standard-library.html">Standard library</a></td></tr>
+<tr><td>Script run with native cache; <code>#!</code> scripts</td><td><span class="tag t-good">Works today</span></td><td>Guide 1 covers the cache</td></tr>
+<tr><td>One-file native binary (<code>hey build</code>)</td><td><span class="tag t-good">Works today</span></td><td>Guide 6</td></tr>
+<tr><td>Package commands</td><td><span class="tag t-good">Works today</span></td><td>Guide 2</td></tr>
+<tr><td>Setting your own exit status</td><td><span class="tag t-warn">Partly works</span></td><td>No statement; <code>/bin/sh</code> workaround; <code>Cli.exit_status</code> computes the code. No task or ruling yet.</td></tr>
+<tr><td><code>--flag value</code> with <code>Cli.parse</code>/<code>validate</code></td><td><span class="tag t-warn">Partly works</span></td><td>Use <code>--flag=value</code>. No task yet.</td></tr>
+<tr><td><code>heyc --test</code> outside the Hey checkout</td><td><span class="tag t-warn">Partly works</span></td><td>Can't find <code>stdlib:</code> modules; run it from the checkout. No task yet.</td></tr>
+<tr><td><code>bin/perf script-startup --source</code></td><td><span class="tag t-warn">Partly works</span></td><td>Only accepts a program that prints <code>script-startup-ok</code>.</td></tr>
+<tr><td>Counting speed with a map passed in as a parameter</td><td><span class="tag t-warn">Partly works</span></td><td>Correct but copies on every <code>put</code>; reported compiler defect.<sup><a href="#n2">2</a></sup></td></tr>
+<tr><td><code>hey_scaffold</code> generator</td><td><span class="tag t-warn">Partly works</span></td><td>Doesn't compile on the 606a candidate (<code>if exists?(...)</code> defect); web front end not written</td></tr>
+<tr><td><code>hey_app</code> generator</td><td><span class="tag t-warn">Partly works</span></td><td>Milestone 0, Ruby bootstrap</td></tr>
+</tbody>
+</table>
+
+<section class="notes" id="notes" aria-labelledby="notes-h">
+<h2 id="notes-h">Notes</h2>
+<ol>
+<li id="n1">The documentation toolchain was built from this commit: cb817d.</li>
+<li id="n2">Fixed after the documentation toolchain was built: self-updates of a parameter write in place again, with integer-indexed puts kept behind MIR's i64 proof: 903914, 5d59e6.</li>
+</ol>
+</section>
+<footer>
+<h2 id="sources">Sources</h2>
+<p>Hey source read; the standard-library files cited are byte-identical in the toolchain used. Every command on this page was run on the docs toolchain, 0.99.606a (a later candidate build), on macOS arm64; outputs are pasted unedited except that long scratch-folder paths are shortened to <code>…</code> and the spec path in section 6 is shown as <code>~/code/wordfreq</code>. The toolchain's own note says the toolchain has the same language surface as the newer candidate (whose build failed).</p>
+<ul>
+<li><code>stdlib/Cli.hey</code>:101-198 (flags), 269-310 (<code>parse</code>, <code>args</code>, <code>current</code>), 420-503 (schemas, help, validate, exit helpers)</li>
+<li><code>stdlib/Files.hey</code>:45-166, <code>stdlib/Process.hey</code>:1-79, <code>stdlib/Result.hey</code>:1-129, <code>stdlib/Text.hey</code>:141-172</li>
+<li><code>stdlib/Minispec.hey</code>:1-40 (the immutable-suite contract and why <code>fail</code> exits 70)</li>
+<li><code>docs/developers/script-execution-and-compilation.md</code>; <code>bin/subcmds/hey-script-startup-benchmark</code></li>
+<li><code>docs/developers/3rd-party-packages.md</code>:83-96 (package commands)</li>
+<li><code>hey_secret_lint</code> 0.1.2: <code>bin/secret-lint.hey</code>, <code>docs/DESIGN.md</code> "Exit status"</li>
+<li><code>hey_scaffold</code> 0.1.0 README ("What is not here"); <code>hey_app</code> README; <code>hey_cli</code> 0.1.0</li>
+</ul>
+<h2 id="next">Read next</h2>
+<ul>
+<li><a href="2026-10-25-hey-guide-web-server.html">Guide 4: a web server with hey_web</a></li>
+<li><a href="2026-10-25-hey-guide-build-and-deploy.html">Guide 6: what <code>hey build</code> produces, and deploying it</a></li>
+<li><a href="2026-10-25-hey-standard-library.html">The standard library reference</a>: also <code>Re</code> (regular expressions), <code>Json</code>/<code>Jsonl</code> and <code>Time</code>, the other modules tools reach for</li>
+<li>More real tools to read: <code>examples/jsonl_sort_mailinator_users.hey</code> in the Hey repo (a JSON Lines sorter in 30 lines), and the Maintainer&#39;s own CLIs <code>hey_kamal_cli</code>, <code>hey_bsc_backup_and_restore_cli</code> and <code>hey_ml_cli</code></li>
+<li><a href="2026-10-25-hey-every-decision.html">Every decision, with its ruling</a> · <a href="2026-10-25-hey-compiler-from-source-to-native.html">How the compiler turns source into native code</a></li>
+<li>History: <a href="great-command-line-scripting-with-hey.html">Great command-line scripting with Hey</a> (the dated benchmark story)</li>
+</ul>
+</footer>
+</div>
+</body>
+</html>

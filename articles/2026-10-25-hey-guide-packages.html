@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Add a third-party package to a Hey project, lock it with hashes, import it, restore it exactly on another machine, verify and audit it, use package commands, and publish your own. Every command was run on the 0.99.606a candidate, including the parts that don't work yet.">
+<meta name="article-date" content="2026-10-25">
+<meta name="article-bucket" content="start">
+<meta name="article-index-rank" content="20">
+<meta name="article-index-title" content="Guide 2: Using third-party packages">
+<meta name="article-index-desc" content="Add a package from the registry, lock every byte by hash, import it with pkg:, restore it exactly on another machine, verify and audit it, run package-provided commands, and publish your own with hey package init and hey_packager. Run on the 0.99.606a candidate, with the three gaps it found stated plainly.">
+<title>Using third-party packages</title>
+<style>
+:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
+--link:#1d4fb8;--acc:#1d4fb8;--acc-bg:#e7eefc;--good:#17703a;--good-bg:#e3f3e8;--warn:#875700;--warn-bg:#fcf1d6;--bad:#a8261d;--bad-bg:#fbe7e4;--violet:#5a3a9c;--violet-bg:#efe9fb;
+--code-bg:#f0eee8;--code-fg:#17181c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}}
+:root[data-theme="dark"]{--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:1.4rem 16px 4rem}
+a{color:var(--link);text-underline-offset:.16em}
+h1{font-size:clamp(1.9rem,5vw,2.7rem);line-height:1.12;margin:.3rem 0 .8rem}
+h2{font-size:1.5rem;line-height:1.22;margin:2.8rem 0 .5rem;padding-top:.6rem;border-top:1px solid var(--line)}
+h3{font-size:1.12rem;margin:1.6rem 0 .4rem}
+p,li{max-width:74ch}
+.eyebrow{color:var(--muted);font-size:.88rem;margin:0}
+.lede{font-size:1.16rem;max-width:68ch}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem;overflow-x:auto;line-height:1.45;font-size:.92rem}
+pre code{overflow-wrap:normal}
+pre .cmd{color:var(--acc);font-weight:600}
+pre .out{color:var(--mid)}
+.cap{font-size:.8rem;color:var(--muted);margin:.8rem 0 -.4rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.note{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--acc);border-radius:8px;padding:.7rem 1.05rem;margin:1.1rem 0}
+.note.warn{border-left-color:var(--warn)}.note.good{border-left-color:var(--good)}.note.bad{border-left-color:var(--bad)}.note.vio{border-left-color:var(--violet)}
+.note p{margin:.35rem 0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.6rem 1rem;margin:1rem 0}
+summary{font-weight:700;cursor:pointer}
+details[open]>summary{margin-bottom:.6rem}
+.fig{margin:1.2rem 0 1.4rem;padding:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:600px}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.5rem;max-width:none}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--surface2)}
+td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.badge{display:inline-block;padding:.05rem .5rem;border-radius:999px;font-size:.76rem;font-weight:700;border:1px solid currentColor;white-space:nowrap;vertical-align:.08em}
+.b-works{background:var(--good-bg);color:var(--good)}
+.b-partly{background:var(--warn-bg);color:var(--warn)}
+.b-decided{background:var(--acc-bg);color:var(--acc)}
+.b-proposed{background:var(--violet-bg);color:var(--violet)}
+.b-removing{background:var(--bad-bg);color:var(--bad)}
+.rows{font-size:.8rem;color:var(--muted)}
+.puzzle{background:var(--warn-bg);border:1px dashed var(--warn);border-radius:10px;padding:.7rem 1.05rem;margin:1.2rem 0}
+.puzzle strong:first-child{color:var(--warn)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.9rem;margin:1rem 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.8rem 1rem}
+.card h3{margin:.1rem 0 .4rem}
+.card p{margin:.35rem 0;font-size:.95rem}
+nav.toc ol{columns:2;column-gap:2rem;padding-left:1.2rem;margin:.4rem 0}
+nav.toc li{break-inside:avoid;margin:.15rem 0}
+a:focus-visible,summary:focus-visible{outline:3px solid var(--link);outline-offset:3px}
+footer{margin-top:3rem;border-top:1px solid var(--line);padding-top:1rem;font-size:.9rem;color:var(--mid)}
+footer li{margin:.3rem 0;max-width:none}
+svg text{fill:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px}
+svg .sm{font-size:12px;fill:var(--mid)}
+svg .xs{font-size:11px;fill:var(--muted)}
+svg .b{font-weight:700}
+svg .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+svg .box{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+svg .acc{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.8}
+svg .good{fill:var(--good-bg);stroke:var(--good);stroke-width:1.8}
+svg .warnb{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.8}
+svg .bad{fill:var(--bad-bg);stroke:var(--bad);stroke-width:1.8}
+svg .vio{fill:var(--violet-bg);stroke:var(--violet);stroke-width:1.8}
+svg .ln{stroke:var(--mid);stroke-width:1.8;fill:none}
+svg .ln-dash{stroke:var(--mid);stroke-width:1.6;fill:none;stroke-dasharray:6 4}
+svg .ln-good{stroke:var(--good);stroke-width:2.2;fill:none}
+svg .ln-acc{stroke:var(--acc);stroke-width:2.2;fill:none}
+svg .grid{stroke:var(--line);stroke-width:1}
+svg .f-good{fill:var(--good)}svg .f-bad{fill:var(--bad)}svg .f-warn{fill:var(--warn)}svg .f-acc{fill:var(--acc)}svg .f-mid{fill:var(--muted)}svg .f-vio{fill:var(--violet)}
+@media (max-width:640px){nav.toc ol{columns:1}}
+.notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
+.notes ol{padding-left:1.4rem}
+sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="eyebrow"><a href="2026-10-25-hey-index.html">Hey documentation</a> › Guide 2 of 6 · toolchain 0.99.606a candidate, macOS arm64</p>
+<figure class="fig" aria-label="You are here: guide 2 of 6"><svg viewBox="0 0 900 70" role="img" aria-labelledby="yah-t"><title id="yah-t">You are here: guide 2 of 6</title>
+<a href="2026-10-25-hey-guide-first-steps.html"><rect x="10" y="10" width="145" height="46" rx="8" class="box"/><text x="82" y="30" text-anchor="middle" class="b">Guide 1</text><text x="82" y="48" text-anchor="middle" class="xs">First steps</text></a>
+<a href="2026-10-25-hey-guide-packages.html"><rect x="160" y="10" width="145" height="46" rx="8" class="good"/><text x="232" y="30" text-anchor="middle" class="b">Guide 2 (here)</text><text x="232" y="48" text-anchor="middle" class="xs">Packages</text></a>
+<a href="2026-10-25-hey-guide-cli-tool.html"><rect x="310" y="10" width="145" height="46" rx="8" class="box"/><text x="382" y="30" text-anchor="middle" class="b">Guide 3</text><text x="382" y="48" text-anchor="middle" class="xs">CLI tool</text></a>
+<a href="2026-10-25-hey-guide-web-server.html"><rect x="460" y="10" width="145" height="46" rx="8" class="box"/><text x="532" y="30" text-anchor="middle" class="b">Guide 4</text><text x="532" y="48" text-anchor="middle" class="xs">Web server</text></a>
+<a href="2026-10-25-hey-guide-apps.html"><rect x="610" y="10" width="145" height="46" rx="8" class="box"/><text x="682" y="30" text-anchor="middle" class="b">Guide 5</text><text x="682" y="48" text-anchor="middle" class="xs">Apps</text></a>
+<a href="2026-10-25-hey-guide-build-and-deploy.html"><rect x="760" y="10" width="145" height="46" rx="8" class="box"/><text x="832" y="30" text-anchor="middle" class="b">Guide 6</text><text x="832" y="48" text-anchor="middle" class="xs">Build and deploy</text></a>
+</svg></figure>
+
+<h1>Using third-party packages</h1>
+<p class="lede">A Hey package is a folder of Hey source with a version and a hash for every file. You list the ones you want, Hey picks versions, downloads them, checks every byte, and writes a lock file. Commit that lock, and every other machine gets exactly the same bytes, or nothing at all.</p>
+
+<div class="note">
+<p><strong>Badges:</strong> <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span> <span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span> <span class="badge b-removing">Being removed</span> (meanings in <a href="2026-10-25-hey-index.html#legend">the index</a>).</p>
+<p><strong>Every command here was run</strong> against the live registry at <code>https://www.jayteesf.com/packages/registry-v1.json</code>, with the 0.99.606a candidate on an Apple Silicon Mac. Several things didn't work the way the docs say. They're marked where they happen and listed together <a href="#gaps">at the end</a>. Outputs are exact except that machine-specific folders are written as <code>/path/to/hey</code> or <code>...</code>.</p>
+</div>
+
+<nav class="toc" aria-label="Contents"><ol>
+<li><a href="#why">Why packages are locked and hashed</a></li>
+<li><a href="#add">Add a package to a new project</a></li>
+<li><a href="#ranges">Version ranges</a></li>
+<li><a href="#import">Import it</a></li>
+<li><a href="#restore">Restore, verify, audit</a></li>
+<li><a href="#commands">Commands that come with a package</a></li>
+<li><a href="#native">Packages with C inside</a></li>
+<li><a href="#publish">Write and publish your own</a></li>
+<li><a href="#gaps">What doesn't work yet</a></li>
+</ol></nav>
+
+<h2 id="why">1. Why packages are locked and hashed</h2>
+<p>Think of a package download as a chain of signed receipts. Each link carries the SHA-256 fingerprint (a 64-character hash that changes completely if one byte changes) of the next link. Your lock file keeps a copy of every fingerprint.</p>
+<figure class="fig" aria-labelledby="dg2-1-cap">
+<svg viewBox="0 0 900 300" role="img" aria-labelledby="dg2-1-title dg2-1-desc">
+<title id="dg2-1-title">The package trust chain</title>
+<desc id="dg2-1-desc">The registry index lists each version with the SHA-256 of its release file and archive. The release file lists the hash of the manifest and of every file. Installation checks each hash before anything lands in the .hey folder; the lock file records them all. At compile time a pkg: import is accepted only when installed bytes, manifest, lock and source all agree.</desc>
+<defs><marker id="g2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker></defs>
+<rect x="15" y="30" width="160" height="92" rx="8" class="box"/><text x="95" y="54" text-anchor="middle" class="b">registry index</text><text x="95" y="74" text-anchor="middle" class="xs mono">registry-v1.json</text><text x="95" y="94" text-anchor="middle" class="xs">name, version,</text><text x="95" y="110" text-anchor="middle" class="xs">release_sha256, archive_sha256</text>
+<rect x="200" y="30" width="160" height="92" rx="8" class="box"/><text x="280" y="54" text-anchor="middle" class="b">release file</text><text x="280" y="74" text-anchor="middle" class="xs mono">NAME-VER.release.json</text><text x="280" y="94" text-anchor="middle" class="xs">manifest_sha256,</text><text x="280" y="110" text-anchor="middle" class="xs">content_sha256</text>
+<rect x="385" y="30" width="160" height="92" rx="8" class="box"/><text x="465" y="54" text-anchor="middle" class="b">archive</text><text x="465" y="74" text-anchor="middle" class="xs mono">NAME-VER.zip</text><text x="465" y="94" text-anchor="middle" class="xs">hey-package.json lists</text><text x="465" y="110" text-anchor="middle" class="xs">every file it may contain</text>
+<rect x="570" y="30" width="150" height="92" rx="8" class="acc"/><text x="645" y="54" text-anchor="middle" class="b">installed tree</text><text x="645" y="74" text-anchor="middle" class="xs mono">.hey/packages/...</text><text x="645" y="94" text-anchor="middle" class="xs">per-file hashes</text><text x="645" y="110" text-anchor="middle" class="xs">checked before install</text>
+<rect x="745" y="30" width="140" height="92" rx="8" class="good"/><text x="815" y="54" text-anchor="middle" class="b">import accepted</text><text x="815" y="76" text-anchor="middle" class="xs mono">pkg:name@ver/main</text><text x="815" y="98" text-anchor="middle" class="xs">bytes = lock = manifest</text>
+<path d="M175,76H198" class="ln" marker-end="url(#g2a)"/><path d="M360,76H383" class="ln" marker-end="url(#g2a)"/><path d="M545,76H568" class="ln" marker-end="url(#g2a)"/><path d="M720,76H743" class="ln" marker-end="url(#g2a)"/>
+<text x="95" y="146" text-anchor="middle" class="sm">hash of the next link</text><text x="280" y="146" text-anchor="middle" class="sm">hash of the next link</text><text x="465" y="146" text-anchor="middle" class="sm">hash of every file</text><text x="645" y="146" text-anchor="middle" class="sm">checked again on import</text>
+<rect x="200" y="180" width="520" height="70" rx="8" class="warnb"/><text x="460" y="206" text-anchor="middle" class="b mono">hey.lock.json (you commit this)</text><text x="460" y="228" text-anchor="middle" class="sm">every edge, exact version, release/archive/manifest/content hashes, per-file hashes, commands</text>
+<path d="M460,180V124" class="ln-dash" marker-end="url(#g2a)"/>
+<text x="20" y="284" class="sm">Change one byte anywhere along the chain and the next check fails. Nothing is trusted because of where it came from.</text>
+</svg>
+<figcaption id="dg2-1-cap">Figure 1. Each link vouches for the next by hash, and the lock file remembers every hash so another machine can rebuild the same tree.</figcaption>
+</figure>
+
+<p>So there are no "it worked on my machine" upgrades. A version that's in the lock can't silently change: a new download that reuses a locked name and version with different bytes is refused.<sup><a href="#n1">1</a></sup></p>
+
+<h2 id="add">2. Add a package to a new project</h2>
+<p><span class="badge b-works">Works today</span></p>
+<p>We'll use <code>hey_cache</code>, a read-through cache from the registry. Make a folder with one file, <code>hey-package.json</code>:</p>
+<pre><code>{
+  "name": "pages_app",
+  "version": "0.1.0",
+  "registry": "https://www.jayteesf.com/packages/registry-v1.json",
+  "dependencies": {
+    "hey_cache": "~0.1.0"
+  }
+}</code></pre>
+<p>Now ask Hey to resolve, download, check and lock:</p>
+<pre><code><span class="cmd">$ hey package ensure --project . --update-lock</span>
+<span class="out">ensured hey_cache@0.1.1 from project
+updated ./hey.lock.json packages=1 edges=0</span>
+<span class="cmd">$ ls -a</span>
+<span class="out">.  ..  .hey  app.hey  hey-package.json  hey.lock.json</span></code></pre>
+<p>Two new things appeared:</p>
+<div class="scroll"><table>
+<tr><th>File</th><th>What it is</th><th>Commit it?</th></tr>
+<tr><td><code>hey.lock.json</code></td><td>The exact version of every package (including the ones your packages need), and the hash of the registry entry, release file, archive, manifest, combined content and <em>each file</em>.</td><td><strong>Yes.</strong></td></tr>
+<tr><td><code>.hey/</code></td><td>The downloaded, checked packages. Rebuilt from the lock any time.</td><td>No. Add <code>.hey/</code> and <code>**/.hey/</code> to <code>.gitignore</code>.</td></tr>
+</table></div>
+<p>When a package needs other packages, <code>ensure</code> fetches those too. Asking for <code>hey_config</code> pulled in its dependency:</p>
+<pre><code><span class="cmd">$ hey package ensure --project . --update-lock</span>     <span class="out"># with "hey_config": "^0.1.0"</span>
+<span class="out">ensured hey_packager@0.1.13 from hey_config
+ensured hey_config@0.1.1 from project
+updated ./hey.lock.json packages=2 edges=1</span></code></pre>
+<p>Here's one lock entry, shortened (the real one lists all 18 files of <code>hey_config</code> with a hash each):</p>
+<pre><code>"hey_config": {
+  "version": "0.1.1",
+  "requirement": "^0.1.0",
+  "direct": true,
+  "archive": "https://www.jayteesf.com/packages/hey_config/0.1.1/hey_config-0.1.1.zip",
+  "archive_sha256": "e2470d76ad3f8107b2952d3ff3e5422a823005d6e320d47d61be4e4a38f028db",
+  "release_sha256": "47d8402376e05ee99679693cf8651c35ad330a3aa1bc3226c340328673a202f7",
+  "manifest_sha256": "7d5a4e0a642336e2897e9a4cb7a06af4bd2d72e5d59d6f193a2de743ef4e2215",
+  "content_sha256": "853b13c2a441ba6757e5b524dc7d0f3185a0035355918ce612805b5403482d67",
+  "file_sha256": { "src/main.hey": "cd02d024...e6010211", "README.md": "d59d81f2...6108f82f", ... },
+  "modules": { "main": "src/main.hey" },
+  "dependencies": { "hey_packager": "&gt;=0.1.11 &lt;0.2.0" }
+}</code></pre>
+<p>Want to see what's available? The catalog is <a href="../packages/">jayteesf.com/packages</a>; 43 packages were listed.</p>
+
+<h2 id="ranges">3. Version ranges</h2>
+<p>A requirement says which versions you'll accept. Hey picks the <strong>highest</strong> version that fits every requirement in the whole graph, and backs up when a later choice makes an earlier one impossible.</p>
+<figure class="fig" aria-labelledby="dg2-2-cap">
+<svg viewBox="0 0 900 300" role="img" aria-labelledby="dg2-2-title dg2-2-desc">
+<title id="dg2-2-title">Highest compatible versions, with backtracking</title>
+<desc id="dg2-2-desc">A made-up example. The app asks for web ^1.2 and db ~2.4. The resolver first tries web 1.5, the highest match, but web 1.5 needs log 2 or later while db 2.4.3 needs log below 2. That is a conflict, so the resolver backs up and tries web 1.4, which accepts log 1.x. The final graph is web 1.4, db 2.4.3, log 1.9.</desc>
+<defs><marker id="g2b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker></defs>
+<text x="20" y="24" class="sm">An invented example (the packages web, db and log are placeholders)</text>
+<rect x="20" y="110" width="120" height="50" rx="8" class="acc"/><text x="80" y="140" text-anchor="middle" class="b">your app</text>
+<rect x="230" y="40" width="180" height="50" rx="8" class="bad"/><text x="320" y="62" text-anchor="middle" class="b">web 1.5.0</text><text x="320" y="80" text-anchor="middle" class="xs">first try: highest ^1.2</text>
+<rect x="230" y="110" width="180" height="50" rx="8" class="good"/><text x="320" y="132" text-anchor="middle" class="b">web 1.4.2</text><text x="320" y="150" text-anchor="middle" class="xs">second try: next highest</text>
+<rect x="230" y="200" width="180" height="50" rx="8" class="good"/><text x="320" y="222" text-anchor="middle" class="b">db 2.4.3</text><text x="320" y="240" text-anchor="middle" class="xs">highest ~2.4</text>
+<rect x="520" y="40" width="160" height="50" rx="8" class="bad"/><text x="600" y="62" text-anchor="middle" class="b">log &gt;=2.0</text><text x="600" y="80" text-anchor="middle" class="xs">wanted by web 1.5.0</text>
+<rect x="520" y="155" width="160" height="50" rx="8" class="good"/><text x="600" y="177" text-anchor="middle" class="b">log 1.9.0</text><text x="600" y="195" text-anchor="middle" class="xs">fits web 1.4 and db</text>
+<path d="M140,125 C185,125 185,65 228,65" class="ln-dash" marker-end="url(#g2b)"/>
+<path d="M140,135H228" class="ln-good" marker-end="url(#g2b)"/>
+<path d="M140,145 C185,145 185,225 228,225" class="ln-good" marker-end="url(#g2b)"/>
+<path d="M410,65H518" class="ln-dash" marker-end="url(#g2b)"/>
+<path d="M410,135 C465,135 465,180 518,180" class="ln-good" marker-end="url(#g2b)"/>
+<path d="M410,225 C465,225 465,185 518,185" class="ln-good" marker-end="url(#g2b)"/>
+<text x="705" y="58" class="b f-warn">conflict:</text><text x="705" y="76" class="sm">db 2.4.3 needs log &lt;2.0</text><text x="705" y="94" class="sm">so back up one step</text>
+<text x="705" y="178" class="b f-good">accepted</text><text x="705" y="196" class="sm">every edge satisfied;</text><text x="705" y="214" class="sm">written to the lock</text>
+<text x="20" y="286" class="sm">No partial graph is ever written: either every requirement is met, or ensure fails and the old lock stays.</text>
+</svg>
+<figcaption id="dg2-2-cap">Figure 2. The resolver picks the highest version that fits, and backs up when a later choice makes an earlier one impossible.</figcaption>
+</figure>
+
+<p>Each form below was tried with <code>hey_cache</code>, whose only versions are 0.1.0 and 0.1.1:</p>
+<div class="scroll"><table>
+<tr><th>Requirement</th><th>Means</th><th>Result on 606a</th></tr>
+<tr><td><code>0.1.1</code></td><td>exactly this one</td><td>picked 0.1.1</td></tr>
+<tr><td><code>0.1.0</code></td><td>exactly the older one</td><td><span class="badge b-partly">Partly works</span> refused: the registry's 0.1.0 archive is malformed (<code>archive_duplicate_entry: hey-package.json</code>), so only 0.1.1 can be installed</td></tr>
+<tr><td><code>~0.1.0</code></td><td>0.1.0 or later patch releases, below 0.2.0</td><td>picked 0.1.1</td></tr>
+<tr><td><code>^0.1.0</code></td><td>compatible with 0.1.0 (caret)</td><td>picked 0.1.1 (tried on <code>hey_config</code>)</td></tr>
+<tr><td><code>0.1.*</code></td><td>any 0.1 release (wildcard)</td><td>picked 0.1.1</td></tr>
+<tr><td><code>&gt;=0.1.0 &lt;0.2.0</code></td><td>both comparisons must hold</td><td>picked 0.1.1</td></tr>
+<tr><td><code>0.1.0 || 0.1.1</code></td><td>either one</td><td>picked 0.1.1</td></tr>
+<tr><td><code>~0.1</code>, <code>^0.1</code></td><td>the short, two-number forms</td><td><span class="badge b-partly">Partly works</span> refused (full output below)</td></tr>
+</table></div>
+<pre><code><span class="cmd">$ hey package ensure --project . --update-lock</span>     <span class="out"># with "hey_cache": "~0.1"</span>
+<span class="out">hey error: package_ensure_failed: package_resolution_failed: no hey_cache version satisfies ~0.1
+  at /path/to/hey/tools/hey_package.hey:1:1 in repl</span>     <span class="out"># exit 70</span></code></pre>
+<div class="note warn"><p><strong>Write all three numbers.</strong> Hey's own package guide shows <code>"example_mobile": "~2.4"</code> as an example, but two-number tilde and caret ranges are refused on 606a. Use <code>~2.4.0</code>. If no version fits, <code>ensure</code> fails and your old lock stays as it was: it never writes half a graph.</p></div>
+
+<h2 id="import">4. Import it</h2>
+<p>A package's manifest gives each public file a short name (a module alias). <code>hey_cache</code> publishes <code>main</code> and <code>cache</code>. You import them by package, exact version and alias:</p>
+<pre><code>import 'pkg:hey_cache@0.1.1/cache'
+import 'pkg:hey_cache@0.1.1/main'
+
+fn render(key)
+  says 'rendering ' + key
+  return 'page:' + key
+end
+
+program
+  let cache = HeyCache.open({
+    namespace: 'pages',
+    layers: [HeyCache.memory_layer('mem', {})],
+    default_ttl_ms: 60000,
+    clock: HeyCache.fixed_clock(1000),
+  })
+  let first = HeyCache.fetch(cache, 'home', render, {})
+  let second = HeyCache.fetch(first.cache, 'home', render, {})
+  says first.value
+  says second.value
+  says 'hey_cache ' + HeyCacheInfo.version()
+end</code></pre>
+<div class="puzzle"><p><strong>Predict:</strong> <code>fetch</code> is called twice for <code>'home'</code>. How many times does <code>rendering home</code> print?</p></div>
+<pre><code><span class="cmd">$ hey app.hey</span>
+<span class="out">rendering home
+page:home
+page:home
+hey_cache 0.1.1</span></code></pre>
+<p>Once. The second <code>fetch</code> found the page in the memory layer. (Note it's <code>first.cache</code>, not <code>cache</code>: values don't change in Hey, so <code>fetch</code> hands back an updated cache along with the value.)</p>
+<p>Each source file imports what it uses directly. Leave out the <code>/cache</code> import above and compilation stops; the key line of the (longer) error is <code>missing direct module import: .../app.hey:11:14: HeyCache.memory_layer requires a direct import in this source unit</code>.</p>
+<div class="note bad">
+<p><span class="badge b-partly">Partly works</span> <strong>Native builds can't import modules that live in a subfolder of the package.</strong> <code>hey_cache</code>'s files sit at the package root, so it works. <code>hey_config</code> keeps its <code>main</code> module at <code>src/main.hey</code>, and on 606a (and 605a) the native compiler can't find it:</p>
+<pre><code><span class="cmd">$ hey app.hey</span>          <span class="out"># app.hey imports 'pkg:hey_config@0.1.1/main'</span>
+<span class="out">hey error: could not open read file</span>
+<span class="cmd">$ hey build app.hey -o build/app</span>
+<span class="out">hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: import not found: .../app.hey: pkg:hey_config@0.1.1/main</span>
+<span class="cmd">$ heyc app.hey --run</span>     <span class="out"># the interpreter reads the alias correctly</span>
+<span class="out">env:DATABASE_URL
+hey_config 0.1.1</span></code></pre>
+<p>The compiler guesses <code>main.hey</code> at the package root instead of reading the alias from the verified manifest. This is the known P0 task <code>selfhost-package-module-alias-resolution</code>. Of the 26 pure-Hey packages in the registry, 9 keep at least one module under <code>src/</code>. Until it's fixed, a real app such as the elders_prayer_app builds with the private stage-0 compiler instead (see <a href="2026-10-25-hey-guide-build-and-deploy.html#kamal">Guide 6</a>).</p>
+</div>
+
+<h2 id="restore">5. Restore exactly on another machine; verify; audit</h2>
+<p><span class="badge b-works">Works today</span></p>
+<p>This section continues with the project from section 2 after adding <code>hey_config</code>, so its manifest lists <code>"hey_cache": "~0.1.0"</code> and <code>"hey_config": "^0.1.0"</code>, and the lock holds three packages (<code>hey_config</code> brings <code>hey_packager</code>). On a second machine (here, a fresh folder with only the manifest, the lock and the program), restore from the lock. <code>--locked</code> doesn't consult the registry's version list and can't change the lock:</p>
+<pre><code><span class="cmd">$ shasum -a 256 hey.lock.json</span>
+<span class="out">d9736cd576b86bde0c27106efd1645216b348149589f50e0f0e71954ecce9fe2  hey.lock.json</span>
+<span class="cmd">$ hey package ensure --project . --locked</span>
+<span class="out">restored hey_cache@0.1.1 to ./.hey/.package-locked.5cs3Dc/packages/hey_cache/0.1.1
+restored hey_config@0.1.1 to ./.hey/.package-locked.5cs3Dc/packages/hey_config/0.1.1
+restored hey_packager@0.1.13 to ./.hey/.package-locked.5cs3Dc/packages/hey_packager/0.1.13
+restored locked project packages=3</span>
+<span class="cmd">$ shasum -a 256 hey.lock.json</span>          <span class="out"># unchanged</span>
+<span class="out">d9736cd576b86bde0c27106efd1645216b348149589f50e0f0e71954ecce9fe2  hey.lock.json</span></code></pre>
+<p>(The <code>.package-locked.5cs3Dc</code> folder is a temporary staging name; the finished tree is moved into <code>.hey/packages</code> in one step, so a half-restored tree is never visible.)</p>
+<p>Two checks, for two different questions:</p>
+<pre><code><span class="cmd">$ hey package verify --project .</span>     <span class="out"># offline: do the installed bytes match the lock?</span>
+<span class="out">verified hey_cache@0.1.1
+verified hey_config@0.1.1
+verified hey_packager@0.1.13
+verified project packages=3</span>
+<span class="cmd">$ hey package audit --project .</span>      <span class="out"># online: does the registry still serve the same releases?</span>
+<span class="out">verified hey_packager@0.1.13
+audited hey_cache@0.1.1 release/archive/content immutable
+audited hey_config@0.1.1 release/archive/content immutable
+audited hey_packager@0.1.13 release/archive/content immutable
+audited project packages=3</span></code></pre>
+<p class="rows"><code>audit</code> first re-verifies every installed package (only the last <code>verified</code> line is shown above).</p>
+<p>Now tamper with an installed file and watch:</p>
+<pre><code><span class="cmd">$ sed -i '' "s/return '0.1.1'/return '6.6.6'/" .hey/packages/hey_cache/0.1.1/cache.hey</span>
+<span class="cmd">$ hey package verify --project .</span>
+<span class="out">hey error: package_project_verify_failed: installed_content_tampered: ./.hey/packages/hey_cache/0.1.1
+  at /path/to/hey/tools/hey_package.hey:1:1 in repl</span>    <span class="out"># exit 70</span>
+<span class="cmd">$ hey build app.hey -o build/app</span>
+<span class="out">heyc: package module checksum mismatch: .hey/packages/hey_cache/0.1.1/cache.hey
+heyc: file not found: pkg:hey_cache@0.1.1/cache</span>    <span class="out"># exit 1</span>
+<span class="cmd">$ heyc app.hey --run</span>
+<span class="out">heyc: package module checksum mismatch: .hey/packages/hey_cache/0.1.1/cache.hey
+heyc: file not found: pkg:hey_cache@0.1.1/cache</span>    <span class="out"># exit 1</span>
+<span class="cmd">$ hey app.hey</span>
+<span class="out">rendering home
+page:home
+page:home
+hey_cache 6.6.6</span></code></pre>
+<div class="note bad">
+<p><span class="badge b-partly">Partly works</span> <strong><code>verify</code>, <code>hey build</code> and <code>heyc --run</code> catch the change. <code>hey app.hey</code> runs the tampered code</strong> and printed <code>hey_cache 6.6.6</code>. Hey's own publishing guide (<code>docs/developers/package-publishing.md:74</code>) says compilers verify every imported module against the install record and the lock; on 606a the <code>hey file.hey</code> path doesn't. Until that's fixed, run <code>hey package verify</code> in CI and build anything you ship with <code>hey build</code>. <code>hey package ensure --project . --locked</code> puts the original bytes back.</p>
+</div>
+<p>There's also an explicit escape hatch, <code>HEY_PACKAGE_VERIFY=off</code>, documented as development-only. Whether to keep it is an open question in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a> (entry L-IMP-36, recommended: remove).</p>
+
+<h2 id="commands">6. Commands that come with a package</h2>
+<p><span class="badge b-works">Works today</span></p>
+<p>A package can ship commands written in Hey. Add <code>"hey_secret_lint": "0.1.2"</code>, run <code>ensure</code>, and a new <code>hey</code> subcommand appears for this project:</p>
+<pre><code><span class="cmd">$ hey package commands --project .</span>
+<span class="out">secret-lint hey_secret_lint@0.1.2 bin/secret-lint.hey</span>
+<span class="cmd">$ hey package command-path secret-lint --project .</span>
+<span class="out">./.hey/packages/hey_secret_lint/0.1.2/bin/secret-lint.hey</span>
+<span class="cmd">$ cat lintdemo/login.hey</span>
+<span class="out">fn admin?(supplied, expected)
+  return supplied == ('Basic ' + expected)
+end
+
+program
+  says admin?('Basic abc', 'abc')
+end</span>
+<span class="cmd">$ hey secret-lint lintdemo</span>
+<span class="out">lintdemo/login.hey:2: == on '('Basic ' + expected)' looks like a secret; use Crypto.constant_time_equal?(bytes(a), bytes(b))
+secret-lint: 1 finding in 1 file (1 .hey file scanned)</span>      <span class="out"># exit 1</span></code></pre>
+<p>Built-in commands can't be shadowed, two packages can't claim the same name, and Hey verifies the installed tree before each dispatch. Other packages with commands in the registry today: <code>hey_ios_tv</code> (<code>ios-tv-app</code>), <code>hey_android_tv</code> (<code>android-tv-app</code>), <code>hey_party</code> (<code>party</code>), <code>hey_mysql</code> (<code>mysql-dev</code>); <a href="2026-10-25-hey-guide-apps.html">Guide 5</a> uses the TV ones.</p>
+
+<h2 id="native">7. Packages with C inside</h2>
+<p><span class="badge b-works">Works today</span> with a build step you run yourself.</p>
+<p>Some packages wrap a C library: <code>hey_sqlite3</code>, <code>hey_postgres</code>, <code>hey_mysql</code>, <code>hey_zstd</code> and 13 others in the registry carry a <code>hey.native.json</code> file. Installing one proves its <em>source</em> bytes, not that its C half was compiled for your machine. You build that half once per target with the package's own <code>bin/build-native</code>, into your app's build folder, and point the app at the result. The elders_prayer_app's Dockerfile does exactly this for <code>hey_sqlite3</code>:</p>
+<pre><code>".hey/packages/hey_sqlite3/$version/bin/build-native" --out "$out"
+# then, in the runtime image:
+ENV HEY_SQLITE3_LIBRARY=/app/lib/libhey_sqlite3.so</code></pre>
+<p class="rows">Quoted from <code>elders_prayer_app/Dockerfile</code>; not run for this page. <a href="2026-10-25-hey-guide-web-server.html">Guide 4</a> builds and uses <code>hey_sqlite3</code>.</p>
+<ul>
+<li><span class="badge b-decided">Decided, coming</span> Direct typed calls into C, read from <code>hey.native.json</code> at build time and lowered in MIR to a plain LLVM call (about 40-90 instructions per call instead of about 5,400), ruled (decision ledger L-IMP-30); the import spelling <code>native:</code> was picked (L-IMP-31). Where it goes: the native ABI v2 release (estimate provisional, later if loaded). Details: <a href="2026-10-25-hey-native-code-and-c.html">native code and C</a>, schedule: <a href="2026-10-25-hey-roadmap.html">roadmap</a>.</li>
+<li><span class="badge b-proposed">Proposed</span> One declarative native build receipt per package, so a build records targets, toolchains, flags, libraries and artifact hashes the same way for every native package.</li>
+</ul>
+
+<h2 id="publish">8. Write and publish your own</h2>
+<p><span class="badge b-works">Works today</span> <code>hey package init</code>; <span class="badge b-partly">Partly works</span> the publish step.</p>
+<pre><code><span class="cmd">$ hey package init demo_pkg --path $PWD/demo_pkg --description "A tiny demo package"</span>
+<span class="out">Created Hey package demo_pkg@0.1.0
+path=/.../demo_pkg
+packager=hey_packager@0.1.0
+next: cd /.../demo_pkg &amp;&amp; bin/check</span>
+<span class="cmd">$ cat demo_pkg/src/main.hey</span>
+<span class="out"># A tiny demo package
+
+module DemoPkg
+  fn version()
+    return '0.1.0'
+  end
+
+  fn hello()
+    return 'hello from demo_pkg'
+  end
+end</span>
+<span class="cmd">$ cd demo_pkg &amp;&amp; HEY_ROOT=/path/to/hey bin/check</span>
+<span class="out">PASS: demo_pkg basic contract
+verified demo_pkg@0.1.0
+manifest sha256 57d19658604f98771280e1021f0527b78f168032ded6121331e9741791c7569c
+content sha256 bb7945697e1152b6ee13ab7bbcf6929588d42c8081d0d4ac924cdb0986a20d81
+demo_pkg v0.1.0 checks passed</span></code></pre>
+<p>You get source, a spec, <code>VERSION</code>, <code>hey-package.json</code>, docs, an example, and <code>bin/check</code>, <code>bin/release</code>, <code>bin/publish</code>, <code>bin/package-zip</code>, <code>bin/source-zip</code>. Every file you ship must be listed under <code>"files"</code> in the manifest, and every importable file under <code>"modules"</code>. Released versions never change: new bytes need a new version.</p>
+<p>Release and publishing live in a separate package, <code>hey_packager</code> (0.1.13), so website policy stays out of Hey itself. Its commands: <code>bin/bump</code> (move the version everywhere it's written), <code>bin/check</code>, <code>bin/release</code> (build the ZIP, the release JSON and checksums under <code>dist/</code>), <code>bin/publish</code> (copy into a registry folder and commit there; it never pushes), <code>bin/source-zip</code>, and <code>bin/registry-prune</code>.</p>
+<pre><code><span class="cmd">$ HEY_ROOT=/path/to/hey HEY_PACKAGER_ROOT=/path/to/hey_packager bin/release --registry-root /path/to/scratch-registry</span>
+<span class="out">...
+hey-packager release ok package=demo_pkg version=0.1.0 checked=true
+archive=.../demo_pkg/dist/demo_pkg-0.1.0.zip
+release=.../demo_pkg/dist/demo_pkg-0.1.0.release.json
+checksums=.../demo_pkg/dist/SHA256SUMS.txt
+publication=.../demo_pkg/dist/registry-publication/packages/demo_pkg/0.1.0
+publication_zip=.../demo_pkg/dist/demo_pkg-registry-publication-0.1.0.zip
+heyc: file not found: stdlib/Cli.hey
+hey-packager: Hey metadata compiler failed</span></code></pre>
+<div class="note warn">
+<p><strong>Three rough edges a new package author will hit on 606a:</strong></p>
+<ul>
+<li>The release files are built correctly, but the last step fails with <code>heyc: file not found: stdlib/Cli.hey</code> when run outside the Hey checkout. It's the same folder-dependent lookup that breaks <code>heyc --describe</code> (<a href="2026-10-25-hey-guide-first-steps.html#check">Guide 1</a>).</li>
+<li>The generated scripts default to developer paths (<code>$HOME/dev/hey-lang-bootstrap-plan</code>, <code>$HOME/dev/hey_packager</code>). On a machine without them, set <code>HEY_ROOT</code> and <code>HEY_PACKAGER_ROOT</code> as above; on a machine that has them, the scripts silently use those copies.</li>
+<li><code>init</code> records <code>hey_packager@0.1.0</code> although 0.1.13 is current.</li>
+</ul>
+<p>And remember section 4: <code>init</code> puts your module at <code>src/main.hey</code>, which today's native compiler can't import through <code>pkg:</code>.</p>
+</div>
+
+<h2 id="gaps">9. What doesn't work yet</h2>
+<div class="scroll"><table>
+<tr><th>Gap</th><th>Workaround</th><th>Tracked in</th></tr>
+<tr><td><code>pkg:</code> imports of modules under a package subfolder fail in <code>hey file.hey</code> and <code>hey build</code> (605a and 606a)</td><td>packages with root-level modules work; <code>heyc --run</code> works; apps use <code>heyc stage0-build</code></td><td>task <code>selfhost-package-module-alias-resolution</code> (P0)</td></tr>
+<tr><td><code>hey file.hey</code> runs package code that no longer matches the lock</td><td><code>hey package verify</code> in CI; ship with <code>hey build</code></td><td>found while writing this page; reported to the release line</td></tr>
+<tr><td><code>hey_cache</code> 0.1.0 in the registry can't be installed (<code>archive_duplicate_entry: hey-package.json</code>)</td><td>use 0.1.1</td><td>found while writing this page</td></tr>
+<tr><td>Two-number ranges <code>~0.1</code> and <code>^0.1</code> are refused; Hey's own guide shows <code>~2.4</code></td><td>write <code>~0.1.0</code></td><td>found while writing this page</td></tr>
+<tr><td><code>hey_packager</code>'s publish step and <code>heyc --describe</code> fail outside the checkout</td><td>run from the checkout, or use <code>hey doc</code></td><td>found while writing this page</td></tr>
+<tr><td>The plan for this guide named <code>hey_cli</code> as the example package, but <code>hey_cli</code> isn't in the registry</td><td>this page uses <code>hey_cache</code>, <code>hey_config</code>, <code>hey_secret_lint</code></td><td>docs plan</td></tr>
+</table></div>
+
+<section class="notes" id="notes" aria-labelledby="notes-h">
+<h2 id="notes-h">Notes</h2>
+<ol>
+<li id="n1">Package install output must verify under the package manager's own verifier: 48431b.</li>
+</ol>
+</section>
+<footer>
+<h3>Status of everything on this page</h3>
+<div class="scroll"><table>
+<tr><th>Feature</th><th>Status</th></tr>
+<tr><td><code>hey package ensure --update-lock</code> / <code>--locked</code>, <code>verify</code>, <code>audit</code>, <code>init</code>; resolver (highest compatible, backtracking, ranges)</td><td><span class="badge b-works">Works today</span> (two-number ranges refused)</td></tr>
+<tr><td><code>pkg:name@version/alias</code> imports</td><td><span class="badge b-partly">Partly works</span> root-level modules only in native builds; run path skips the lock check</td></tr>
+<tr><td>Package-provided commands: <code>hey package commands</code>, <code>command-path</code>, <code>hey &lt;command&gt;</code></td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>hey_packager</code> 0.1.13: bump, check, release, publish, source-zip, registry-prune</td><td><span class="badge b-works">Works today</span>; publish fails outside the checkout on 606a</td></tr>
+<tr><td><code>native:</code> imports and direct typed C calls</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>One declarative native build receipt</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td><code>HEY_PACKAGE_VERIFY=off</code> escape hatch</td><td>open ruling; recommended for removal</td></tr>
+</table></div>
+<h3>Sources</h3>
+<ul>
+<li>Hey source (the 0.99.606a candidate): <code>docs/developers/3rd-party-packages.md:50-66</code> (ensure, --locked, resolver rules), <code>:76</code> (<code>pkg:</code> imports), <code>:90</code> (command-path), <code>:165</code> (<code>.gitignore</code>); <code>docs/developers/package-publishing.md:75</code> (<code>HEY_PACKAGE_VERIFY</code>), <code>:105</code> (<code>package init</code>); <code>stdlib/Packages.hey:338</code> (<code>caret_range</code>); <code>stdlib/HeySemantics.hey:164-193</code> (<code>pkg:</code> handling).</li>
+<li>Registry <code>https://www.jayteesf.com/packages/registry-v1.json</code> and the site's <code>packages/</code> folder,; packages <code>hey_cache</code> 0.1.1, <code>hey_config</code> 0.1.1, <code>hey_secret_lint</code> 0.1.2, <code>hey_packager</code> 0.1.13 (<code>hey_packager</code> README and docs/GETTING_STARTED.md).</li>
+<li><code>elders_prayer_app/Dockerfile</code> (native build and stage-0 build steps).</li>
+<li>Runs: the 0.99.606a candidate toolchain, every <code>HEY_*</code> variable cleared, scratch cache, macOS arm64,. The <code>hey_config</code> import failure was also reproduced with 0.99.605a in its Linux x64 toolchain image.</li>
+</ul>
+<h3>Read next</h3>
+<ul>
+<li><a href="2026-10-25-hey-guide-cli-tool.html">Guide 3: Build a command-line tool</a></li>
+<li><a href="2026-10-25-hey-modules-imports-exports.html">Modules, imports and exports</a> (how <code>pkg:</code> fits with every other import form)</li>
+<li><a href="2026-10-25-hey-native-code-and-c.html">Native code and C</a></li>
+<li><a href="2026-10-25-hey-every-decision.html">Every decision, in one ledger</a></li>
+</ul>
+<p>This guide replaces the repo's <code>docs/developers/3rd-party-packages.md</code>, <code>package-publishing.md</code>, and the packages half of <code>modules-and-packages.md</code>.</p>
+</footer>
+</div>
+</body>
+</html>

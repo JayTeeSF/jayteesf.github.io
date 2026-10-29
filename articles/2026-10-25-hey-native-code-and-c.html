@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="How Hey calls C today (a hey.native.json manifest, a generated shim, Native.open and Native.call), what one call costs and why, the decided direct typed calls of native ABI v2, the open picks, and the 16 packages that re-release. Every sample compiled and run.">
+<meta name="article-date" content="2026-10-25">
+<meta name="article-bucket" content="reference">
+<meta name="article-index-title" content="Reference 7: Hey native code and calling C">
+<meta name="article-index-desc" content="Native packages today (manifest, shim, Native.call, blocking rules), what a call costs, the decided direct calls of native ABI v2, open picks, and the 16 packages.">
+<title>Hey native code and calling C</title>
+<style>
+:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
+--link:#1d4fb8;--acc:#1d4fb8;--acc-bg:#e7eefc;--good:#17703a;--good-bg:#e3f3e8;--warn:#875700;--warn-bg:#fcf1d6;--bad:#a8261d;--bad-bg:#fbe7e4;--violet:#5a3a9c;--violet-bg:#efe9fb;
+--code-bg:#f0eee8;--code-fg:#17181c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}}
+:root[data-theme="dark"]{--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:1.4rem 16px 4rem}
+a{color:var(--link);text-underline-offset:.16em}
+h1{font-size:clamp(1.9rem,5vw,2.8rem);line-height:1.12;margin:.3rem 0 .8rem}
+h2{font-size:1.5rem;line-height:1.22;margin:3rem 0 .5rem;padding-top:.6rem;border-top:1px solid var(--line)}
+h3{font-size:1.12rem;margin:1.8rem 0 .4rem}
+p,li{max-width:76ch}
+.eyebrow{color:var(--muted);font-size:.88rem;margin:0}
+.lede{font-size:1.16rem;max-width:68ch}
+.summary{background:var(--acc-bg);border-left:5px solid var(--acc);border-radius:8px;padding:.75rem 1rem;margin:.6rem 0 1rem}
+.summary strong:first-child{display:block;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:.85rem 1rem;overflow-x:auto;line-height:1.45;font-size:.9rem}
+pre code{overflow-wrap:normal}
+pre.out{background:var(--surface);border-left:5px solid var(--good)}
+pre.out.failed{border-left-color:var(--bad)}
+.runlabel{font-size:.8rem;color:var(--muted);margin:-.4rem 0 .2rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.note{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--acc);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+.note.warn{border-left-color:var(--warn)}.note.good{border-left-color:var(--good)}.note.bad{border-left-color:var(--bad)}
+.note>p:first-child{margin-top:0}.note>p:last-child{margin-bottom:0}
+.puzzle{background:var(--violet-bg);border:1px dashed var(--violet);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.6rem 1rem;margin:1rem 0}
+summary{font-weight:700;cursor:pointer}
+details[open]>summary{margin-bottom:.6rem}
+.fig{margin:1.2rem 0 1.4rem;padding:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:600px}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.5rem}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--surface2)}
+.badge{display:inline-block;padding:.02rem .45rem;border-radius:4px;font-size:.76rem;font-weight:700;border:1px solid currentColor;white-space:nowrap;vertical-align:.08em}
+.b-works{background:var(--good-bg);color:var(--good)}
+.b-partly{background:var(--warn-bg);color:var(--warn)}
+.b-decided{background:var(--acc-bg);color:var(--acc)}
+.b-proposed{background:var(--violet-bg);color:var(--violet)}
+.b-removing{background:var(--bad-bg);color:var(--bad)}
+.legend span{margin-right:.5rem}
+.id{font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:var(--muted)}
+nav.toc ol{columns:2;column-gap:2rem;padding-left:1.2rem;margin:.4rem 0}
+nav.toc li{break-inside:avoid;margin:.15rem 0}
+.youarehere{display:flex;flex-wrap:wrap;gap:.3rem;margin:.8rem 0 1.2rem;font-size:.8rem}
+.youarehere a,.youarehere span{padding:.15rem .5rem;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--muted);background:var(--surface)}
+.youarehere span.here{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
+/* SVG classes: every diagram colour comes from the tokens above, so light and dark both work */
+svg text{fill:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:13px}
+svg .muted{fill:var(--muted)}
+svg .small{font-size:11px}
+svg .bold{font-weight:700}
+svg .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+svg .box2{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+svg .acc{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.5}
+svg .good{fill:var(--good-bg);stroke:var(--good);stroke-width:1.5}
+svg .warn{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.5}
+svg .bad{fill:var(--bad-bg);stroke:var(--bad);stroke-width:1.5}
+svg .vio{fill:var(--violet-bg);stroke:var(--violet);stroke-width:1.5}
+svg .line{stroke:var(--mid);stroke-width:1.6;fill:none}
+svg .dash{stroke:var(--muted);stroke-width:1.4;fill:none;stroke-dasharray:5 4}
+svg .badline{stroke:var(--bad);stroke-width:2;fill:none}
+svg .goodline{stroke:var(--good);stroke-width:2;fill:none}
+svg .accline{stroke:var(--acc);stroke-width:2;fill:none}
+svg .arrowhead{fill:var(--mid)}
+svg .t-good{fill:var(--good)}svg .t-bad{fill:var(--bad)}svg .t-acc{fill:var(--acc)}svg .t-warn{fill:var(--warn)}svg .t-vio{fill:var(--violet)}
+@media (max-width:700px){nav.toc ol{columns:1}body{font-size:16px}}
+
+.notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
+.notes ol{padding-left:1.4rem}
+sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="eyebrow">Reference 7 of 11 · toolchain 0.99.606a (candidate build)</p>
+<h1>Native code and calling C: today's packages, and the direct calls that are decided</h1>
+
+<nav class="youarehere" aria-label="Where this page sits in the Hey documentation">
+<a href="2026-10-25-hey-index.html">Index</a>
+<a href="2026-10-25-hey-guide-packages.html">Guide 2: Packages</a>
+<a href="2026-10-25-hey-standard-library.html">Reference 6: Standard library</a>
+<span class="here">Reference 7: Native code and C</span>
+<a href="2026-10-25-hey-compiler-from-source-to-native.html">Compiler 1: From source to native</a>
+<a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: Memory</a>
+<a href="2026-10-25-hey-performance.html">Reference 9: Performance</a>
+</nav>
+
+<p class="lede">Some things are already written in C and written well: SQLite, PostgreSQL's client, zstd, epoll and
+kqueue. Hey uses them through <strong>native packages</strong>. Today a call goes through a general-purpose door that
+costs thousands of instructions for a few nanoseconds of C. The decided fix is to make a C function an ordinary
+import and an ordinary call.</p>
+
+<div class="summary"><strong>On one screen</strong>
+Today <span class="badge b-works">Works today</span> (Unix): describe the C functions in <code>hey.native.json</code>,
+run <code>hey native</code> to generate a <em>shim</em> (small generated C glue between Hey and the library), and call through <code>Native.open</code> and <code>Native.call</code>.
+Hey's internal value type never crosses into C. Each call costs about 5,400 instructions, of which the C work is about
+100. Decided <span class="badge b-decided">Decided, coming</span>: <em>native ABI v2</em>, typed calls bound at compile
+time, estimated 40 to 90 instructions, after the String format freezes (Phase S step S2). Five picks are waiting for
+rulings. The way to C for your code is native packages, and that is ruled.</div>
+
+<p class="legend">Badges: <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span>
+<span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span>
+<span class="badge b-removing">Being removed</span>.</p>
+
+<nav class="toc" aria-label="Contents"><ol>
+<li><a href="#why">Why native packages, and the one rule</a></li>
+<li><a href="#today">Calling C today</a></li>
+<li><a href="#cost">What one call costs, and why</a></li>
+<li><a href="#v2">Decided: direct typed calls (native ABI v2)</a></li>
+<li><a href="#open">Open picks, and the ruled path to C</a></li>
+<li><a href="#packages">The 16 packages that re-release</a></li>
+<li><a href="#limits">Limits</a></li>
+<li><a href="#sources">Sources and read next</a></li>
+</ol></nav>
+
+<h2 id="why">1. Why native packages exist, and the one rule</h2>
+<p>A Hey value in memory (the runtime's <code>HeyValue</code>) has a layout that changes between releases: it is
+changing right now, as Strings move to a 16-byte form. If C code could see that layout, every release would break every
+C library. So the rule is: <strong><code>HeyValue</code> never crosses into C.</strong> C sees only booleans, fixed-size
+integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec
+fails the build if the package-facing header ever mentions <code>HeyValue</code>.
+<span class="badge b-works">Works today</span></p>
+
+<h2 id="today">2. Calling C today</h2>
+<p>A tiny C library with two functions, <code>add_i64</code> and <code>scale_i64</code>. The manifest says what each
+takes and returns, who owns what, whether it can be null, whether it <strong>blocks</strong> (waits on disk or network),
+and whether it is safe to call from two threads at once:</p>
+<p class="runlabel">hey.native.json</p><pre><code>{
+  &quot;schema&quot;: &quot;hey-native-package-v1&quot;,
+  &quot;name&quot;: &quot;native_math&quot;,
+  &quot;version&quot;: &quot;0.1.0&quot;,
+  &quot;target&quot;: &quot;host&quot;,
+  &quot;headers&quot;: [&quot;native_math.h&quot;],
+  &quot;sources&quot;: [&quot;native_math.c&quot;],
+  &quot;libraries&quot;: [],
+  &quot;functions&quot;: [
+    {
+      &quot;name&quot;: &quot;add_i64&quot;,
+      &quot;symbol&quot;: &quot;native_math_add_i64&quot;,
+      &quot;arguments&quot;: [
+        {&quot;name&quot;: &quot;left&quot;, &quot;type&quot;: &quot;i64&quot;, &quot;ownership&quot;: &quot;none&quot;, &quot;nullable&quot;: false},
+        {&quot;name&quot;: &quot;right&quot;, &quot;type&quot;: &quot;i64&quot;, &quot;ownership&quot;: &quot;none&quot;, &quot;nullable&quot;: false}
+      ],
+      &quot;return&quot;: {&quot;type&quot;: &quot;i64&quot;, &quot;ownership&quot;: &quot;none&quot;, &quot;nullable&quot;: false},
+      &quot;blocking&quot;: false,
+      &quot;thread_safe&quot;: true
+    },
+    {
+      &quot;name&quot;: &quot;scale_i64&quot;,
+      &quot;symbol&quot;: &quot;native_math_scale_i64&quot;,
+      &quot;arguments&quot;: [
+        {&quot;name&quot;: &quot;value&quot;, &quot;type&quot;: &quot;i64&quot;, &quot;ownership&quot;: &quot;none&quot;, &quot;nullable&quot;: false},
+        {&quot;name&quot;: &quot;factor&quot;, &quot;type&quot;: &quot;i64&quot;, &quot;ownership&quot;: &quot;none&quot;, &quot;nullable&quot;: false}
+      ],
+      &quot;return&quot;: {&quot;type&quot;: &quot;i64&quot;, &quot;ownership&quot;: &quot;none&quot;, &quot;nullable&quot;: false},
+      &quot;blocking&quot;: true,
+      &quot;thread_safe&quot;: true
+    }
+  ]
+}</code></pre>
+<p>Generate the shim. The <em>descriptor symbol</em> is the name of one exported C table that lists the package's
+functions and their types; Hey looks it up once when it opens the library. <code>hey native</code> writes the versioned C header, a deterministic wrapper, and a lock file<sup><a href="#n1">1</a></sup>
+recording the ABI version, target, manifest hash, sources, headers, libraries and the descriptor symbol.</p>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey native --manifest ~/myapp/hey.native.json --out ~/myapp/generated --target host &amp;&amp; ls generated
+native_package=native_math
+native_abi_version=2
+manifest_sha256=0238394214c30afb9deba1e1164bc77ed3f0e0f1273017dee6dc2577dc7cff3f
+generated_header=~/myapp/generated/native_math_ffi.h
+generated_source=~/myapp/generated/native_math_ffi.c
+generated_lock=~/myapp/generated/hey.native.lock.json
+hey_native_abi.h
+hey.native.lock.json
+native_math_ffi.c
+native_math_ffi.h
+$ echo $?
+0</code></pre>
+<div class="note warn"><p><strong>Use absolute paths.</strong> With relative paths the same command fails on this
+toolchain (and on 0.99.604a), because the generator reads the manifest relative to the toolchain, not your directory:</p>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out failed"><code>$ hey native --manifest hey.native.json --out generated --target host
+hey error: could not open read file
+  at ~/hey/stdlib/Files.hey:1:1 in function
+  at tools/hey_native_generate.hey:4:1 in repl
+$ echo $?
+70</code></pre>
+<p>Reported to the Hey maintainers for triage.</p></div>
+<p>Compile the library (on Linux use <code>cc -shared</code> and <code>.so</code>):</p>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ cc -dynamiclib -fPIC -std=c11 -Wall -Wextra -Werror -Igenerated -I. generated/native_math_ffi.c native_math.c -o libnative_math.dylib &amp;&amp; ls -l libnative_math.dylib
+-rwxr-xr-x 33944 libnative_math.dylib
+$ echo $?
+0</code></pre>
+<p>Then load and call it. <code>Native.call</code> refuses a function marked <code>blocking: true</code>;<sup><a href="#n2">2</a></sup> that one goes
+through <code>Native.call_blocking</code>, here from a Job so no scheduler thread is held.
+ <span class="badge b-works">Works today</span></p>
+<p class="runlabel">native_today.hey</p><pre><code>import &#39;stdlib:Native&#39;
+import &#39;stdlib:Jobs&#39;
+
+worker Scale(message)
+  return Native.call_blocking(message.extension, &#39;scale_i64&#39;, [message.value, 6]).value
+end
+
+program
+  let opened = Native.open(&#39;./libnative_math.dylib&#39;, &#39;hey_native_native_math_extension_v1&#39;)
+  says opened.ok
+  says opened.value.package
+  says opened.value.abi_version
+
+  let extension = opened.value.handle
+  says Native.status(extension).value.function_count
+
+  says Native.call(extension, &#39;add_i64&#39;, [20, 22]).value
+
+  let refused = Native.call(extension, &#39;scale_i64&#39;, [7, 6])
+  says refused.code
+
+  let Scales = Jobs.define(&#39;Scales&#39;, Scale, count: 1, capacity: 4)
+  let receipt = Scales.enqueue({extension: extension, value: 7})
+  says Jobs.result(Scales, receipt, 1000).value
+  let stopped = Scales.stop()
+
+  says Native.close(extension).ok
+  says Native.call(extension, &#39;add_i64&#39;, [1, 1]).code
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey native_today.hey
+true
+native_math
+2
+2
+42
+native_call_blocking
+42
+true
+native_handle_closed
+$ echo $?
+0</code></pre>
+<p>Line by line: opened, package <code>native_math</code>, ABI version 2, 2 functions, <code>add_i64</code> gives 42,
+<code>Native.call</code> on the blocking <code>scale_i64</code> is refused with <code>native_call_blocking</code>, the
+Job's <code>call_blocking</code> gives 42, close succeeds, and a call after close gets
+<code>native_handle_closed</code>.</p>
+
+<div class="scroll"><table>
+<thead><tr><th>Call</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code>Native.open(path, descriptor_symbol)</code></td><td>Loads the library once, checks the ABI version and descriptor shape, returns an opaque capability (a handle).</td></tr>
+<tr><td><code>Native.status(handle)</code></td><td>Package, version, target, hash and function count; never a pointer.</td></tr>
+<tr><td><code>Native.call(handle, name, args)</code></td><td>Looks the function up by name, converts each argument by the descriptor's type tag, calls, converts back, returns a Result. Refuses blocking functions (<code>native_call_blocking</code>).</td></tr>
+<tr><td><code>Native.call_blocking(handle, name, args)</code></td><td>The same, allowed for blocking functions.</td></tr>
+<tr><td><code>Native.close(handle)</code></td><td>Removes the capability first, waits for active calls, then closes. Later calls get <code>native_handle_closed</code>.</td></tr>
+</tbody></table></div>
+<div class="note warn"><p><strong>Where may blocking calls run?</strong> <span class="badge b-partly">Partly works</span> The intended rule is "only from a bounded
+worker or Job". Today it is a comment in <code>stdlib/Native.hey</code>, not a check: nothing stops
+<code>call_blocking</code> anywhere, including inside an actor, where it would hold a shared scheduler thread.</p></div>
+<p class="runlabel">blocking_in_program.hey</p><pre><code>import &#39;stdlib:Native&#39;
+
+program
+  let extension = Native.open(&#39;./libnative_math.dylib&#39;, &#39;hey_native_native_math_extension_v1&#39;).value.handle
+  says Native.call_blocking(extension, &#39;scale_i64&#39;, [7, 6]).value
+  says Native.close(extension).ok
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey blocking_in_program.hey
+42
+true
+$ echo $?
+0</code></pre>
+<p>Functions not marked <code>thread_safe: true</code> are serialized per extension. An immutable Hey record holding a
+handle does not make the C resource immutable or thread-safe; keep stateful resources under one owner, often a
+partitioned Job.</p>
+
+<h2 id="cost">3. What one call costs today, and why</h2>
+<figure class="fig">
+<svg viewBox="0 0 760 300" role="img" aria-labelledby="f1t">
+<title id="f1t">Today's call takes seven steps: build the argument list, box the name, find the extension by handle and the function by name, convert each argument by tag, lock and call the generic invoke switch, convert the result back and build a Result record, then release it all. The C work is about one percent. The decided direct call is one step: a typed call to a flat wrapper.</title>
+<defs><marker id="f1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<text x="20" y="24" class="bold">today: Native.call(db, 'changes', [db])</text>
+<g class="small">
+<rect x="20" y="36" width="96" height="58" rx="6" class="warn"/><text x="68" y="58" text-anchor="middle">1 build the</text><text x="68" y="74" text-anchor="middle">argument list</text>
+<rect x="122" y="36" width="96" height="58" rx="6" class="warn"/><text x="170" y="58" text-anchor="middle">2 box the</text><text x="170" y="74" text-anchor="middle">name string</text>
+<rect x="224" y="36" width="96" height="58" rx="6" class="warn"/><text x="272" y="58" text-anchor="middle">3 find handle,</text><text x="272" y="74" text-anchor="middle">strcmp name</text>
+<rect x="326" y="36" width="96" height="58" rx="6" class="warn"/><text x="374" y="58" text-anchor="middle">4 convert args</text><text x="374" y="74" text-anchor="middle">by type tag</text>
+<rect x="428" y="36" width="96" height="58" rx="6" class="good"/><text x="476" y="58" text-anchor="middle">5 lock, invoke</text><text x="476" y="74" text-anchor="middle">switch → C</text>
+<rect x="530" y="36" width="96" height="58" rx="6" class="bad"/><text x="578" y="58" text-anchor="middle">6 build the</text><text x="578" y="74" text-anchor="middle">Result record</text>
+<rect x="632" y="36" width="110" height="58" rx="6" class="bad"/><text x="687" y="58" text-anchor="middle">7 release it</text><text x="687" y="74" text-anchor="middle">all, read .value</text>
+</g>
+<text x="20" y="122" class="small muted">605a profile: Result build 33% · releasing it 18% · argument list 12% · other releases 8.5% · the C work itself 0.9%</text>
+<rect x="20" y="132" width="722" height="22" rx="4" class="box2"/>
+<rect x="20" y="132" width="7" height="22" class="good"/>
+<text x="34" y="148" class="small">← the useful part (about 100 instructions of about 5,400 on the 606a branch)</text>
+<text x="20" y="200" class="bold">decided: Sqlite3Raw.changes(db)</text>
+<rect x="20" y="212" width="300" height="58" rx="6" class="good"/>
+<text x="170" y="236" text-anchor="middle" class="small">one direct call to a flat C wrapper</text>
+<text x="170" y="254" text-anchor="middle" class="small">(plus a lock if not thread-safe)</text>
+<text x="340" y="246" class="small t-good bold">estimate: 40 to 90 instructions</text>
+</svg>
+<figcaption>Figure 1. Today's seven-step call against the decided direct call. Instruction counts from the design record
+(re-measured on the 606a branch: about 5,374 per call; 605a: 11,537).</figcaption>
+</figure>
+<div class="puzzle"><strong>Predict it.</strong> <code>add_i64</code> adds two integers in C. Is calling it through
+<code>Native.call</code> faster or slower than calling a Hey function that does the same addition? By how much?</div>
+<p>On this toolchain, a million calls of the two-integer <code>add_i64</code> against a million calls of the same
+addition written in Hey (built with <code>hey build</code>, timed inside the program):</p>
+<p class="runlabel">call_cost.hey</p><pre><code>import &#39;stdlib:Native&#39;
+
+fn add(left, right)
+  return left + right
+end
+
+program
+  let n = 1000000
+  let extension = Native.open(&#39;./libnative_math.dylib&#39;, &#39;hey_native_native_math_extension_v1&#39;).value.handle
+
+  let started = now_ns()
+  let total = 0
+  let i = 0
+  while i &lt; n
+    set total = total + Native.call(extension, &#39;add_i64&#39;, [i, 1]).value
+    set i = i + 1
+  end
+  let native_ns = now_ns() - started
+
+  set started = now_ns()
+  let plain = 0
+  set i = 0
+  while i &lt; n
+    set plain = plain + add(i, 1)
+    set i = i + 1
+  end
+  let plain_ns = now_ns() - started
+
+  says &#39;same answer: &#39; + (total == plain)
+  says &#39;Native.call: &#39; + div(native_ns, n) + &#39; ns per call&#39;
+  says &#39;Hey function: &#39; + div(plain_ns, n) + &#39; ns per call&#39;
+  says Native.close(extension).ok
+end</code></pre>
+<p class="runlabel">Run it (trimmed; full output below)</p><pre class="out"><code>$ hey build call_cost.hey -o call_cost &amp;&amp; ls -l call_cost
+[30 selfhost_ diagnostic lines hidden here; full output below]
+built ~/myapp/call_cost
+-rwxr-xr-x 173048 call_cost
+$ echo $?
+0</code></pre><details><summary>Full output, including the 30 selfhost_ lines the compiler prints on every build</summary><pre class="out"><code>$ hey build call_cost.hey -o call_cost &amp;&amp; ls -l call_cost
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=3ffb9b4b4324cbe2fdda3dea68a719d5549bb1b9e0d2c6a4cc67b91c046c0699
+selfhost_build_outcome=started
+selfhost_driver_language=hey
+selfhost_compile_request=3aecfd0ae795c65bb757c84056f12d002ea78fbd4d63fc48c9ebb9f6c9bd351a
+selfhost_semantic_request=3ffb9b4b4324cbe2fdda3dea68a719d5549bb1b9e0d2c6a4cc67b91c046c0699
+selfhost_hir_sha256=7e8f4b07b5dc128b645bc38f81ce35613c361bbd8732ba072f5f00a22fe96ff3
+selfhost_mir_sha256=6aaaa5014ebdd7a232364f997e45e9fd0a66a1483489918902e5c9000d535c64
+selfhost_frontend=hey
+selfhost_emitter_backend=llvm
+selfhost_output_backend=llvm
+selfhost_hir=hey-hir-0.1
+selfhost_mir=hey-mir-0.1
+selfhost_consumer=hey-llvm-text
+selfhost_legacy_fallback_count=0
+selfhost_legacy_fallback_forced=false
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_sidecar_key=0d15ffac1e87e4a9df0b9cf071b812069c92b36ad8bc154b6b0b6d313fe03c0f
+selfhost_sidecar_dir=~/hey/build/compiler-sidecars/0d15ffac1e87e4a9df0b9cf0
+selfhost_pipeline_lane=product
+selfhost_pipeline_app=~/hey/build/hey-selfc-pipeline-product
+selfhost_pipeline_sha256=3802136218fbc14f3e7c266391ba17fe6480d870e618918502a799849b65a266
+selfhost_resolver_sha256=f907e93457c4fb4bf7f30cb120b1f3a5eabb9142e0ff4c44b1d345b92079dfee
+selfhost_sidecar_ms=436
+selfhost_link_ms=11299
+selfhost_build_ms=11736
+selfhost_reflection_metadata=true
+selfhost_frontend_shadow=disabled
+selfhost_frontend_shadow_ok=true
+selfhost_build_outcome=ok
+built ~/myapp/call_cost
+-rwxr-xr-x 173048 call_cost
+$ echo $?
+0</code></pre></details>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ ./call_cost
+same answer: true
+Native.call: 561 ns per call
+Hey function: 35 ns per call
+true
+$ echo $?
+0</code></pre>
+<p>On this 12-core Mac, one <code>Native.call</code> of a C function that adds two integers took about 560 ns
+(561 in this run, 555 on 0.99.604a); the same loop calling a Hey function took 35 ns. One run each, timed with
+<code>now_ns()</code> inside the program, so treat the numbers as a size, not a benchmark. The gap is the seven steps
+in the picture: building and freeing a list and a Result per call, not the addition.</p>
+
+
+<h2 id="v2">4. Decided: direct, typed calls (the native ABI v2 release)</h2>
+<p> <span class="badge b-decided">Decided, coming</span> (direction decided; implementation in progress, not merged).<sup><a href="#n3">3</a></sup> You import a package's
+functions as a module and call them like Hey functions. The compiler binds each call at compile time:</p>
+<pre><code># proposed spelling (pick Native 1, not yet ruled)
+import 'native:hey_sqlite3'
+
+let changed = Sqlite3Raw.changes(db)</code></pre>
+<figure class="fig">
+<svg viewBox="0 0 760 170" role="img" aria-labelledby="f2t">
+<title id="f2t">Pipeline: the manifest is turned by hey native into a hash-checked lock file; the resolver gives each function a native identity; MIR records the signature, representation and ownership of each argument and the verifier checks it; LLVM emits a declare and a direct call.</title>
+<defs><marker id="f2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<g class="small">
+<rect x="10" y="40" width="130" height="80" rx="8" class="box2"/><text x="75" y="66" text-anchor="middle" class="bold">hey.native.json</text><text x="75" y="86" text-anchor="middle">v2: module,</text><text x="75" y="102" text-anchor="middle">binding, failure</text>
+<path d="M140 80 L160 80" class="line" marker-end="url(#f2a)"/>
+<rect x="162" y="40" width="130" height="80" rx="8" class="box2"/><text x="227" y="66" text-anchor="middle" class="bold">lock file</text><text x="227" y="86" text-anchor="middle">signatures +</text><text x="227" y="102" text-anchor="middle">manifest SHA-256</text>
+<path d="M292 80 L312 80" class="line" marker-end="url(#f2a)"/>
+<rect x="314" y="40" width="130" height="80" rx="8" class="acc"/><text x="379" y="66" text-anchor="middle" class="bold">resolver</text><text x="379" y="86" text-anchor="middle">native identity</text><text x="379" y="102" text-anchor="middle" font-family="monospace">@n1.8</text>
+<path d="M444 80 L464 80" class="line" marker-end="url(#f2a)"/>
+<rect x="466" y="40" width="140" height="80" rx="8" class="acc"/><text x="536" y="62" text-anchor="middle" class="bold">MIR decides</text><text x="536" y="80" text-anchor="middle">unboxed operands,</text><text x="536" y="96" text-anchor="middle">borrows; verifier</text><text x="536" y="112" text-anchor="middle">checks vs lock</text>
+<path d="M606 80 L626 80" class="line" marker-end="url(#f2a)"/>
+<rect x="628" y="40" width="122" height="80" rx="8" class="good"/><text x="689" y="66" text-anchor="middle" class="bold">LLVM obeys</text><text x="689" y="86" text-anchor="middle">declare + direct</text><text x="689" y="102" text-anchor="middle">call</text>
+</g>
+<text x="380" y="150" text-anchor="middle" class="small muted">No name lookup, argument list, conversion or Result per call, unless the manifest says the function can fail.</text>
+</svg>
+<figcaption>Figure 2. From manifest to call. The <em>resolver</em> is the compiler stage that decides which definition
+each name means and gives it a numbered identity (<code>@n1.8</code>: package 1, function 8). <em>MIR</em> is the
+compiler's middle form, where representation and ownership are decided; the <em>verifier</em> re-checks MIR after every
+pass; <em>LLVM</em> turns it into machine code and never guesses.</figcaption>
+</figure>
+<div class="scroll"><table>
+<thead><tr><th>Piece</th><th>What it is</th><th>Status</th></tr></thead><tbody>
+<tr><td>Statically bound typed calls</td><td>An ordinary import and call; estimated 40 to 90 instructions per call (an estimate, not a measurement; the release goal is at most 200, measured by the doubling method: run n, 2n
+and 4n calls and take the difference, so start-up cost cancels out).</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>Pointer-and-length borrowed views at the C boundary</td><td>Text and bytes passed as <code>(data, length)</code> pointing at Hey's own storage, valid only during the call. Flat C wrappers with scalar parameters keep the platform's struct-passing rules clang's job.</td><td><span class="badge b-decided">Decided, coming</span> (scope of task <code>native-abi-v2-release</code>)</td></tr>
+<tr><td>Callback and native-effect summaries</td><td>Each native function's effects (what it keeps, what it calls back) declared and checked, so ownership and regions stay correct across the call; unknown fails closed.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>Manifest and hash authority</td><td>The compiler reads only the generated, hash-checked lock file; a stale lock is refused.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>Sequencing after Phase S S2</td><td>The physical String bridges wait for Phase S step S2 (the 16-byte String ABI freeze, see <a href="2026-10-25-hey-values-memory-and-strings.html">Values, memory and Strings</a>). The 16-package rollout must not block Phase S.</td><td><span class="badge b-decided">Decided, coming</span> (sequencing)</td></tr>
+</tbody></table></div>
+<p><strong>When.</strong> No release number is assigned yet ("version assigned when qualification is ready"). The
+ estimate audit put the native work at 56 to 100 clean work-hours (86 to 156 with likely issues) plus the
+dependent packages, with a provisional estimate (clean) or a longer one (loaded), conditional
+on the S2 freeze, the package inventory and platform access. That audit calls itself an uncalibrated scenario
+forecast, not a commitment. The schedule lives in <a href="2026-10-25-hey-roadmap.html">Reference 11: Roadmap</a>.</p>
+
+<h2 id="open">5. Open picks, and the ruled path to C</h2>
+<p>The design's author (an agent) picked an answer for each question so work was not blocked; each is reversible and
+waits for the Maintainer. <span class="badge b-proposed">Proposed</span></p>
+<div class="scroll"><table>
+<thead><tr><th>#</th><th>Question</th><th>Pick</th><th>Status</th></tr></thead><tbody>
+<tr><td>Native 1</td><td>How does a program import a package's functions?</td><td><code>import 'native:hey_sqlite3'</code>; the manifest's <code>module</code> field names the module</td><td><span class="badge b-proposed">Proposed</span> (being built on the branch)</td></tr>
+<tr><td>Native 2</td><td>Where may blocking calls run?</td><td>Checked by the compiler. The calling-C article's pick: only inside a Job or worker. The design record adds a note: allowed in a Job, a worker and the top-level program block; refused in actors and request handlers. The two records disagree on the program block and on whether this is ruled.</td><td><span class="badge b-proposed">Proposed</span> (records conflict)</td></tr>
+<tr><td>Native 3</td><td>A bad value at run time (an Int too big for 32 bits): stop or return a Result?</td><td>Fail fast, as everywhere else in Hey</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Native 4</td><td>Android has no system SQLite: carry the C source, or name a library per target?</td><td>The package carries the source; a per-target path also allowed</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Native 5</td><td>Typed handles (today a C pointer shown to Hey as an Int)?</td><td>After 606a</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+</tbody></table></div>
+
+<h3>Ruled: the way to C is native packages</h3>
+<div class="note"><p><strong>Ruled.</strong>
+<span class="badge b-decided">Decided</span> Your code reaches C through native packages: a <code>hey.native.json</code>
+manifest, <code>Native.open</code> and <code>Native.call</code> today, and the decided direct typed calls of native ABI v2 later.
+There is no other way to declare C functions in Hey source, and none is coming. Hey's own built-in functions are bound to
+the runtime inside the toolchain; your code calls them like any other Hey function. See the
+<a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</p></div>
+
+<h2 id="packages">6. The 16 packages that re-release</h2>
+<p> <span class="badge b-works">Works today</span> (as packages on the current manifest
+format). All 16 local repositories with a <code>hey.native.json</code> use manifest schema
+<code>hey-native-package-v1</code> with the ABI v2 value types, and all will re-release for native ABI v2: new manifest,
+regenerated lock, adapters switched from <code>Native.call(ext, 'name', [...])</code> to <code>Module.name(...)</code>,
+version bump, package check, publish, then their dependents.</p>
+<div class="scroll"><table>
+<thead><tr><th>Family</th><th>Packages</th></tr></thead><tbody>
+<tr><td>Databases</td><td><code>hey_sqlite3</code>, <code>hey_postgres</code>, <code>hey_mysql</code>, <code>hey_duckdb</code></td></tr>
+<tr><td>I/O readiness</td><td><code>hey_epoll</code>, <code>hey_kqueue</code>, <code>hey_io_uring</code>, <code>hey_iocp</code></td></tr>
+<tr><td>Storage and durability</td><td><code>hey_durable_log</code>, <code>hey_s3</code></td></tr>
+<tr><td>Data and compression</td><td><code>hey_zstd</code>, <code>hey_roaring</code>, <code>hey_toml</code>, <code>hey_tsv</code></td></tr>
+<tr><td>Security</td><td><code>hey_scrypt</code>, <code>hey_jose</code></td></tr>
+</tbody></table></div>
+<p>The <code>hey native</code> command and its flags are listed in <a href="2026-10-25-hey-commands-and-platforms.html">Commands and platforms</a>.</p>
+
+<h2 id="limits">7. Limits</h2>
+<ul>
+<li><strong>A native call cannot be interrupted, by any scheme.</strong>
+<span class="badge b-works">Works today</span> (a standing fact). Erlang's "dirty NIFs" (C functions run on separate
+scheduler threads), Wasmtime host calls and Go's cgo have the same limit. A stuck C call holds its thread until it returns; bound it inside
+the C library (SQLite's busy timeout, a socket deadline).</li>
+<li><strong>iOS</strong> forbids loading non-system libraries at run time, so native packages do not work there today;
+static binding (native ABI v2) fixes that by linking the package into the app.</li>
+<li><strong>Windows</strong> native loading and static registration, callback and thread-affinity rules, and browser
+targets are separate, later work. The platform probes for iOS, Android and Windows
+(<code>runtime/hey_ios_probe.c</code>, <code>hey_android_probe.c</code>, <code>hey_windows_*.c</code>) and their native
+receipts: <span class="badge b-works">Works today</span>, documented with the platform matrix in
+<a href="2026-10-25-hey-commands-and-platforms.html">Commands and platforms</a>.</li>
+</ul>
+
+<h2 id="sources">Sources</h2>
+<ul>
+<li>Hey source (samples run on the 0.99.606a candidate): <code>stdlib/Native.hey:1-27</code>;
+<code>runtime/hey_runtime.c:3169</code> (<code>hey_native_call_builtin</code>, today's seven-step call) and <code>:26856</code>
+(the non-blocking entry);
+<code>docs/developers/native-extensions.md</code>; <code>test/fixtures/native/math/</code>;
+<code>test/regression_native_ffi_loader.sh</code>; <code>specs/language/1006_native_ffi_manifest_and_abi.hey</code>,
+<code>1007_native_ffi_loader_and_lifecycle.hey</code>, <code>1012_external_database_packages.hey</code>;
+<code>runtime/hey_native_abi.h</code>.</li>
+<li>Packages: <code>hey_*/hey.native.json</code> (16 repositories).</li>
+</ul>
+<h2>Read next</h2>
+<ul>
+<li><a href="2026-10-23-calling-c-from-hey-directly.html">Calling C from Hey directly</a>: the proposal with the full option cards for Native 1 to 5.</li>
+<li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the Hey compiler turns source into native code</a>: built-in binding inside the toolchain, the resolver and MIR.</li>
+<li><a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4: Workers, Jobs and streams</a>: where blocking calls belong.</li>
+<li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>.</li>
+</ul>
+<section class="notes" id="notes" aria-labelledby="notes-h">
+<h2 id="notes-h">Notes</h2>
+<ol>
+<li id="n1">Native declaration facts are verified against lock files: e8bc74.</li>
+<li id="n2"><code>Native.call</code> and <code>Native.call_blocking</code> carry declared typed native calling conventions: f7e9f5.</li>
+<li id="n3">Work in progress on a branch: manifest version 2 (module, binding, source directory, failure) and statically bound native calls through a <code>native:</code> import: 14ca44, bbea2b.</li>
+</ol>
+</section>
+</div>
+</body>
+</html>

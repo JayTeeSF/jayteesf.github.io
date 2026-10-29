@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Hey actors from the first counter to supervision trees: declare, spawn, send, ask, await, link, monitor and supervise; how a failure ends only the actor that caused it; how the scheduler runs a million actors on a few threads; and what is decided next. Every sample compiled and run.">
+<meta name="article-date" content="2026-10-25">
+<meta name="article-bucket" content="reference">
+<meta name="article-index-title" content="Reference 3: Hey actors and failure">
+<meta name="article-index-desc" content="Actors, asking and answering, links, monitors, supervisors, the scheduler, and fail-fast containment: what works today, what is decided, every sample run.">
+<title>Hey actors and failure</title>
+<style>
+:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
+--link:#1d4fb8;--acc:#1d4fb8;--acc-bg:#e7eefc;--good:#17703a;--good-bg:#e3f3e8;--warn:#875700;--warn-bg:#fcf1d6;--bad:#a8261d;--bad-bg:#fbe7e4;--violet:#5a3a9c;--violet-bg:#efe9fb;
+--code-bg:#f0eee8;--code-fg:#17181c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}}
+:root[data-theme="dark"]{--bg:#121317;--ink:#ececf0;--mid:#cfd1d8;--muted:#a6a9b3;--line:#3b3d45;--surface:#1b1c21;--surface2:#24262c;
+--link:#93b4ff;--acc:#93b4ff;--acc-bg:#1d2843;--good:#82d69c;--good-bg:#183024;--warn:#efc56a;--warn-bg:#382d17;--bad:#ff958a;--bad-bg:#3a1e1b;--violet:#c9b3ff;--violet-bg:#2a2140;
+--code-bg:#1e1f25;--code-fg:#ececf0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:1.4rem 16px 4rem}
+a{color:var(--link);text-underline-offset:.16em}
+h1{font-size:clamp(1.9rem,5vw,2.8rem);line-height:1.12;margin:.3rem 0 .8rem}
+h2{font-size:1.5rem;line-height:1.22;margin:3rem 0 .5rem;padding-top:.6rem;border-top:1px solid var(--line)}
+h3{font-size:1.12rem;margin:1.8rem 0 .4rem}
+p,li{max-width:76ch}
+.eyebrow{color:var(--muted);font-size:.88rem;margin:0}
+.lede{font-size:1.16rem;max-width:68ch}
+.summary{background:var(--acc-bg);border-left:5px solid var(--acc);border-radius:8px;padding:.75rem 1rem;margin:.6rem 0 1rem}
+.summary strong:first-child{display:block;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:.85rem 1rem;overflow-x:auto;line-height:1.45;font-size:.9rem}
+pre code{overflow-wrap:normal}
+pre.out{background:var(--surface);border-left:5px solid var(--good)}
+pre.out.failed{border-left-color:var(--bad)}
+.runlabel{font-size:.8rem;color:var(--muted);margin:-.4rem 0 .2rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.note{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--acc);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+.note.warn{border-left-color:var(--warn)}.note.good{border-left-color:var(--good)}.note.bad{border-left-color:var(--bad)}
+.note>p:first-child{margin-top:0}.note>p:last-child{margin-bottom:0}
+.puzzle{background:var(--violet-bg);border:1px dashed var(--violet);border-radius:8px;padding:.8rem 1.1rem;margin:1.1rem 0}
+details{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.6rem 1rem;margin:1rem 0}
+summary{font-weight:700;cursor:pointer}
+details[open]>summary{margin-bottom:.6rem}
+.fig{margin:1.2rem 0 1.4rem;padding:.8rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:600px}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.5rem}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:.6rem 0}
+th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--surface2)}
+.badge{display:inline-block;padding:.02rem .45rem;border-radius:4px;font-size:.76rem;font-weight:700;border:1px solid currentColor;white-space:nowrap;vertical-align:.08em}
+.b-works{background:var(--good-bg);color:var(--good)}
+.b-partly{background:var(--warn-bg);color:var(--warn)}
+.b-decided{background:var(--acc-bg);color:var(--acc)}
+.b-proposed{background:var(--violet-bg);color:var(--violet)}
+.b-removing{background:var(--bad-bg);color:var(--bad)}
+.legend span{margin-right:.5rem}
+.id{font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:var(--muted)}
+nav.toc ol{columns:2;column-gap:2rem;padding-left:1.2rem;margin:.4rem 0}
+nav.toc li{break-inside:avoid;margin:.15rem 0}
+.youarehere{display:flex;flex-wrap:wrap;gap:.3rem;margin:.8rem 0 1.2rem;font-size:.8rem}
+.youarehere a,.youarehere span{padding:.15rem .5rem;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--muted);background:var(--surface)}
+.youarehere span.here{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
+/* SVG classes: every diagram colour comes from the tokens above, so light and dark both work */
+svg text{fill:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:13px}
+svg .muted{fill:var(--muted)}
+svg .small{font-size:11px}
+svg .bold{font-weight:700}
+svg .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+svg .box2{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+svg .acc{fill:var(--acc-bg);stroke:var(--acc);stroke-width:1.5}
+svg .good{fill:var(--good-bg);stroke:var(--good);stroke-width:1.5}
+svg .warn{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.5}
+svg .bad{fill:var(--bad-bg);stroke:var(--bad);stroke-width:1.5}
+svg .vio{fill:var(--violet-bg);stroke:var(--violet);stroke-width:1.5}
+svg .line{stroke:var(--mid);stroke-width:1.6;fill:none}
+svg .dash{stroke:var(--muted);stroke-width:1.4;fill:none;stroke-dasharray:5 4}
+svg .badline{stroke:var(--bad);stroke-width:2;fill:none}
+svg .goodline{stroke:var(--good);stroke-width:2;fill:none}
+svg .accline{stroke:var(--acc);stroke-width:2;fill:none}
+svg .arrowhead{fill:var(--mid)}
+svg .t-good{fill:var(--good)}svg .t-bad{fill:var(--bad)}svg .t-acc{fill:var(--acc)}svg .t-warn{fill:var(--warn)}svg .t-vio{fill:var(--violet)}
+@media (max-width:700px){nav.toc ol{columns:1}body{font-size:16px}}
+
+.notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
+.notes ol{padding-left:1.4rem}
+sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="eyebrow">Reference 3 of 11 · toolchain 0.99.606a (candidate build)</p>
+<h1>Actors and failure: give state an owner, and let failures stay small</h1>
+
+<nav class="youarehere" aria-label="Where this page sits in the Hey documentation">
+<a href="2026-10-25-hey-index.html">Index</a>
+<a href="2026-10-25-hey-the-language.html">Reference 1: Language</a>
+<a href="2026-10-25-hey-modules-imports-exports.html">Reference 2: Modules</a>
+<span class="here">Reference 3: Actors and failure</span>
+<a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4: Workers, Jobs, streams</a>
+<a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed</a>
+<a href="2026-10-25-hey-native-code-and-c.html">Reference 7: Native code</a>
+<a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: Memory</a>
+</nav>
+
+<p class="lede">Most programs have some state that has to live a long time: a counter, a cache, a connection, a game
+board. In Hey that state belongs to an <strong>actor</strong>, a small object with a private mailbox. Nobody else can
+touch its state; they can only send it messages. That one rule removes locks from your code, and it also decides
+what happens when something breaks: <strong>a failure ends the actor that had it, and nothing else</strong>.</p>
+
+<div class="summary"><strong>On one screen</strong>
+Actors, sending, asking with a timeout, links, monitors and supervisors all <span class="badge b-works">Works today</span>.
+A <code>fail</code> or runtime error inside an actor ends that actor only, and the actors that care are told<sup><a href="#n1">1</a></sup>
+(<span class="badge b-partly">Partly works</span>: web requests are fully contained; actor and Job containment is
+being finished). Thousands of actors run on a few threads. Next, decided for the 0.99.606a release: messages shared
+instead of copied, and short sends to idle actors run straight away on the sender's thread.</div>
+
+<p class="legend">Status badges used on every Hey reference page:
+<span class="badge b-works">Works today</span>
+<span class="badge b-partly">Partly works</span>
+<span class="badge b-decided">Decided, coming</span>
+<span class="badge b-proposed">Proposed</span>
+<span class="badge b-removing">Being removed</span>.</p>
+
+<nav class="toc" aria-label="Contents"><ol>
+<li><a href="#owner">Give state an owner</a></li>
+<li><a href="#words">The actor words</a></li>
+<li><a href="#ask">Asking and answering</a></li>
+<li><a href="#await">Waiting for I/O inside an actor</a></li>
+<li><a href="#watch">Links, monitors, supervisors</a></li>
+<li><a href="#failfast">Fail fast, Erlang style</a></li>
+<li><a href="#runs">How it runs</a></li>
+<li><a href="#messages">What a message costs</a></li>
+<li><a href="#next">Decided and proposed</a></li>
+<li><a href="#sources">Sources and read next</a></li>
+</ol></nav>
+
+<h2 id="owner">1. When state must live, give it an owner</h2>
+
+<figure class="fig">
+<svg viewBox="0 0 760 230" role="img" aria-labelledby="d1t">
+<title id="d1t">Anatomy of an actor: senders drop messages into a mailbox; the actor takes one message at a time, runs one turn of its handler, and may update its private state or send messages.</title>
+<defs><marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<rect x="10" y="40" width="110" height="36" rx="6" class="box"/><text x="65" y="63" text-anchor="middle">sender A</text>
+<rect x="10" y="100" width="110" height="36" rx="6" class="box"/><text x="65" y="123" text-anchor="middle">sender B</text>
+<rect x="10" y="160" width="110" height="36" rx="6" class="box"/><text x="65" y="183" text-anchor="middle">program</text>
+<path d="M120 58 L210 108" class="line" marker-end="url(#ar1)"/>
+<path d="M120 118 L210 118" class="line" marker-end="url(#ar1)"/>
+<path d="M120 178 L210 128" class="line" marker-end="url(#ar1)"/>
+<text x="165" y="40" text-anchor="middle" class="muted small">send target, msg</text>
+<rect x="215" y="20" width="530" height="200" rx="12" class="acc"/>
+<text x="230" y="42" class="bold">actor Counter</text>
+<rect x="230" y="88" width="150" height="60" rx="6" class="box"/>
+<text x="305" y="80" text-anchor="middle" class="small muted">mailbox (first in, first out)</text>
+<rect x="238" y="100" width="28" height="36" rx="3" class="box2"/><rect x="272" y="100" width="28" height="36" rx="3" class="box2"/><rect x="306" y="100" width="28" height="36" rx="3" class="box2"/>
+<text x="350" y="123" class="muted">…</text>
+<path d="M380 118 L440 118" class="line" marker-end="url(#ar1)"/>
+<text x="410" y="108" text-anchor="middle" class="small muted">one at a time</text>
+<rect x="445" y="80" width="140" height="76" rx="6" class="good"/>
+<text x="515" y="104" text-anchor="middle" class="bold">one turn</text>
+<text x="515" y="124" text-anchor="middle" class="small">receive message</text>
+<text x="515" y="140" text-anchor="middle" class="small">… handler runs …</text>
+<rect x="605" y="80" width="125" height="76" rx="6" class="warn"/>
+<text x="667" y="104" text-anchor="middle" class="bold">private state</text>
+<text x="667" y="124" text-anchor="middle" class="small">state count = 0</text>
+<text x="667" y="140" text-anchor="middle" class="small">set count = …</text>
+<path d="M585 118 L603 118" class="line"/>
+<text x="480" y="195" text-anchor="middle" class="small muted">Only this actor's turns can read or change its state. No locks: there is never a second turn running at once.</text>
+</svg>
+<figcaption>Figure 1. An actor is a mailbox, a private state and a handler. Each message gets one <em>turn</em>: one run of
+the handler, start to finish.</figcaption>
+</figure>
+
+<p>This is a whole program. The actor counts how many times it was told <code>'increment'</code>.</p>
+<p class="runlabel">counter.hey</p><pre><code>actor Counter(label)
+  state count = 0
+  receive message
+
+  if message == &#39;increment&#39;
+    set count = count + 1
+    says label + &#39;=&#39; + count
+  elsif message == &#39;stop&#39;
+    exit
+  end
+end
+
+program
+  let counter = spawn Counter(&#39;visits&#39;)
+  send counter, &#39;increment&#39;
+  send counter, &#39;increment&#39;
+  send counter, &#39;stop&#39;
+  join counter
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey counter.hey
+visits=1
+visits=2
+$ echo $?
+0</code></pre>
+
+<p>Read it top to bottom. <code>actor Counter(label)</code> declares the kind of actor and its start argument.
+<code>state count = 0</code> is a slot only this actor can see. <code>receive message</code> names the incoming
+message; everything after it is the handler, which runs once per message. <code>set</code> changes a state slot.
+In the program, <code>spawn</code> starts one actor and gives back a handle, <code>send</code> puts a message in its
+mailbox and returns at once, and <code>join</code> waits until the actor has exited.</p>
+
+<div class="puzzle"><strong>Predict it.</strong> The program sends three messages and never waits between them. Can
+<code>visits=2</code> ever print before <code>visits=1</code>? No: one sender's messages to one actor arrive in the
+order they were sent, and the actor runs one turn at a time. Two <em>different</em> senders have no order between
+them.</div>
+
+<h2 id="words">2. The actor words</h2>
+<p>Every word below is part of the language; no import is needed. Status is for the compiled road
+(<code>hey file.hey</code> and <code>hey build</code>).</p>
+<div class="scroll"><table>
+<thead><tr><th>Write</th><th>What it does</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><code>actor Name(args) … receive msg … end</code></td><td>Declares an actor kind. Start arguments stay visible in every turn.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>state name = expr</code></td><td>A private slot, set once when the actor starts. <code>set name = expr</code> changes it.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>spawn Name(args)</code></td><td>Starts an actor, returns its handle. A prefix word like <code>await</code>.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>send target, msg</code></td><td>Puts <code>msg</code> in the mailbox and returns at once. Messages are immutable values.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>join actor</code> · <code>stop actor</code></td><td>Wait until it has exited · ask it to stop after its current turn.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>exit</code></td><td>Inside an actor: end this actor normally. In the program block: end the program.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>sleep ms</code></td><td>Pause this turn for <code>ms</code> milliseconds.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>fail expr</code></td><td>Stop the current unit of work with <code>expr</code> as the reason (section 6).</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>spawn_named</code>, <code>supervise_named</code>, <code>actor_by_pid</code>, <code>actors()</code>, <code>send_pid</code>, <code>pid</code></td><td>Builtins: start with a registered name, look an actor up by its number (its <em>pid</em>, process id), list live actors, send to a pid.</td><td><span class="badge b-works">Works today</span></td></tr>
+</tbody></table></div>
+
+<h2 id="ask">3. Asking and answering, and why a timeout means "unknown"</h2>
+<p><code>send</code> never waits for an answer. When ordinary code (not another actor) needs one, use
+<code>Actor.call(target, body, timeout_ms)</code> from <code>stdlib:Actor</code>. The actor receives
+<code>{kind: 'actor_call', body: …, reply_id: …}</code> in normal mailbox order and answers with
+<code>Actor.reply(reply_id, value)</code>. <span class="badge b-works">Works today</span></p>
+<p class="runlabel">ask.hey</p><pre><code>import &#39;stdlib:Actor&#39;
+
+actor Bank
+  state balance = 100
+  receive msg
+
+  if msg.kind == &#39;actor_call&#39;
+    set balance = balance - msg.body.amount
+    let answered = Actor.reply(msg.reply_id, balance)
+  end
+end
+
+program
+  let bank = spawn Bank
+  let answer = Actor.call(bank, {amount: 30}, 1000)
+  says answer.ok
+  says answer.value
+  let again = Actor.call(bank, {amount: 5}, 1000)
+  says again.value
+  stop bank
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey ask.hey
+true
+70
+65
+$ echo $?
+0</code></pre>
+<p><code>Actor.call</code> returns a Result (a record with <code>ok</code>, <code>value</code>, <code>code</code> and
+<code>error</code>). The rules that matter:</p>
+<ul>
+<li><strong>A timeout means the outcome is unknown.</strong> <code>actor_call_timeout</code> removes the waiter, not the
+request. The bank may already have taken the money, or may take it later. Hey never retries for you; use a request id
+your application can check.</li>
+<li>Only ordinary callers may wait. A call made from inside an actor returns <code>actor_call_from_actor</code>
+immediately, so actor turns never block each other (actors talk to actors with <code>send</code>).</li>
+<li>At most 1,024 calls can be waiting at once; the next gets <code>actor_call_overloaded</code>. An unknown or stopped
+target gives <code>actor_unavailable</code>; a timeout outside 1 to 3,600,000 ms gives <code>invalid_timeout</code>.</li>
+<li>Only the first reply from the target counts. Late or duplicate replies return <code>false</code>.</li>
+</ul>
+
+<h2 id="await">4. Waiting for I/O inside an actor with <code>await</code></h2>
+<p>A turn must not sit on a blocking read; it would hold one of the few scheduler threads. Instead, inside an actor,
+<code>await handles, timeout_ms, tag</code> registers the handles with the runtime's one I/O reactor (kqueue on macOS,
+epoll on Linux, poll as a fallback) and <strong>ends the turn</strong>. When a handle is ready, the actor gets an
+ordinary message with <code>kind: 'io_completion'</code> and your <code>tag</code>.
+ <span class="badge b-partly">Partly works</span>: the runtime side (the reactor, the
+parked turn, the <code>io_completion</code> message) exists and is checked by spec 966, but on this toolchain the
+source form below does <strong>not compile</strong>. The compiler consolidation lists "<code>await</code> (with its
+ruling)" as an open item (see the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>).</p>
+<p class="runlabel">await_actor.hey</p><pre><code>import &#39;stdlib:Files&#39;
+import &#39;stdlib:Io&#39;
+import &#39;stdlib:Pipes&#39;
+
+actor await_reader(reader, sink)
+  receive msg
+  if msg.kind == &#39;start&#39;
+    await [reader], 2000, &#39;pipe-ready&#39;
+  else
+    if msg.kind == &#39;io_completion&#39;
+      send sink, {kind: &#39;done&#39;, tag: msg.tag, backend: Io.reactor_backend()}
+      exit
+    end
+  end
+end
+
+actor await_sink
+  receive msg
+  says msg.kind == &#39;done&#39;
+  says msg.tag == &#39;pipe-ready&#39;
+  says msg.backend == &#39;epoll&#39; or msg.backend == &#39;kqueue&#39; or msg.backend == &#39;poll&#39;
+  exit
+end
+
+program
+  let created = Pipes.create(4096)
+  let reader = created.value.reader
+  let writer = created.value.writer
+  let sink = spawn await_sink
+  let worker = spawn await_reader(reader, sink)
+  says actor_info(worker).pooled
+  send worker, {kind: &#39;start&#39;}
+  let wrote = writer.write_all(&#39;ping&#39;)
+  join worker
+  join sink
+  let writer_closed = writer.close()
+  let reader_closed = reader.close()
+end</code></pre>
+<p class="runlabel">Run it (trimmed; full output below)</p><pre class="out failed"><code>$ hey await_actor.hey
+[3 selfhost_ diagnostic lines hidden here; full output below]
+hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: name traversal incomplete across 1 of 5 units (token-budget=0, depth=0); first incomplete unit: ~/myapp/await_actor.hey:8:19: parse error unexpected_expression_token: unexpected token after expression: ,
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre class="out failed"><code>$ hey await_actor.hey
+selfhost_driver_call_identity=canonical-exact-span
+selfhost_semantic_request=16f95d2bb13b4017670caa6156e34bf0ae7dcda4f4cf5cadc5e5da3a0b8502ec
+selfhost_build_outcome=started
+hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: name traversal incomplete across 1 of 5 units (token-budget=0, depth=0); first incomplete unit: ~/myapp/await_actor.hey:8:19: parse error unexpected_expression_token: unexpected token after expression: ,
+
+hey error: hey: script compilation failed
+$ echo $?
+70</code></pre></details>
+<div class="note bad"><p><strong>Fails on this toolchain.</strong> The new parser refuses the comma after
+<code>await [reader]</code>, so the program never runs. Through the interpreter
+(<code>HEY_STDLIB_PATH=$TOOLCHAIN/stdlib heyc await_actor.hey --run</code>) it printed nothing for 120 seconds and was
+stopped. Tracked as the consolidation release's open "<code>await</code> (with its ruling)" item, and reported to the Hey maintainers. Until it lands, use
+<code>Io.select_async</code> from <code>stdlib:Io</code>, which delivers the same tagged completion message to an
+actor.</p></div>
+
+
+<h2 id="watch">5. Links, monitors and supervisors</h2>
+<p>Three ways for one actor to care about another:</p>
+<ul>
+<li><strong>Link</strong> <code>link(a, b)</code>: the two share a fate. When one exits, the runtime stops
+its partner too, with the exit reason <code>linked_exit</code> (Erlang's link rule). Use a link when two actors are
+useless without each other.</li>
+<li><strong>Monitor</strong> <code>monitor(a)</code> or <code>monitor_to(watcher, a)</code>: one-way watching. When
+<code>a</code> exits, the monitor records (or delivers to <code>watcher</code>) the event and the reason. You can read it
+with <code>monitor_info</code>.</li>
+<li><strong>Supervisor</strong> <code>supervise Child max N</code>: a parent that restarts its child from the same
+start arguments when the child exits.</li>
+</ul>
+<p> <span class="badge b-works">Works today</span></p>
+<p class="runlabel">links_and_monitors.hey</p><pre><code># Demonstrates explicit link metadata and monitor exit observation.
+
+actor worker(label)
+  receive msg
+  if msg == &#39;stop&#39;
+    exit
+  else
+    says label + &#39;: &#39; + msg
+  end
+end
+
+program
+  let left = spawn worker(&#39;left&#39;)
+  let right = spawn worker(&#39;right&#39;)
+  says link(left, right)
+  says actor_info(left).linked_pids.length
+
+  let mon = monitor(left)
+  says monitor_info(mon).event
+  send left, &#39;stop&#39;
+  sleep 2
+  let after = monitor_info(mon)
+  says after.event
+  says after.reason
+
+  stop right
+  join left
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey links_and_monitors.hey
+true
+1
+monitoring
+exit
+exit
+$ echo $?
+0</code></pre>
+<p><code>actor_info(a)</code> reports <code>linked_pids</code>, and for supervisors <code>strategy</code>,
+<code>max_restarts</code>, <code>restarts</code>, <code>child_pid</code>, <code>last_event</code> and
+<code>last_reason</code>. A monitor can deliver its notice as a message to a watcher actor:</p>
+<p class="runlabel">monitor_to.hey</p><pre><code>actor watcher
+  receive msg
+  says msg.event
+  says msg.reason
+  says msg.target_name
+  exit
+end
+
+actor worker
+  receive msg
+  exit
+end
+
+program
+  let watch = spawn watcher
+  let work = spawn worker
+  let mon = monitor_to(watch, work)
+  says monitor_info(mon).event
+  send work, &#39;go&#39;
+  join work
+  join watch
+  let info = monitor_info(mon)
+  says info.delivered
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey monitor_to.hey
+monitoring
+exit
+exit
+worker
+true
+$ echo $?
+0</code></pre>
+
+<figure class="fig">
+<svg viewBox="0 0 760 250" role="img" aria-labelledby="d4t">
+<title id="d4t">Supervisor tree: a supervisor watches a child; when the child exits it restarts it and counts the restart; too many restarts in a short window ends the supervisor itself, which its own parent then sees.</title>
+<defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<rect x="290" y="10" width="180" height="44" rx="8" class="box2"/><text x="380" y="37" text-anchor="middle">your program or a parent</text>
+<path d="M380 54 L380 84" class="line" marker-end="url(#ar4)"/>
+<rect x="270" y="86" width="220" height="56" rx="8" class="acc"/>
+<text x="380" y="108" text-anchor="middle" class="bold">supervise once max 3</text>
+<text x="380" y="128" text-anchor="middle" class="small">strategy one_for_one · restarts: 1</text>
+<path d="M380 142 L380 176" class="line" marker-end="url(#ar4)"/>
+<rect x="300" y="178" width="160" height="44" rx="8" class="good"/><text x="380" y="205" text-anchor="middle">child (new pid)</text>
+<rect x="520" y="178" width="160" height="44" rx="8" class="bad"/><text x="600" y="198" text-anchor="middle">old child</text><text x="600" y="214" text-anchor="middle" class="small">exited</text>
+<path d="M520 200 Q500 160 490 130" class="badline" marker-end="url(#ar4)"/>
+<text x="560" y="150" class="small t-bad">tells the supervisor</text>
+<rect x="20" y="86" width="220" height="110" rx="8" class="warn"/>
+<text x="130" y="108" text-anchor="middle" class="bold">restart intensity</text>
+<text x="130" y="128" text-anchor="middle" class="small">more than MaxR restarts in MaxT s</text>
+<text x="130" y="146" text-anchor="middle" class="small">(Erlang default: 1 in 5 s)</text>
+<text x="130" y="166" text-anchor="middle" class="small">ends the supervisor, never</text>
+<text x="130" y="182" text-anchor="middle" class="small">the whole process</text>
+<path d="M240 130 L268 120" class="dash"/>
+</svg>
+<figcaption>Figure 2. A supervisor restarts its child one-for-one. The restart-intensity rule (orange) is the part being
+finished.</figcaption>
+</figure>
+<p class="runlabel">supervisor.hey</p><pre><code>actor once
+  receive msg
+  says &#39;handled &#39; + msg
+  exit
+end
+
+program
+  let sup = supervise once max 3
+  sleep 6
+  let before = actor_info(sup)
+  says before.last_event
+  says before.last_reason
+  says before.child_pid &gt; 0
+
+  send sup, &#39;one&#39;
+  sleep 6
+
+  send sup, &#39;two&#39;
+  sleep 6
+
+  let after = actor_info(sup)
+  says after.last_event
+  says after.last_reason
+  says after.restarts
+
+  stop sup
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey supervisor.hey
+started
+child_started
+true
+handled one
+handled two
+started
+child_restarted
+2
+$ echo $?
+0</code></pre>
+<div class="scroll"><table>
+<thead><tr><th>Piece</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>supervise child max N</code>; strategy <code>one_for_one</code> reported by <code>actor_info</code></td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Erlang/OTP restart intensity: more than MaxR restarts within MaxT seconds (default 1 in 5) stops the supervisor's children and ends the supervisor with an error, so <em>its</em> parent or link sees it; it never exits the process. A supervisor hears of a child's death at once (by monitor), not on its next message.</td><td><span class="badge b-partly">Partly works</span> task <code>actor-and-job-failure-containment</code></td></tr>
+<tr><td>Restart count. On this toolchain the sample above reports <code>2</code> restarts after two handled messages; the repository example it comes from (<code>examples/supervisor_hardening.hey</code>) still expects <code>1</code>. The example and the runtime disagree; which is right is part of the restart-intensity work.</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td>Supervised actors use two threads each today (the supervisor waits in its own loop and starts the child on its own thread), so a supervision tree still meets the operating system's thread ceiling, near 4,096 on macOS.</td><td><span class="badge b-partly">Partly works</span></td></tr>
+</tbody></table></div>
+
+<h2 id="failfast">6. Fail fast, Erlang style</h2>
+<p>The Maintainer ruled: a runtime error <strong>stops the current unit of work at once and stays
+isolated</strong>; the system carries on or restarts around it. There is <strong>no catch or rescue</strong> in Hey.
+Errors you expect (a missing file, bad input) are values: functions return a Result (<code>stdlib:Result</code>) and you
+check <code>ok</code>. Anyone proposing a catch form must first write the full case for and against.
+ <span class="badge b-works">Works today</span> (ruling linked in the
+<a href="2026-10-25-hey-every-decision.html">decision ledger</a>).</p>
+
+<figure class="fig">
+<svg viewBox="0 0 760 270" role="img" aria-labelledby="d3t">
+<title id="d3t">Failure bubbles: four units of work. A failure inside a web request ends that request with a 500; inside an actor turn it ends that actor and tells links, monitors and the supervisor; inside a Job attempt it uses the Job's retries then the dead-letter list; in the main program it ends the process with status 70.</title>
+<rect x="10" y="10" width="740" height="250" rx="14" class="box2"/>
+<text x="24" y="32" class="bold">the process</text>
+<text x="736" y="32" text-anchor="end" class="small muted">main program outside any bubble fails → exit status 70</text>
+<rect x="30" y="50" width="160" height="190" rx="80" class="good"/>
+<text x="110" y="100" text-anchor="middle" class="bold">web request</text>
+<text x="110" y="124" text-anchor="middle" class="small">error → 500</text>
+<text x="110" y="140" text-anchor="middle" class="small">server_error</text>
+<text x="110" y="168" text-anchor="middle" class="small muted">told: the client</text>
+<text x="110" y="198" text-anchor="middle" class="small t-good bold">contained (604a)</text>
+<rect x="210" y="50" width="170" height="190" rx="80" class="warn"/>
+<text x="295" y="100" text-anchor="middle" class="bold">actor turn</text>
+<text x="295" y="124" text-anchor="middle" class="small">error → actor exits</text>
+<text x="295" y="140" text-anchor="middle" class="small">"error: message"</text>
+<text x="295" y="164" text-anchor="middle" class="small muted">told: links, monitors,</text>
+<text x="295" y="180" text-anchor="middle" class="small muted">supervisor</text>
+<text x="295" y="208" text-anchor="middle" class="small t-warn bold">being finished</text>
+<rect x="400" y="50" width="170" height="190" rx="80" class="warn"/>
+<text x="485" y="100" text-anchor="middle" class="bold">Job attempt</text>
+<text x="485" y="124" text-anchor="middle" class="small">error → retry, then</text>
+<text x="485" y="140" text-anchor="middle" class="small">dead letter</text>
+<text x="485" y="164" text-anchor="middle" class="small muted">told: Job result,</text>
+<text x="485" y="180" text-anchor="middle" class="small muted">dead-letter list</text>
+<text x="485" y="208" text-anchor="middle" class="small t-warn bold">being finished</text>
+<rect x="590" y="50" width="145" height="190" rx="14" class="bad"/>
+<text x="662" y="100" text-anchor="middle" class="bold">main program</text>
+<text x="662" y="124" text-anchor="middle" class="small">error → process</text>
+<text x="662" y="140" text-anchor="middle" class="small">exits, status 70</text>
+<text x="662" y="164" text-anchor="middle" class="small muted">told: the OS or</text>
+<text x="662" y="180" text-anchor="middle" class="small muted">outer supervisor</text>
+<text x="662" y="208" text-anchor="middle" class="small t-bad bold">by design</text>
+</svg>
+<figcaption>Figure 3. Four units of work, and what a failure inside each one ends.</figcaption>
+</figure>
+
+<div class="scroll"><table>
+<thead><tr><th>Unit of work</th><th>A runtime error or <code>fail</code> inside it ends</th><th>Who is told</th><th>Status</th></tr></thead><tbody>
+<tr><td>Web request (handler or middleware)</td><td>that request only: answers 500 <code>server_error</code> and logs the route<sup><a href="#n2">2</a></sup></td><td>the client</td><td><span class="badge b-works">Works today</span> since 0.99.604a</td></tr>
+<tr><td>Actor turn (pooled, own-thread, or resumed after an <code>await</code>)</td><td>that actor: exit reason <code>error: &lt;message&gt;</code>; its mailbox is released</td><td>links get <code>linked_exit</code>; monitors get the reason; its supervisor restarts it</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td>Job attempt</td><td>that attempt: the Job's declared retries, then a dead letter of kind <code>runtime_error</code></td><td>the Job result and dead-letter list</td><td><span class="badge b-partly">Partly works</span></td></tr>
+<tr><td>Main program (outside any unit)</td><td>the process, with exit status 70</td><td>the operating system or an outer supervisor</td><td><span class="badge b-works">Works today</span></td></tr>
+</tbody></table></div>
+
+<h3>Stack overflow is a runtime failure too</h3>
+<div class="note warn"><strong>The rule does not change for deep recursion.</strong> Jobs and actors exit without taking down any other Job, actor or the process. Running out of stack is a runtime failure like any other, so it ends only its unit of work.<sup><a href="#n3">3</a></sup></div>
+<div class="scroll"><table>
+<thead><tr><th>Where the recursion runs out of stack</th><th>What stops</th><th>What you see</th><th>Status</th></tr></thead><tbody>
+<tr><td>Main program</td><td>the process (main is its own unit)</td><td><code>hey: stack overflow (recursion too deep): the stack is exhausted</code>, exit status 70</td><td><span class="badge b-decided">Coming in 0.99.606a</span></td></tr>
+<tr><td>Actor turn</td><td>that actor only; siblings keep answering, the process continues</td><td>exit reason <code>error: stack overflow</code> to its links, monitors and supervisor</td><td><span class="badge b-decided">Decided, coming</span> &mdash; until then it still crashes the whole process</td></tr>
+<tr><td>Job attempt</td><td>that attempt only; retries, then a dead letter</td><td>the failure in the Job result, like any <code>runtime_error</code></td><td><span class="badge b-decided">Decided, coming</span> &mdash; until then it still crashes the whole process</td></tr>
+</tbody></table></div>
+<p>How it works: each thread has a guard page below its stack and a small emergency stack for the signal handler. When the guard page is hit, the handler reports the overflow; on an actor or Job thread it returns to that unit&#39;s failure point instead of ending the program, then resets the guard so the thread can run more work. A later release also gives the main program a large stack that only uses memory as it grows, so deep recursion like the cfold benchmark fits.</p>
+<h3>See it: a failing actor and a steady one</h3>
+<div class="puzzle"><strong>Predict it.</strong> <code>Fragile</code> fails on its first message. Will
+<code>Steady</code> still print? Will <code>main finished</code> print, and what will the exit status be?</div>
+<p class="runlabel">crash_isolated.hey</p><pre><code>actor Fragile
+  receive msg
+  says &#39;Fragile got &#39; + msg
+  fail &#39;cannot handle &#39; + msg
+end
+
+actor Steady
+  receive msg
+  says &#39;Steady got &#39; + msg
+end
+
+program
+  let fragile = spawn Fragile
+  let steady = spawn Steady
+  let watch = monitor(fragile)
+  send fragile, &#39;bad input&#39;
+  sleep 50
+  send steady, &#39;still here&#39;
+  sleep 50
+  says monitor_info(watch).reason
+  stop steady
+  says &#39;main finished&#39;
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey crash_isolated.hey
+Fragile got bad input
+hey error: cannot handle bad input
+hey: actor Fragile (pid 1) stopped by a runtime error
+Steady got still here
+error: cannot handle bad input
+main finished
+$ echo $?
+0</code></pre>
+<div class="note good"><p><strong>What happened.</strong> <code>Fragile</code> ended with reason
+<code>error: cannot handle bad input</code>; the runtime reported it on standard error (<code>hey error:</code> and
+<code>hey: actor Fragile (pid 1) stopped by a runtime error</code>). <code>Steady</code> kept working, the program
+finished, and the exit status is 0, because the failure stayed inside its unit. On this toolchain every containment
+sample on this page behaves as the table says; the task stays open until its broader gate set (siblings, supervisors,
+restart intensity, Jobs, and a full regression run) passes.</p></div>
+
+
+<h3>Messages sent before the failure still arrive</h3>
+<p>If a turn sends a message and then fails, the message is <strong>delivered</strong>: in Erlang a send happens
+immediately, and Hey made the same choice.
+<span class="badge b-works">Works today</span> (decided; part of the containment gate); this fixture is the
+test for it. On this toolchain it already passes:</p>
+<p class="runlabel">fail_ends_actor.hey</p><pre><code># fail inside an actor ends that actor with its message as the reason; sends before it are delivered.
+actor collector
+  receive msg
+  says &#39;collected &#39; + msg
+end
+
+actor quitter(out)
+  receive msg
+  send out, &#39;before &#39; + msg
+  fail &#39;gave up on &#39; + msg
+end
+
+program
+  let out = spawn collector
+  let q = spawn quitter(out)
+  let mon = monitor(q)
+  send q, &#39;job&#39;
+  sleep 50
+  says monitor_info(mon).reason
+  stop out
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey fail_ends_actor.hey
+hey error: gave up on job
+hey: actor quitter (pid 2) stopped by a runtime error
+collected before job
+error: gave up on job
+$ echo $?
+0</code></pre>
+<p><code>collected before job</code> printed: the message sent before the <code>fail</code> was delivered. This
+toolchain already behaves the way that ruling decides.</p>
+
+
+<h3>A linked partner hears about it</h3>
+<p class="runlabel">linked.hey</p><pre><code>actor Partner
+  receive msg
+  says &#39;Partner heard: &#39; + msg
+end
+
+actor Doomed
+  receive msg
+  fail &#39;doomed on &#39; + msg
+end
+
+program
+  let partner = spawn Partner
+  let doomed = spawn Doomed
+  says link(partner, doomed)
+  let watch = monitor(partner)
+  send doomed, &#39;go&#39;
+  sleep 50
+  says actor_info(partner).status
+  says monitor_info(watch).reason
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey linked.hey
+hey error: doomed on go
+hey: actor Doomed (pid 2) stopped by a runtime error
+true
+exited
+linked_exit
+$ echo $?
+0</code></pre>
+<p><code>Partner</code> never printed anything: when <code>Doomed</code> failed, the link stopped
+<code>Partner</code> too, with reason <code>linked_exit</code>.</p>
+
+
+<h3>A runtime error, not just <code>fail</code></h3>
+<p>Fail fast covers real runtime errors too, not only the <code>fail</code> word. This actor divides by zero.</p>
+<p class="runlabel">runtime_error_in_actor.hey</p><pre><code>actor Parser
+  receive text
+  let n = text.to_i
+  says &#39;parsed &#39; + n
+  says 100 / n
+end
+
+program
+  let p = spawn Parser
+  let watch = monitor(p)
+  send p, &#39;0&#39;
+  sleep 50
+  says monitor_info(watch).event
+  says monitor_info(watch).reason
+  says &#39;main still running&#39;
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey runtime_error_in_actor.hey
+parsed 0
+hey error: / by zero
+hey: actor Parser (pid 1) stopped by a runtime error
+exit
+error: / by zero
+main still running
+$ echo $?
+0</code></pre>
+<p>Not every mistake is a runtime error. Reading past the end of a list gives <code>nil</code>, not a failure:</p>
+<p class="runlabel">index_past_end.hey</p><pre><code>program
+  let items = [1, 2, 3]
+  says items[7]
+  says &#39;still running&#39;
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey index_past_end.hey
+nil
+still running
+$ echo $?
+0</code></pre>
+
+
+<h3>The main program is the outermost unit</h3>
+<p>The error line comes out first because the runtime writes errors to standard error, which is not buffered, while
+<code>says</code> goes to standard output, which is buffered when it goes to a file or pipe, as it did here. The program's order is still "about to fail", then the failure.</p>
+<p class="runlabel">exit70.hey</p><pre><code>program
+  says &#39;about to fail&#39;
+  fail &#39;boom&#39;
+  says &#39;never printed&#39;
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out failed"><code>$ hey exit70.hey
+hey error: boom
+about to fail
+$ echo $?
+70</code></pre>
+
+<details><summary>How the runtime contains a failure (the mechanism)</summary>
+<p> <span class="badge b-works">Works today</span> (the mechanism; actor and Job units are
+being wired to it). Each unit of work pushes a <strong>recovery point</strong> when it starts
+(<code>hey_runtime_recovery_push</code> plus a <code>setjmp</code> mark; <code>setjmp</code> is the C call that
+saves "where we are" so a later jump can return there, the same pattern PostgreSQL uses for its errors). A runtime error records its message in per-thread state and jumps back to that point; nothing after the error
+runs. So the jump leaks nothing, compiled frames register the values they own (<code>hey_frame_cleanup_push</code>)
+and the jump releases every abandoned frame's values (<code>hey_frame_cleanup_unwind</code>).<sup><a href="#n4">4</a></sup> A value held only in a
+register of an abandoned frame would still leak, which is why ownership facts belong in MIR, where every owner is
+registered. A fiber (an actor turn that parked on <code>await</code>) carries its own error state, so its recovery point
+stays valid after it resumes. The runtime never raises an error while holding one of its own locks, and the
+process-wide error count only counts errors no unit took, so a contained failure does not turn the exit status into
+70.</p>
+</details>
+
+<h2 id="runs">7. How it runs: a few threads, many actors</h2>
+<figure class="fig">
+<svg viewBox="0 0 760 250" role="img" aria-labelledby="d2t">
+<title id="d2t">Scheduler: a fixed set of worker threads, one per core by default, each with a run queue of actors that have mail. An idle thread steals runnable actors from a busy thread's queue. Each actor has a lock-free many-sender mailbox. Most actors are parked in memory with no thread.</title>
+<defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<rect x="10" y="10" width="740" height="64" rx="10" class="box2"/>
+<text x="24" y="32" class="bold">parked actors: no mail, no thread, a few hundred bytes each</text>
+<g class="small">
+<circle cx="40" cy="54" r="8" class="box"/><circle cx="64" cy="54" r="8" class="box"/><circle cx="88" cy="54" r="8" class="box"/><circle cx="112" cy="54" r="8" class="box"/><circle cx="136" cy="54" r="8" class="box"/><circle cx="160" cy="54" r="8" class="box"/><circle cx="184" cy="54" r="8" class="box"/><circle cx="208" cy="54" r="8" class="box"/>
+</g><text x="230" y="58" class="muted small">… up to the memory you have</text>
+<text x="560" y="58" class="small muted">a message arrives → actor becomes runnable</text>
+<path d="M380 74 L380 98" class="line" marker-end="url(#ar2)"/>
+<rect x="30" y="100" width="210" height="130" rx="10" class="acc"/><text x="135" y="122" text-anchor="middle" class="bold">worker thread 1</text>
+<rect x="45" y="134" width="180" height="26" rx="4" class="good"/><text x="135" y="152" text-anchor="middle" class="small">running: one turn</text>
+<rect x="45" y="168" width="40" height="22" rx="4" class="box"/><rect x="90" y="168" width="40" height="22" rx="4" class="box"/><rect x="135" y="168" width="40" height="22" rx="4" class="box"/>
+<text x="135" y="212" text-anchor="middle" class="small muted">run queue</text>
+<rect x="275" y="100" width="210" height="130" rx="10" class="acc"/><text x="380" y="122" text-anchor="middle" class="bold">worker thread 2</text>
+<rect x="290" y="134" width="180" height="26" rx="4" class="good"/><text x="380" y="152" text-anchor="middle" class="small">running: one turn</text>
+<text x="380" y="212" text-anchor="middle" class="small muted">run queue empty</text>
+<rect x="520" y="100" width="210" height="130" rx="10" class="acc"/><text x="625" y="122" text-anchor="middle" class="bold">worker thread N</text>
+<text x="625" y="160" text-anchor="middle" class="small">N = cores, or HEY_WORKERS</text>
+<path d="M180 190 Q260 240 330 168" class="accline" marker-end="url(#ar2)"/>
+<text x="268" y="246" text-anchor="middle" class="small t-acc">idle thread steals work</text>
+</svg>
+<figcaption>Figure 4. A fixed pool of worker threads runs whichever actors have mail. Idle threads steal from busy
+ones. Each mailbox accepts many senders without a lock.</figcaption>
+</figure>
+<div class="scroll"><table>
+<thead><tr><th>Piece</th><th>What it means for you</th><th>Status</th></tr></thead><tbody>
+<tr><td>Fixed worker pool, many actors on few threads ("M:N": M actors on N threads), work stealing, a lock-free many-sender mailbox (the Vyukov MPSC queue: many producers, single consumer), fibers that park a turn during <code>await</code></td><td>Spawning is cheap; an actor with no mail costs memory only, no CPU. <code>HEY_WORKERS=4</code> sets the thread count.</td><td><span class="badge b-works">Works today</span> since 0.99.597a</td></tr>
+<tr><td>Which actors get their own thread</td><td>A compiled <code>spawn</code> is pooled. Supervised actors and every actor in the interpreter (the REPL) still get a thread each, so they meet the operating system's limit near 4,096 threads.</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>A million resident actors</td><td>Capacity is bounded by memory, not threads. Measured below.</td><td><span class="badge b-works">Works today</span></td></tr>
+</tbody></table></div>
+<p>Measure it yourself with the repository's capacity benchmark (<code>benchmarks/hey/actor_capacity.hey</code>), which
+spawns parked actors and reports resident memory. It caps itself below 80% of your memory.</p>
+<p class="runlabel">Run it (exact command and output)</p><pre class="out"><code>$ hey build actor_capacity.hey -o actor_capacity &amp;&amp; ./actor_capacity 1000000
+status=ok
+actors=1000000
+requested=1000000
+cores=12
+spawn_ms=56
+rss_before=2473984
+rss_after=91570176
+rss_delta=89096192
+estimated_bytes_per_actor=96
+observed_bytes_per_actor=89
+memory_limit_percent=80
+memory_limit_bytes=1599700992
+stopped_for_memory=false
+$ echo $?
+0</code></pre>
+<p>A million parked actors: 89 bytes each by resident memory (about 89 MB in all), spawned in 56 milliseconds, on a
+12-core Mac. That is one run, not a benchmark series; the older articles report 132 to 225 bytes per actor on earlier
+releases.</p>
+
+
+<h2 id="messages">8. What a message costs, and what changes next</h2>
+<p>Today, every <code>send</code> makes one copy of the message for the mailbox (the runtime counts these as
+<code>send_clones</code>). With reference counting on, a copy of an object or list is just a count increase, but a
+value handed to another thread is copied deeply, because the counts are not thread-safe. Two decisions change that for 0.99.606a:</p>
+<div class="scroll"><table>
+<thead><tr><th>Change</th><th>What it buys</th><th>Status</th></tr></thead><tbody>
+<tr><td><strong>Messages shared by reference, not copied.</strong> An immutable message is marked "shared between threads" once and then passed by pointer. Sharing never changes who fails.</td><td>No deep copy per send, whatever the message size.</td><td><span class="badge b-decided">Decided, coming</span> (606a; not in the 607 source this page was checked against, where <code>hey_actor_enqueue</code> still clones)</td></tr>
+<tr><td><strong>Inline turns.</strong> A send to an <em>idle</em> actor may run its handler right away on the sender's thread. The inline turn is still its own unit of work, with its own recovery point: a failure ends the receiver, never the sender.</td><td>No queue hop, no thread wake-up for the common request/response shape.</td><td><span class="badge b-decided">Decided, coming</span> (606a; the runtime still says "no actor runs inline on the sender's stack")</td></tr>
+<tr><td>Move a uniquely owned message instead of copying it</td><td>When the sender never uses the value again, hand it over.</td><td><span class="badge b-partly">Partly works</span> task <code>actor-owned-message-move</code>, waiting</td></tr>
+<tr><td>Batched fan-in: many senders splice into one mailbox once per batch</td><td>8 senders to 1 receiver no longer fight over one memory location.</td><td><span class="badge b-partly">Partly works</span> (0.99.602a kept the receiver-progress fix: starved fan-in peak memory 99.4 MB to 3.7 MB)<sup><a href="#n5">5</a></sup></td></tr>
+<tr><td>Message passing faster than Go</td><td>Measured on 0.99.597a to 600a: pairs tie Go (17.2 vs 17.0 million messages a second); 8-to-1 fan-in is about 5 million against Go's 19 million.</td><td><span class="badge b-partly">Partly works</span></td></tr>
+</tbody></table></div>
+<figure class="fig">
+<svg viewBox="0 0 760 200" role="img" aria-labelledby="d5t">
+<title id="d5t">Inline turn: the sender's turn runs; it sends to an idle receiver; the receiver's turn runs on the same thread inside its own recovery point; if it fails only the receiver ends; then the sender's turn continues.</title>
+<defs><marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+<text x="20" y="28" class="bold">one worker thread, left to right in time</text>
+<rect x="20" y="50" width="220" height="50" rx="8" class="good"/><text x="130" y="80" text-anchor="middle">sender's turn … <tspan class="bold">send r, msg</tspan></text>
+<path d="M240 75 L268 75" class="line" marker-end="url(#ar5)"/>
+<rect x="270" y="40" width="250" height="70" rx="8" class="acc"/>
+<rect x="280" y="50" width="230" height="50" rx="6" class="warn"/>
+<text x="395" y="70" text-anchor="middle" class="small bold">receiver's turn, run inline</text>
+<text x="395" y="88" text-anchor="middle" class="small">inside its own recovery point</text>
+<path d="M520 75 L548 75" class="line" marker-end="url(#ar5)"/>
+<rect x="550" y="50" width="190" height="50" rx="8" class="good"/><text x="645" y="80" text-anchor="middle">sender continues</text>
+<path d="M395 110 L395 150" class="badline" marker-end="url(#ar5)"/>
+<text x="395" y="170" text-anchor="middle" class="small t-bad">if it fails: the receiver ends, the jump stops here,</text>
+<text x="395" y="186" text-anchor="middle" class="small t-bad">and the sender carries on</text>
+</svg>
+<figcaption>Figure 5. Decided for 606a: an inline turn is its own unit of work.</figcaption>
+</figure>
+
+<h2 id="next">9. Decided and proposed, beyond 606a</h2>
+<div class="scroll"><table>
+<thead><tr><th>Item</th><th>What and where</th><th>Status</th></tr></thead><tbody>
+<tr><td>Mailbox limits and backpressure</td><td>Today a mailbox has no hard cap and <code>send</code> never fails. The runtime already slows a sender down: past a backlog threshold, or after a run of sends to a receiver that has not run yet, the sender pauses until the receiver gets a turn (<code>hey_send_backpressure</code> in <code>runtime/hey_runtime.c</code>, near line 25780). Bounded mailboxes with a chosen overflow rule stay proposed; the research article recommends keeping today's default and adding bounded options. Task <code>actor-scheduling-admission-backpressure</code> found that a long producer turn can starve a receiver; no fix is claimed.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Per-core timer wheel</td><td>Sleeping actors placed on a timer structure per core instead of an ordered list. Task <code>actor-per-core-timer-wheel</code>, waiting.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Stopping a turn that loops forever</td><td>A turn that never errors and never ends cannot be stopped today, and <code>stop</code> cannot interrupt a busy turn. The fix is compiler-placed <em>safe points</em> at loop back-edges and function entries where a turn checks "have I run too long?" (Erlang counts work in <em>reductions</em>; Wasmtime bumps an <em>epoch</em>
+counter). Still to be decided.</td><td><span class="badge b-proposed">Proposed</span></td></tr>
+<tr><td>Native calls cannot be interrupted by any scheme</td><td>True in Erlang, Go and Wasmtime too. See <a href="2026-10-25-hey-native-code-and-c.html#limits">Native code and C</a>.</td><td>a fact</td></tr>
+<tr><td>Actor and turn regions: free everything a turn allocated in one step</td><td>Owned by <a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: Values, memory and Strings</a>.</td><td>see Reference 8</td></tr>
+</tbody></table></div>
+
+<h2 id="sources">Sources</h2>
+<ul>
+<li>Hey source (samples run on the 0.99.606a candidate): <code>stdlib/Actor.hey:1-13</code>;
+<code>runtime/hey_runtime.h:128-166</code> (HeyRuntimeRecovery); <code>runtime/hey_runtime.c</code>
+(<code>hey_runtime_recovery_push</code> near line 6855, <code>hey_web_call_contained</code> near 7307,
+<code>hey_actor_enqueue</code> near 25934, the "no actor runs inline" comment near 25792);
+<code>docs/actor-local-call.md</code>; <code>docs/developers/actor-scalability.md:5-55</code> (pooled vs dedicated-thread actors; supervised actors cost two threads, lines 46-50);
+<code>hey_send_backpressure</code> near <code>hey_runtime.c:25780</code>; <code>docs/developers/io.md</code>.</li>
+<li>Samples: <code>examples/tour_03_actors.hey</code>, <code>links_and_monitors.hey</code>, <code>monitor_delivery.hey</code>,
+<code>supervisor_hardening.hey</code>; <code>test/fixtures/actors/containment/fail_ends_actor.hey</code>;
+<code>test/fixtures/io/await_actor.hey</code>; <code>benchmarks/hey/actor_capacity.hey</code>; the rest written for this page.
+Gate: <code>test/gate_actor_failure_containment.sh</code>.</li>
+<li>Rulings, one line each, with details in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>:
+fail fast, no catch; actor errors must not kill the process; shared messages and
+inline turns for 606a.</li>
+</ul>
+
+<h2>Read next</h2>
+<ul>
+<li><a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4: Workers, Jobs and streams</a>: when you want parallel work without identity or state.</li>
+<li><a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>: actors on other machines.</li>
+<li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the Hey compiler turns source into native code</a>: where actor turns are compiled.</li>
+<li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>: the rulings behind this page.</li>
+</ul>
+<details><summary>History: the research this page replaces</summary>
+<p>These dated articles hold the research and measurements behind the design. This page is the current reference.</p>
+<ul>
+<li><a href="designing-heys-actors.html">Designing Hey's actors</a></li>
+<li><a href="how-hey-runs-a-million-actors.html">How Hey runs a million actors</a></li>
+<li><a href="what-makes-an-actor-cheap.html">What makes an actor cheap</a></li>
+<li><a href="should-heys-mailboxes-have-limits.html">Should Hey's mailboxes have limits?</a></li>
+<li><a href="faster-than-go-how-the-fastest-runtimes-pass-messages.html">Faster than Go: how the fastest runtimes pass messages</a></li>
+</ul></details>
+<section class="notes" id="notes" aria-labelledby="notes-h">
+<h2 id="notes-h">Notes</h2>
+<ol>
+<li id="n1">Release 0.99.605a made a failure end only its own actor, Job attempt or request: 14d886.</li>
+<li id="n2">A runtime error in a web handler stops it and fails only its request with 500: 1bf9dc.</li>
+<li id="n3">Stack overflow fails fast with a named message instead of a crash: 057b49.</li>
+<li id="n4">A recovery jump releases an abandoned caller's frame owners: 509eca.</li>
+<li id="n5">A sender stops for a fan-in receiver that is queued but not running: 87dbc1.</li>
+</ol>
+</section>
+</div>
+</body>
+</html>
