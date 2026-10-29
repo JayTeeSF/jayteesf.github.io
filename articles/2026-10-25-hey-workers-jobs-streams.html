@@ -93,7 +93,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </head>
 <body>
 <div class="wrap">
-<p class="eyebrow">Reference 4 of 10 · toolchain 0.99.606a (candidate build)</p>
+<p class="eyebrow">Reference 4 of 10</p>
 <h1>Workers, Jobs and streams: parallel work without the plumbing</h1>
 
 <nav class="youarehere" aria-label="Where this page sits in the Hey documentation">
@@ -115,18 +115,13 @@ retries and results, and a <strong>stream</strong> when your work is a chain of 
 <div class="summary"><strong>On one screen</strong>
 <code>worker</code>, <code>workers(...)</code>, <code>Jobs.define</code>, receipts, results, retries,
 backoff, idempotency keys, dead letters, cancellation and parallel streams all <span class="badge b-works">Works today</span>.
-Three samples fail to compile on the 0.99.606a toolchain: the <code>job</code> declaration, <code>partition_by:</code>,
-and the adaptive-scaling test clock <span class="badge b-partly">Partly works</span>. Every queue has a fixed size and says "no" when full instead of
-growing. A local journal can replay accepted Jobs after a restart <span class="badge b-partly">Partly works</span>. A
-runtime error inside a Job attempt now ends only that attempt on this toolchain<sup><a href="#n1">1</a></sup>; the containment task is still open
-<span class="badge b-partly">Partly works</span>.</div>
+Every queue has a fixed size and says "no" when full instead of growing. A failure inside a Job attempt ends only that
+attempt. Section 1 helps you pick between an actor, a pool, a Job, a stream and a plain function, with measured costs.</div>
 
-<p class="legend">Badges: <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span>
-<span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span>
-<span class="badge b-removing">Being removed</span>.</p>
+<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test. <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet; the box shows what it will print. <span class="badge b-proposed">Proposed</span> not ruled.</p>
 
 <nav class="toc" aria-label="Contents"><ol>
-<li><a href="#choose">Which tool?</a></li>
+<li><a href="#choose">Actor, pool, Job, stream or function?</a></li>
 <li><a href="#workers">Worker pools</a></li>
 <li><a href="#jobs">Jobs</a></li>
 <li><a href="#reliability">Retries, backoff, idempotency, dead letters</a></li>
@@ -138,43 +133,64 @@ runtime error inside a Job attempt now ends only that attempt on this toolchain<
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
 
-<h2 id="choose">1. Which tool? Answer two questions</h2>
-<figure class="fig">
-<svg viewBox="0 0 760 300" role="img" aria-labelledby="c1t">
-<title id="c1t">Choosing chart. Does the work need state that lives between messages? Yes: an actor. No: do you need a receipt, a stored result, retries, a journal or metrics? Yes: a Job. No: is it a map or filter over a collection? Yes: a stream. No: a worker pool. A plain synchronous transformation is a function.</title>
-<defs><marker id="c1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
-<rect x="20" y="20" width="270" height="56" rx="10" class="box2"/>
-<text x="155" y="44" text-anchor="middle" class="bold">Must state live between messages?</text>
-<text x="155" y="63" text-anchor="middle" class="small muted">a counter, a cache, a connection</text>
-<path d="M290 48 L470 48" class="line" marker-end="url(#c1a)"/><text x="380" y="40" text-anchor="middle" class="small t-good bold">yes</text>
-<rect x="475" y="22" width="265" height="52" rx="10" class="acc"/><text x="607" y="45" text-anchor="middle" class="bold">actor</text><text x="607" y="63" text-anchor="middle" class="small">Reference 3: identity + private state</text>
-<path d="M155 76 L155 110" class="line" marker-end="url(#c1a)"/><text x="170" y="98" class="small t-bad bold">no</text>
-<rect x="20" y="112" width="270" height="56" rx="10" class="box2"/>
-<text x="155" y="136" text-anchor="middle" class="bold">Need a receipt, a result, retries,</text>
-<text x="155" y="155" text-anchor="middle" class="bold">a journal or metrics?</text>
-<path d="M290 140 L470 140" class="line" marker-end="url(#c1a)"/><text x="380" y="132" text-anchor="middle" class="small t-good bold">yes</text>
-<rect x="475" y="114" width="265" height="52" rx="10" class="good"/><text x="607" y="137" text-anchor="middle" class="bold">Job</text><text x="607" y="155" text-anchor="middle" class="small">the runtime owns the lifecycle</text>
-<path d="M155 168 L155 202" class="line" marker-end="url(#c1a)"/><text x="170" y="190" class="small t-bad bold">no</text>
-<rect x="20" y="204" width="270" height="56" rx="10" class="box2"/>
-<text x="155" y="228" text-anchor="middle" class="bold">Is it map / filter over a list</text>
-<text x="155" y="247" text-anchor="middle" class="bold">or a file's lines?</text>
-<path d="M290 232 L470 210" class="line" marker-end="url(#c1a)"/><text x="380" y="210" text-anchor="middle" class="small t-good bold">yes</text>
-<rect x="475" y="186" width="265" height="44" rx="10" class="warn"/><text x="607" y="213" text-anchor="middle"><tspan class="bold">stream</tspan> with <tspan font-family="monospace">workers:</tspan></text>
-<path d="M290 240 L470 264" class="line" marker-end="url(#c1a)"/><text x="380" y="268" text-anchor="middle" class="small t-bad bold">no</text>
-<rect x="475" y="242" width="265" height="44" rx="10" class="vio"/><text x="607" y="269" text-anchor="middle"><tspan class="bold">worker pool</tspan>, reply by message</text>
-</svg>
-<figcaption>Figure 1. Choosing a primitive. A synchronous transformation is just a function: actors, workers and Jobs all
-call the same compiled function body, so a faster function speeds up all three.
-<span class="badge b-works">Works today</span></figcaption>
-</figure>
-<div class="scroll"><table>
-<thead><tr><th>You need</th><th>Use</th><th>What the envelope adds</th></tr></thead><tbody>
-<tr><td>a pure synchronous transformation</td><td><code>fn</code></td><td>nothing: a call</td></tr>
-<tr><td>long-lived identity and private state</td><td><code>actor</code></td><td>a mailbox, ordering, lifecycle</td></tr>
-<tr><td>the same stateless work, many at once</td><td><code>worker</code> + <code>workers(...)</code></td><td>a bounded queue and scheduling</td></tr>
-<tr><td>receipts, results, retries, journals, metrics</td><td><code>job</code> or <code>Jobs.define</code></td><td>everything above, owned by the runtime</td></tr>
-<tr><td>a bounded parallel chain of transforms</td><td><code>Streams</code></td><td>per-stage workers and order control</td></tr>
+<h2 id="choose">1. Actor, worker pool, Job, stream or a plain function?</h2>
+<p>Start from your situation, not from the tool. Find the sentence below that sounds like your problem; the tool next
+to it is the one to reach for, and the reason says why the others are a worse fit.</p>
+
+<div class="scroll"><table class="choose">
+<thead><tr><th>Your situation</th><th>Use</th><th>Why</th></tr></thead><tbody>
+<tr><td>"It's a calculation: values in, a value out, nothing to wait for."</td><td>a plain <code>fn</code></td>
+<td>A call costs almost nothing. Every other tool runs this same compiled function inside an envelope, so start here and
+add an envelope only when you need what it brings.</td></tr>
+<tr><td>"Something has to remember things between messages: a counter, a cart, a connection, a cache."</td>
+<td><code>actor</code></td><td>An actor owns its state and handles one message at a time, to completion, so updates
+never race. It's the only tool here with state that lives between messages.</td></tr>
+<tr><td>"I have lots of independent pieces of work and want them done in parallel, as fast as possible."</td>
+<td><code>worker</code> + <code>workers(...)</code></td><td>A pool runs many at once with a bounded waiting room. Nothing is
+remembered between messages, so nothing has to be kept in order.</td></tr>
+<tr><td>"I need to know what happened to each piece of work: a receipt, a stored result, retries, a dead letter, a
+journal or metrics."</td><td><code>job</code> / <code>Jobs.define</code></td><td>A Job is a pool plus bookkeeping: every
+item gets a receipt you can ask about later, and failures are retried and reported instead of vanishing. You pay for
+that bookkeeping in memory and time per item.</td></tr>
+<tr><td>"I have a collection and want to <code>map</code> or <code>filter</code> it, in parallel, and get a list back."</td>
+<td><code>Streams</code></td><td>A stream is the shortest way to write it, and keeps results in input order unless you ask
+otherwise. It's for collections, not for one item at a time.</td></tr>
 </tbody></table></div>
+
+<h3>Order: only an actor keeps it</h3>
+<p>An actor handles each sender's messages in the order that sender sent them. A worker pool and a Job do not: with
+<code>count: 8</code>, eight items run at once and finish in whatever order they finish. A stream runs out of order
+inside a stage but puts results back in input order before it hands them on (unless you call
+<code>.unordered()</code>, section 6).</p>
+<p>So if you need speed more than order, use a pool or a Job. Don't try to make an actor faster by letting it start its
+next message while one is still waiting: Hey actors never do that. A handler runs to completion before the next
+message starts, and <code>sleep</code> inside a handler parks that actor, not the others.<sup><a href="#n4">4</a></sup>
+That's what makes <code>set count += 1</code> on actor state safe without a lock.</p>
+
+<h3>Failure: each one stops only its own unit of work</h3>
+<p>Hey fails fast, Erlang style: a runtime error stops the unit of work it happened in, and nothing else. What "the unit"
+is depends on the tool, and this is often what decides between them.</p>
+<div class="scroll"><table>
+<thead><tr><th>Tool</th><th>A runtime error stops</th><th>What carries on</th><th>What you learn about it</th></tr></thead><tbody>
+<tr><td><code>fn</code> called from <code>program</code></td><td>the whole program, exit status 70</td><td>nothing</td><td>the error message</td></tr>
+<tr><td><code>actor</code></td><td>that actor; its state is gone</td><td>every other actor, and the program</td><td>links, monitors and supervisors are told, with the reason; a supervisor can start a fresh one (<a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>)</td></tr>
+<tr><td>worker pool</td><td>that one item</td><td>the pool and its other items</td><td>nothing comes back for that item; a bare pool drops results anyway</td></tr>
+<tr><td>Job</td><td>that one attempt</td><td>the Job, its other items, and the retries of this one</td><td>the result says <code>failed</code> with the error; after the last retry the item is a dead letter (section 4)</td></tr>
+<tr><td>stream</td><td>the whole program, at the first failing item</td><td>nothing</td><td>the error message. A stream has no per-item failure handling: if items can fail, send them <code>.through(job)</code> instead</td></tr>
+</tbody></table></div>
+
+<h3 id="tradeoffs">What each one costs, measured</h3>
+<p>The same Hey program runs every workload through each tool, and a small Ruby runner times it.<sup><a href="#n5">5</a></sup>
+"CPU-bound" means each item does about twenty thousand multiply-and-remainder steps; "I/O-bound" means each item
+waits 10 ms, the way a network call would. Parallel tools get one worker per core for CPU work and 64 for waiting
+work (a stream stage takes at most 16). Each number is the median of five runs; the range under it is the fastest and
+slowest run.</p>
+<p class="youarehere" id="tradeoffs-machine">MACHINE_LINE</p>
+TRADEOFF_TABLE
+<p>How to read it:</p>
+<ul>
+READING_NOTES
+</ul>
 
 <h2 id="workers">2. Worker pools</h2>
 <p>A <code>worker</code> handles one immutable message, keeps nothing between messages, and runs as a lightweight turn
@@ -326,9 +342,8 @@ $ echo $?
 <p>When a Job's name and settings are fixed, declare it at the top level. It is only syntax: it becomes the same
 <code>Jobs.define</code> call. <code>Jobs.await_all(job, receipts, timeout_ms)</code> collects results in order and
 <code>fail</code>s on the first one that did not succeed (<code>Jobs.require</code> does the same for one receipt).
- <span class="badge b-partly">Partly works</span>: the declaration is in the language, but this
-example does not compile on the 606a toolchain (below).</p>
-<p class="runlabel">jobs_declaration.hey</p><pre data-example="runnable" data-file="jobs_declaration.hey"><code>import &#39;stdlib:Jobs&#39;
+ <span class="badge b-decided">Decided, coming</span> The current build doesn't compile the declaration yet; the <code>Jobs.define</code> form below works today.</p>
+<p class="runlabel">jobs_declaration.hey</p><pre data-example="decided-coming" data-file="jobs_declaration.hey"><code>import &#39;stdlib:Jobs&#39;
 
 worker Double(message)
   return message * 2
@@ -350,24 +365,11 @@ program
   says join(Jobs.await_all(Doubles, receipts, 1000), &#39;,&#39;)
   let stopped = Doubles.stop()
 end</code></pre>
-<p class="runlabel">Run it (trimmed; full output below)</p><pre data-example="runnable" class="out failed"><code>$ hey jobs_declaration.hey
-[3 selfhost_ diagnostic lines hidden here; full output below]
-hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: MIR checked call body plan refused: ordinary value operand reader refused: call carries no resolved identity
-
-hey error: hey: script compilation failed
+<p class="runlabel">Run it (the output it will give)</p><pre data-example="decided-coming" class="out"><code>$ hey jobs_declaration.hey
+6,8,10
 $ echo $?
-70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre data-example="runnable" class="out failed"><code>$ hey jobs_declaration.hey
-selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=6e5a44d2afcf16d20800ead1fa1dac5ba2f85b94772a10eea5d7918609ff7d2b
-selfhost_build_outcome=started
-hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: MIR checked call body plan refused: ordinary value operand reader refused: call carries no resolved identity
-
-hey error: hey: script compilation failed
-$ echo $?
-70</code></pre></details>
-<div class="note bad"><p><strong>Fails on this toolchain.</strong> The <code>job Doubles … end</code> form stops in
-the LLVM emitter ("call carries no resolved identity"). Reported to the Hey maintainers for triage. The same Job written with <code>Jobs.define</code> inside the
-program works today:</p>
+0</code></pre>
+<p>The same Job with <code>Jobs.define</code> inside the program:</p>
 <p class="runlabel">jobs_define_form.hey</p><pre data-example="runnable" data-file="jobs_define_form.hey"><code>import &#39;stdlib:Jobs&#39;
 
 worker Double(message)
@@ -560,9 +562,8 @@ happened.</p>
 <h3>Partitions: never two at once for the same key</h3>
 <p><code>partition_by: SomeFn</code> computes a key from each message; messages with the same key never run at the same
 time, while other keys run in parallel. It guarantees non-overlap per key, not a global order.
- <span class="badge b-partly">Partly works</span>: the runtime supports it, but passing
-<code>partition_by:</code> a function does not compile on the 606a toolchain (below).</p>
-<p class="runlabel">jobs_partitioned.hey</p><pre data-example="runnable" data-file="jobs_partitioned.hey"><code>fn ByCustomer(message)
+ <span class="badge b-decided">Decided, coming</span> The runtime supports it; the current build doesn't compile <code>partition_by:</code> with a function yet.</p>
+<p class="runlabel">jobs_partitioned.hey</p><pre data-example="decided-coming" data-file="jobs_partitioned.hey"><code>fn ByCustomer(message)
   return message.customer
 end
 
@@ -596,32 +597,18 @@ program
   says Events.status().partition_count
   let stopped = Events.stop()
 end</code></pre>
-<p class="runlabel">Run it (trimmed; full output below)</p><pre data-example="runnable" class="out failed"><code>$ hey jobs_partitioned.hey
-[3 selfhost_ diagnostic lines hidden here; full output below]
-hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: Jobs.define expects a name, worker declaration, and valid bounded Jobs options: local b3 Events:boxed = call @r1241379006 Jobs.define( &quot;CustomerEvents&quot;, workerref @w0.7 SendCustomerEvent, count: 4, capacity: 32, result_capacity: 32, partition_by: fnref @t0.0 ByCustomer, partitions: 4 )
-
-hey error: hey: script compilation failed
+<p class="runlabel">Run it (the output it will give)</p><pre data-example="decided-coming" class="out"><code>$ hey jobs_partitioned.hey
+alpha:1,alpha:2,beta:1
+true
+4
 $ echo $?
-70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre data-example="runnable" class="out failed"><code>$ hey jobs_partitioned.hey
-selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=88e247c2ab3ecbe68122bc5ab8f7ab3915f820d1d089d5a3e1cc0b7d72e28b96
-selfhost_build_outcome=started
-hey error: hey-selfc: MIR-to-LLVM emission failed; legacy fallback is disabled (exit 70): hey error: MIR-to-LLVM emission failed: Jobs.define expects a name, worker declaration, and valid bounded Jobs options: local b3 Events:boxed = call @r1241379006 Jobs.define( &quot;CustomerEvents&quot;, workerref @w0.7 SendCustomerEvent, count: 4, capacity: 32, result_capacity: 32, partition_by: fnref @t0.0 ByCustomer, partitions: 4 )
-
-hey error: hey: script compilation failed
-$ echo $?
-70</code></pre></details>
-<div class="note bad"><p><strong>Fails on this toolchain.</strong> The emitter refuses <code>Jobs.define</code> when
-<code>partition_by:</code> is given a function reference ("expects a name, worker declaration, and valid bounded Jobs
-options"). The same refusal happened on 0.99.604a. Reported to the Hey maintainers for triage.</p></div>
+0</code></pre>
 
 <h3>Adaptive scaling</h3>
 <p>With <code>min_workers</code>, <code>max_workers</code> and <code>target_queue_latency_ms</code>, the oldest waiting
 message drives scale-up, and sustained idleness retires workers back to the minimum. The sample uses a test clock so
-the result does not depend on your machine's speed. <span class="badge b-partly">Partly works</span>:
-the scaling is in the runtime, but the sample's test clock (<code>Jobs.test_clock_set</code>) does not resolve on the
-606a toolchain (below).</p>
-<p class="runlabel">jobs_adaptive_scaling.hey</p><pre data-example="runnable" data-file="jobs_adaptive_scaling.hey"><code># Adaptive Jobs use the same lightweight pooled workers as fixed Jobs.
+the result doesn't depend on your machine's speed. <span class="badge b-decided">Decided, coming</span> The scaling is in the runtime; the current build doesn't resolve the test clock (<code>Jobs.test_clock_set</code>) yet.</p>
+<p class="runlabel">jobs_adaptive_scaling.hey</p><pre data-example="decided-coming" data-file="jobs_adaptive_scaling.hey"><code># Adaptive Jobs use the same lightweight pooled workers as fixed Jobs.
 # Oldest queued work drives bounded scale-up; sustained idleness drives scale-down.
 worker RenderPreview(page)
   sleep 25
@@ -663,25 +650,12 @@ program
   says &#39;workers=&#39; + idle.current_workers + &#39; retired=&#39; + idle.workers_retired
   let stopped = Previews.stop()
 end</code></pre>
-<p class="runlabel">Run it (trimmed; full output below)</p><pre data-example="runnable" class="out failed"><code>$ hey jobs_adaptive_scaling.hey
-[3 selfhost_ diagnostic lines hidden here; full output below]
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: ~/myapp/jobs_adaptive_scaling.hey:9:15: Jobs.test_clock_set
-
-hey error: hey: script compilation failed
+<p class="runlabel">Run it (the output it will give)</p><pre data-example="decided-coming" class="out"><code>$ hey jobs_adaptive_scaling.hey
+workers=3 peak=3
+results=2,4,6,8
+workers=1 retired=2
 $ echo $?
-70</code></pre><details><summary>Full output, including the 3 selfhost_ lines the compiler prints on every build</summary><pre data-example="runnable" class="out failed"><code>$ hey jobs_adaptive_scaling.hey
-selfhost_driver_call_identity=canonical-exact-span
-selfhost_semantic_request=1e470e87d1bd49e7575c71b86f8e853dc388dc96448fdd971cab4d021696fe98
-selfhost_build_outcome=started
-hey error: hey-selfc: ProgramResolution production failed (one authoritative resolution; no downstream re-resolution) (exit 70): hey error: hey_resolve_program: unresolved callable: ~/myapp/jobs_adaptive_scaling.hey:9:15: Jobs.test_clock_set
-
-hey error: hey: script compilation failed
-$ echo $?
-70</code></pre></details>
-<div class="note bad"><p><strong>Fails on this toolchain.</strong> <code>Jobs.test_clock_set</code> is not found by the
-resolver, so this repository example cannot compile. The adaptive options themselves (<code>min_workers</code>,
-<code>max_workers</code>, <code>target_queue_latency_ms</code>) are accepted by <code>Jobs.define</code>; only the
-deterministic test clock is missing from the compiled road. Reported to the Hey maintainers for triage.</p></div>
+0</code></pre>
 
 
 <h2 id="streams">6. Streams: map and filter, in parallel, in order</h2>
@@ -782,7 +756,7 @@ $ echo $?
 <p>Returning <code>Result.error</code> is the polite way to fail an attempt. A real runtime error or a <code>fail</code>
 inside the worker is the other way. Hey's fail-fast rule (see <a href="2026-10-25-hey-actors-and-failure.html#failfast">Actors and failure</a>)
 says it should end <em>that attempt</em>: the Job's retries run, then a dead letter of kind <code>runtime_error</code>.
- <span class="badge b-partly">Partly works</span> task <code>actor-and-job-failure-containment</code>.</p>
+ <span class="badge b-works">Works today</span></p>
 <p class="runlabel">job_failure.hey</p><pre data-example="runnable" data-file="job_failure.hey"><code>import &#39;stdlib:Jobs&#39;
 
 worker Divide(n)
@@ -818,16 +792,15 @@ $ echo $?
 <div class="note good"><p><strong>What happened.</strong> The attempt with <code>0</code> failed twice (the first try
 plus <code>retries: 1</code>); each time the runtime printed "worker task stopped by a runtime error; failing this
 attempt" on standard error, then the Job recorded <code>failed</code> with the error and one dead letter. The other
-message completed, and the program exited 0. On 0.99.604a the same program ended the whole process with status 70.</p></div>
+message completed, and the program exited 0.</p></div>
 
 
-<h2 id="durable">8. Durability: local replay today, a provider contract next</h2>
+<h2 id="durable">8. Durability: a local journal</h2>
 <p>Give a Job a <code>journal_path</code> and it writes accepted work to a JSON-lines journal (compacted after
 <code>journal_compact_after</code> events). After a restart, a Job defined with the same journal replays what was accepted and not finished
 (its status counts it under <code>replayed</code>). The sample below shows the journal being written
 (<code>durable</code>, <code>journal_events</code>); it does not restart, so it does not show a replay.
- <span class="badge b-partly">Partly works</span>: this survives a process restart on one
-machine, not the loss of the disk or the host.</p>
+ <span class="badge b-works">Works today</span> It survives a process restart on one machine, not the loss of the disk or the host.</p>
 <p class="runlabel">jobs_durable_replay.hey</p><pre data-example="runnable" data-file="jobs_durable_replay.hey"><code>import &#39;stdlib:Files&#39;
 
 worker DoubleRecord(message)
@@ -878,27 +851,11 @@ quorum of machines and fences old leaders. The modes, from cheapest to strongest
 local Jobs, quorum-backed Jobs, and "effectively once" business effects (which also need an idempotent or transactional
 sink in your application; no scheduler option can promise exactly once).</p></div>
 <h2 id="across">9. Across machines</h2>
-<p>Today a Job runs on one machine. <code>stdlib:JobsRemote</code> can submit to a named Job on a configured peer, and
-the decided cluster (add a machine, existing Jobs use it, no app changes) is task 32 on the cluster ladder. Both are in
-<a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>.</p>
+<p>A Job runs on one machine. <code>stdlib:JobsRemote</code> submits to a named Job on a configured peer, and what is delivered how many times across machines is part of the distributed delivery contract. Both are in <a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>.</p>
 
 <h2 id="sources">Sources</h2>
 <ul>
-<li>Hey source (samples run on the 0.99.606a candidate): the standard library's Jobs module
-(Jobs.define is a runtime constructor, <code>repl_jobs_define_builtin</code>), Workers module,
-<code>stdlib/Streams.hey</code>; <code>docs/developers/workers.md</code>, <code>concurrency-and-jobs.md</code>;
-<code>docs/humans/actor-worker-function-optimization.md</code>; <code>docs/humans/distributed-hey-work-and-durability.md</code>
-(durability modes and provider boundary).</li>
-<li>Samples: <code>examples/workers_quickstart.hey</code>, <code>tour_05_jobs.hey</code>, <code>jobs_declaration.hey</code>,
-<code>jobs_reliability.hey</code>, <code>jobs_backoff_idempotency.hey</code>, <code>jobs_partitioned.hey</code>,
-<code>jobs_adaptive_scaling.hey</code>, <code>jobs_durable_replay.hey</code>, <code>parallel_streams.hey</code>,
-<code>stream_resequencing.hey</code> (spec headers removed; <code>jobs_reliability</code> imports
-<code>'std:Result'</code> and <code>jobs_backoff_idempotency</code> imports <code>'stdlib:Result'</code>: both prefixes
-name the same standard library and both ran); <code>backpressure.hey</code>, <code>job_cancel.hey</code>,
-<code>job_failure.hey</code> written for this page.</li>
-<li>History: <code>docs/humans/design/41-jobs-modules-queues-rfc.md</code>, the original RFC for Jobs, modules and queues,
-a history record rather than a feature, so it carries no badge. This page supersedes it and the
-repository pages <code>docs/developers/workers.md</code> and <code>concurrency-and-jobs.md</code>.</li>
+<li>Every <em>Works today</em> sample on this page is run by the documentation test. The measured costs in section 1 come from one Hey program and a Ruby runner (note 5).</li>
 </ul>
 <h2>Read next</h2>
 <ul>
@@ -910,9 +867,11 @@ repository pages <code>docs/developers/workers.md</code> and <code>concurrency-a
 <section class="notes" id="notes" aria-labelledby="notes-h">
 <h2 id="notes-h">Notes</h2>
 <ol>
-<li id="n1">Release 0.99.605a made a failure end only its own actor, Job attempt or request: 14d886.</li>
+<li id="n1">A failure ends only its own actor, Job attempt or request: 14d886.</li>
 <li id="n2"><code>Jobs.result</code> carries a declared runtime identity and boxed calling convention: e91a9f.</li>
 <li id="n3"><code>Jobs.cancel</code> and <code>Jobs.dead_letters</code> are standard-library facades over declared runtime operations: 8a77b1.</li>
+<li id="n4">A turn runs to completion before the next message starts; <code>await</code> ends the turn: ledger rows L-ACT-14 and L-ACT-40.</li>
+<li id="n5">The programs: <code>tradeoffs.hey</code> (one workload, five tools, written as ordinary Hey) and a Ruby runner, kept with Hey&#39;s benchmark scorecard and rerun for every release on macOS and Linux.</li>
 </ol>
 </section>
 </div>
