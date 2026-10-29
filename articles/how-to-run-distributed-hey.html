@@ -6,8 +6,8 @@
 <meta name="article-index-rank" content="40">
 <meta name="article-index-desc" content="A hands-on walkthrough: local nodes, Docker, two machines over TCP and TLS, remote calls and sends, monitors, clustered Jobs and the durable log.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Distributed Hey, from a working two-node demo to clustered actors, Jobs, supervision, and durable log replication: run it locally, in Docker, or across real machines and see exactly which guarantees are live.">
-<meta name="article-desc" content="Run Distributed Hey locally, in Docker, or across two real machines, with TCP/TLS Remote.call, Remote.send, monitoring, stale-incarnation rejection, clustered Jobs, and an explicit path from local durability to quorum-confirmed durable log replication.">
+<meta name="description" content="Distributed Hey by hand: build the demos, make a remote call over TCP and TLS, move a node to a second machine, watch a restarted node refuse stale messages, and see which pieces are still to come.">
+<meta name="article-desc" content="Run Distributed Hey on one machine or two: compiled demos over TCP and TLS, Remote.call, stale-incarnation rejection, and the decided goal of Jobs that use an added machine without code changes.">
 <meta name="article-index-title" content="Distributed Hey: one program, more machines">
 <title>Distributed Hey: one program, more machines</title>
 <style>
@@ -70,18 +70,17 @@ footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--line);color:v
 </style>
 </head>
 <body>
-<p data-superseded-by="2026-10-25-hey-distributed-and-clusters.html" style="margin:0 auto;max-width:960px;padding:.6rem 1rem;border:1px solid currentColor;border-radius:8px;font-size:.95rem"><strong>Superseded on 28 October 2026</strong> by <a href="2026-10-25-hey-distributed-and-clusters.html">Distributed Hey and clusters</a>. This page is kept as dated history; its Jobs.cluster example was never built.</p>
 <main>
 <section class="hero">
   <div>
     <p class="eyebrow">Distributed Hey · practical guide</p>
     <h1>Imagine if adding a machine felt like adding another worker.</h1>
     <p class="lede">Your web process accepts a burst of work. Hey actors spread that work across cores, containers, and other machines. One machine disappears; the rest keep going. A replacement joins. Your application still mostly talks in actors, immutable values, and jobs.</p>
-    <p>New to the language? <a href="2026-10-25-hey-the-language.html">The Parts of the Hey Language</a> is the ten-minute tour; this page assumes you already know what an actor is here.</p>
+    <p>New to the language? <a href="2026-10-25-hey-guide-first-steps.html">Guide 1</a> is the quick tour; this page assumes you already know what an actor is. <a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5</a> is the full reference for what this guide shows by hand.</p>
     <div class="pills">
-      <span class="pill good">real two-machine transport works</span>
-      <span class="pill good">TLS + send + call + monitor</span>
-      <span class="pill now">cluster + durable log are the next product layer</span>
+      <span class="pill good">two machines talk today: send, call, monitor</span>
+      <span class="pill good">TLS, compiled programs</span>
+      <span class="pill now">Jobs across machines: decided, coming</span>
     </div>
   </div>
 
@@ -98,55 +97,16 @@ footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--line);color:v
         <div class="node worker"><strong>worker-c</strong><small>Linux box · healthy</small></div>
         <div class="node worker"><strong>worker-d</strong><small>restarted · rejoining</small></div>
       </div>
-      <div class="dreamCaption">The destination: one programming model, more places where work can run.</div>
+      <div class="dreamCaption">The goal: one programming model, more places where work can run.</div>
     </div>
   </div>
 </section>
 
 <section>
-  <p class="eyebrow">Show me first</p>
-  <h2>What the dream should feel like</h2>
-  <div class="codePair">
-    <div>
-      <p><strong>Application code should stay boring.</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>import 'stdlib:Jobs'
-
-fn resize(job)
-  return Images.resize(job.image, job.width)
-end
-
-program
-  let workers = Jobs.cluster('image-workers')
-  let results = Jobs.map(workers, uploads, resize)
-  save(results)
-end</code></pre>
-    </div>
-    <div>
-      <p><strong>The runtime should do the distributed work.</strong></p>
-      <div class="card">
-        <div class="nodeStack">
-          <div class="node"><strong>node-a</strong><small>coordinator · 12 actors</small></div>
-          <div class="node worker"><strong>node-b</strong><small>32 jobs running</small></div>
-          <div class="node worker"><strong>node-c</strong><small>28 jobs running</small></div>
-          <div class="node"><strong>node-d</strong><small>NODE_DOWN → work requeued</small></div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="callout target" style="margin-top:16px">
-    <h3>That exact Jobs API is the destination, not today's API.</h3>
-    <p>The transport underneath it is real today. The next product layer is making distribution feel native to Hey actors and Jobs while giving stateful services an explicit durability choice: local barrier or quorum-confirmed replicated log.</p>
-  </div>
-</section>
-
-<section>
-  <p class="eyebrow">What exists now</p>
-  <h2>The bottom half already works</h2>
-  <div class="showcase">
-    <div class="card"><div class="num">2</div><p>independent Hey processes can connect over the network.</p></div>
-    <div class="card"><div class="num">TLS</div><p>authenticated transport is implemented and verified across real macOS ↔ Linux hardware.</p></div>
-    <div class="card"><div class="num">4</div><p>core behaviors: <strong>send</strong>, <strong>call</strong>, <strong>monitor</strong>, and stale-incarnation rejection.</p></div>
-  </div>
+  <p class="eyebrow">The goal</p>
+  <h2>Add a machine; your existing Jobs use it</h2>
+  <p>That is the ruling: an operator admits a machine to a trusted pool, and existing Jobs use its capacity <strong>without application changes</strong>. No socket names, no hand-built peer records, no retry loops in your code. There is no special cluster API to learn. <span class="pill now">Decided, coming</span></p>
+  <p>The layer underneath already works: separate Hey programs, on one machine or two, connect, authenticate with TLS, send, call, and watch each other die. The rest of this guide runs it.</p>
 
   <div class="compare">
     <div class="side">
@@ -158,7 +118,7 @@ end</code></pre>
     <div class="side future">
       <span class="eyebrow">this</span>
       <h3>Normal native programs exchanging immutable values</h3>
-      <p>Each node is an ordinary Hey process. Distribution is a library/runtime layer beside the actor model.</p>
+      <p>Each node is an ordinary compiled Hey program. Distribution is a library and runtime layer beside the actor model.</p>
     </div>
   </div>
 </section>
@@ -166,238 +126,152 @@ end</code></pre>
 <section>
   <p class="eyebrow">Quick start · one machine</p>
   <h2>See a real remote call in about a minute</h2>
-  <div class="sectionGrid">
-    <div class="steps">
-      <div class="step"><div class="stepBody">
-        <h3>Build the local compiler once</h3>
-        <pre data-example="fragment" data-needs="REVIEW"><code>./bin/subcmds/hey-build --native</code></pre>
-      </div></div>
-      <div class="step"><div class="stepBody">
-        <h3>Start two Hey processes and make a remote call</h3>
-        <pre data-example="fragment" data-needs="REVIEW"><code>examples/distributed/run_demo.sh \
-  examples/distributed/01_ping_pong.hey \
-  9101 tcp</code></pre>
-      </div></div>
-      <div class="step"><div class="stepBody">
-        <h3>Look for the proof</h3>
-        <pre data-example="fragment" data-needs="REVIEW" class="output"><code>[A] A handshake ok with peer=B ...
-[A] A got reply=pong echo.ping=hello from A from=node-B
-[B] B handshake ok with peer=A app=pingpong</code></pre>
-      </div></div>
-    </div>
-    <aside class="callout detail">
-      <h3>What just happened?</h3>
-      <p>The script launched node B in the background and node A in the foreground. A created a <span class="inline">RemotePid</span>, sent a request through <span class="inline">Remote.call</span>, and B returned an immutable structured reply.</p>
-      <p>The <span class="inline">tcp</span> argument is deliberately the easiest development mode: no certificate setup, same transport protocol above the stream layer.</p>
-    </aside>
+  <p>The demos ship with Hey, in the toolchain's <span class="inline">examples/distributed</span> folder. Copy them into an empty folder, build one, and start it twice: once as the server (node B) and once as the client (node A).</p>
+  <div class="terminal">
+    <div class="termHead">one terminal</div>
+    <pre data-example="runnable" data-setup="cp $TOOLCHAIN/examples/distributed/*.hey ."><code>$ hey build 01_ping_pong.hey -o ping_pong
+...
+$ ./ping_pong server 9311 tcp &gt; b.log &amp;
+$ sleep 1
+$ ./ping_pong client 9311 tcp
+A up mode=tcp incarnation=inc-...
+A handshake ok with peer=B incarnation=inc-...
+A got reply=pong echo.ping=hello from A from=node-B
+$ sleep 1
+$ cat b.log
+B up mode=tcp incarnation=inc-...
+B listening on 127.0.0.1:9311
+B handshake ok with peer=A app=pingpong
+B stats frames_recv=3 frames_sent=2</code></pre>
   </div>
+  <aside class="callout detail">
+    <h3>What just happened?</h3>
+    <p>Node A built a <span class="inline">RemotePid</span> (an actor address on another node), sent a request through <span class="inline">Remote.call</span>, and node B answered with an immutable structured reply. Each run gets a fresh <em>incarnation</em> id, so an address from an earlier run can never reach a restarted node by accident.</p>
+    <p>The <span class="inline">tcp</span> argument is the easy development mode: no certificates, and the same protocol above the connection.</p>
+  </aside>
 </section>
 
 <section>
   <p class="eyebrow">Same machine · secure path</p>
   <h2>Now run the same demo over TLS</h2>
-  <p>You do not need to manufacture certificates just to see it work. The repository already contains test-only TLS material.</p>
+  <p>The toolchain carries test-only certificates in <span class="inline">test/fixtures/tls</span>. Copy the three files next to the demo. The demo reads its certificate paths from environment variables it names itself: the server needs its certificate and key, the client needs the authority that signed them and the name to check.</p>
   <div class="terminal">
-    <div class="termHead">copy / paste from the repository root</div>
-    <pre data-example="fragment" data-needs="REVIEW"><code>export HEY_DIST_CERT="$PWD/test/fixtures/tls/server-cert.pem"
-export HEY_DIST_KEY="$PWD/test/fixtures/tls/server-key.pem"
-export HEY_DIST_CA="$PWD/test/fixtures/tls/ca-cert.pem"
-export HEY_DIST_SNI=localhost
-
-examples/distributed/run_demo.sh \
-  examples/distributed/01_ping_pong.hey \
-  9102 tls</code></pre>
+    <div class="termHead">one terminal</div>
+    <pre data-example="runnable" data-setup="cp $TOOLCHAIN/examples/distributed/*.hey . &amp;&amp; cp $TOOLCHAIN/test/fixtures/tls/server-cert.pem $TOOLCHAIN/test/fixtures/tls/server-key.pem $TOOLCHAIN/test/fixtures/tls/ca-cert.pem ."><code>$ hey build 01_ping_pong.hey -o ping_pong
+...
+$ HEY_DIST_CERT=server-cert.pem HEY_DIST_KEY=server-key.pem ./ping_pong server 9312 tls &gt; b.log &amp;
+$ sleep 1
+$ HEY_DIST_CA=ca-cert.pem HEY_DIST_SNI=localhost ./ping_pong client 9312 tls
+A up mode=tls incarnation=inc-...
+A handshake ok with peer=B incarnation=inc-...
+A got reply=pong echo.ping=hello from A from=node-B
+$ sleep 1
+$ cat b.log
+B up mode=tls incarnation=inc-...
+B listening on 127.0.0.1:9312
+B handshake ok with peer=A app=pingpong
+B stats frames_recv=3 frames_sent=2</code></pre>
   </div>
   <div class="callout warning">
     <h3>Those certificates are for the demo.</h3>
-    <p>They make the article reproducible. Do not copy the repository's private fixture key into a real service. Production deployment should issue a server certificate for the service name you actually use.</p>
+    <p>Never put the fixture's private key into a real service. A real deployment issues a server certificate for the name the service actually uses.</p>
   </div>
-</section>
-
-<section>
-  <p class="eyebrow">Optional · Docker</p>
-  <h2>Two nodes, one laptop, isolated Linux containers</h2>
-  <p>The simplest article path is two processes. If you want a closer simulation of two machines, build the existing Linux dev image and put two containers on one Docker network.</p>
-  <div class="terminal">
-    <div class="termHead">build + network</div>
-    <pre data-example="fragment" data-needs="REVIEW"><code>docker build \
-  -f docker/linux/alpine/Dockerfile \
-  --target dev \
-  -t hey-dev:local .
-
-docker network create hey-dist</code></pre>
-  </div>
-  <div class="codePair" style="margin-top:16px">
-    <div>
-      <p><strong>Terminal 1 — node B</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>docker run --rm --name hey-b \
-  --network hey-dist \
-  -e HEY_DIST_BIND=0.0.0.0 \
-  hey-dev:local sh -lc '
-    HEY_ROOT=/opt/hey \
-    HEY_STDLIB_PATH=/opt/hey/stdlib \
-    heyc /opt/hey/examples/distributed/01_ping_pong.hey \
-      --run -- server 9101 tcp
-  '</code></pre>
-    </div>
-    <div>
-      <p><strong>Terminal 2 — node A</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>docker run --rm --name hey-a \
-  --network hey-dist \
-  -e HEY_DIST_PEER=hey-b \
-  hey-dev:local sh -lc '
-    HEY_ROOT=/opt/hey \
-    HEY_STDLIB_PATH=/opt/hey/stdlib \
-    heyc /opt/hey/examples/distributed/01_ping_pong.hey \
-      --run -- client 9101 tcp
-  '</code></pre>
-    </div>
-  </div>
-  <div class="callout detail"><h3>Why TCP here?</h3><p>This section is about seeing the node boundary. Once that is clear, use the TLS recipe above—or the real-two-machine recipe below—to exercise authenticated transport.</p></div>
 </section>
 
 <section>
   <p class="eyebrow">Two real machines</p>
   <h2>Move node B to another computer</h2>
-  <p>Assume node B is reachable at <span class="inline">192.168.1.20</span>. Both machines have the same Hey checkout and have run <span class="inline">./bin/subcmds/hey-build --native</span>.</p>
+  <p>Build the demo on each machine (a Mac program doesn't run on Linux, and the other way round). Say node B is reachable at 192.168.1.20. The server binds to that address and waits longer for the client; the client connects to that address but checks the certificate against the name <span class="inline">localhost</span>, because that is the name the fixture certificate was issued for. A real certificate would carry the real service name.</p>
   <div class="codePair">
     <div>
-      <p><strong>Machine B — server</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>export HEY_DIST_BIND=192.168.1.20
-export HEY_DIST_ACCEPT_MS=15000
-export HEY_DIST_CERT="$PWD/test/fixtures/tls/server-cert.pem"
-export HEY_DIST_KEY="$PWD/test/fixtures/tls/server-key.pem"
-
-./build/heyc \
-  examples/distributed/01_ping_pong.hey \
-  --run -- server 9101 tls</code></pre>
+      <p><strong>Machine B: server</strong></p>
+      <pre data-example="fragment" data-needs="two machines"><code>$ HEY_DIST_BIND=192.168.1.20 HEY_DIST_ACCEPT_MS=15000 \
+    HEY_DIST_CERT=server-cert.pem HEY_DIST_KEY=server-key.pem \
+    ./ping_pong server 9101 tls</code></pre>
     </div>
     <div>
-      <p><strong>Machine A — client</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>export HEY_DIST_PEER=192.168.1.20
-export HEY_DIST_CA="$PWD/test/fixtures/tls/ca-cert.pem"
-export HEY_DIST_SNI=localhost
-
-./build/heyc \
-  examples/distributed/01_ping_pong.hey \
-  --run -- client 9101 tls</code></pre>
+      <p><strong>Machine A: client</strong></p>
+      <pre data-example="fragment" data-needs="two machines"><code>$ HEY_DIST_PEER=192.168.1.20 \
+    HEY_DIST_CA=ca-cert.pem HEY_DIST_SNI=localhost \
+    ./ping_pong client 9101 tls</code></pre>
     </div>
   </div>
-  <div class="callout detail">
-    <h3>Why connect to an IP but verify “localhost”?</h3>
-    <p>The repository's fixture certificate is issued for <span class="inline">localhost</span>. The socket connects to B's LAN IP, while TLS verifies the certificate name supplied through <span class="inline">HEY_DIST_SNI</span>. That trick is convenient for a test fixture; a real deployment should issue a certificate for its real DNS/service name.</p>
-  </div>
+  <p>The output is the same as on one machine, with B listening on 192.168.1.20.</p>
 </section>
 
 <section>
   <p class="eyebrow">Break it on purpose</p>
   <h2>Distribution matters when something dies</h2>
-  <div class="showcase">
-    <div class="card"><h3>Remote actor</h3><pre data-example="fragment" data-needs="REVIEW"><code>examples/distributed/run_demo.sh \
-  examples/distributed/02_remote_actor.hey 9202 tcp</code></pre><p>Proves <span class="inline">Remote.send</span> reaches the remote mailbox.</p></div>
-    <div class="card"><h3>Remote monitor</h3><pre data-example="fragment" data-needs="REVIEW"><code>examples/distributed/run_demo.sh \
-  examples/distributed/03_remote_monitor.hey 9203 tcp</code></pre><p>Proves the surviving node observes <span class="inline">NODE_DOWN</span>.</p></div>
-    <div class="card"><h3>Restart identity</h3><pre data-example="fragment" data-needs="REVIEW"><code>examples/distributed/run_incarnation_demo.sh tcp 9620</code></pre><p>Proves a stale <span class="inline">RemotePid</span> does not silently target a restarted runtime.</p></div>
+  <p>A restarted node is a new node. Here node A sends one message addressed to an earlier incarnation of B, which B must refuse, and then makes a normal call, which B answers.</p>
+  <div class="terminal">
+    <div class="termHead">one terminal</div>
+    <pre data-example="runnable" data-setup="cp $TOOLCHAIN/examples/distributed/*.hey ."><code>$ hey build 04_stale_incarnation.hey -o stale
+...
+$ ./stale server 9313 tcp &gt; b.log &amp;
+$ sleep 1
+$ ./stale client 9313 tcp
+A up mode=tcp incarnation=inc-...
+A handshake ok peer_incarnation=inc-...
+A stale-incarnation send dispatched (server must reject, not route)
+A current-incarnation call reply=pong
+$ sleep 1
+$ cat b.log
+B up mode=tcp incarnation=inc-...
+B listening on 127.0.0.1:9313
+B handshake ok
+B serve event=stale_incarnation
+B serve event=answered
+B serve event=bye</code></pre>
   </div>
+  <p><a href="2026-10-25-hey-distributed-and-clusters.html#demos">Reference 5</a> runs the other two demos the same way: <span class="inline">02_remote_actor</span> shows <span class="inline">Remote.send</span> reaching a remote mailbox, and <span class="inline">03_remote_monitor</span> shows the surviving node told <span class="inline">NODE_DOWN</span> when its peer dies.</p>
 </section>
 
 <section>
-  <p class="eyebrow">What still feels manual?</p>
-  <h2>Today's friction, and the feature that removes each piece</h2>
-  <p>This is the section the old article blurred. The left side is what feels awkward <em>today</em>. The right side is the specific product work that makes it disappear.</p>
+  <p class="eyebrow">What still feels manual</p>
+  <h2>Today's friction, and the piece that removes it</h2>
   <div class="frictionGrid">
-    <div class="friction"><div class="bad">today</div><h3>You create peers and connections yourself.</h3><p>Application code knows hostnames, ports, handshakes, and <span class="inline">DistTransport</span>.</p><div class="fix">fix</div><p><strong>Node service + connection-owning actors.</strong> A supervised node runtime owns listeners, peer connections, reconnects, and backoff.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>You explicitly construct remote actor addresses.</h3><p>You use <span class="inline">Remote.pid(node, name)</span> and keep track of where the actor lives.</p><div class="fix">fix</div><p><strong>Registry + discovery.</strong> Ask for <span class="inline">'resize-worker'</span>; get a local or remote actor reference.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>Jobs do not automatically spread across nodes.</h3><p>The transport can move messages, but the Jobs layer does not yet schedule work onto a distributed worker pool.</p><div class="fix">fix</div><p><strong>DistributedJobs.</strong> Put ordinary immutable jobs on local or remote workers with the same failure policy.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>The compiler path is not complete for every Dist*/Codec call shape.</h3><p>The demos still use <span class="inline">--run</span> while the one-true compiler closes the remaining boxed/callable cross-unit cases.</p><div class="fix">fix</div><p><strong>P2 compiler closure.</strong> Default build must compile the distributed examples through Hey → HIR → MIR → HeyLlvm → LLVM with zero fallback.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>Cluster membership is explicit.</h3><p>The current APIs use configured peers and explicit node identity; the durable-log cluster layer now exercises real peer processes, but it is not a magical global registry.</p><div class="fix">next</div><p><strong>Seeds → discovery → membership.</strong> Start with configured seeds/DNS, then add supervision and observation without hiding failure or identity.</p></div>
-    <div class="friction"><div class="bad">today</div><h3>Observation is still a product gap.</h3><p>Transport and journal receipts expose useful facts, but cluster-wide health, actors, queues, jobs, latency, terms, and restarts are not yet one coherent cockpit.</p><div class="fix">fix</div><p><strong>Cluster observation.</strong> A first-class dashboard/API over node health, actors, mailboxes, jobs, traffic, backpressure, monitors, supervision, and durable-log terms.</p></div>
+  <div class="friction">
+    <h3>You create peers and connections yourself.</h3>
+    <p>Application code knows host names, ports and handshakes. <b class="fix">Fix:</b> a node service, a supervised runtime part that owns listeners, peer connections, reconnects and backoff. <span class="pill">Proposed</span></p>
   </div>
-</section>
-
-<section>
-  <p class="eyebrow">The missing centerpiece</p>
-  <h2>A distributed runtime needs a cockpit</h2>
-  <p>Clustering without observation is just a larger place for bugs to hide. Before sophisticated scheduling, Hey needs a boring, excellent view of what the cluster is doing.</p>
-  <div class="clusterPanel" aria-label="Mockup of the desired Hey cluster dashboard">
-    <div class="clusterTop">
-      <div><strong>HEY CLUSTER</strong><div style="color:var(--muted);font-size:.85rem">image-workers · 4 nodes · 79 actors · 168 queued jobs</div></div>
-      <div class="health"><i class="dot"></i><strong>3 healthy</strong>&nbsp;&nbsp;<i class="dot warn"></i><strong>1 suspect</strong></div>
-    </div>
-    <div class="nodes">
-      <div class="nodeTile"><div class="name">node-a</div><div class="metric"><span>actors</span><b>12</b></div><div class="metric"><span>queue</span><b>8</b></div><div class="metric"><span>p95</span><b>4ms</b></div><div class="bar"><i style="width:25%"></i></div></div>
-      <div class="nodeTile"><div class="name">node-b</div><div class="metric"><span>actors</span><b>32</b></div><div class="metric"><span>queue</span><b>74</b></div><div class="metric"><span>p95</span><b>7ms</b></div><div class="bar"><i style="width:62%"></i></div></div>
-      <div class="nodeTile"><div class="name">node-c</div><div class="metric"><span>actors</span><b>35</b></div><div class="metric"><span>queue</span><b>86</b></div><div class="metric"><span>p95</span><b>9ms</b></div><div class="bar"><i style="width:74%"></i></div></div>
-      <div class="nodeTile"><div class="name">node-d</div><div class="metric"><span>state</span><b style="color:var(--warn)">suspect</b></div><div class="metric"><span>last seen</span><b>2.3s</b></div><div class="metric"><span>jobs</span><b>requeueing</b></div><div class="bar"><i style="width:8%;background:var(--warn)"></i></div></div>
-    </div>
+  <div class="friction">
+    <h3>You build remote actor addresses yourself.</h3>
+    <p>You call <span class="inline">Remote.pid(node, name)</span> and keep track of where the actor lives. <b class="fix">Fix:</b> a registry with discovery and placement; admitted machines advertise what they can run. <span class="pill">Proposed</span></p>
   </div>
-  <div class="callout target" style="margin-top:16px">
-    <h3>Minimum useful observation surface</h3>
-    <p>Node membership and incarnation · connections/reconnects · actor counts · mailbox depth · job queue depth · send/call latency · bytes/frames · backpressure · NODE_DOWN/DOWN · restart history · dead letters · per-service health.</p>
+  <div class="friction">
+    <h3>Jobs don't spread across machines.</h3>
+    <p>The transport moves messages, but Jobs still run on one machine. <b class="fix">Fix:</b> ordinary Jobs, unchanged, running across nodes, with accepted work recorded before the receipt and numbered attempts so a stale worker can't overwrite a result. <span class="pill now">The goal is decided, coming</span></p>
+  </div>
+  <div class="friction">
+    <h3>What a send promises across machines isn't written down yet.</h3>
+    <p>Today a remote send is accepted for transport, at most once. <b class="fix">Fix:</b> the delivery contract: what send, call, monitor and a Job receipt promise, tested against lost acknowledgements, duplicates and reordering. <span class="pill now">Decided, coming</span></p>
+  </div>
+  <div class="friction">
+    <h3>You can't see the cluster as a whole.</h3>
+    <p>Each demo prints its own facts. <b class="fix">Fix:</b> one record shape for node health, actors, mailbox and Job depth, latency, traffic, backpressure, dead letters and supervision history. <span class="pill">Proposed</span></p>
+  </div>
   </div>
 </section>
 
 <section>
   <p class="eyebrow">State that survives a machine</p>
-  <h2>Durable log turns cluster membership into a real guarantee</h2>
-  <p>Transport tells you that a peer accepted bytes. It does not tell you that a mutation survived the peer's storage barrier. <a href="2026-10-25-hey-distributed-and-clusters.html"><code>hey_durable_log</code></a> makes that distinction explicit: local appends return <code>local_durable</code> only after the platform barrier, while the opt-in cluster layer returns <code>quorum_durable</code> only after a required majority confirms its own durable record.</p>
-  <div class="codePair">
-    <div>
-      <p><strong>Local journal</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>let journal = DurableLog.open('state.hdl', opts).value
-let receipt = DurableLog.append(journal, 3, 'mutation')
-says receipt.value.durability # local_durable</code></pre>
-    </div>
-    <div>
-      <p><strong>Cluster journal</strong></p>
-      <pre data-example="fragment" data-needs="REVIEW"><code>let cluster = DurableLogCluster.open(journal, {
-  peers: ['node-b', 'node-c'],
-  term: 7,
-  replicate: remote_adapter
-}).value
-let receipt = DurableLogCluster.append(cluster, 3, 'mutation')
-says receipt.value.durability # quorum_durable</code></pre>
-    </div>
-  </div>
-  <div class="callout detail"><h3>The guarantees are named, never silently upgraded</h3><p>A missing majority returns <span class="inline">durable_log_quorum_unavailable</span>; it does not downgrade to local success. A stale leader is fenced by term. The real-peer cluster gate checks follower bytes, healing, leader hand-off, divergent history, and a running-node partition rather than treating a stopped container as a network partition. Read the package's <a href="2026-10-25-hey-distributed-and-clusters.html">durability article</a> for the barrier, recovery, and performance limits.</p></div>
-</section>
-
-<section>
-  <p class="eyebrow">Road to seamless</p>
-  <h2>How the current substrate turns into “actors and jobs, anywhere”</h2>
-  <div class="timeline">
-    <div class="mile done"><small>done</small><b>Network substrate</b><small>codec · TLS · send/call/monitor · incarnation</small></div>
-    <div class="mile now"><small>now</small><b>Compiler closure</b><small>compile the distributed stack through one strict pipeline</small></div>
-    <div class="mile done"><small>landed</small><b>Durable log</b><small>local barriers · recovery · segments · replay</small></div>
-    <div class="mile now"><small>now</small><b>Quorum cluster</b><small>real peers · healing · terms · fencing</small></div>
-    <div class="mile next"><small>next</small><b>Cluster product</b><small>membership · Jobs placement · observation</small></div>
-  </div>
-</section>
-
-<section>
-  <p class="eyebrow">Truth in advertising</p>
-  <h2>The next thing to fix is not another networking feature</h2>
-  <div class="callout warning">
-    <h3>The distributed examples still run interpreted.</h3>
-    <p>This is worth stating exactly, because the flag name invites a wrong guess. <span class="inline">--run</span> is not “compile, then run.” It is the interpreter branch, so the walkthrough commands are still deliberately labeled as interpreted demonstrations. Native distributed compilation is advancing through the strict Hey → HIR → MIR → HeyLlvm → LLVM path, but the actor/Jobs fixture still stops at an imported boxed <span class="inline">Io.read_exact</span> child-ABI boundary. That is a compiler closure task, not a reason to pretend the interpreter is native.</p>
-    <p>The compiler can compile itself through the Hey-owned LLVM path with zero fallback. The distributed closure has also crossed the missing-provider boundary: <span class="inline">DistNode</span>, <span class="inline">DistRemote</span>, and <span class="inline">DistTransport</span> are now compiled-in through their own module declarations. The remaining native refusal is narrower and visible: an imported boxed <span class="inline">Io.read_exact</span> call contains an <span class="inline">i64</span> child that the ABI adapter must box without discarding its resolved identity. The focused candidate preserves that child IR; native validation is still pending.</p>
-    <p><strong>The next milestone is two-dimensional:</strong> compile the distributed examples as ordinary native programs with no fallback, and make the cluster/durable-log product surface explicit about local versus quorum durability. Neither should be hidden behind an optimistic success path.</p>
-  </div>
+  <h2>Durability is a named promise</h2>
+  <p>A peer accepting bytes is not the same as a change surviving that peer's disk. The <code>hey_durable_log</code> package makes the difference explicit: a local append reports <span class="inline">local_durable</span> only after the storage barrier, and the cluster layer reports <span class="inline">quorum_durable</span> only after a majority confirms its own durable copy. A missing majority is an error, never a quiet downgrade. <a href="2026-10-25-hey-distributed-and-clusters.html#durable">Reference 5</a> covers how to use it.</p>
 </section>
 
 <section>
   <p class="eyebrow">Why this is worth finishing</p>
   <h2>Hey starts from unusually good distributed assumptions</h2>
   <div class="showcase">
-    <div class="card"><h3>Immutable values</h3><p>Messages already cross an ownership boundary. A machine boundary is conceptually another copy/serialization boundary, not a shared-memory illusion.</p></div>
-    <div class="card"><h3>Actors</h3><p>Concurrency is already message-oriented. Distribution extends that model instead of replacing it with RPC-shaped application architecture. Why the actors themselves are built the way they are: <a href="2026-10-25-hey-actors-and-failure.html">What Makes an Actor Cheap?</a> and <a href="designing-heys-actors.html">Designing Hey's Actors</a>.</p></div>
-    <div class="card"><h3>Native programs</h3><p>No mandatory distributed VM is required. Each node can remain a normal compiled process with a small networking/runtime layer beside the actor system.</p></div>
+    <div class="card"><h3>Immutable values</h3><p>Messages already cross an ownership boundary. A machine boundary is another copy boundary, not a shared-memory illusion.</p></div>
+    <div class="card"><h3>Actors</h3><p>Concurrency is already message-oriented. Distribution extends that model instead of replacing it with remote procedure calls. Why the actors are built the way they are: <a href="designing-heys-actors.html">Designing Hey's Actors</a> and <a href="how-hey-runs-a-million-actors.html">How Hey Runs a Million Actors</a>.</p></div>
+    <div class="card"><h3>Native programs</h3><p>No distributed VM. Each node is a normal compiled program with a small networking layer beside the actor system.</p></div>
   </div>
-  <p class="lede">The goal is not to prove that two computers can exchange <span class="inline">pong</span>. That part works. The goal is to make adding a computer feel like giving the same Hey program more places where actors and jobs can run—and to make the cluster observable enough that you trust it when something goes wrong.</p>
+  <p class="lede">The goal is not to prove that two computers can exchange <span class="inline">pong</span>. That part works. The goal is to make adding a computer feel like giving the same Hey program more places where actors and jobs can run, and to make the cluster observable enough that you trust it when something goes wrong.</p>
 </section>
 
 <footer>
-  Distributed Hey · practical guide · updated 5 September 2026 against the current Hey compiler frontier and <code>hey_durable_log</code> 0.5.0. The walkthroughs remain intentionally interpreted; native distributed closure is tracked separately from the transport and cluster guarantees.
+  Distributed Hey · practical guide. Every command in a "one terminal" box is run against the current Hey release by the documentation test.
 </footer>
 </main>
 </body>
