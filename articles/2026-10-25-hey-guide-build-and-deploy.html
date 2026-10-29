@@ -113,7 +113,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#what">What comes out of <code>hey build</code></a></li>
-<li><a href="#measured">Static or dynamic: what the file needs</a></li>
+<li><a href="#measured">Ship the binary</a></li>
 <li><a href="#cache">The run cache</a></li>
 <li><a href="#targets">Targets and platforms</a></li>
 <li><a href="#containers">Containers</a></li>
@@ -154,9 +154,40 @@ end</code></pre>
 </figure>
 <p>Three layers are copied into the file when it's built. Only what your program can reach is kept: the linker drops unused code and unused libraries. A hello world carries a few dozen runtime functions; a web server carries the actor scheduler and the HTTP code too.</p>
 
-<h2 id="measured">2. Static or dynamic: what the file needs</h2>
-<p><strong>Both, by layer.</strong> Your code, the standard library pieces and the Hey runtime are <em>static</em>: inside the file, nothing to install. The C library is <em>dynamic</em>, as it is for almost every program on macOS and Linux. OpenSSL is the one library that depends on what the program does: the runtime loads it the first time a program uses TLS or cryptography,<sup><a href="#n1">1</a></sup> so a program that never does carries no OpenSSL dependency (section 7 covers what that means for deploys).</p>
-<p>Starting a built file directly takes about a millisecond; starting the same program through <code>hey app.hey</code> adds the cache check, a few milliseconds more (<a href="2026-10-25-hey-guide-cli-tool.html#ship">Guide 3</a>). For a server that's nothing; for a tool run in a tight shell loop, build it.</p>
+<h2 id="measured">2. Ship the binary</h2>
+<p><span class="badge b-works">Works today</span></p>
+<p>Most of the time this is all you need: one file, copied to a server and started. Here is a real HTTP server, <code>health.hey</code>:</p>
+<pre data-example="runnable" data-file="health.hey"><code>import 'stdlib:Web'
+
+fn health(request)
+  return Web.json({ok: true})
+end
+
+program
+  let routes = Web.routes([Web.get('/health', health)])
+  let served = Web.serve(routes, {host: '0.0.0.0', port: 8080})
+end</code></pre>
+<p>Build it. The binary is called exactly what you pass to <code>-o</code>, here <code>build/health</code>:</p>
+<pre data-example="runnable"><code><span class="cmd">$ hey build health.hey -o build/health</span>
+<span class="out">built .../build/health</span>
+<span class="cmd">$ ls -lh build/health</span>
+<span class="out">-rwxr-xr-x  1 ... 267K ... build/health</span>
+<span class="cmd">$ otool -L build/health</span>
+<span class="out">build/health:
+	/usr/lib/libSystem.B.dylib (...)</span></code></pre>
+<p>A web server in about a quarter of a megabyte, linking only the system C library (<code>libSystem</code> on macOS; on Linux, the C library and, for a program that can reach TLS, OpenSSL). Your code, the standard library pieces it uses and the Hey runtime are all inside the file.<sup><a href="#n1">1</a></sup></p>
+<p><strong>Run it.</strong> It needs no environment variables and no Hey installation. This one listens on port 8080 on every network interface. Start it in one terminal with <code>./build/health</code>, then <strong>point a client at it</strong> from another:</p>
+<pre data-example="runnable" data-background="./build/health" data-wait="curl -s -f localhost:8080/health"><code><span class="cmd">$ curl -si http://localhost:8080/health</span>
+<span class="out">HTTP/1.1 200 OK
+content-type: application/json
+content-length: 11
+connection: keep-alive
+
+{"ok":true}</span></code></pre>
+<p><strong>Copy it to another machine</strong> of the same kind (same operating system and CPU) with <code>scp build/health server:</code>, and run <code>./health</code> there. Nothing else needs installing. To check that it doesn't lean on anything in your build folder or your shell, copy it somewhere else and start it with an empty environment, <code>mkdir -p elsewhere &amp;&amp; cp build/health elsewhere/ &amp;&amp; cd elsewhere &amp;&amp; env -i ./health</code>:</p>
+<pre data-example="runnable" data-background="mkdir -p elsewhere &amp;&amp; cp build/health elsewhere/ &amp;&amp; cd elsewhere &amp;&amp; env -i ./health" data-wait="curl -s -f localhost:8080/health"><code><span class="cmd">$ curl -s http://localhost:8080/health</span>
+<span class="out">{"ok":true}</span></code></pre>
+<p>Starting a built file directly takes about a millisecond; <code>hey app.hey</code> adds a cache check of a few milliseconds (<a href="2026-10-25-hey-guide-cli-tool.html#ship">Guide 3</a>).</p>
 
 <h2 id="cache">3. The run cache</h2>
 <p><span class="badge b-works">Works today</span></p>
@@ -216,17 +247,7 @@ release_ready=true</span></code></pre>
 <h2 id="containers">5. Containers</h2>
 <p><span class="badge b-works">Works today</span></p>
 <p>The <strong>toolchain image</strong> is Hey's compiler in an Alpine Linux image, tagged with the exact version and CPU (<code>hey-toolchain:0.99.607a-amd64</code>). Because it's cached by its version tag, every Hey release bumps the version, so an app never compiles against a stale compiler. It's big and it never ships: you compile in it, then copy the result out.</p>
-<p>Here's the whole thing for a server. <code>health.hey</code>:</p>
-<pre data-example="runnable" data-file="health.hey"><code>import 'stdlib:Web'
-
-fn health(request)
-  return Web.json({ok: true})
-end
-
-program
-  let routes = Web.routes([Web.get('/health', health)])
-  let served = Web.serve(routes, {host: '0.0.0.0', port: 8080})
-end</code></pre>
+<p>The same <code>health.hey</code> from section 2, in a container:</p>
 <p>A two-stage <code>Dockerfile</code>: compile in the toolchain image, ship only the binary.</p>
 <pre data-example="fragment" data-needs="Docker and the Hey toolchain image"><code># Stage 1: compile with the Hey toolchain image
 FROM hey-toolchain:0.99.607a-amd64 AS build
@@ -247,7 +268,10 @@ $ curl -s localhost:18080/health
 
 <h2 id="kamal">6. Deploy with Kamal</h2>
 <p><span class="badge b-works">Works today</span></p>
-<p><a href="https://kamal-deploy.org">Kamal</a> deploys a container image to your own servers over SSH and swaps traffic only when the new container answers its health check. Hey web apps with a SQLite database deploy this way.</p>
+<p><a href="https://kamal-deploy.org">Kamal</a> deploys a container image to your own servers over SSH and moves traffic only when the new container answers its health check. Hey apps deploy with <code>hey-kamal</code>, a small command in front of Kamal that deploys only the exact image you built and tested, by its digest (its fingerprint), and checks that digest again on every server afterwards. Once your image is built, tested and pushed, it's two commands:</p>
+<pre data-example="fragment" data-needs="a pushed image, Kamal, SSH access to a server and the hey-kamal command"><code>hey-kamal deploy/hey-kamal.yml verify-image
+hey-kamal deploy/hey-kamal.yml deploy</code></pre>
+<p>What you get: <code>verified IMAGE@sha256:... service=NAME</code> from the first, and from the second a Kamal deploy followed by <code>verified remote IMAGE@sha256:... on HOST</code> for each server. Anything that doesn't match stops with a one-line <code>hey-kamal:</code> error before a container starts. The release file, the settings and every refusal are explained in hey-kamal's own getting-started guide, which ships with the tool (<code>docs/GETTING_STARTED.md</code>).</p>
 <figure class="fig" aria-labelledby="dg6-3-cap">
 <svg viewBox="0 0 900 250" role="img" aria-labelledby="dg6-3-title dg6-3-desc">
 <title id="dg6-3-title">Deploy pipeline</title>
@@ -264,45 +288,10 @@ $ curl -s localhost:18080/health
 </svg>
 <figcaption id="dg6-3-cap">Figure 3. The deploy pipeline.</figcaption>
 </figure>
-<p>The parts of <code>config/deploy.yml</code> that matter:</p>
-<pre data-example="fragment" data-needs="a server, a container registry and Kamal"><code>service: health
-image: you/health
-registry:
-  server: ghcr.io
-proxy:
-  ssl: true
-  app_port: 8080
-  healthcheck:
-    path: /health
-    interval: 3
-    timeout: 3
-builder:
-  arch: amd64
-  dockerfile: Dockerfile
-  driver: docker
-volumes:
-  - "health_data:/var/lib/health"
-boot:
-  limit: 1
-  wait: 5
-drain_timeout: 30</code></pre>
-<ul>
-<li><strong>Match the server's CPU</strong> (<code>arch: amd64</code>) or the deploy ships a binary the server can't run.</li>
-<li><strong>Use <code>driver: docker</code></strong> so Kamal can see the locally built toolchain image.</li>
-<li><strong>Put the database on a volume</strong>; the image is replaced on every deploy.</li>
-<li><strong>Restore packages with <code>hey package ensure --project . --locked</code></strong> in the build stage, never <code>--update-lock</code>, so a new package version can't sneak into a release (<a href="2026-10-25-hey-guide-packages.html#restore">Guide 2</a>).</li>
-<li><strong>A health check proves a status code, not a page.</strong> After Kamal finishes, fetch a real page and fail on an empty body.</li>
-<li><strong>Preload a faster allocator on Alpine.</strong> musl's allocator takes one lock per allocation; preloading <code>mimalloc</code> in the runtime stage lifts a busy server's throughput several times on one CPU.</li>
-</ul>
-<p><code>hey_kamal_cli</code> is a shared deploy command for Hey apps built around one rule: build and test the image first, publish it, and deploy only that exact image digest (<code>kamal deploy --skip-push</code>), so the server never receives source or a compiler.</p>
 
 <h2 id="deps">7. Install layout and hidden host dependencies</h2>
 <p><span class="badge b-decided">Decided, coming</span></p>
 <p>The rule: an installed Hey, and the programs it builds, depend on nothing on the machine that isn't declared. Toolchains live in one versioned folder (<code>/opt/hey/VERSION</code> or <code>~/.local/hey/VERSION</code>), caches in the user cache folder, and built apps find their native libraries relative to themselves (<code>@loader_path/../lib/hey/native</code> on macOS, <code>$ORIGIN/../lib/hey/native</code> on Linux).</p>
-<p>A built program copied away from its build folder and run with an empty environment still works:</p>
-<pre data-example="runnable"><code><span class="cmd">$ mkdir -p elsewhere &amp;&amp; cp build/hello elsewhere/ &amp;&amp; cd elsewhere</span>
-<span class="cmd">$ env -i ./hello</span>
-<span class="out">Hello, world</span></code></pre>
 <p><span class="badge b-partly">Partly works</span> The one hidden dependency left is OpenSSL on macOS. The runtime opens it with <code>dlopen</code> (which loads a library while the program is already running) the first time a program uses TLS, searching a library path written into the binary that points at Homebrew's <code>openssl@3</code>. On a Mac without it, a TLS call fails with a named error (<code>could not load OpenSSL ...</code>); programs that never use TLS don't care. On Linux, OpenSSL is an ordinary declared dependency that <code>ldd</code> shows.</p>
 
 <section class="notes" id="notes" aria-labelledby="notes-h">
@@ -322,7 +311,7 @@ drain_timeout: 30</code></pre>
 <tr><td><code>hey target doctor | matrix | pack | verify | release</code></td><td><span class="badge b-works">Works today</span> for darwin-arm64 and linux-x64</td></tr>
 <tr><td>One-download toolchain archive, no C compiler needed to install</td><td><span class="badge b-partly">Partly works</span> built, not signed or published</td></tr>
 <tr><td>No hidden host dependencies</td><td><span class="badge b-decided">Decided, coming</span>; macOS TLS still reaches Homebrew OpenSSL</td></tr>
-<tr><td>Kamal deploys, <code>hey_kamal_cli</code>, <code>hey_container</code></td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>Kamal deploys with <code>hey-kamal</code>; <code>hey_container</code></td><td><span class="badge b-works">Works today</span></td></tr>
 </table></div>
 <h3>Read next</h3>
 <ul>
