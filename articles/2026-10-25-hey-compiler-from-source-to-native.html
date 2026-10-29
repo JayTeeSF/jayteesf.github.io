@@ -123,6 +123,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#optimise">Optimizations that follow, on the one chain</a></li>
 <li><a href="#rulings">The Maintainer's rulings, and what's still open</a></li>
 <li><a href="#timeline">Timeline</a></li>
+<li><a href="#going">Where the compiler is going</a></li>
 <li><a href="#background">Background: history, checks and inspection</a></li>
 </ol></nav>
 
@@ -355,7 +356,7 @@ end</code></pre>
 <text x="22" y="80" class="mono">a &gt; b</text><text x="22" y="98" class="xs">a and b: same type</text><text x="22" y="122" class="mono">return a / return b</text><text x="22" y="140" class="xs">result = a = b</text>
 <text x="22" y="170" class="sm">solve, then</text><text x="22" y="186" class="sm"><tspan class="b">generalise</tspan>: the leftover</text><text x="22" y="202" class="sm">unknown becomes T</text><text x="22" y="226" class="mono">(T, T) -&gt; T</text>
 <rect class="acc" x="245" y="10" width="225" height="230" rx="8"/><text x="257" y="34" class="b">2 · Bidirectional</text><text x="257" y="52" class="xs">push known types inward</text>
-<text x="257" y="80" class="mono">fn pay(total: Int)</text><text x="257" y="98" class="xs">annotation is checked,</text><text x="257" y="112" class="xs">not re-guessed</text>
+<text x="257" y="80" class="mono">pay(raw.to_i)</text><text x="257" y="98" class="xs">the cast says Int: checked,</text><text x="257" y="112" class="xs">not re-guessed</text>
 <text x="257" y="140" class="mono">trim(name)</text><text x="257" y="158" class="xs">trim wants String, so</text><text x="257" y="172" class="xs">name is checked as String</text>
 <text x="257" y="204" class="sm">errors point at the</text><text x="257" y="220" class="sm">place that's wrong</text>
 <rect class="warnb" x="480" y="10" width="225" height="230" rx="8"/><text x="492" y="34" class="b">3 · Flow typing</text><text x="492" y="52" class="xs">narrow after a check</text>
@@ -375,8 +376,8 @@ end</code></pre>
 <figcaption id="cap-four">Examples are illustrative. All four read the structured tree and resolved identities; none reads statement text.</figcaption>
 </figure>
 <ol>
-<li><strong>Unification with generalisation (Hindley-Milner), plus widening to Value.</strong> Unknown types become variables; each operation adds equations; solving them is "unification". Anything still unknown at the end becomes a type parameter, so <code>larger</code> works for any one type <code>T</code>. Koka&#39;s inference and Rust&#39;s are both built on this idea. Textbook Hindley-Milner would reject a variable that is an Int on one path and a String on another; Hey accepts the program and widens that variable to <code>Value</code>. That is subtyping (Int fits inside Value), the move made by soft typing (Cartwright and Fagan, 1991) and MLsub (Dolan and Mycroft, 2017). Generalisation happens only at top-level <code>fn</code> definitions. A function that calls itself at a <em>different</em> type ("polymorphic recursion") needs an annotation, because inferring that is undecidable (Henglein, 1993).</li>
-<li><strong>Bidirectional checking.</strong> When a type is already known, from an annotation or from a declared builtin, it's pushed inward and <em>checked</em> rather than re-guessed. Pierce and Turner's "local type inference" and Dunfield and Krishnaswami's survey describe this. It also puts errors where the mistake is.</li>
+<li><strong>Unification with generalisation (Hindley-Milner), plus widening to Value.</strong> Unknown types become variables; each operation adds equations; solving them is "unification". Anything still unknown at the end becomes a type parameter, so <code>larger</code> works for any one type <code>T</code>. Koka&#39;s inference and Rust&#39;s are both built on this idea. Textbook Hindley-Milner would reject a variable that is an Int on one path and a String on another; Hey accepts the program and widens that variable to <code>Value</code>. That is subtyping (Int fits inside Value), the move made by soft typing (Cartwright and Fagan, 1991) and MLsub (Dolan and Mycroft, 2017). Generalisation happens only at top-level <code>fn</code> definitions. A function that calls itself at a <em>different</em> type ("polymorphic recursion") gets <code>Value</code> at that call, because inferring that is undecidable (Henglein, 1993) and Hey user code has no type annotations to ask for; a cast is the only way to state a type.</li>
+<li><strong>Bidirectional checking.</strong> When a type is already known, from a cast such as <code>x.to_i</code> or from a declared builtin, it's pushed inward and <em>checked</em> rather than re-guessed. Pierce and Turner's "local type inference" and Dunfield and Krishnaswami's survey describe this. It also puts errors where the mistake is.</li>
 <li><strong>Flow typing</strong> (also called occurrence typing). After a successful type check in an <code>if</code>, the value has the narrower type inside that branch. Hey's resolver already carries these guard facts.</li>
 <li><strong>A fixpoint over the call graph, in SCC order.</strong> A function's result type can depend on functions it calls. The compiler solves callees first. Functions that call each other in a cycle (a strongly connected component, or SCC) are solved together until the answer stops changing. Where nothing constrains a type, it's <strong>Value</strong>, Hey's general boxed type.</li>
 </ol>
@@ -594,7 +595,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 </svg>
 <figcaption id="cap-ct">Target set on the Mac. For scale on Linux: 604a's full native build took 99.6 minutes at 1.48 GB peak.</figcaption>
 </figure>
-<p>Inference and specialisation (<a href="#types">section 4</a>) feed both halves. Typed parameters let MIR keep Ints in registers, and the instance cache with cross-module reuse keeps the extra copies from undoing the compile-time gains. Every optimization is measured red-then-green on instructions and peak memory against 604a, 606a and C.</p>
+<p>Inference and specialisation (<a href="#types">section 4</a>) feed both halves. Inferred parameter types let MIR keep Ints in registers, and the instance cache with cross-module reuse keeps the extra copies from undoing the compile-time gains. Every optimization is measured red-then-green on instructions and peak memory against 604a, 606a and C.</p>
 </section>
 
 <!-- ============================================================ 8 -->
@@ -736,8 +737,32 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 </section>
 
 <!-- ============================================================ 10 -->
+<section id="going" aria-labelledby="h-going">
+<h2 id="h-going">10 · Where the compiler is going</h2>
+<p class="summary"><strong>In plain English</strong>An audit of the compiler documents against current research turned up six upgrades worth making while the code in question is still being written. None of them is built; each is planned, and each changes how the compiler works inside, not the language you write.</p>
+
+<h3>Widening to Value, on a proper footing <span class="tag t-acc">Planned</span></h3>
+<p>Section 4 says that when a variable is an Int on one path and a String on another, Hey doesn't reject the program; it widens the type to <code>Value</code>. Today that's done by a join over a small lattice of types, without a clean way to generalise. <em>Algebraic subtyping</em> is the theory for exactly this: it infers the most general type a function can have even when types may fit inside other types, by tracking lower and upper bounds instead of forcing two types to be equal. Simple-sub is a short, practical version of it. Hey plans to use it as the formal model of "widen to Value" in the inference phase, while that code is still being written.<sup><a href="#n11">11</a></sup></p>
+
+<h3>A checked report of what runs in place <span class="tag t-acc">Planned</span></h3>
+<p>Perceus (section 5) frees a value at its last use and reuses its memory when it can. Koka's later work, FP², goes further: it proves when a whole function runs with no allocation at all. Hey won't add a keyword for that, because the language has one surface. Instead, the planned MIR update report becomes a checked fact: a test can assert that a named function allocates nothing, and MIR verifies it. Reuse is limited to the current frame, so the guarantee stays local and easy to check.<sup><a href="#n12">12</a></sup></p>
+
+<h3>Rebuild only what a change really affects <span class="tag t-acc">Planned</span></h3>
+<p>The Rust compiler records which facts each step read, with a fingerprint of each. When you edit a file, it recomputes the changed facts, and if a fingerprint comes out the same, everything that depended on it is skipped: that's <em>early cutoff</em>. Hey plans the same chain: a hash per file's syntax tree, then the resolution facts, then a hash per function's type summary, so a dependent recompiles only when a fingerprint it read has changed. It's the most likely route to the goal of a much faster self-compile.<sup><a href="#n13">13</a></sup></p>
+
+<h3>Compiler nodes as flat arrays with integer IDs <span class="tag t-acc">Planned</span></h3>
+<p>Hey's compiler nodes are records backed by maps, so every node is its own allocation and every field read is a lookup. Carbon's toolchain stores its parse tree as one flat array, where a node is an integer index, and stores each identifier once in an intern table, so two names compare as two integers. Hey plans the same layout for its nodes, plus identifier interning. Fewer allocations and better cache use make the compiler faster, and comparing interned IDs fits the rule that facts come from identities, never from spellings.<sup><a href="#n14">14</a></sup></p>
+
+<h3>Actor messages: move when unique, share when immutable <span class="tag t-acc">Planned</span></h3>
+<p>Erlang copies every message into the receiver's heap. That's simple and isolates failures, but copying costs time. Swift's region-based isolation lets the compiler hand a value to another task when it proves the sender keeps no reference to it, and Pony sends messages with no copy at all. Hey already shares immutable message values instead of deep-copying them; adding a MIR uniqueness fact at <code>send</code> means a value the sender holds alone is moved, with no count change. Hey keeps Erlang's failure isolation without Erlang's copying.<sup><a href="#n15">15</a></sup></p>
+
+<h3>Measure clang's share before choosing a debug backend <span class="tag t-acc">Planned</span></h3>
+<p>Zig wrote its own x86 backend, and Rust has Cranelift as an alternative backend, both because LLVM dominates debug-build time. Hey keeps LLVM until it knows how much of its own build time clang really takes. The phase profile will report clang's share as a deliverable, and the backend question will be answered with that number, not by guessing.<sup><a href="#n16">16</a></sup></p>
+</section>
+
+<!-- ============================================================ 11 -->
 <section id="background" aria-labelledby="h-bg">
-<h2 id="h-bg">10 · Background: history, checks and inspection</h2>
+<h2 id="h-bg">11 · Background: history, checks and inspection</h2>
 <p class="summary"><strong>In plain English</strong>The one-chain goal isn't new. Every plan since the first asked the same question: which code is allowed to decide what a program means? This section keeps the history, the verification rules and how to inspect the compiler yourself. It's optional reading.</p>
 <figure class="fig" aria-labelledby="cap-hist">
 <svg viewBox="0 0 960 150" role="img" aria-labelledby="t-hist"><title id="t-hist">History from the first plans to the consolidation release</title>
@@ -836,6 +861,12 @@ end</code></pre>
 <li id="n8">if, elsif and case/when goldens were captured from the old route, then read from the final syntax tree: dfb7f9, 2c3614.</li>
 <li id="n9">Digit-separated integers are Int on the admitted route: f5f96d.</li>
 <li id="n10">Admitted HIR is emitted from the held syntax forest when every construct is ported: 9ac8b6, 7c7582.</li>
+<li id="n11">Lionel Parreaux, "The Simple Essence of Algebraic Subtyping: Principal Type Inference with Subtyping Made Easy", ICFP 2020 (Simple-sub); Stephen Dolan and Alan Mycroft, "Polymorphism, Subtyping, and Type Inference in MLsub", POPL 2017.</li>
+<li id="n12">Anton Lorenzen, Daan Leijen and Wouter Swierstra, "FP²: Fully in-Place Functional Programming", ICFP 2023; Alex Reinking, Ningning Xie, Leonardo de Moura and Daan Leijen, "Perceus: Garbage Free Reference Counting with Reuse", PLDI 2021.</li>
+<li id="n13">The rustc development guide, "Incremental compilation in detail" (red-green dependency tracking with fingerprints); Zig 0.14.0 release notes (incremental compilation).</li>
+<li id="n14">The Carbon Language toolchain documentation: the parse tree and semantic IR as flat arrays indexed by integer IDs, with interned identifiers.</li>
+<li id="n15">Swift Evolution SE-0414, "Region based Isolation"; Sylvan Clebsch and others, "Orca: GC and Type System Co-Design for Actor Languages", OOPSLA 2017; the Erlang run-time system documentation on per-process heaps and message copying.</li>
+<li id="n16">Zig 0.14.0 release notes (the self-hosted x86 backend); rustc_codegen_cranelift, the Cranelift code generator backend for the Rust compiler.</li>
 </ol>
 </section>
 <footer>

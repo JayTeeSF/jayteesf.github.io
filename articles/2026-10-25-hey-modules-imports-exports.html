@@ -138,6 +138,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#facades">Facade modules</a></li>
 <li><a href="#pkg"><code>pkg:</code> and the proposed <code>native:</code></a></li>
 <li><a href="#flavor">"Imports change the flavor"</a></li>
+<li><a href="#additions">Seven additions from a look at other languages</a></li>
 <li><a href="#gaps">Known gaps</a></li>
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
@@ -578,6 +579,128 @@ end
 <li><strong>Not done:</strong> there's no <code>stdlib:Sys</code> module;<sup><a href="#n3">3</a></sup> the 261 builtins and every stdlib module are ambient; facades and <code>conceals:</code> are refused (above). Task <code>sys-module-only-language-cutover</code> is open. Separately, Hey&#39;s built-in functions are bound to the runtime inside the toolchain; your code calls them like any other Hey function (see the <a href="2026-10-25-hey-compiler-from-source-to-native.html">compiler article</a>).</li>
 </ul>
 
+<h2 id="additions">11. Seven additions from a look at other languages <span class="badge b-decided">Decided, coming</span></h2>
+<p>Hey's module design was checked against what Python, JavaScript and TypeScript, Node, Rust, Swift, Go, Gleam, Zig,
+Elixir and others have changed recently.<sup><a href="#n4">4</a></sup> The verdict: keep the design (imports belong to
+one file, each file picks its receiver forms, re-export is always explicit through a facade, conflicts follow one lexical
+rule with warnings, packages are locked and hashed), and add the seven rules below. <strong>None of them works on
+0.99.606a.</strong> They are planned for the next release, 0.99.607a; the examples show the intended behaviour.</p>
+
+<h3>C1. A module body holds declarations, imports and constants only <span class="badge b-decided">Decided, coming</span></h3>
+<p>Nothing runs just because a module was imported. A constant whose value is a literal is worked out at compile time.
+Any other constant is computed once, the first time something reads it, safely across threads; if computing it fails, the
+first reader fails fast. A call written at the top of a module is a compile error, and so is a constant that needs itself.
+Python and JavaScript are adding "lazy import" features to cope with slow, side-effecting module bodies; Hey never has
+the problem.</p>
+<div class="run"><div class="fname">prices.hey (planned)</div><pre class="src"><code>module Prices
+  let TAX_RATE = 0.08                 # a literal: worked out at compile time
+  let RATES = Text.split(&#39;a,b,c&#39;, &#39;,&#39;) # computed once, on first use
+
+  print_banner()                      # compile error: no calls at the top of a module
+
+  fn with_tax(amount)
+    return amount + amount * TAX_RATE
+  end
+end</code></pre></div>
+
+<h3>C2. Functions may import each other in a cycle <span class="badge b-decided">Decided, coming</span></h3>
+<p>The compiler resolves the whole program at once, so two files may import each other, as items in one Rust crate can.
+The only cycle that is an error is between constants (C1), because one of them would have to be computed first.</p>
+<div class="run"><div class="fname">even.hey and odd.hey (planned)</div><pre class="src"><code># even.hey
+import &#39;./odd.hey&#39;
+module Even
+  fn even(n)
+    if n == 0
+      return true
+    end
+    return Odd.odd(n - 1)
+  end
+end
+
+# odd.hey
+import &#39;./even.hey&#39;
+module Odd
+  fn odd(n)
+    if n == 0
+      return false
+    end
+    return Even.even(n - 1)
+  end
+end</code></pre></div>
+
+<h3>C3. <code>within: :package</code>: public to your package, not to the world <span class="badge b-decided">Decided, coming</span></h3>
+<p>Today a name is either private to its module or public to everyone. Swift added <code>package</code> access, Rust has
+<code>pub(crate)</code> and Go has <code>internal/</code> directories for the same reason: a helper your other modules need
+shouldn't become part of your public API. Hey adds one clause to the <code>exposes</code> line. The package manifest also
+gets an <code>exposes</code> list naming the modules outsiders may import with <code>pkg:</code>; importing any other
+module of the package from outside is refused with a message naming the manifest. The facts come from the syntax tree and
+the manifest, never from directory names.</p>
+<div class="run"><div class="fname">csv.hey (planned)</div><pre class="src"><code>module Csv
+  fn parse_row(line)
+    return Text.split(line, &#39;,&#39;)
+  end
+
+  exposes parse_row forms: [:qualified] within: :package
+end</code></pre></div>
+
+<h3>C4. <code>::Shapes</code> starts from the root <span class="badge b-decided">Decided, coming</span></h3>
+<p>With nested modules, the nearest name wins. That can hide the module you meant, with no way left to name it; Swift
+recently added module selectors for this. Hey borrows Ruby's answer for constants: a leading <code>::</code> starts the
+path at the root. The nearest-path warning suggests it as the fix.</p>
+<div class="run"><div class="fname">root_path.hey (planned)</div><pre class="src"><code>module Report
+  module Shapes                  # a nearer Shapes hides the top-level one
+    fn area(w, h)
+      return 0
+    end
+  end
+
+  fn total()
+    return ::Shapes.area(3, 4)   # the top-level Shapes, whatever is nearer
+  end
+end</code></pre></div>
+
+<h3>C5. Explicit names beat <code>exposing: *</code>, and an ambiguous star import is an error <span class="badge b-decided">Decided, coming</span></h3>
+<p>With a star import, a dependency that adds a new name could silently change what a bare call in your file means,
+decided by which import line comes later. So, following Rust's rule for glob imports: a local definition or a name
+listed in <code>exposing:</code> always beats a star import, whatever the order. If two star imports both supply a name
+your file actually uses, that is a compile error asking you to pick one by name. A clash on a name you never use stays
+silent. This narrows the general "later binding wins, with a warning" rule for star imports only.</p>
+<div class="run"><div class="fname">stars.hey (planned)</div><pre class="src"><code>import &#39;./bank.hey&#39; exposing: *      # exposes open, balance
+import &#39;./files.hey&#39; exposing: *     # exposes open, read
+import &#39;./bank.hey&#39; exposing: [balance]
+
+program
+  says balance(acct)   # fine: named in exposing:, beats any star
+  says open(&#39;Ada&#39;)     # compile error: both star imports supply open; name the one you mean
+end</code></pre></div>
+
+<h3>C6. Unused-import warnings, and <code>hey fix rename</code> <span class="badge b-decided">Decided, coming</span></h3>
+<p>Because importing a module never runs anything (C1), an import or an <code>exposing:</code> entry that nothing uses is
+always safe to delete, and the compiler warns about it. A rename tool works from resolved identities: it rewrites only the
+call sites that resolve to that function, never other things that happen to share its spelling. A module can keep the old
+name working for a while with a deprecation message.</p>
+<div class="run"><div class="fname">rename (planned)</div><pre class="src"><code>$ hey fix rename Files.read Files.read_text
+
+module Files
+  exposes read_text forms: [:qualified]
+  exposes read as read_text deprecated: &#39;use read_text&#39;
+end</code></pre></div>
+
+<h3>C7. Publishing a package requires <code>exposes</code> <span class="badge b-decided">Decided, coming</span></h3>
+<p>A module with no <code>exposes</code> line is entirely public. That's convenient for scripts and apps, which stay
+unchanged. But a published package's surface should be deliberate, so <code>hey package publish</code> refuses any module
+the manifest exposes that has no <code>exposes</code> line. (The JSR registry for JavaScript is strict about published
+APIs in the same way.)</p>
+<div class="run"><div class="fname">publish (planned)</div><pre class="src"><code>$ hey package publish
+refused: module Csv is exposed by the manifest but has no exposes line</code></pre></div>
+
+<h3>Looked at and turned down</h3>
+<ul>
+<li><strong>Lazy imports (Python's <code>lazy import</code>, JavaScript's <code>import defer</code>).</strong> They delay running a module that is already loaded; Hey links one program with no module loading at run time, and C1's lazy constants give the only useful part.</li>
+<li><strong>Runtime loader hooks and import maps.</strong> A hook that changes what an import means while the program runs would break resolving every name before it runs.</li>
+<li><strong>Separate type or interface files (like TypeScript's <code>.d.ts</code>).</strong> Hey has no type annotations in user code; the build cache can fingerprint each module's surface instead.</li>
+</ul>
+
 <h2 id="gaps">Known gaps</h2>
 <ul id="gaplist">
 <li><strong>Refused on 606a although documented:</strong> <code>exposes</code> and therefore operator imports and facades; <code>as Alias</code>, <code>exposing: *</code> and <code>conceals:</code>; unqualified calls between functions of one module; callable-field calls with a dot.</li>
@@ -595,6 +718,7 @@ end
 <li id="n1">A bare call through a dotted-only import is refused, and a gate fixture asserts the refusal: cb4930.</li>
 <li id="n2">Until this fix the resolver did not see a <code>private fn</code> declaration at all; the keyword is still not enforced: 138f5d.</li>
 <li id="n3">The no-built-ins end state (every function in a module, imported through <code>stdlib:Sys</code>) was recorded as a ruling: 102194.</li>
+<li id="n4">Sources opened for the review include Python's PEP 810 (explicit lazy imports) and PEP 690 (rejected); TC39's import defer proposal; the Node.js modules and packages documentation; the Rust Reference on use declarations and on visibility and privacy; Swift Evolution SE-0386 (package access), SE-0409, SE-0444 and SE-0491 (module selectors); the Gleam language tour; Zig 0.15 release notes; JSR's "slow types" rule; and Go's internal packages.</li>
 </ol>
 </section>
 <footer>

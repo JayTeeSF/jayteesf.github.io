@@ -112,7 +112,7 @@ what's decided to make it cheaper.</p>
 <li><a href="#cow">Reference counts and copy-on-write</a></li>
 <li><a href="#perceus">Perceus: release at last use, update in place</a></li>
 <li><a href="#strings">Strings today: SDS</a></li>
-<li><a href="#phases">Phase S: the 16-byte String (decided)</a></li>
+<li><a href="#phases">How a String is stored: the 16-byte value (decided)</a></li>
 <li><a href="#maps">Maps and arrays</a></li>
 <li><a href="#regions">Regions and flat records</a></li>
 <li><a href="#allocator">The small-block allocator</a></li>
@@ -400,40 +400,99 @@ station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
 
-<h2 id="phases">5. Phase S: the 16-byte String <span class="badge b-decided">Decided, coming</span></h2>
-<p>Ruled by the Maintainer: a String becomes a 16-byte <em>value</em> (two machine registers) in the
-"German string" layout from the Umbra database, layered on top of SDS blocks rather than replacing them.</p>
+<h2 id="phases">5. How a String is stored: the 16-byte value <span class="badge b-decided">Decided, coming</span></h2>
+<p>Ruled by the Maintainer: Hey keeps <em>one</em> String form, and in Phase S that form becomes a 16-byte
+<em>value</em> (two machine registers) in the "German string" layout, layered on top of the SDS blocks of section 4
+rather than replacing them. The layout's contract is now frozen. The 0.99.606a toolchain still uses the SDS pointer of
+section 4 for every String; nothing in this section runs in compiled code yet.</p>
 <figure>
-<svg viewBox="0 0 880 230" role="img" aria-labelledby="r4t r4d">
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="r4t r4d">
 <title id="r4t">The 16-byte String, short and long</title>
-<desc id="r4d">Short form: 4-byte length then up to 12 bytes inline. Long form: 4-byte length, 4-byte prefix, 8-byte word whose top two bits are the storage class and the rest the address of the bytes in an SDS block.</desc>
-<text x="20" y="30" font-weight="700">Short: 12 bytes or fewer, no allocation at all</text>
-<rect x="20" y="42" width="120" height="44" class="f-acc"/><text x="80" y="69" text-anchor="middle" class="t-small t-mono">length = 5</text>
-<rect x="140" y="42" width="480" height="44" class="f-good"/><text x="380" y="69" text-anchor="middle" class="t-small t-mono">h e l l o  0 0 0 0 0 0 0  (12 bytes inline)</text>
-<text x="20" y="126" font-weight="700">Long: more than 12 bytes</text>
-<rect x="20" y="138" width="120" height="44" class="f-acc"/><text x="80" y="165" text-anchor="middle" class="t-small t-mono">length = 40</text>
-<rect x="140" y="138" width="160" height="44" class="f-good"/><text x="220" y="165" text-anchor="middle" class="t-small t-mono">prefix "stat"</text>
-<rect x="300" y="138" width="60" height="44" class="f-violet"/><text x="330" y="165" text-anchor="middle" class="t-small t-mono">class</text>
-<rect x="360" y="138" width="260" height="44" class="f-surface"/><text x="490" y="165" text-anchor="middle" class="t-small t-mono">address of the bytes</text>
-<text x="20" y="206" class="t-small t-muted">4 bytes</text><text x="220" y="206" text-anchor="middle" class="t-small t-muted">4 bytes</text><text x="490" y="206" text-anchor="middle" class="t-small t-muted">8 bytes: top 2 bits = class, rest = address</text>
-<text x="640" y="152" class="t-small">OWNED: an SDS block</text>
-<text x="640" y="170" class="t-small">STATIC: a literal</text>
-<text x="640" y="188" class="t-small">BORROWED: a view, never stored</text>
-<text x="640" y="206" class="t-small">CONCAT: reserved for S8</text>
+<desc id="r4d">Both forms start with the length as a 4-byte number at byte 0. Short form, 12 bytes or fewer: bytes 4 to 15 hold the string, zero-filled after it. Long form, 13 bytes or more: bytes 4 to 7 hold a copy of the first 4 bytes, and bytes 8 to 15 hold one 64-bit word. Read as a number, that word's top byte, bits 56 to 63, is left untouched for memory tags; bits 54 and 55 hold the storage class; the rest is the address of the bytes.</desc>
+<text x="40" y="28" font-weight="700">Short: 12 bytes or fewer, stored inside the value, no allocation</text>
+<rect x="40" y="40" width="200" height="44" class="f-acc"/><text x="140" y="67" text-anchor="middle" class="t-small t-mono">length = 5</text>
+<rect x="240" y="40" width="600" height="44" class="f-good"/><text x="540" y="67" text-anchor="middle" class="t-small t-mono">h e l l o 0 0 0 0 0 0 0   (12 bytes, zero-filled)</text>
+<text x="40" y="100" class="t-small t-muted">byte 0</text><text x="240" y="100" class="t-small t-muted">4</text><text x="840" y="100" text-anchor="end" class="t-small t-muted">16</text>
+<text x="40" y="136" font-weight="700">Long: 13 bytes or more, the bytes live in an SDS block</text>
+<rect x="40" y="148" width="200" height="44" class="f-acc"/><text x="140" y="175" text-anchor="middle" class="t-small t-mono">length = 40</text>
+<rect x="240" y="148" width="200" height="44" class="f-good"/><text x="340" y="175" text-anchor="middle" class="t-small t-mono">prefix "stat"</text>
+<rect x="440" y="148" width="400" height="44" class="f-surface"/><text x="640" y="175" text-anchor="middle" class="t-small t-mono">one 8-byte word: class + address</text>
+<text x="40" y="208" class="t-small t-muted">byte 0</text><text x="240" y="208" class="t-small t-muted">4</text><text x="440" y="208" class="t-small t-muted">8</text><text x="840" y="208" text-anchor="end" class="t-small t-muted">16</text>
+<path d="M440 192 L60 248" class="s-muted dash"/><path d="M840 192 L828 248" class="s-muted dash"/>
+<text x="828" y="236" text-anchor="end" class="t-small t-muted">the word read as one 64-bit number, bit 63 on the left</text>
+<rect x="60" y="248" width="96" height="44" class="f-surface"/><text x="108" y="275" text-anchor="middle" class="t-small t-mono">top byte</text>
+<rect x="156" y="248" width="24" height="44" class="f-violet"/>
+<rect x="180" y="248" width="648" height="44" class="f-acc"/><text x="504" y="275" text-anchor="middle" class="t-small t-mono">bits 53&#8211;0: address of the bytes</text>
+<path d="M168 248 L168 226" class="s-ink"/><text x="174" y="224" class="t-small">class: bits 55&#8211;54</text>
+<text x="60" y="310" class="t-small t-muted">bits 63&#8211;56: untouched, so memory tags pass through</text>
+<text x="40" y="342" class="t-small">class: <tspan font-weight="700">owned</tspan> (a counted SDS block) &#183; <tspan font-weight="700">static</tspan> (a literal, never freed) &#183; <tspan font-weight="700">borrowed</tspan> (a view, never stored) &#183; <tspan font-weight="700">concat</tspan> (reserved)</text>
 </svg>
-<figcaption>Figure 4. Built in S1 as <code>runtime/hey_str.h</code>. One change from the original design: the class sits in the
-<em>top</em> two bits of the word, because a borrowed view points into the middle of its parent and its low bits
-aren't free.</figcaption>
+<figcaption>Figure 4. The frozen 16-byte layout. An earlier draft put the class in the top two bits of the word; it moved
+to bits 54&ndash;55 because Android and Arm memory tagging own the top byte of every heap address, and a borrowed
+view points into the middle of its parent, so its low bits aren't free either.</figcaption>
 </figure>
-<p>What that buys: a short String costs no allocation; equality on long Strings can usually answer from the first 8
-bytes (length plus prefix) without following the pointer; a slice can borrow its parent's bytes. One String is capped
-at 4 GiB (the length is 32 bits); large binary data belongs in <code>Bytes</code>.</p>
+
+<h3>The rules, in plain English</h3>
+<ul>
+<li><strong>Always 16 bytes,</strong> 8-byte aligned, passed in two registers. The first 4 bytes are the length, a 32-bit
+number, so one String holds at most 4 GiB; asking for a longer one fails fast. Large binary data belongs in
+<code>Bytes</code>.</li>
+<li><strong>The length is the only authority.</strong> A String can hold any byte, including zero. Nothing ever searches
+for a terminating NUL to find the end.</li>
+<li><strong>Short if and only if 12 bytes or fewer.</strong> Bytes 4&ndash;15 hold the string itself, and the unused
+bytes are always zero. It doesn't matter how the String was made (a literal, a slice, a concatenation): a 12-byte
+result is always short and a 13-byte result is always long. That makes two equal Strings look identical byte for
+byte.</li>
+<li><strong>Long Strings keep a 4-byte prefix.</strong> Bytes 4&ndash;7 copy the first 4 bytes of the text, and bytes
+8&ndash;15 hold the address of the rest, in an SDS block, with a 2-bit <em>class</em> in bits 54&ndash;55. The
+top byte of the address is left exactly as the system gave it, so the layout is safe with Android and Arm memory
+tagging and with top-byte-ignore.</li>
+<li><strong>Four classes.</strong> <em>Owned</em>: a reference-counted SDS block, its count changed atomically.
+<em>Static</em>: a literal that is never freed, so counting it costs nothing. <em>Borrowed</em>: a view into another
+String's bytes that owns nothing. The compiler must prove a borrowed view never outlives its parent; before it is
+stored in a collection or field, returned, or sent in a message, it is copied into an owned String.
+<em>Concat</em>: reserved for a possible rope form; nothing makes one.</li>
+<li><strong>The bytes never change.</strong> Appending is done in place only when the String is owned, has exactly one
+holder, and its block has room; otherwise append makes a copy. So a String one thread is reading can never change
+under it.</li>
+<li><strong>Comparing.</strong> Equality compares the first 8 bytes (length and prefix), then the next 8, and only then
+the rest of the bytes. Ordering is plain byte order, as C's <code>memcmp</code> gives it.</li>
+<li><strong>Crossing into C.</strong> C wants a NUL-terminated string. An owned or static String already has one at the
+end of its block; a short String under 12 bytes has zero padding to spare. A 12-byte short String (no spare byte) and
+a borrowed view get a NUL-terminated scratch copy.</li>
+</ul>
+
+<h3>Why it's fast</h3>
+<div class="grid2">
+<div class="card"><strong>Most comparisons stop early.</strong> Two Strings of different length, or with a different
+first 4 bytes, differ in the first 8 bytes, so one 8-byte compare answers without following any address. Sorting gets
+the same shortcut from the prefix.</div>
+<div class="card"><strong>Short Strings never allocate.</strong> Names, keys, codes, small numbers turned to text: most
+Strings a program makes are 12 bytes or fewer, and they live entirely in the two registers. No allocation, no count,
+nothing to free.</div>
+<div class="card"><strong>Sharing needs no locks.</strong> The bytes never change, so any number of threads and actors
+can read one String at once. Sharing an owned String is one atomic count change; a short one is just copied.</div>
+<div class="card"><strong>Slices don't copy.</strong> A borrowed view can point into the middle of a parent String, so
+<code>slice</code>, <code>split</code> and <code>trim</code> can hand back views, and only the views that escape are
+copied.</div>
+</div>
+<p>This design isn't new. It comes from the Umbra database at TU Munich and its successor CedarDB,<sup><a href="#n9">9</a></sup>
+and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layout.<sup><a href="#n10">10</a></sup></p>
+
+<h3>Today and coming</h3>
+<div class="tablewrap"><table>
+<tr><th>What</th><th>Status</th></tr>
+<tr><td>One String form: an SDS block with a count, as in section 4 (0.99.606a)</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td>The 16-byte layout, its rules and its four classes, frozen as a contract</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>The runtime's 16-byte value and its tests (the 12/13-byte boundary, NUL bytes, escapes, copy-on-write append, actor transfer, memory-checker negative controls, the C calling convention), built alongside 0.99.607a, unused by compiled code</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>The compiler switch-over (S2&ndash;S9 below) and its speed-ups, in the performance release after 607</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+</table></div>
 
 <h3>The steps, and what each makes faster</h3>
 <div class="tablewrap"><table>
 <tr><th>Step</th><th>What</th><th>Makes faster</th><th>Status</th></tr>
 <tr><td>S0</td><td>String benchmark set in Hey, Rust and C</td><td>(the baseline)</td><td><span class="badge b-works">Done</span></td></tr>
-<tr><td>S1</td><td>The 16-byte type in the runtime, OWNED and STATIC only</td><td>Nothing yet: merged as new files, unused by compiled code</td><td><span class="badge b-partly">Built, unused</span></td></tr>
+<tr><td>S1</td><td>The frozen contract, and the 16-byte value in the runtime with its tests, alongside 607</td><td>Nothing yet: unused by compiled code</td><td><span class="badge b-partly">Being built</span></td></tr>
 <tr><td>S2</td><td>Compiled code passes the 16-byte value in two registers (321 parameters in 242 functions)</td><td>Every String call; short Strings stop allocating</td><td><span class="badge b-decided">Not built</span></td></tr>
 <tr><td>S3</td><td>Prefix fast paths: equality as one 8-byte compare first, ordering by prefix, hashing</td><td>Comparisons, sorting, map keys</td><td><span class="badge b-decided">Not built</span></td></tr>
 <tr><td>S4</td><td>Borrowed views proven by MIR for slice, split, trim, field reads; copy only what escapes</td><td>split and slice</td><td><span class="badge b-decided">Not built</span></td></tr>
@@ -444,7 +503,7 @@ at 4 GiB (the length is 32 bits); large binary data belongs in <code>Bytes</code
 <tr><td>S9</td><td>Report each step against S0, Rust and C</td><td>(evidence)</td><td><span class="badge b-decided">Not built</span></td></tr>
 </table></div>
 <p>Estimate: 128&ndash;224 specialist work hours. Dates are on the roadmap (<a href="2026-10-25-hey-roadmap.html#ts">Roadmap</a>):
-there's no release assigned yet, because Phase S starts after the releases ahead of it. The task's earlier target (low confidence) assumed a start that didn't happen; the feature inventory still carries it.</p>
+the runtime half (S1) is built alongside 607, and the compiler half (S2&ndash;S9) lands in the performance release after 607, because it needs the typed MIR ownership facts that 607 builds.</p>
 
 <h3>Where Strings stand today: the S0 baseline</h3>
 <p>Mac, 1 million strings,, instructions net of building the input,
@@ -689,6 +748,8 @@ true</code></pre>
 <li id="n6">A temporary record graph lent to a reader is built in a region and freed at once: 65770f.</li>
 <li id="n7">Small header blocks come from per-thread size-class pages: 840d54.</li>
 <li id="n8">Small block pages: medium blocks to 1 KiB and the inlined String lifecycle; remote frees settled and dead threads' pages retired; no page keeps a dead owner: 600e19, b526c0, 80e0db.</li>
+<li id="n9">Thomas Neumann and Michael Freitag, <em>Umbra: A Disk-Based System with In-Memory Performance</em>, CIDR 2020 (the 16-byte string header: 32-bit length, 12 bytes inline, otherwise a 4-byte prefix and a pointer with storage-class bits). Lukas Vogel, "Why German Strings are Everywhere", CedarDB blog, 2024.</li>
+<li id="n10">DuckDB's <code>string_t</code> (12 bytes inline, 4-byte prefix, equality as 8 bytes, 8 bytes, then the rest); Velox's <code>StringView</code>; the Apache Arrow Columnar Format, "Variable-size Binary View Layout", adapted from Umbra.</li>
 </ol>
 </section>
 </div>
