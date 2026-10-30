@@ -140,6 +140,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><a href="#pkg"><code>pkg:</code> imports</a></li>
 <li><a href="#flavor">Built-ins live in namespaces</a></li>
 <li><a href="#additions">Seven additions from a look at other languages</a></li>
+<li><a href="#warnings">Warnings: deny and allow, per file</a></li>
 <li><a href="#gaps">Still coming, in one list</a></li>
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
@@ -173,6 +174,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </table></div>
 
 <h2 id="publish">1. A module publishes; an import activates</h2>
+<p>A module is a named group of functions. How to write, call, pass and return those functions, and what each call mistake tells you, is in <a href="hey-functions.html">Reference: Functions</a>; calling a module's function as <code>Module.fn</code> is <a href="hey-functions.html#modules">section 10</a> there.</p>
 <figure class="fig" aria-labelledby="pub-cap">
 <svg viewBox="0 0 900 300" role="img" aria-label="The module surface lists open, deposit, withdraw, balance with their forms; the private helper is not on the surface; three importer files each activate a different slice">
 <rect x="10" y="20" width="300" height="260" rx="12" class="box"/>
@@ -651,6 +653,83 @@ refused: module Csv is exposed by the manifest but has no exposes line</code></p
 <li><strong>Separate type or interface files (like TypeScript's <code>.d.ts</code>).</strong> Hey has no type annotations in user code; the build cache can fingerprint each module's surface instead.</li>
 </ul>
 
+<h2 id="warnings">12. Warnings: deny and allow, per file <span class="badge b-decided">Decided, coming</span></h2>
+<p>A warning is the compiler saying "this works, but you may not have meant it". Every warning has a code, such as
+<code>dropped_result</code>. You choose, per code, whether it stays a warning, becomes an error, or is switched off:
+for the whole build with a flag, or for one file with a <code>warnings</code> line at its top. Never with an
+environment variable.</p>
+
+<h3>How a warning looks</h3>
+<p>Each warning is one line: the file, line and column, the word <code>warning</code>, the message, and the code in
+square brackets. A denied warning prints the same line with <code>error</code> instead; every warning and error is shown first, then the build fails. An allowed code prints nothing.</p>
+<p class="runlabel">drop.hey</p><pre data-example="decided-coming" data-file="drop.hey"><code>fn save(record)
+  says 'saved ' + record
+  return true
+end
+
+program
+  save('ada')
+end</code></pre>
+<p class="runlabel">Check it</p><pre data-example="decided-coming"><code>$ heyc --check drop.hey
+drop.hey:7:3: warning: the result of save is dropped; write `_ = ` before the call to discard it [dropped_result]</code></pre>
+
+<h3>For one file: <code>warnings deny: [...], allow: [...]</code></h3>
+<p>Put the declaration before anything else in the file (before imports, functions and <code>program</code>). It
+applies to the warnings in that file only; other files keep their own setting. <code>deny:</code> turns each listed
+code into an error; <code>allow:</code> switches it off.</p>
+<p class="runlabel">strict.hey</p><pre data-example="decided-coming" data-file="strict.hey"><code>warnings deny: [:dropped_result], allow: [:hides_builtin]
+
+fn save(record)
+  says 'saved ' + record
+  return true
+end
+
+program
+  save('ada')
+end</code></pre>
+<p class="runlabel">Check it</p><pre data-example="decided-coming"><code>$ heyc --check strict.hey
+strict.hey:9:3: error: the result of save is dropped; write `_ = ` before the call to discard it [dropped_result]</code></pre>
+<p>The fix is the one the message asks for: keep the result (<code>let ok = save('ada')</code>) or drop it on
+purpose (<code>_ = save('ada')</code>).</p>
+
+<h3>For the whole build: <code>--deny CODE</code> and <code>--allow CODE</code></h3>
+<p><code>heyc --check</code>, <code>heyc build</code> and the self-compiling build (<code>hey-selfc</code>) take <code>--deny CODE</code> and
+<code>--allow CODE</code>, each as many times as you need. They set the default for every file; a file's own
+<code>warnings</code> line overrides them for that file.</p>
+<pre data-example="decided-coming"><code>$ heyc --check --deny dropped_result drop.hey
+drop.hey:7:3: error: the result of save is dropped; write `_ = ` before the call to discard it [dropped_result]</code></pre>
+<p>Here <code>strict.hey</code> wins over the flag, because its own line denies the code the flag allowed:</p>
+<pre data-example="decided-coming"><code>$ heyc --check --allow dropped_result strict.hey
+strict.hey:9:3: error: the result of save is dropped; write `_ = ` before the call to discard it [dropped_result]</code></pre>
+
+<h3>An unknown code is an error</h3>
+<p>A misspelt code would otherwise silently do nothing, so it stops the build, in a flag or a <code>warnings</code> line alike. The error lists the codes that do exist:</p>
+<pre data-example="decided-coming"><code>$ heyc --check --deny droped_result drop.hey
+heyc: --deny: unknown warning code droped_result (known codes: adjacent_string_literals, name_shadows_outer_binding, hides_builtin, stdlib_module_reopened, nearest_module_shadows_root, unused_import, dropped_result)</code></pre>
+<p>The same mistake in a file's <code>warnings</code> line:</p>
+<p class="runlabel">typo_code.hey</p><pre data-example="decided-coming" data-file="typo_code.hey"><code>warnings deny: [:droped_result]
+
+program
+  says 'hi'
+end</code></pre>
+<pre data-example="decided-coming"><code>$ heyc --check typo_code.hey
+typo_code.hey:1:...: error: ...droped_result...</code></pre>
+
+<h3 id="warning-codes">Every warning code</h3>
+<div class="scroll"><table>
+<thead><tr><th>Code</th><th>What it means</th><th>Tiny example that gives it</th></tr></thead><tbody>
+<tr><td><code>dropped_result</code></td><td>a call's result is thrown away without <code>_ =</code>. Message: <code>the result of value is dropped; write `_ = ` before the call to discard it</code></td><td><code>fn value() return 1 end</code>, then the statement <code>value()</code></td></tr>
+<tr><td><code>hides_builtin</code></td><td>your definition or binding hides a built-in that a call would otherwise reach. Message: <code>your definition hides the built-in `Core.len` (Hey prelude). Rename it.</code> (it says parameter, let binding, loop binding or import alias when that is what hides it)</td><td><code>fn len(x) ... end</code>, then <code>len([1])</code></td></tr>
+<tr><td><code>stdlib_module_reopened</code></td><td>your module has the name of a standard library module, so its members join that namespace. Message: <code>module Json reopens the standard library module of that name; its members join that namespace. Rename the module unless you mean to extend it.</code></td><td><code>module Json</code> with <code>fn extra()</code> inside</td></tr>
+<tr><td><code>nearest_module_shadows_root</code></td><td>a module name reaches a nearer nested module, not the root one of the same name. Message: <code>`Shapes.area` names the nearest module Outer/Shapes (file:10), not the root module Shapes (file:3); write `::Shapes` for the root one</code></td><td>a root <code>module Shapes</code>, and a <code>module Shapes</code> nested in <code>module Outer</code>; <code>Shapes.area(...)</code> inside <code>Outer</code></td></tr>
+<tr><td><code>name_shadows_outer_binding</code></td><td>a binding hides one of the same name from an enclosing scope. Message: <code>NAME shadows an enclosing binding from line N</code></td><td><code>let x = 1</code>, then inside an <code>if</code>: <code>let x = 2</code></td></tr>
+<tr><td><code>adjacent_string_literals</code></td><td>two string literals touch with nothing between them, so they join, as in Ruby. Message: <code>adjacent string literals concatenate; use an explicit join for clarity</code></td><td><code>says 'a' 'b'</code> prints <code>ab</code></td></tr>
+<tr><td><code>unused_import</code></td><td>an import, or a name in its <code>exposing:</code> list, is never used (safe to delete: imports run nothing)</td><td><code>import 'stdlib:Json'</code> in a file that never uses <code>Json</code></td></tr>
+</tbody></table></div>
+<p>Where these warnings come from: <a href="hey-functions.html#returns">dropped results</a> (Reference: Functions),
+<a href="#reopen">reopening a built-in module</a>, <a href="#flavor">built-in namespaces</a>, and
+<a href="#additions">unused imports and root-anchored paths</a> (C4 and C6 above).</p>
+
 <h2 id="gaps">Still coming, in one list</h2>
 <ul id="gaplist">
 <li>Module surface: <code>exposes</code> lines, enforced <code>private fn</code>, bare sibling calls, facades with <code>exposes *</code>, operator imports.</li>
@@ -659,6 +738,7 @@ refused: module Csv is exposed by the manifest but has no exposes line</code></p
 <li>Calls: callable fields with a dot, and the warning when a field and an imported function share a name.</li>
 <li>Roots: <code>stdlib:</code> sealed to the toolchain's own library; built-ins in namespaces.</li>
 <li>The seven additions C1 to C7.</li>
+<li>Per-file <code>warnings deny: [...], allow: [...]</code>, the <code>--deny</code> and <code>--allow</code> flags, and the warning codes.</li>
 </ul>
 
 <h2 id="sources">Sources</h2>
@@ -684,6 +764,7 @@ refused: module Csv is exposed by the manifest but has no exposes line</code></p
 <h3>Read next</h3>
 <ul>
 <li><a href="2026-10-25-hey-the-language.html">Reference 1: The language</a></li>
+<li><a href="hey-functions.html">Reference: Functions</a> and <a href="hey-guide-functions.html">Guide: Functions</a></li>
 <li><a href="2026-10-25-hey-standard-library.html">Reference 6: The standard library</a></li>
 <li><a href="2026-10-25-hey-guide-packages.html">Guide 2: Using packages</a></li>
 <li><a href="2026-10-25-hey-native-code-and-c.html">Reference 7: Native code and C</a></li>
