@@ -6,7 +6,7 @@
 <meta name="article-index-rank" content="08">
 <meta name="article-index-desc" content="If Hey values never change, why isn't every update a copy? Reference counts, copy-on-write, ownership decided by the compiler, Strings, maps, and how to watch memory yourself.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, Perceus ownership decided in MIR, SDS Strings today and the decided 16-byte Strings of Phase S, maps, regions, the small-block allocator, and how to watch memory yourself.">
+<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, ownership decided in MIR, the implemented 16-byte String runtime and the remaining compiler migration, maps, regions, the small-block allocator, and how to watch memory yourself.">
 <meta name="article-index-title" content="Reference 8: Hey values, memory and Strings">
 <title>Hey values, memory and Strings</title>
 <style>:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
@@ -32,6 +32,7 @@ p,li{max-width:46rem}
 .home{color:var(--muted);font-size:.9rem;text-decoration:none}
 code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em}
 code{background:var(--code-bg);color:var(--code-fg);padding:.08em .3em;border-radius:4px}
+p code{overflow-wrap:anywhere}
 pre{background:var(--code-bg);color:var(--code-fg);padding:.8rem 1rem;border-radius:8px;overflow-x:auto;line-height:1.45;border:1px solid var(--line)}
 pre code{background:none;padding:0}
 pre.out{background:var(--surface2)}
@@ -105,13 +106,20 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 That sounds like a copy every time. Usually it isn't, and this page shows why, what it costs when it is, and
 what's decided to make it cheaper.</p>
 
+<section class="aside" aria-labelledby="string-update">
+<h2 id="string-update">October 31 update: the runtime now stores the 16-byte String</h2>
+<p><strong>A short String keeps its bytes inside the value.</strong> <code>'hello'</code> needs five bytes of text, so it fits inside the 16-byte String without a separate text allocation. Longer text lives outside the value; the owned form uses a reference-counted backing block. The cutoff counts <em>bytes</em>, not characters. A generic <code>HeyValue</code> still occupies 32 bytes: its separate Bytes payload is larger.</p>
+<p>The boxed runtime and its owning stores now use this layout. Native C tests cover optimized and unoptimized builds, address and undefined-behavior checks, embedded zero bytes, aliases and borrowed views. <strong>The compiler migration and release qualification remain open.</strong> Literal lowering, control flow, Windows indirect calls, typed job names, the full product/archive and Linux qualification still need work. Historical measurements below are not measurements of this candidate.</p>
+<p>To check the storage promise, read <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/runtime/hey_str.h">the String definition</a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/test/gate_phase_s_storage_promotions.rb">the owning-store test</a>. This update changes storage, not the language's String semantics.</p>
+</section>
+
 <div class="toc"><strong>On this page</strong>
 <ol>
 <li><a href="#immutable">Immutable values, and the cost puzzle</a></li>
 <li><a href="#cow">Reference counts and copy-on-write</a></li>
 <li><a href="#perceus">Perceus: release at last use, update in place</a></li>
-<li><a href="#strings">Strings today: SDS</a></li>
-<li><a href="#phases">How a String is stored: the 16-byte value (decided)</a></li>
+<li><a href="#strings">How long Strings keep their bytes: SDS</a></li>
+<li><a href="#phases">How a String is stored: the 16-byte value</a></li>
 <li><a href="#maps">Maps and arrays</a></li>
 <li><a href="#regions">Regions and flat records</a></li>
 <li><a href="#allocator">The small-block allocator</a></li>
@@ -265,7 +273,7 @@ end</code></pre>
 <figcaption>Figure 1. Two names, one block, a write. Writing in place is safe exactly when nobody else can observe the old
 value, and "refs is 1" is the test for that.</figcaption>
 </figure>
-<p>Every map, array, record and String carries a reference count. Sharing a value is a count increment, never a copy.
+<p>Heap-backed maps, arrays, records and owned long String backing use reference counts. Sharing that backing increments a count; a short String copies its inline bytes.
 Copy-on-write is <strong>on by default</strong>;<sup><a href="#n2">2</a></sup> it removed the
 clone-per-<code>put</code> on values with one owner.</p>
 <p>The runtime has <strong>one</strong> uniqueness test, <code>hey_rc_count_is_unique</code>: is the count exactly 1?
@@ -316,13 +324,12 @@ inside an <code>if</code>, a helper that takes the map over, and maps of maps. <
 "refs is 1" test still does the work, so updates stay correct but can copy. Ownership as <em>typed</em> MIR facts, with a
 verifier on every module, covers every program shape.<sup><a href="#n3">3</a></sup> <span class="badge b-decided">Decided, coming</span></p>
 
-<h2 id="strings">4. Strings today: SDS <span class="badge b-works">Works today</span></h2>
-<p>Hey has one String form. Today it's an <em>SDS</em> block ("simple dynamic string", the layout Redis
-made famous): one allocation holding a small header, then the bytes, then a NUL byte.</p>
+<h2 id="strings">4. How long Strings keep their bytes: SDS</h2>
+<p>Long owned Strings use an <em>SDS</em> block ("simple dynamic string", the layout Redis made famous): one allocation holding a small header, then the bytes, then a NUL byte. The 16-byte value in section 5 points to that block; short Strings need no block.</p>
 <figure>
 <svg viewBox="0 0 880 170" role="img" aria-labelledby="r3t r3d">
 <title id="r3t">SDS block layout</title>
-<desc id="r3d">A 32-byte header of four 8-byte fields: refs, base, length, capacity with origin bit. Then the bytes and a terminating NUL. A String value points at the first byte.</desc>
+<desc id="r3d">A 32-byte header of four 8-byte fields: refs, base, length, capacity with origin bit. Then the bytes and a terminating NUL. A long owned String holds a pointer to the first byte.</desc>
 <rect x="20" y="50" width="110" height="46" class="f-acc"/><text x="75" y="78" text-anchor="middle" class="t-small t-mono">refs</text>
 <rect x="130" y="50" width="110" height="46" class="f-acc"/><text x="185" y="78" text-anchor="middle" class="t-small t-mono">base</text>
 <rect x="240" y="50" width="110" height="46" class="f-acc"/><text x="295" y="78" text-anchor="middle" class="t-small t-mono">length</text>
@@ -331,17 +338,17 @@ made famous): one allocation holding a small header, then the bytes, then a NUL 
 <rect x="780" y="50" width="50" height="46" class="f-surface"/><text x="805" y="78" text-anchor="middle" class="t-small t-mono">\0</text>
 <text x="250" y="36" text-anchor="middle" class="t-small t-muted">32-byte header, 4 &times; 8 bytes</text>
 <path d="M480 130 L480 100" class="s-ink" stroke-width="2"/><path d="M474 108 L480 98 L486 108" class="s-ink" stroke-width="2"/>
-<text x="490" y="140" class="t-small">a String value is a pointer to the first byte</text>
+<text x="490" y="140" class="t-small">a long String holds a pointer to the first byte</text>
 <text x="20" y="140" class="t-small t-muted">refs: atomic count; literals start at 2^62 = immortal</text>
 </svg>
-<figcaption>Figure 3. Almost always one allocation per String. The last field packs the capacity with flag bits (an origin bit and a region bit). <code>struct HeyStringBacking</code>, in the runtime.</figcaption>
+<figcaption>Figure 3. The backing allocation of a long owned String; short Strings store their bytes inline. The last field packs the capacity with flag bits (an origin bit and a region bit). <code>struct HeyStringBacking</code>, in the runtime.</figcaption>
 </figure>
 <ul>
-<li><strong>Almost always one allocation</strong> per String, header and bytes together. The exception is a buffer adopted from C, whose bytes stay in their own allocation.</li>
-<li><strong>Boxing and unboxing is a count change.</strong> Moving a String in or out of a generic value doesn't copy it.</li>
+<li><strong>One backing allocation for a long owned String,</strong> header and bytes together. Short Strings store bytes inline. The exception is a buffer adopted from C, whose bytes stay in their own allocation.</li>
+<li><strong>Boxing preserves ownership.</strong> Short values copy inline; long owned values can share their block with a count change. A borrowed view is promoted before a generic value stores it.</li>
 <li><strong>Literals are immortal</strong>: their count starts so high it never reaches zero, so they're never freed or copied.</li>
 <li><strong>The NUL byte is only for C.</strong> Hey Strings can hold any byte, including zero; the NUL check happens only where a value crosses a declared C boundary.</li>
-<li><strong>Appending to a String you alone hold grows it in place</strong> (spare capacity, amortized like a vector), so <code>set out = out + piece</code> in a loop is linear. <span class="badge b-works">Works today</span></li>
+<li><strong>Appending can reuse an exclusively held owned backing block</strong> when its capacity permits. Otherwise the runtime obtains suitable storage and preserves aliases. The loop below is a language example; its earlier documentation-test result is not new compiler qualification.</li>
 </ul>
 <p class="cmd-label">append.hey: build a long String with +</p>
 <pre data-example="runnable" data-file="append.hey"><code>import &#39;stdlib:Cli&#39;
@@ -395,11 +402,8 @@ station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
 
-<h2 id="phases">5. How a String is stored: the 16-byte value <span class="badge b-decided">Decided, coming</span></h2>
-<p>Ruled by the Maintainer: Hey keeps <em>one</em> String form, and in Phase S that form becomes a 16-byte
-<em>value</em> (two machine registers) in the "German string" layout, layered on top of the SDS blocks of section 4
-rather than replacing them. The layout's contract is frozen. Today every String is still the SDS pointer of
-section 4; nothing in this section runs in compiled code yet.</p>
+<h2 id="phases">5. How a String is stored: the 16-byte value</h2>
+<p>Hey has one String carrier: a 16-byte value in the “German string” family of layouts. Its short form contains the bytes; its long form describes separately stored bytes. SDS supplies the long owned backing. The runtime implementation is tested; using this carrier throughout every compiled program is still being qualified.</p>
 <figure>
 <svg viewBox="0 0 880 360" role="img" aria-labelledby="r4t r4d">
 <title id="r4t">The 16-byte String, short and long</title>
@@ -429,15 +433,14 @@ view points into the middle of its parent, so its low bits aren't free either.</
 
 <h3>The rules, in plain English</h3>
 <ul>
-<li><strong>Always 16 bytes,</strong> 8-byte aligned, passed in two registers. The first 4 bytes are the length, a 32-bit
+<li><strong>Always 16 bytes,</strong> 8-byte aligned. How a call passes it depends on the target calling convention; it is not always two registers. The first 4 bytes are the length, a 32-bit
 number, so one String holds at most 4 GiB; asking for a longer one fails fast. Large binary data belongs in
 <code>Bytes</code>.</li>
 <li><strong>The length is the only authority.</strong> A String can hold any byte, including zero. Nothing ever searches
 for a terminating NUL to find the end.</li>
 <li><strong>Short if and only if 12 bytes or fewer.</strong> Bytes 4&ndash;15 hold the string itself, and the unused
 bytes are always zero. It doesn't matter how the String was made (a literal, a slice, a concatenation): a 12-byte
-result is always short and a 13-byte result is always long. That makes two equal Strings look identical byte for
-byte.</li>
+result is always short and a 13-byte result is always long. Equal short Strings have identical inline bytes. Equal long Strings can point to different backing blocks.</li>
 <li><strong>Long Strings keep a 4-byte prefix.</strong> Bytes 4&ndash;7 copy the first 4 bytes of the text, and bytes
 8&ndash;15 hold the address of the rest, in an SDS block, with a 2-bit <em>class</em> in bits 54&ndash;55. The
 top byte of the address is left exactly as the system gave it, so the layout is safe with Android and Arm memory
@@ -457,36 +460,32 @@ end of its block; a short String under 12 bytes has zero padding to spare. A 12-
 a borrowed view get a NUL-terminated scratch copy.</li>
 </ul>
 
-<h3>Why it's fast</h3>
+<h3>What this layout can avoid</h3>
 <div class="grid2">
 <div class="card"><strong>Most comparisons stop early.</strong> Two Strings of different length, or with a different
 first 4 bytes, differ in the first 8 bytes, so one 8-byte compare answers without following any address. Sorting gets
 the same shortcut from the prefix.</div>
-<div class="card"><strong>Short Strings never allocate.</strong> Names, keys, codes, small numbers turned to text: most
-Strings a program makes are 12 bytes or fewer, and they live entirely in the two registers. No allocation, no count,
+<div class="card"><strong>Short Strings never allocate.</strong> A result of 12 bytes or fewer lives inside the String value. No allocation, no count,
 nothing to free.</div>
-<div class="card"><strong>Sharing needs no locks.</strong> The bytes never change, so any number of threads and actors
+<div class="card"><strong>Sharing preserves the bytes.</strong> The bytes never change, so any number of threads and actors
 can read one String at once. Sharing an owned String is one atomic count change; a short one is just copied.</div>
-<div class="card"><strong>Slices don't copy.</strong> A borrowed view can point into the middle of a parent String, so
-<code>slice</code>, <code>split</code> and <code>trim</code> can hand back views, and only the views that escape are
-copied.</div>
+<div class="card"><strong>Borrowing needs a live owner.</strong> An internal view can point into a parent String. Before an owning collection, field, message or returned value takes that view, it must acquire owned storage. A pointer into short text also becomes invalid when that particular String value moves or dies.</div>
 </div>
 <p>This design isn't new. It comes from the Umbra database at TU Munich and its successor CedarDB,<sup><a href="#n9">9</a></sup>
 and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layout.<sup><a href="#n10">10</a></sup></p>
 
-<h3>Today and coming</h3>
+<h3>Implemented storage and remaining work</h3>
 <div class="tablewrap"><table>
-<tr><th>What</th><th>Status</th></tr>
-<tr><td>One String form: an SDS block with a count, as in section 4</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td>The 4 GiB limit: asking for a longer String fails fast</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>The 16-byte layout, its rules and its four classes, frozen as a contract</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>Compiled code switched to the 16-byte value, then the speed-ups below, each measured against C and Rust</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-</table></div>
-<p>What the switch makes faster, step by step: every String call stops allocating for short Strings (passed in two
-registers); comparisons, sorting and map keys use the prefix first; <code>slice</code>, <code>split</code> and
-<code>trim</code> hand back views and copy only what escapes; maps move to SwissTable-style probing keyed by the 16-byte
-value; and <code>a + b + c</code> and interpolation are built once at the exact size. A rope form for tree-shaped
-concatenation is built only if the measurements ask for it.</p>
+<caption>The runtime carrier is implemented; full compiler qualification is separate.</caption>
+<thead><tr><th scope="col">Contract</th><th scope="col">State</th></tr></thead>
+<tbody>
+<tr><td>16-byte String, with text of 0–12 bytes inline and longer owned text backed by SDS</td><td>Implemented and tested in the boxed runtime</td></tr>
+<tr><td>A generic HeyValue containing that String</td><td>Still 32 bytes; its Bytes arm remains 24 bytes</td></tr>
+<tr><td>Borrowed views entering owning arrays, actor state, boxes and concatenation results</td><td>Promoted at the owning boundary; alias and backing-lifetime tests cover these stores</td></tr>
+<tr><td>Every compiled language family and target, full archive and release</td><td>Still open; no new whole-program speed claim</td></tr>
+</tbody></table></div>
+<p>An empty String, including the all-zero value, is a valid result. Ordinary compiled failures leave the active work unit instead of using empty text as a failure marker. MIR registers initialized owner slots before fallible work so that unwinding can release them. Probe and count-and-return interfaces have separate contracts; a language String value alone never tells you whether failure occurred.</p>
+<p>At a C boundary that requires terminated text, the runtime checks for embedded zero bytes before effects. A pointer into short text must refer to a live, stable String value, or to caller-owned scratch storage. Returning a pointer into a temporary copy would leave the caller with a dangling pointer.</p>
 
 <h3>Where Strings stand: the baseline against C and Rust</h3>
 <p>Mac, 1 million strings, instructions net of building the input, checksums equal in all three languages,
