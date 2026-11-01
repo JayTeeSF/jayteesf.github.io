@@ -344,9 +344,9 @@ verifier on every module, covers every program shape.<sup><a href="#n3">3</a></s
 <figcaption>Figure 3. The backing allocation of a long owned String; short Strings store their bytes inline. The last field packs the capacity with flag bits (an origin bit and a region bit). <code>struct HeyStringBacking</code>, in the runtime.</figcaption>
 </figure>
 <ul>
-<li><strong>One backing allocation for a long owned String,</strong> header and bytes together. Short Strings store bytes inline. The exception is a buffer adopted from C, whose bytes stay in their own allocation.</li>
+<li><strong>One backing allocation for a long owned String,</strong> header and bytes together. Short Strings store bytes inline. Conversion from a separately allocated C buffer copies into canonical String storage.</li>
 <li><strong>Boxing preserves ownership.</strong> Short values copy inline; long owned values can share their block with a count change. A borrowed view is promoted before a generic value stores it.</li>
-<li><strong>Literals are immortal</strong>: their count starts so high it never reaches zero, so they're never freed or copied.</li>
+<li><strong>Permanent long literal storage needs no release.</strong> Its backing is never freed; short values still copy their inline bytes. This is the storage contract, not a claim that native literal lowering is complete.</li>
 <li><strong>The NUL byte is only for C.</strong> Hey Strings can hold any byte, including zero; the NUL check happens only where a value crosses a declared C boundary.</li>
 <li><strong>Appending can reuse an exclusively held owned backing block</strong> when its capacity permits. Otherwise the runtime obtains suitable storage and preserves aliases. The loop below is a language example; its earlier documentation-test result is not new compiler qualification.</li>
 </ul>
@@ -442,7 +442,7 @@ for a terminating NUL to find the end.</li>
 bytes are always zero. It doesn't matter how the String was made (a literal, a slice, a concatenation): a 12-byte
 result is always short and a 13-byte result is always long. Equal short Strings have identical inline bytes. Equal long Strings can point to different backing blocks.</li>
 <li><strong>Long Strings keep a 4-byte prefix.</strong> Bytes 4&ndash;7 copy the first 4 bytes of the text, and bytes
-8&ndash;15 hold the address of the rest, in an SDS block, with a 2-bit <em>class</em> in bits 54&ndash;55. The
+8&ndash;15 hold the address of the entire text's first byte, with a 2-bit <em>class</em> in bits 54&ndash;55. The
 top byte of the address is left exactly as the system gave it, so the layout is safe with Android and Arm memory
 tagging and with top-byte-ignore.</li>
 <li><strong>Four classes.</strong> <em>Owned</em>: a reference-counted SDS block, its count changed atomically.
@@ -462,11 +462,8 @@ a borrowed view get a NUL-terminated scratch copy.</li>
 
 <h3>What this layout can avoid</h3>
 <div class="grid2">
-<div class="card"><strong>Most comparisons stop early.</strong> Two Strings of different length, or with a different
-first 4 bytes, differ in the first 8 bytes, so one 8-byte compare answers without following any address. Sorting gets
-the same shortcut from the prefix.</div>
-<div class="card"><strong>Short Strings never allocate.</strong> A result of 12 bytes or fewer lives inside the String value. No allocation, no count,
-nothing to free.</div>
+<div class="card"><strong>Length and prefix can reject equality.</strong> Unequal lengths or unequal cached prefixes prove the Strings differ. Lexicographic ordering compares text from the start: a difference in the cached prefix can decide order, but length alone cannot.</div>
+<div class="card"><strong>A short carrier needs no backing allocation.</strong> A result of 12 bytes or fewer keeps its bytes inside the value. An operation producing it may still allocate temporary builder storage; the carrier itself has no backing count or block to release.</div>
 <div class="card"><strong>Sharing preserves the bytes.</strong> The bytes never change, so any number of threads and actors
 can read one String at once. Sharing an owned String is one atomic count change; a short one is just copied.</div>
 <div class="card"><strong>Borrowing needs a live owner.</strong> An internal view can point into a parent String. Before an owning collection, field, message or returned value takes that view, it must acquire owned storage. A pointer into short text also becomes invalid when that particular String value moves or dies.</div>
