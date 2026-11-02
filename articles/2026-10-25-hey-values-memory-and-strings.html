@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="hey-docs-group" content="compiler">
+<meta name="hey-docs-title" content="Values, memory and Strings">
+<meta name="hey-docs-purpose" content="Understand String16 (the German layout), SDS backing, ownership, copy-on-write and allocation.">
+<meta name="hey-docs-rank" content="11">
 <meta name="article-bucket" content="reference">
 <meta name="article-index-rank" content="08">
 <meta name="article-index-desc" content="If Hey values never change, why isn't every update a copy? Reference counts, copy-on-write, ownership decided by the compiler, Strings, maps, and how to watch memory yourself.">
@@ -96,8 +100,10 @@ figure svg{min-width:640px}
 .notes ol{padding-left:1.4rem}
 sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </style>
+<link rel="stylesheet" href="hey-docs-navigation.css">
 </head>
 <body>
+<nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav>
 <div class="wrap">
 <a class="home" href="index.html">&larr; Articles</a>
 <p class="kicker">Reference 8 of 10</p>
@@ -107,7 +113,7 @@ That sounds like a copy every time. Usually it isn't, and this page shows why, w
 what's decided to make it cheaper.</p>
 
 <section class="aside" aria-labelledby="string-update">
-<h2 id="string-update">October 31 update: the runtime now stores the 16-byte String</h2>
+<h2 id="string-update" data-doc-purpose="Read the scoped String16 implementation update.">October 31 update: the runtime now stores the 16-byte String</h2>
 <p><strong>A short String keeps its bytes inside the value.</strong> <code>'hello'</code> needs five bytes of text, so it fits inside the 16-byte String without a separate text allocation. Longer text lives outside the value; the owned form uses a reference-counted backing block. The cutoff counts <em>bytes</em>, not characters. A generic <code>HeyValue</code> still occupies 32 bytes: its separate Bytes payload is larger.</p>
 <p>The boxed runtime and its owning stores now use this layout. Native C tests cover optimized and unoptimized builds, address and undefined-behavior checks, embedded zero bytes, aliases and borrowed views. Counted literal transport and a small program built by the maintained compiler now pass native checks too. <strong>The compiler migration and release qualification remain open.</strong> Control flow, Windows indirect calls, typed job names, the full product/archive and Linux qualification still need work. Historical measurements below are not measurements of this candidate.</p>
 <p>To check the storage promise, read <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/runtime/hey_str.h">the String definition</a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/test/gate_phase_s_storage_promotions.rb">the owning-store test</a>. This update changes storage, not the language's String semantics.</p>
@@ -147,7 +153,7 @@ what's decided to make it cheaper.</p>
 <dt>Last use</dt><dd>The final place in a function where a named value is read. After it, the value is dead.</dd>
 </dl></div>
 
-<h2 id="immutable">1. Immutable values, and the cost puzzle <span class="badge b-works">Works today</span></h2>
+<h2 id="immutable" data-doc-purpose="Understand value immutability and its costs.">1. Immutable values, and the cost puzzle <span class="badge b-works">Works today</span></h2>
 <p>Every Hey value (number, String, array, map, record) is immutable. <code>put</code>, <code>push</code>,
 <code>merge</code> and the spread <code>{...doc, visits: 1}</code> all return a <em>new</em> value:</p>
 <p class="cmd-label">immutable.hey</p>
@@ -246,7 +252,7 @@ end</code></pre>
 <p>About <strong>290 times</strong> the work per word. While <code>before</code> still holds the old map, the map has two owners, so every <code>put</code> must copy all 1,000 entries to keep <code>before</code> unchanged. That's the price of immutability, paid only when you really keep the old value.</p></details></div>
 <p class="id">Measured on a Mac M3 Pro.</p>
 
-<h2 id="cow">2. Reference counts and copy-on-write <span class="badge b-works">Works today</span></h2>
+<h2 id="cow" data-doc-purpose="See how sharing and copy-on-write interact.">2. Reference counts and copy-on-write <span class="badge b-works">Works today</span></h2>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-labelledby="r1t r1d">
 <title id="r1t">Copy-on-write with a reference count</title>
@@ -281,7 +287,7 @@ Every in-place decision passes through it, which is what makes the falsification
 <a href="2026-10-25-hey-performance.html#honest">Performance</a> possible: sabotage that one test and the ownership specs
 must fail. <code>HEY_RC_COW=0</code> turns copy-on-write off (every update copies), for comparisons.</p>
 
-<h2 id="perceus">3. Perceus: release at last use, update in place</h2>
+<h2 id="perceus" data-doc-purpose="Understand last-use release and in-place update plans.">3. Perceus: release at last use, update in place</h2>
 <p>A count of 1 only helps if the old name lets go <em>before</em> the update. In
 <code>set counts = counts.put(...)</code>, the old <code>counts</code> is never read again, so the compiler can hand
 the map straight to <code>put</code> instead of holding a second reference. That idea, from the Perceus paper
@@ -324,8 +330,8 @@ inside an <code>if</code>, a helper that takes the map over, and maps of maps. <
 "refs is 1" test still does the work, so updates stay correct but can copy. Ownership as <em>typed</em> MIR facts, with a
 verifier on every module, covers every program shape.<sup><a href="#n3">3</a></sup> <span class="badge b-decided">Decided, coming</span></p>
 
-<h2 id="strings">4. How long Strings keep their bytes: SDS</h2>
-<p>Long owned Strings use an <em>SDS</em> block ("simple dynamic string", the layout Redis made famous): one allocation holding a small header, then the bytes, then a NUL byte. The 16-byte value in section 5 points to that block; short Strings need no block.</p>
+<h2 id="strings" data-doc-purpose="Understand the SDS backing used by owned and static long Strings.">4. How long Strings keep their bytes: SDS</h2>
+<p>Long Owned and Static Strings use an <em>SDS</em> block ("simple dynamic string", the layout Redis made famous): a small header, then the bytes, then a NUL byte. An Owned backing is allocated and reference-counted; a Static backing is permanent and is never freed. The 16-byte value in section 5 points to those bytes. Borrowed text may instead point into live foreign or interior storage; short Strings need no backing block.</p>
 <figure>
 <svg viewBox="0 0 880 170" role="img" aria-labelledby="r3t r3d">
 <title id="r3t">SDS block layout</title>
@@ -402,17 +408,17 @@ station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
 
-<h2 id="phases">5. How a String is stored: the 16-byte value</h2>
-<p>Hey has one String carrier: a 16-byte value in the “German string” family of layouts. Its short form contains the bytes; its long form describes separately stored bytes. SDS supplies the long owned backing. The runtime implementation is tested; using this carrier throughout every compiled program is still being qualified.</p>
+<h2 id="phases" data-doc-purpose="Read the 16-byte String layout and storage classes.">5. How a String is stored: the 16-byte value</h2>
+<p>Hey has one String carrier: a 16-byte value in the “German string” family of layouts. Its short form contains the bytes; its long form describes separately stored bytes. Owned and Static long Strings use SDS backing. A Borrowed String is a length-delimited view into live external or interior storage. The runtime implementation is tested; using this carrier throughout every compiled program is still being qualified.</p>
 <figure>
 <svg viewBox="0 0 880 360" role="img" aria-labelledby="r4t r4d">
 <title id="r4t">The 16-byte String, short and long</title>
 <desc id="r4d">Both forms start with the length as a 4-byte number at byte 0. Short form, 12 bytes or fewer: bytes 4 to 15 hold the string, zero-filled after it. Long form, 13 bytes or more: bytes 4 to 7 hold a copy of the first 4 bytes, and bytes 8 to 15 hold one 64-bit word. Read as a number, that word's top byte, bits 56 to 63, is left untouched for memory tags; bits 54 and 55 hold the storage class; the rest is the address of the bytes.</desc>
-<text x="40" y="28" font-weight="700">Short: 12 bytes or fewer, stored inside the value, no allocation</text>
+<text x="40" y="28" font-weight="700">Short: 0–12 bytes inside the value, no backing allocation</text>
 <rect x="40" y="40" width="200" height="44" class="f-acc"/><text x="140" y="67" text-anchor="middle" class="t-small t-mono">length = 5</text>
 <rect x="240" y="40" width="600" height="44" class="f-good"/><text x="540" y="67" text-anchor="middle" class="t-small t-mono">h e l l o 0 0 0 0 0 0 0   (12 bytes, zero-filled)</text>
 <text x="40" y="100" class="t-small t-muted">byte 0</text><text x="240" y="100" class="t-small t-muted">4</text><text x="840" y="100" text-anchor="end" class="t-small t-muted">16</text>
-<text x="40" y="136" font-weight="700">Long: 13 bytes or more, the bytes live in an SDS block</text>
+<text x="40" y="136" font-weight="700">Long: 13 bytes or more, stored outside the value</text>
 <rect x="40" y="148" width="200" height="44" class="f-acc"/><text x="140" y="175" text-anchor="middle" class="t-small t-mono">length = 40</text>
 <rect x="240" y="148" width="200" height="44" class="f-good"/><text x="340" y="175" text-anchor="middle" class="t-small t-mono">prefix "stat"</text>
 <rect x="440" y="148" width="400" height="44" class="f-surface"/><text x="640" y="175" text-anchor="middle" class="t-small t-mono">one 8-byte word: class + address</text>
@@ -424,7 +430,7 @@ station
 <rect x="180" y="248" width="648" height="44" class="f-acc"/><text x="504" y="275" text-anchor="middle" class="t-small t-mono">bits 53&#8211;0: address of the bytes</text>
 <path d="M168 248 L168 226" class="s-ink"/><text x="174" y="224" class="t-small">class: bits 55&#8211;54</text>
 <text x="60" y="310" class="t-small t-muted">bits 63&#8211;56: untouched, so memory tags pass through</text>
-<text x="40" y="342" class="t-small">class: <tspan font-weight="700">owned</tspan> (a counted SDS block) &#183; <tspan font-weight="700">static</tspan> (a literal, never freed) &#183; <tspan font-weight="700">borrowed</tspan> (a view, never stored) &#183; <tspan font-weight="700">concat</tspan> (reserved)</text>
+<text x="40" y="342" class="t-small">class: <tspan font-weight="700">owned</tspan> (counted SDS) &#183; <tspan font-weight="700">static</tspan> (permanent SDS) &#183; <tspan font-weight="700">borrowed</tspan> (external or interior view) &#183; <tspan font-weight="700">concat</tspan> (reserved)</text>
 </svg>
 <figcaption>Figure 4. The frozen 16-byte layout. An earlier draft put the class in the top two bits of the word; it moved
 to bits 54&ndash;55 because Android and Arm memory tagging own the top byte of every heap address, and a borrowed
@@ -446,9 +452,7 @@ result is always short and a 13-byte result is always long. Equal short Strings 
 top byte of the address is left exactly as the system gave it, so the layout is safe with Android and Arm memory
 tagging and with top-byte-ignore.</li>
 <li><strong>Four classes.</strong> <em>Owned</em>: a reference-counted SDS block, its count changed atomically.
-<em>Static</em>: a literal that is never freed, so counting it costs nothing. <em>Borrowed</em>: a view into another
-String's bytes that owns nothing. The compiler must prove a borrowed view never outlives its parent; before it is
-stored in a collection or field, returned, or sent in a message, it is copied into an owned String.
+<em>Static</em>: permanent SDS backing that is never freed. Its String value still follows ordinary ownership rules; dropping it does not free that backing. <em>Borrowed</em>: a length-delimited view into live foreign storage or another value's bytes that owns nothing. Its backing must remain live for every use. Before an owning collection, field, returned value or message takes a borrowed range, it must be promoted to owned storage; long interior ranges copy unless a proved owner link supports sharing. Short results copy their inline bytes.
 <em>Concat</em>: reserved for a possible rope form; nothing makes one.</li>
 <li><strong>The bytes never change.</strong> Appending is done in place only when the String is owned, has exactly one
 holder, and its block has room; otherwise append makes a copy. So a String one thread is reading can never change
@@ -518,7 +522,7 @@ The hash win is mostly a better hash function (rapidhash instead of FNV-1a), whi
 SDS, equality gains only 1.25&times;, and sorting doesn't gain at all, because two thirds of that data share the prefix
 "stat". The clear win for the value form is the slice: a view instead of a copy, 7.5&times; fewer instructions.</p>
 
-<h2 id="maps">6. Maps and arrays</h2>
+<h2 id="maps" data-doc-purpose="Understand collection sharing and update costs.">6. Maps and arrays</h2>
 <h3>A map <code>put</code> takes over a dead, unique map <span class="badge b-works">Works today</span></h3>
 <p><code>Map.put</code> is declared as consuming its receiver. When MIR proves the map is dead after the call, it moves the map in, and if the
 count is 1 the runtime writes in place. That works today for the shapes MIR recognizes (section 3); every program shape comes with the typed ownership facts. <span class="badge b-decided">Decided, coming</span></p>
@@ -529,7 +533,7 @@ count is 1 the runtime writes in place. That works today for the shapes MIR reco
 <h3>Arrays and <code>get</code> never copy <span class="badge b-decided">Decided, coming</span></h3>
 <p>Appending to an array you alone hold is in place today. A few array spreads, appends and reads still copy, which makes some array loops quadratic; every one of them is being fixed.</p>
 
-<h2 id="regions">7. Regions and flat records</h2>
+<h2 id="regions" data-doc-purpose="Read the region and flat-record design.">7. Regions and flat records</h2>
 <p>Reference counting frees values one at a time. A program that builds a tree, reads it and throws it away pays one
 allocation, one count update per share and one free per node. Two old, well-studied ideas remove that cost without
 changing what the program means.</p>
@@ -575,10 +579,10 @@ one step when the actor stops or the turn ends. The runtime has regions and a
 failure path that pops them, so a failed turn closes its region too; the ownership proofs that would open one per turn
 aren't built. Actors: <a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>.</p>
 
-<h2 id="allocator">8. The small-block allocator <span class="badge b-works">Works today</span></h2>
-<p>Record headers, array headers and short String blocks are 32 bytes to 1 KiB, and ordinary programs make and free
+<h2 id="allocator" data-doc-purpose="Understand the allocator mechanisms discussed by the article.">8. The small-block allocator <span class="badge b-works">Works today</span></h2>
+<p>Record headers, array headers and small long-String backing blocks are 32 bytes to 1 KiB, and ordinary programs make and free
 them at a furious rate. They come from Hey's own pages instead of <code>malloc</code>,<sup><a href="#n7">7</a></sup> after
-mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019).</p>
+mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019). Short Strings keep their bytes inline and have no separate backing allocation; producing one can still use temporary builder storage.</p>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-labelledby="r6t r6d">
 <title id="r6t">Size-class pages of the small-block allocator</title>
@@ -616,7 +620,7 @@ AddressSanitizer too, with every free block poisoned, so the sanitizer tests the
 <h3>Size-specialized allocation <span class="badge b-proposed">Proposed</span></h3>
 <p>The next step goes further: allocate each value from the exact size class known at compile time, skipping the size lookup. The size classes above are its foundation.</p>
 
-<h2 id="watch">9. Watching memory yourself <span class="badge b-works">Works today</span></h2>
+<h2 id="watch" data-doc-purpose="Inspect memory and allocation behavior yourself.">9. Watching memory yourself <span class="badge b-works">Works today</span></h2>
 <p>Three builtins: <code>reset_allocations()</code> zeroes the counters, <code>allocations()</code> returns them as a
 map, and <code>memory_rss_bytes()</code> gives the process's resident memory.</p>
 <p class="cmd-label">watch.hey: count in place, then count while keeping the old map</p>
@@ -691,21 +695,21 @@ true</code></pre>
 <p>Two environment variables help outside the program: <code>HEY_ALLOC_STATS=1</code> prints every counter as one JSON line on exit (it also turns on the six allocation counters, such as <code>xmalloc_calls</code>, which read 0 without it), and <code>/usr/bin/time -l</code> (Mac) or <code>/usr/bin/time -v</code> (Linux) gives instructions and peak memory. <code>HEY_ALLOC_STATS=1 hey watch.hey</code> printed the same three lines, then (shortened) <code>HEY_ALLOC_STATS {"xmalloc_calls":6722,"xmalloc_bytes":4034208, &hellip; "json_write_inplace":0,"json_write_cow_copy":1000, &hellip;}</code>; its totals are for the whole run after the last reset.</p>
 <p class="id">Measured on a Mac M3 Pro.</p>
 
-<h2 id="sources">Sources</h2>
+<h2 id="sources" data-doc-purpose="Inspect the source references and background reading for this page.">Sources</h2>
 <ul>
 <li>Every runnable sample on this page is run by the documentation test; the timing tables were measured on a Mac M3 Pro.</li>
 <li>Reinking, Xie, de Moura, Leijen, <em>Perceus: Garbage Free Reference Counting with Reuse</em>, PLDI 2021. Tofte and Talpin, <em>Region-Based Memory Management</em>, 1997. Leijen, Zorn, de Moura, <em>Mimalloc: Free List Sharding in Action</em>, MSR-TR-2019-18. The 16-byte "German string": cedardb.com/blog/german_strings, as cited by the research brief above.</li>
 <li>Rulings, one line each above: one String form and Phase S; ownership decisions belong in MIR; no special cases. Full cards: <a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</li>
 </ul>
 
-<h2>Read next</h2>
+<h2 id="read-next" data-doc-purpose="Choose a related guide or reference to read next.">Read next</h2>
 <ul>
 <li><a href="2026-10-25-hey-performance.html">Performance: Rust speeds, honestly</a>: the scoreboard these mechanisms move.</li>
 <li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the Hey compiler turns source into native code</a>: where MIR's ownership plan is made and checked.</li>
 <li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>.</li>
 </ul>
 <section class="notes" id="notes" aria-labelledby="notes-h">
-<h2 id="notes-h">Notes</h2>
+<h2 id="notes-h" data-doc-purpose="Follow the evidence notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">Measured with a toolchain built from cb817d.</li>
 <li id="n2">Copy-on-write enabled by default, with in-place mutation for sole-owned values: d443da.</li>

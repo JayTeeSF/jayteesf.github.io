@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="hey-docs-group" content="compiler">
+<meta name="hey-docs-title" content="The compiler: source to native">
+<meta name="hey-docs-purpose" content="Follow parsing, resolution, typed IR, ownership, physical ABI checks and LLVM.">
+<meta name="hey-docs-rank" content="10">
 <meta name="article-bucket" content="compiler">
 <meta name="article-index-rank" content="01">
 <meta name="article-index-desc" content="How the compiler works: one chain (parser, syntax tree, resolution, HIR, MIR, LLVM), type inference and call-site specialisation, ownership facts, and the optimizations that follow.">
@@ -86,8 +90,10 @@ svg .t-bad{fill:var(--bad)}svg .t-good{fill:var(--good)}svg .t-warn{fill:var(--w
 .notes ol{padding-left:1.4rem}
 sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </style>
+<link rel="stylesheet" href="hey-docs-navigation.css">
 </head>
 <body>
+<nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker>
@@ -101,15 +107,15 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <p class="lede">This is the one reference for Hey's compiler. It shows the single road a program takes from source to a native executable, which stage decides each fact, and what each stage must never do. It also covers the compiler overhaul, which deletes every other road, and the work that then makes the compiler and its programs faster.</p>
 
 <section class="note warn" aria-labelledby="implementation-scope">
-<h2 id="implementation-scope">Implementation note · October 31, 2026</h2>
-<p><strong>The design below is the contract; the migration is still in progress.</strong> Native tests cover selected String and scalar operations, ordinary calls, borrowed parameters, explicit owner cleanup, and a separately compiled provider. Counted String literals now travel through checked compiler records, including embedded zero bytes. The maintained driver also builds and runs a small program that prints Strings, integers and booleans, with address and undefined-behavior checks on its emitted application code and runtime. These are bounded tests on the Mac development host. They do not establish support for every language construct, self-compilation through this replacement path, removal of every old text reader, or a qualified release. Windows indirect transport, control-flow lowering, typed job names, the full product/archive and Linux qualification remain open.</p>
+<h2 id="implementation-scope" data-doc-purpose="Distinguish the documented architecture from currently qualified compiler slices.">Implementation note · October 31, 2026</h2>
+<p><strong>The design below is the contract; the migration is still in progress.</strong> Native component tests cover selected String and scalar operations, ordinary calls, borrowed parameters, explicit owner cleanup, a separately compiled provider, typed branches and mutable Bool cells. Counted String literals travel through checked compiler records, including embedded zero bytes. The maintained driver also builds and runs a small program that prints Strings, integers and booleans, with address and undefined-behavior checks on its emitted application code and runtime. These are bounded tests on the Mac development host. The C31 integration checkpoint includes Bool cells; it does not include the separately developed loop implementation. These tests do not establish every language construct, self-compilation through this replacement path, removal of every old text reader, or a qualified release. Owned mutable cells, general integer loops, typed job names, remaining target transport, the full product/archive, ordinary-workload performance and Linux qualification remain open.</p>
 <p>The old-code counts and “today” comparisons below describe the historical consolidation audit, not a live inventory. The language examples explain the language contract; they are not a claim that every example already passes through the replacement compiler.</p>
 </section>
 
 <section class="note good" aria-labelledby="short">
-<h2 id="short">The short version</h2>
+<h2 id="short" data-doc-purpose="Get the responsibilities of each compiler stage.">The short version</h2>
 <ul>
-<li><strong>One chain, one owner per fact.</strong> Parser, then syntax tree, then resolution, then HIR (meaning and types), then MIR (order, storage, ownership), then LLVM, then native code. A later stage never re-reads source text or guesses from a name.</li>
+<li><strong>One chain, one owner per fact.</strong> Parser, then syntax tree and resolution, then target-free HIR (meaning and types), ordered MIR (order, storage, ownership), the linkage and calling-convention join, verified physical MIR, mechanical LLVM, and native code. A later stage never re-reads source text or guesses from a name.</li>
 <li><strong>Builtins are ordinary Hey declarations.</strong> Runtime functions get typed declarations in the built-in library, read by the same parser and resolver as your code. The declaration form is internal to the toolchain and is never shown to users. The lists of builtin names in the compiler, and the generated signature table, get deleted.</li>
 <li><strong>Types come from two layers.</strong> First the compiler works out each function's types from what its body does. Then, at code-generation time, it makes fast native copies of a function for the concrete types its callers actually pass.</li>
 <li><strong>Typed ownership is the contract.</strong> MIR records who owns each value as typed facts, not text notes, and independent verification checks those facts before LLVM. The implementation note above states the tested scope.</li>
@@ -133,7 +139,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <!-- ============================================================ 1 -->
 <section id="chain" aria-labelledby="h-chain">
-<h2 id="h-chain">1 · The one chain, and who owns what</h2>
+<h2 id="h-chain" data-doc-purpose="Follow the single compilation chain and its authorities.">1 · The one chain, and who owns what</h2>
 <p class="summary"><strong>In plain English</strong>Every program goes through the same eight steps in order. Each step decides one kind of fact and hands it forward. No step re-decides a fact an earlier step owns, and none of them goes back to the source text.</p>
 
 <figure class="fig" aria-labelledby="cap-chain">
@@ -145,8 +151,8 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <rect class="acc" x="730" y="16" width="220" height="100" rx="10"/><text x="744" y="42" class="b">4 · Resolution facts</text><text x="744" y="64" class="sm mono">HeyProgramResolution</text><text x="744" y="84" class="xs">one resolver: which declaration</text><text x="744" y="99" class="xs">each name means, keyed by node id</text>
 <path class="ln" d="M220 66H246" marker-end="url(#ar)"/><path class="ln" d="M460 66H486" marker-end="url(#ar)"/><path class="ln" d="M700 66H726" marker-end="url(#ar)"/>
 <path class="ln" d="M840 116V146H115V172" marker-end="url(#ar)"/>
-<rect class="good" x="10" y="176" width="210" height="100" rx="10"/><text x="24" y="202" class="b">5 · HIR</text><text x="24" y="224" class="sm mono">HeyHir</text><text x="24" y="244" class="xs">meaning and language types:</text><text x="24" y="259" class="xs">Int, String, Bool, Value ...</text>
-<rect class="good" x="250" y="176" width="210" height="100" rx="10"/><text x="264" y="202" class="b">6 · MIR</text><text x="264" y="224" class="sm mono">HeyMir</text><text x="264" y="244" class="xs">evaluation order, representation,</text><text x="264" y="259" class="xs">ownership and lifetimes (Perceus)</text>
+<rect class="good" x="10" y="176" width="210" height="100" rx="10"/><text x="24" y="202" class="b">5 · HIR</text><text x="24" y="224" class="sm mono">HeyHir</text><text x="24" y="244" class="xs">target-free language types:</text><text x="24" y="259" class="xs">Int, String, Bool, Value ...</text>
+<rect class="good" x="250" y="176" width="210" height="100" rx="10"/><text x="264" y="202" class="b">6 · MIR</text><text x="264" y="224" class="sm mono">HeyMir</text><text x="264" y="244" class="xs">ordered owners, then checked</text><text x="264" y="259" class="xs">physical ABI and cleanup</text>
 <rect class="vio" x="490" y="176" width="210" height="100" rx="10"/><text x="504" y="202" class="b">7 · LLVM</text><text x="504" y="224" class="sm mono">HeyLlvm</text><text x="504" y="244" class="xs">mechanically turns the verified</text><text x="504" y="259" class="xs">MIR plan into LLVM IR</text>
 <rect class="box" x="730" y="176" width="220" height="100" rx="10"/><text x="744" y="202" class="b">8 · Native program</text><text x="744" y="224" class="sm">linked with the Hey runtime</text><text x="744" y="244" class="xs">machine code; no interpreter</text>
 <path class="ln" d="M220 226H246" marker-end="url(#ar)"/><path class="ln" d="M460 226H486" marker-end="url(#ar)"/><path class="ln" d="M700 226H726" marker-end="url(#ar)"/>
@@ -159,12 +165,12 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <summary>Follow one value through the compiler's record interfaces</summary>
 <p>A record carries fields such as a type, a numeric binding identity and child values. Saving it as JSON is transport, not permission to turn an expression back into source and parse it again.</p>
 <dl>
-<dt><code>HeyHir.admitted_program</code></dt><dd>The admitted syntax tree and resolved numeric identities become typed expression, statement and function records.</dd>
-<dt><code>HeyExtern.prepare_context</code> (when providers are supplied)</dt><dd>Before MIR lowering, actual provider artifacts and their original admitted declarations establish the rebased calling conventions and result-ownership witnesses. These are inputs to lowering, not guesses made later from a function name.</dd>
+<dt><code>HeyHir.admitted_program</code></dt><dd>The admitted syntax tree and resolved numeric identities become target-free typed expression, statement and function records.</dd>
+<dt><code>HeyExtern.prepare_context_with_configuration</code> (when providers are supplied)</dt><dd>Before MIR lowering, actual provider artifacts and their original admitted declarations establish the rebased calling conventions and result-ownership witnesses, checked against the separately held target configuration. These are inputs to lowering, not guesses made later from a function name.</dd>
 <dt><code>HeyMir.lower_module</code> or <code>lower_module_with_context</code></dt><dd>Typed HIR becomes ordered MIR: every intermediate has a name, arguments have an explicit evaluation order, and copies, moves, drops and failure checks are explicit operations.</dd>
 <dt><code>HeyExtern.annotate_module</code></dt><dd>Later, original admitted declarations are joined into exact links and public calling conventions, then MIR is verified again. This remains ordered MIR; annotation does not invent ownership.</dd>
-<dt><code>HeyMir.lower_physical_module</code></dt><dd>The final MIR pass selects declared primitive calls, physical representations and explicit cleanup edges. Independent verification checks the resulting module.</dd>
-<dt><code>HeyLlvm.emit_module</code></dt><dd>Verified physical MIR becomes LLVM instructions. Parameter records become machine arguments; supplied calls and cleanup operations are encoded, not rediscovered.</dd>
+<dt><code>HeyMir.lower_physical_module</code></dt><dd>After the linkage and ABI join, <code>hey_mir_physical_lower_body</code> selects declared primitive calls, physical representations and explicit cleanup edges. Independent <code>hey_mir_physical_verify_body</code> and <code>hey_mir_physical_verify_branch</code> checks validate the resulting module and branch joins.</dd>
+<dt><code>HeyLlvm.emit_module</code></dt><dd>Verified physical MIR becomes LLVM instructions. The recursive <code>hey_llvm_record_body</code> encodes supplied machine operations and control flow; it does not rediscover their meaning or ownership.</dd>
 </dl>
 <p>For a String parameter borrowed by a function and then returned, MIR explicitly obtains an owned String value. Short bytes copy inline. An existing long <em>owned</em> backing can be retained; an arbitrary <em>borrowed</em> range must copy its bytes into owned storage before it escapes. LLVM emits the selected ownership operation and return. It does not discover or choose that policy.</p>
 <p>Reproducible checks: <code>test/gate_structured_phase_pipeline.rb</code>, <code>test/gate_structured_foreign_physical.rb</code> and <code>test/gate_structured_function_parameters.rb</code> in the compiler repository. These exercise the scoped paths described in the implementation note, including native behavior and malformed-record refusal; they are not full-release qualification.</p>
@@ -178,7 +184,8 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <tbody>
 <tr><td>Resolved tree → HIR</td><td>Numeric declaration identities, decoded literal bytes, language types; no target-machine choice</td></tr>
 <tr><td>HIR → ordered MIR</td><td>Named operands, once-only call order, representations and explicit ownership operations</td></tr>
-<tr><td>Ordered → physical MIR</td><td>Selected primitive calls, machine arguments, storage, cleanup and control-flow facts</td></tr>
+<tr><td>Ordered MIR → linkage / ABI join</td><td>Original admitted declarations, exact provider links and checked calling conventions</td></tr>
+<tr><td>Joined → verified physical MIR</td><td>Selected primitive calls, machine arguments, storage, cleanup and control-flow facts</td></tr>
 <tr><td>Physical MIR → LLVM</td><td>Verified operations to encode; no expression-spelling parser or lifetime discovery</td></tr>
 </tbody></table></div>
 <p>Saving these records as JSON doesn't make them source code again. Literal bytes, names and diagnostics remain data. A later pass reads record fields; it must not reconstruct an expression string and parse it to recover meaning.</p>
@@ -212,7 +219,7 @@ end</code></pre>
 
 <!-- ============================================================ 2 -->
 <section id="why" aria-labelledby="h-why">
-<h2 id="h-why">2 · Why one chain: the audit found six side roads</h2>
+<h2 id="h-why" data-doc-purpose="Understand why alternate semantic routes are being removed.">2 · Why one chain: the audit found six side roads</h2>
 <p class="summary"><strong>In plain English</strong>Before the overhaul, the main chain existed, but six side roads still let a fact into the program a second way. Whenever two parts of the compiler read the same program separately, they can disagree. That's why the same kinds of bug keep coming back.</p>
 
 <figure class="fig" aria-labelledby="cap-roads">
@@ -290,7 +297,7 @@ end</code></pre>
 
 <!-- ============================================================ 3 -->
 <section id="builtins" aria-labelledby="h-builtins">
-<h2 id="h-builtins">3 · Builtins are typed declarations in the built-in library</h2>
+<h2 id="h-builtins" data-doc-purpose="See builtins represented as typed declarations.">3 · Builtins are typed declarations in the built-in library</h2>
 <div class="note warn"><p><strong>Internal only.</strong> The <code>extern</code> declaration form described in this section is for Hey&#39;s own built-in library and for people working on the compiler. The parser and resolver refuse it outside the built-in binding module:<sup><a href="#n3">3</a></sup> user code, packages, the REPL and <code>hey run</code> all get an error. It is never shown to users and never taught in the user documentation (Maintainer ruling). Users write ordinary functions such as <code>fn shout(name)</code>, with no types and no arrows.</p></div>
 <p class="summary"><strong>In plain English</strong>A <em>builtin</em> is a function the runtime implements in C, such as trimming a string. Today the compiler mostly works out a builtin's type by matching its name against lists. After this release, each builtin is declared in the built-in library with its types, and the compiler treats a call to it exactly like a call to your own function.</p>
 
@@ -350,7 +357,7 @@ end</code></pre>
 
 <!-- ============================================================ 4 -->
 <section id="types" aria-labelledby="h-types">
-<h2 id="h-types">4 · Types: infer in the body, specialise at the call</h2>
+<h2 id="h-types" data-doc-purpose="Follow type inference and call specialization.">4 · Types: infer in the body, specialise at the call</h2>
 <p class="summary"><strong>In plain English</strong>Hey lets you leave parameter types off. The compiler fills them in, in two layers. Layer (a) works out each function's types from what its body does with its parameters. Layer (b) then makes a fast native copy of a function for each concrete type its callers really pass, so an Int stays a raw machine integer instead of a boxed general value (a heap cell carrying a type tag).</p>
 
 <figure class="fig" aria-labelledby="cap-ab">
@@ -428,7 +435,7 @@ end</code></pre>
 
 <!-- ============================================================ 5 -->
 <section id="ownership" aria-labelledby="h-own">
-<h2 id="h-own">5 · Ownership: typed MIR facts, checked everywhere</h2>
+<h2 id="h-own" data-doc-purpose="Follow ownership facts and their independent checks.">5 · Ownership: typed MIR facts, checked everywhere</h2>
 <p class="summary"><strong>In plain English</strong>Hey frees memory by counting references, and it can update an immutable value in place when nobody else can see the old version. MIR decides when that's safe. The historical audit found those decisions written as text notes on the end of lines, checked only for some modules. The design requires typed facts checked for every module, every time. Selected paths now do this; the <a href="#implementation-scope">implementation note</a> states the limit.<sup><a href="#n5">5</a></sup></p>
 
 <figure class="fig" aria-labelledby="cap-own">
@@ -504,7 +511,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 
 <!-- ============================================================ 6 -->
 <section id="cruft" aria-labelledby="h-cruft">
-<h2 id="h-cruft">6 · The cruft we delete, and how we prove it's gone</h2>
+<h2 id="h-cruft" data-doc-purpose="Read the criteria for retiring obsolete compiler code.">6 · The cruft we delete, and how we prove it's gone</h2>
 <p class="summary"><strong>In plain English</strong>The release deletes every competing parser, emitter, backend, interpreter route and unchecked input: up to about 48,100 lines of production code, plus generated files and duplicates. Each replacement deletes the old code in the same change. To prove nothing still uses the old code, its entry points are rigged to crash, and the compiler must still build itself, the test corpus and real applications.</p>
 
 <figure class="fig" aria-labelledby="cap-bars">
@@ -566,7 +573,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 
 <!-- ============================================================ 7 -->
 <section id="optimise" aria-labelledby="h-opt">
-<h2 id="h-opt">7 · Optimizations that follow, on the one chain</h2>
+<h2 id="h-opt" data-doc-purpose="Find optimizations enabled by typed facts.">7 · Optimizations that follow, on the one chain</h2>
 <p class="summary"><strong>In plain English</strong>Once the cruft is gone, the same release makes both the compiler and compiled programs faster. (The Maintainer had first put performance in a later release; he then added it to this one: "Make sure we include compilation optimizations as well as runtime optimizations once we have the new compiler design fully implemented and the cruft removed.") Every optimization is built on the one chain, uses typed MIR facts, and helps any program that does the same thing. None is shaped around a benchmark.</p>
 <p>The numbers below come from Hey's fixed benchmark set: W1 to W12 are small workload programs with C versions for comparison, and 1BRC is the One Billion Row Challenge program (read weather readings, report each station's minimum, mean and maximum), run here at 5 million and 10 million rows.</p>
 
@@ -632,7 +639,7 @@ says updated.tea</code></pre><p>Last use of <code>prices</code>, so <code>put</c
 
 <!-- ============================================================ 8 -->
 <section id="rulings" aria-labelledby="h-rul">
-<h2 id="h-rul">8 · The rulings behind this design</h2>
+<h2 id="h-rul" data-doc-purpose="Trace the decisions behind the architecture.">8 · The rulings behind this design</h2>
 <p>Every language and compiler question this design depends on is ruled: the elsif and case/when lowering, digit
 separators, built-ins as internal typed declarations, inference plus specialisation, and the rest. Each ruling, with
 its reason, is a row in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</p>
@@ -640,7 +647,7 @@ its reason, is a row in the <a href="2026-10-25-hey-every-decision.html">decisio
 
 <!-- ============================================================ 10 -->
 <section id="going" aria-labelledby="h-going">
-<h2 id="h-going">10 · Where the compiler is going</h2>
+<h2 id="h-going" data-doc-purpose="Separate the roadmap from completed implementation.">9 · Where the compiler is going</h2>
 <p class="summary"><strong>In plain English</strong>An audit of the compiler documents against current research turned up six upgrades worth making while the code in question is still being written. None of them is built; each is planned, and each changes how the compiler works inside, not the language you write.</p>
 
 <h3>Widening to Value, on a proper footing <span class="tag t-acc">Planned</span></h3>
@@ -664,7 +671,7 @@ its reason, is a row in the <a href="2026-10-25-hey-every-decision.html">decisio
 
 <!-- ============================================================ 11 -->
 <section id="background" aria-labelledby="h-bg">
-<h2 id="h-bg">11 · Background: history, checks and inspection</h2>
+<h2 id="h-bg" data-doc-purpose="Find history, inspection commands and verification context.">10 · Background: history, checks and inspection</h2>
 <p class="summary"><strong>In plain English</strong>The one-chain goal isn't new. Every plan since the first asked the same question: which code is allowed to decide what a program means? This section keeps the history, the verification rules and how to inspect the compiler yourself. It's optional reading.</p>
 <figure class="fig" aria-labelledby="cap-hist">
 <svg viewBox="0 0 960 150" role="img" aria-labelledby="t-hist"><title id="t-hist">History from the first plans to the consolidation release</title>
@@ -751,7 +758,7 @@ end</code></pre>
 </details>
 
 <section class="notes" id="notes" aria-labelledby="notes-h">
-<h2 id="notes-h">Notes</h2>
+<h2 id="notes-h" data-doc-purpose="Follow the evidence notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">The retirement ledger (76 rows) and the construct and consumer matrix were committed as the consolidation's starting inventory: bb419e, a366c0.</li>
 <li id="n2">The structured Real IR pipeline modules, tools and tests were deleted on a branch: c690fc, 4cded7.</li>
