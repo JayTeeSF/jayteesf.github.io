@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="article-bucket" content="articles">
+  <meta name="article-index-rank" content="41">
+  <meta name="article-index-desc" content="How Hey can build a Linux program on a Mac with no C compiler installed, the way Go does: what clang does for Hey today, how Go, Zig and Rust remove it, a four-step plan, and why the first step isn't thrown away.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A decision explainer: building Hey programs for other platforms without a C compiler. What clang does today, what Go, Zig and Rust do, the four-step plan with costs, and whether step 1 survives into the end state.">
+  <meta name="article-desc" content="A decision explainer. Today every Hey build runs clang. This page shows the four jobs clang does, how Go, Zig and Rust avoid needing one, a four-step plan to get Hey there, what each step costs, and why the first step (cross-building with LLVM and lld shipped inside Hey) is on the path rather than a detour.">
+  <title>Hey Without a C Compiler</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.9);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      --hey: #2f7de1;
+      --hey-soft: rgba(47,125,225,0.18);
+      --warm: #e8912d;
+      --warm-soft: rgba(232,145,45,0.18);
+      --bad: #d9473f;
+      --bad-soft: rgba(217,71,63,0.16);
+      --good: #2e9e5b;
+      --good-soft: rgba(46,158,91,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 5rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3.2rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2, .callout h3 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; }
+    pre code { background: none; padding: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; background: var(--code); padding: 0 0.25em; border-radius: 0.25em; overflow-wrap: anywhere; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    dfn { font-style: normal; font-weight: 700; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+
+    figure { margin: 1.75rem 0 2.25rem; }
+    figure svg { width: 100%; height: auto; display: block; }
+    figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+    svg text { fill: CanvasText; font-family: system-ui, -apple-system, sans-serif; }
+    svg .m { fill: var(--muted); }
+    svg .ln { stroke: CanvasText; stroke-opacity: 0.55; fill: none; stroke-width: 2; }
+    svg .box { fill: var(--panel); stroke: var(--border); }
+    svg .mir { fill: var(--hey-soft); stroke: var(--hey); }
+    svg .llvm { fill: var(--good-soft); stroke: var(--good); }
+    svg .c { fill: var(--warm-soft); stroke: var(--warm); }
+    svg .old { fill: var(--bad-soft); stroke: var(--bad); }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.9rem; margin: 1.25rem 0 2rem; }
+    .card { border: 1px solid var(--border); border-left-width: 6px; border-radius: 0.7rem; padding: 0.9rem 1rem; background: var(--panel); }
+    .card.decided { border-left-color: var(--good); }
+    .card.dropped { border-left-color: var(--bad); }
+    .card.open { border-left-color: var(--warm); }
+    .card h3 { margin: 0.35rem 0 0.35rem; font-size: 1.05rem; }
+    .card p { margin: 0.35rem 0 0; font-size: 0.95rem; }
+    .pill { display: inline-block; padding: 0.05rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--border); }
+    .pill.decided { background: var(--good-soft); }
+    .pill.dropped { background: var(--bad-soft); }
+    .pill.open { background: var(--warm-soft); }
+    .qa { margin: 1.5rem 0; padding: 1rem 1.25rem; border-left: 6px solid var(--hey); background: var(--hey-soft); border-radius: 0 0.7rem 0.7rem 0; }
+    .qa p:first-child { margin-top: 0; }
+    .qa p:last-child { margin-bottom: 0; }
+    details { margin: 1rem 0; padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 0.7rem; }
+    summary { cursor: pointer; font-weight: 700; padding: 0.3rem 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; How the compiler works &middot; November 1, 2026</p>
+    <h1>Hey Without a C Compiler</h1>
+    <p class="lede">
+      With Go you can type one command on a Mac and get a program that runs on a Linux server. You never install a C
+      compiler. Hey can't do that yet: every Hey build runs clang. This page shows what clang does for Hey, how Go, Zig
+      and Rust get by without it, and a four-step plan to get Hey there.
+    </p>
+  </header>
+
+  <main>
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>Recommended: step 1 first.</strong> Ship LLVM's code generator and its linker, lld, inside Hey, plus a
+          prebuilt runtime for each platform, so <code>hey build --target linux-x64</code> works on a Mac with no clang.
+          About 5&ndash;9 engineer-weeks.</li>
+        <li><strong>Step 1 is on the path, not a detour.</strong> About 80&ndash;90% of it is still there in the end state.
+          Every later step needs the same target list, linker, macOS stubs and test rig.</li>
+        <li><strong>The one rule that keeps it that way: no clang in your build.</strong> Shipping clang in the download
+          would work, but it's the detour.</li>
+        <li><strong>Then static Linux binaries, then the runtime in Hey.</strong> Talking to Linux directly, with no C
+          library (Go's way), should be written in Hey as part of that rewrite, never in C.</li>
+      </ul>
+    </section>
+
+    <h2>Today clang does four jobs in every Hey build</h2>
+    <p>
+      Hey's compiler turns your program into <dfn>LLVM IR</dfn>, a text format that LLVM (the toolkit Rust and Swift also
+      use) turns into machine code. Then one clang command finishes the build. It does four separate things:
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 300" role="img" aria-labelledby="f1t f1d">
+        <title id="f1t">The four jobs clang does today, and what replaces each</title>
+        <desc id="f1d">Clang optimizes and compiles the LLVM IR, compiles the C runtime, runs the linker, and reports the target's facts. In step 1 each is replaced: LLVM's own code generator, a runtime prebuilt for each platform, lld run directly by Hey, and a committed table of targets.</desc>
+        <text x="20" y="26" font-size="15" font-weight="700">Today: one clang command</text>
+        <text x="500" y="26" font-size="15" font-weight="700">Step 1: no clang in your build</text>
+        <rect x="20" y="40" width="400" height="52" rx="10" class="c"/>
+        <text x="220" y="71" font-size="14" text-anchor="middle">1. optimize your program and make machine code</text>
+        <rect x="20" y="102" width="400" height="52" rx="10" class="c"/>
+        <text x="220" y="133" font-size="14" text-anchor="middle">2. compile the 38,000-line C runtime</text>
+        <rect x="20" y="164" width="400" height="52" rx="10" class="c"/>
+        <text x="220" y="195" font-size="14" text-anchor="middle">3. run the linker (glue the pieces into one file)</text>
+        <rect x="20" y="226" width="400" height="52" rx="10" class="c"/>
+        <text x="220" y="257" font-size="14" text-anchor="middle">4. tell Hey the target's facts (sizes, layout)</text>
+        <line x1="420" y1="66" x2="490" y2="66" class="ln"/><polygon points="490,60 502,66 490,72" fill="CanvasText" fill-opacity="0.55"/>
+        <line x1="420" y1="128" x2="490" y2="128" class="ln"/><polygon points="490,122 502,128 490,134" fill="CanvasText" fill-opacity="0.55"/>
+        <line x1="420" y1="190" x2="490" y2="190" class="ln"/><polygon points="490,184 502,190 490,196" fill="CanvasText" fill-opacity="0.55"/>
+        <line x1="420" y1="252" x2="490" y2="252" class="ln"/><polygon points="490,246 502,252 490,258" fill="CanvasText" fill-opacity="0.55"/>
+        <rect x="505" y="40" width="380" height="52" rx="10" class="llvm"/>
+        <text x="695" y="71" font-size="14" text-anchor="middle">LLVM's code generator, shipped in Hey</text>
+        <rect x="505" y="102" width="380" height="52" rx="10" class="mir"/>
+        <text x="695" y="133" font-size="14" text-anchor="middle">runtime prebuilt once per platform</text>
+        <rect x="505" y="164" width="380" height="52" rx="10" class="llvm"/>
+        <text x="695" y="195" font-size="14" text-anchor="middle">lld, run directly by Hey</text>
+        <rect x="505" y="226" width="380" height="52" rx="10" class="mir"/>
+        <text x="695" y="257" font-size="14" text-anchor="middle">a committed table, one entry per target</text>
+      </svg>
+      <figcaption>Today's build has no target flag at all: it always builds for the machine it runs on.</figcaption>
+    </figure>
+    <p>
+      Hey is closer than it looks. Its downloads can already carry their own clang, lld and prebuilt runtime, so you
+      don't have to install them. But they only build for the machine they run on, and they still run clang.
+    </p>
+
+    <h2>Go, Zig and Rust each removed a different piece</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th></th><th>Machine code</th><th>Linker</th><th>Talking to the operating system</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Go</strong></td><td>its own, written in Go</td><td>its own, written in Go; it also signs Mac programs</td><td>Linux: direct system calls, no C library. macOS: calls Apple's <code>libSystem</code>, with the names written into Go's own source. Windows: loads system DLLs by name.</td></tr>
+        <tr><td><strong>Zig</strong></td><td>LLVM, built in (moving to its own)</td><td>lld built in, plus its own</td><td>ships C library headers and stubs for many targets: glibc symbol lists, musl, MinGW for Windows, macOS headers</td></tr>
+        <tr><td><strong>Rust</strong></td><td>LLVM, built in</td><td><code>rust-lld</code> is now the default on Linux x86-64, but it&rsquo;s still started through a C compiler</td><td>uses the target's C library, so cross-building still needs that library; people borrow Zig for it (<code>cargo-zigbuild</code>)</td></tr>
+        <tr><td><strong>Hey, after step 1</strong></td><td>LLVM, shipped in Hey</td><td>lld, shipped in Hey</td><td>a runtime prebuilt per target, plus small link stubs for each system library</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>
+      A <dfn>system call</dfn> is a request straight to the operating system's kernel: "open this file", "start a
+      thread". A <dfn>C library</dfn> (glibc or musl on Linux, <code>libSystem</code> on macOS) wraps those requests in
+      ordinary functions. Linux promises its system calls stay stable, so Go can skip the library there. macOS and
+      Windows don't, so even Go goes through their libraries.
+    </p>
+
+    <h2>The four steps</h2>
+    <figure>
+      <svg viewBox="0 0 900 270" role="img" aria-labelledby="f2t f2d">
+        <title id="f2t">Four steps from today to fully self-hosted Hey</title>
+        <desc id="f2d">Step 1: cross-build with LLVM and lld inside Hey, 5 to 9 weeks. Step 2: static Linux binaries, first with musl in 1 to 3 weeks. Step 3: the runtime rewritten in Hey, 9 to 18 engineer-months, which brings direct Linux system calls with it. Step 4: build Hey from the previous release, 1 to 3 weeks, only if that decision is reopened.</desc>
+        <rect x="20" y="190" width="200" height="66" rx="10" class="llvm"/>
+        <text x="120" y="216" font-size="15" font-weight="700" text-anchor="middle">1. cross-build</text>
+        <text x="120" y="238" font-size="13" text-anchor="middle">5&#8211;9 weeks</text>
+        <rect x="240" y="130" width="200" height="66" rx="10" class="mir"/>
+        <text x="340" y="156" font-size="15" font-weight="700" text-anchor="middle">2. static Linux</text>
+        <text x="340" y="178" font-size="13" text-anchor="middle">musl first: 1&#8211;3 weeks</text>
+        <rect x="460" y="70" width="200" height="66" rx="10" class="mir"/>
+        <text x="560" y="96" font-size="15" font-weight="700" text-anchor="middle">3. runtime in Hey</text>
+        <text x="560" y="118" font-size="13" text-anchor="middle">9&#8211;18 engineer-months</text>
+        <rect x="680" y="10" width="200" height="66" rx="10" class="box"/>
+        <text x="780" y="36" font-size="15" font-weight="700" text-anchor="middle">4. build from last release</text>
+        <text x="780" y="58" font-size="13" text-anchor="middle">1&#8211;3 weeks, if reopened</text>
+        <text x="20" y="160" font-size="13" class="m">you get: Linux programs from a Mac</text>
+        <text x="240" y="100" font-size="13" class="m">you get: one file that runs on any Linux</text>
+        <text x="460" y="40" font-size="13" class="m">you get: no C in any Hey program</text>
+      </svg>
+      <figcaption>Engineer time for one person who knows the code, from fastest credible path to typical. The full table is below.</figcaption>
+    </figure>
+
+    <h2>Is step 1 a detour? No: the later steps need almost all of it</h2>
+    <div class="qa">
+      <p>
+        Step 3 takes C out of the runtime. It doesn't take away the need for a list of targets, a linker, stubs for
+        macOS and Windows libraries, the code signature every Apple Silicon program must carry, or a rig that builds
+        on the Mac and runs on Linux. Go has all of those too. It just wrote them in Go.
+      </p>
+      <p>
+        So going straight to step 3 doesn't skip step 1. It builds the same pieces later, and nothing reaches users
+        until the end, perhaps a year out. Going straight to direct Linux system calls in C is worse: that code is
+        thrown away when the runtime moves to Hey.
+      </p>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Piece of step 1</th><th>Still there at the end?</th></tr></thead>
+      <tbody>
+        <tr><td>Target table (one entry per platform)</td><td>Yes</td></tr>
+        <tr><td>LLVM code generator shipped in Hey</td><td>Yes, as long as Hey ends on LLVM</td></tr>
+        <tr><td>lld run directly, macOS code signature</td><td>Yes</td></tr>
+        <tr><td>macOS <code>libSystem</code> link stub, generated by Hey</td><td>Yes: macOS supports no other way in</td></tr>
+        <tr><td><code>hey build --target</code>, packaging, cross test rig</td><td>Yes</td></tr>
+        <tr><td>Runtime prebuilt per target</td><td>The build job stays; what it compiles changes from C to Hey</td></tr>
+        <tr><td>Linux glibc link files</td><td>No, once Linux binaries are static</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>What the runtime asks of the operating system decides how hard steps 2 and 3 are</h2>
+    <p>
+      Hey's compiled code calls only the runtime. The runtime is what calls the C library. Counting its calls:
+    </p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Area</th><th>Call sites</th><th>Without a C library, Hey needs</th></tr></thead>
+      <tbody>
+        <tr><td>Threads and locks</td><td>583</td><td>its own threads, locks on the kernel's wait primitive (futex), per-thread storage set up by hand</td></tr>
+        <tr><td>Formatted text and parsing</td><td>1,161 (411 are <code>snprintf</code>)</td><td>its own formatter, and exact text-to-number conversion for floats</td></tr>
+        <tr><td>Memory</td><td>1,495 (1,107 are <code>free</code>)</td><td>a general allocator on raw pages; Hey's small-block allocator already exists</td></tr>
+        <tr><td>Files, sockets, event loop</td><td>593</td><td>mostly thin system calls: the easy part</td></tr>
+        <tr><td>DNS lookup</td><td>5</td><td>its own resolver, as Go has</td></tr>
+        <tr><td>Processes, signals, environment</td><td>215</td><td>spawn, signal handlers and a small piece of assembly per CPU</td></tr>
+        <tr><td>Regular expressions</td><td>6</td><td>its own engine</td></tr>
+        <tr><td>Loading libraries at run time</td><td>12</td><td>a plan for TLS: OpenSSL is loaded on first use, and a static program can't load anything</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>
+      That's a small C library. It's why direct system calls belong inside step 3, written in Hey, and why step 2 should
+      start with <dfn>musl</dfn>, a small C library that's easy to bundle and link statically.
+    </p>
+
+    <h2>The decisions</h2>
+    <div class="cards">
+      <div class="card open">
+        <span class="pill open">Recommended</span>
+        <h3>Step 1 in v608, with no clang in the user's build</h3>
+        <p>Start with Linux x86-64 and arm64 from the Mac. Done when a binary built on the Mac, with no clang on <code>PATH</code>, runs on the Linux machine and matches its native build.</p>
+      </div>
+      <div class="card open">
+        <span class="pill open">Recommended</span>
+        <h3>Static Linux through musl next</h3>
+        <p>Programs that use TLS or native extensions stay dynamic at first; TLS linked in, then TLS in Hey, come later.</p>
+      </div>
+      <div class="card open">
+        <span class="pill open">Recommended</span>
+        <h3>Direct system calls only in Hey</h3>
+        <p>Part of the runtime rewrite, one subsystem at a time, each release at C speed or better.</p>
+      </div>
+      <div class="card dropped">
+        <span class="pill dropped">Not recommended</span>
+        <h3>Shipping clang as the answer</h3>
+        <p>It works today on the host, but it keeps the C driver and its hidden flags, and adds over 100&nbsp;MB.</p>
+      </div>
+      <div class="card open">
+        <span class="pill open">Open</span>
+        <h3>Building Hey from the previous release</h3>
+        <p>The C seed was decided as the permanent bootstrap. Step 4 needs that decision reopened; nothing in steps 1&ndash;3 depends on it.</p>
+      </div>
+    </div>
+
+    <h2>Optional: the details</h2>
+
+    <details>
+      <summary>The cost table</summary>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Step</th><th>Work</th><th>Effort</th><th>Main risk</th><th>Survives?</th></tr></thead>
+        <tbody>
+          <tr><td>1a</td><td>Committed target table replaces the clang probe</td><td>2&ndash;4 days</td><td>layout drift from the pinned LLVM</td><td>Yes</td></tr>
+          <tr><td>1b</td><td>LLVM's optimizer and code generator without clang, one pinned LLVM version</td><td>3&ndash;6 days</td><td>speed must be re-measured</td><td>Yes</td></tr>
+          <tr><td>1c</td><td>lld run directly; macOS code signature</td><td>4&ndash;8 days</td><td>flags the clang driver used to add silently</td><td>Yes</td></tr>
+          <tr><td>1d</td><td>Runtime prebuilt for each target on the release machines</td><td>4&ndash;8 days</td><td>release build time</td><td>Partly</td></tr>
+          <tr><td>1e</td><td>Link stubs: pinned glibc files for Linux, a generated <code>libSystem</code> list for macOS</td><td>5&ndash;10 days</td><td>Apple licensing if Apple's own files are copied</td><td>macOS yes, Linux no</td></tr>
+          <tr><td>1f</td><td><code>--target</code>, cache per target, packaging</td><td>4&ndash;7 days</td><td>download size</td><td>Yes</td></tr>
+          <tr><td>1g</td><td>Cross test rig: build on the Mac, run on Linux</td><td>3&ndash;5 days</td><td>shared Linux machine</td><td>Yes</td></tr>
+          <tr><td><strong>1</strong></td><td><strong>Total</strong></td><td><strong>5&ndash;9 weeks</strong></td><td></td><td><strong>80&ndash;90%</strong></td></tr>
+          <tr><td>2a</td><td>Static Linux with musl</td><td>1&ndash;3 weeks</td><td>musl's allocator and copy speed</td><td>Partly</td></tr>
+          <tr><td>2b</td><td>Direct Linux system calls, no C library</td><td>8&ndash;16 weeks in C (thrown away); inside step 3 in Hey</td><td>float formatting, DNS, speed</td><td>Only in Hey</td></tr>
+          <tr><td>3</td><td>Runtime in Hey, piece by piece</td><td>9&ndash;18 engineer-months, plus 1&ndash;3 months of compiler work first</td><td>falling behind tuned C</td><td>Yes</td></tr>
+          <tr><td>4</td><td>Build Hey from the previous release</td><td>1&ndash;3 weeks</td><td>reverses a recorded decision</td><td>If ruled</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </details>
+
+    <details>
+      <summary>Three ways to talk to Linux</summary>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Dynamic glibc</th><th>Static musl</th><th>Direct system calls</th></tr></thead>
+        <tbody>
+          <tr><td>Runs on</td><td>Linux with that glibc or newer</td><td>any Linux</td><td>any Linux</td></tr>
+          <tr><td>TLS through the system's OpenSSL</td><td>works, as today</td><td>no</td><td>no</td></tr>
+          <tr><td>Work</td><td>days</td><td>1&ndash;3 weeks</td><td>months</td></tr>
+          <tr><td>At the end</td><td>replaced</td><td>replaced by Hey code</td><td>kept</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </details>
+
+    <details>
+      <summary>What shipping LLVM costs</summary>
+      <ul>
+        <li>LLVM is under the Apache 2.0 license with the LLVM exception, which lets it be shipped inside another product without passing its notice requirements on to the programs that product builds.</li>
+        <li>lld links ELF (Linux), Mach-O (macOS) and COFF (Windows) programs from one tool, and it can be linked in as a library.</li>
+        <li>For macOS on Apple Silicon, lld writes the required ad-hoc code signature itself, as Go's and Zig's linkers do.</li>
+        <li>For scale: Zig, which ships LLVM, lld, Clang and C library files for dozens of targets, is about 50&nbsp;MB to download for Linux or macOS. A Go hello world is about 2.4&nbsp;MB on every platform.</li>
+        <li>Start with LLVM's tools shipped as programs; link LLVM into Hey later if starting them costs too much time per build.</li>
+      </ul>
+    </details>
+
+    <h2>Sources</h2>
+    <ul id="sources">
+      <li>Go: <a href="https://go.dev/doc/go1.12">Go 1.12 release notes</a> (macOS through libSystem);
+        <a href="https://go.dev/doc/install/source">Installing Go from source</a>;
+        <a href="https://pkg.go.dev/cmd/cgo">cgo</a></li>
+      <li>Zig: <a href="https://andrewkelley.me/post/zig-cc-powerful-drop-in-replacement-gcc-clang.html">zig cc: a powerful drop-in replacement for GCC/Clang</a>;
+        <a href="https://github.com/ziglang/zig/issues/16270">Zig issue 16270: removing the LLVM dependency</a></li>
+      <li>Rust: <a href="https://blog.rust-lang.org/2024/05/17/enabling-rust-lld-on-linux.html">Faster linking times on nightly on Linux using rust-lld</a>;
+        <a href="https://github.com/rust-cross/cargo-zigbuild">cargo-zigbuild</a></li>
+      <li>LLVM: <a href="https://llvm.org/docs/DeveloperPolicy.html#new-llvm-project-license-framework">LLVM license</a>;
+        <a href="https://lld.llvm.org/">lld</a></li>
+      <li>musl: <a href="https://musl.libc.org/">musl libc</a></li>
+      <li>Hey: <code>runtime/heyc.c</code> (the link step), <code>runtime/hey_runtime.c</code>,
+        <code>docs/developers/distributions.md</code>. Companion page:
+        <a href="2026-11-01-hey-c-backend-bootstrap.html">Building Hey's Compiler from C</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>Call-site counts come from a scan of the runtime source. Effort figures are estimates for one engineer who knows the code.</p>
+  </footer>
+</body>
+</html>

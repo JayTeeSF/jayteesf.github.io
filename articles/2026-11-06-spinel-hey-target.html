@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="article-bucket" content="compiler">
+  <meta name="article-index-rank" content="42">
+  <meta name="article-index-desc" content="A design for a Ruby compiler: run one command on your Ruby program and get a fast native binary for the platform you choose. How it uses Matz's Spinel for types, Hey to build for every platform, and what it supports in its first version.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A design explainer for a Ruby compiler built on Spinel and Hey: one command turns Ruby into a fast native binary, for your machine first and any platform later. The pipeline, what works, what is refused, threads, speed targets and costs.">
+  <meta name="article-desc" content="A design explainer. You run one command on your Ruby program and get a fast native binary. Inside, Matz's Spinel works out the types, the program is translated, and Hey builds it for your platform, and later for others. This page shows the pipeline, before-and-after code, what works in the first version, how threads work, why it doesn't skip Spinel, and what's still open.">
+  <title>Fast Ruby Binaries for Any Platform</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.9);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      --hey: #2f7de1;
+      --hey-soft: rgba(47,125,225,0.18);
+      --warm: #e8912d;
+      --warm-soft: rgba(232,145,45,0.18);
+      --bad: #d9473f;
+      --bad-soft: rgba(217,71,63,0.16);
+      --good: #2e9e5b;
+      --good-soft: rgba(46,158,91,0.16);
+      --ruby: #c0392b;
+      --ruby-soft: rgba(192,57,43,0.14);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 5rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3.2rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2, .callout h3 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; margin: 0; }
+    pre code { background: none; padding: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; background: var(--code); padding: 0 0.25em; border-radius: 0.25em; overflow-wrap: anywhere; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    dfn { font-style: normal; font-weight: 700; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+
+    figure { margin: 1.75rem 0 2.25rem; }
+    figure svg { width: 100%; height: auto; display: block; }
+    figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+    svg text { fill: CanvasText; font-family: system-ui, -apple-system, sans-serif; }
+    svg .m { fill: var(--muted); }
+    svg .ln { stroke: CanvasText; stroke-opacity: 0.55; fill: none; stroke-width: 2; }
+    svg .box { fill: var(--panel); stroke: var(--border); }
+    svg .mir { fill: var(--hey-soft); stroke: var(--hey); }
+    svg .llvm { fill: var(--good-soft); stroke: var(--good); }
+    svg .c { fill: var(--warm-soft); stroke: var(--warm); }
+    svg .old { fill: var(--bad-soft); stroke: var(--bad); }
+    svg .rb { fill: var(--ruby-soft); stroke: var(--ruby); }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.9rem; margin: 1.25rem 0 2rem; }
+    .card { border: 1px solid var(--border); border-left-width: 6px; border-radius: 0.7rem; padding: 0.9rem 1rem; background: var(--panel); }
+    .card.decided { border-left-color: var(--good); }
+    .card.dropped { border-left-color: var(--bad); }
+    .card.open { border-left-color: var(--warm); }
+    .card h3 { margin: 0.35rem 0 0.35rem; font-size: 1.05rem; }
+    .card p { margin: 0.35rem 0 0; font-size: 0.95rem; }
+    .pill { display: inline-block; padding: 0.05rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--border); }
+    .pill.decided { background: var(--good-soft); }
+    .pill.dropped { background: var(--bad-soft); }
+    .pill.open { background: var(--warm-soft); }
+    .qa { margin: 1.5rem 0; padding: 1rem 1.25rem; border-left: 6px solid var(--hey); background: var(--hey-soft); border-radius: 0 0.7rem 0.7rem 0; }
+    .qa p:first-child { margin-top: 0; }
+    .qa p:last-child { margin-bottom: 0; }
+    details { margin: 1rem 0; padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 0.7rem; }
+    summary { cursor: pointer; font-weight: 700; padding: 0.3rem 0; }
+
+    .ba { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.9rem; margin: 1rem 0 1.75rem; }
+    .ba .side { min-width: 0; }
+    .ba .label { font-size: 0.85rem; font-weight: 700; margin: 0 0 0.35rem; }
+    .ba .label.rb { color: var(--ruby); }
+    .ba .label.hy { color: var(--hey); }
+    .youcan { margin: 1.5rem 0 2rem; padding: 1rem 1.25rem; border: 2px solid var(--good); border-radius: 0.7rem; background: var(--good-soft); }
+    .youcan h2 { margin: 0 0 0.6rem; padding: 0; border: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; How the compiler works &middot; November 6, 2026</p>
+    <h1>Fast Ruby Binaries for Any Platform</h1>
+    <p class="lede">
+      You wrote a Ruby script. It works. Now you want it to be fast, and to hand someone a single file that runs on
+      their Linux server, without asking them to install Ruby. This page describes a compiler that does exactly that,
+      and what happens inside it.
+    </p>
+  </header>
+
+  <main>
+    <section class="youcan">
+      <h2>After reading this you can</h2>
+      <ul>
+        <li>picture the one command you'd run, and what you'd get back;</li>
+        <li>predict whether your Ruby program will compile in the first version;</li>
+        <li>say how your threads and queues will run;</li>
+        <li>explain why the compiler leans on Matz's Spinel instead of reading Ruby's own syntax tree;</li>
+        <li>weigh in on the open decisions.</li>
+      </ul>
+    </section>
+
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>One command:</strong> <code>hey-spinel app.rb</code> writes <code>./app</code>, a native program. No
+          Ruby, no C compiler, nothing else to install. (<code>hey-spinel</code> is a working name.)</li>
+        <li><strong>Your machine first, any platform next:</strong> <code>--target linux-arm64</code> arrives when Hey's
+          cross-compiler lands (release v608).</li>
+        <li><strong>Inside:</strong> Spinel, Matz's Ruby compiler, works out every type. The program is translated to
+          Hey, and Hey builds the binary. You never see the Hey.</li>
+        <li><strong>Speed target:</strong> at least 5x faster than the Ruby interpreter in the first version. That's a
+          target; nothing has been measured yet.</li>
+        <li><strong>The promise:</strong> every program Spinel compiles, this compiles too, with the same output. That
+          is the bar for version 1, checked on Spinel's own test and benchmark suites.</li>
+        <li><strong>Cost:</strong> about 93&ndash;186 engineer-weeks for that first version, plus 9&ndash;18 in Hey
+          (estimates). Most of it is Ruby's core library, about 1,450 methods, rewritten in Hey.</li>
+      </ul>
+    </section>
+
+    <h2>What you'll type</h2>
+<pre><code>$ hey-spinel fib.rb
+$ ./fib
+5702887
+
+$ hey-spinel fib.rb --target linux-arm64 -o fib-linux   # after Hey v608
+$ scp fib-linux server:   # one file, runs there, no Ruby needed</code></pre>
+    <p>
+      That's the whole interface: <code>-o</code>, <code>-E</code> (compile and run), <code>-I</code>,
+      <code>--check</code> (just tell me what won't compile), <code>--release</code> and <code>--target</code>.
+    </p>
+
+    <h2>What happens inside, in five steps</h2>
+    <figure>
+      <svg viewBox="0 0 900 230" role="img" aria-labelledby="f1t f1d">
+        <title id="f1t">The pipeline</title>
+        <desc id="f1d">Your Ruby goes to the bundled Spinel, which reports every type and anything it refuses. The translator turns the Ruby plus those types into Hey. The Hey compiler inside the tool compiles it, and the linker writes a native program for your machine or, after v608, for another platform.</desc>
+        <rect x="10" y="80" width="120" height="60" rx="10" class="rb"/>
+        <text x="70" y="115" font-size="15" text-anchor="middle">app.rb</text>
+        <rect x="160" y="20" width="170" height="60" rx="10" class="box"/>
+        <text x="245" y="46" font-size="14" text-anchor="middle">1. Spinel: types</text>
+        <text x="245" y="66" font-size="12" class="m" text-anchor="middle">and refusals</text>
+        <rect x="160" y="140" width="170" height="60" rx="10" class="box"/>
+        <text x="245" y="166" font-size="14" text-anchor="middle">2. Spinel: syntax tree</text>
+        <text x="245" y="186" font-size="12" class="m" text-anchor="middle">with positions</text>
+        <rect x="360" y="80" width="170" height="60" rx="10" class="old"/>
+        <text x="445" y="106" font-size="14" text-anchor="middle">3. translate</text>
+        <text x="445" y="126" font-size="12" class="m" text-anchor="middle">to Hey (hidden)</text>
+        <rect x="560" y="80" width="150" height="60" rx="10" class="mir"/>
+        <text x="635" y="106" font-size="14" text-anchor="middle">4. Hey compiler</text>
+        <text x="635" y="126" font-size="12" class="m" text-anchor="middle">inside the tool</text>
+        <rect x="740" y="80" width="150" height="60" rx="10" class="llvm"/>
+        <text x="815" y="106" font-size="14" text-anchor="middle">5. link</text>
+        <text x="815" y="126" font-size="12" class="m" text-anchor="middle">./app, any target</text>
+        <line x1="130" y1="110" x2="158" y2="50" class="ln"/><line x1="130" y1="110" x2="158" y2="170" class="ln"/>
+        <line x1="330" y1="50" x2="358" y2="105" class="ln"/><line x1="330" y1="170" x2="358" y2="115" class="ln"/>
+        <line x1="530" y1="110" x2="558" y2="110" class="ln"/><line x1="710" y1="110" x2="738" y2="110" class="ln"/>
+      </svg>
+      <figcaption>Everything ships in one download: the tool (written in Hey), a Spinel we build for your platform, and Hey's compiler and linker. The red box is the new work.</figcaption>
+    </figure>
+    <p>
+      Spinel normally prints C and runs a C compiler. Here we only ask it what it learned. It already exports that as
+      JSON (<code>--emit-types</code>): the type of every expression, which method each call reaches, and which blocks
+      it can turn into plain loops. We use Spinel exactly as Matz publishes it, with no changes.
+    </p>
+
+    <h2>Your Ruby, and what it becomes</h2>
+    <div class="ba">
+      <div class="side">
+        <p class="label rb">You write</p>
+<pre><code>class Counter
+  def initialize
+    @n = 0
+  end
+
+  def add(k)
+    @n += k
+    self
+  end
+
+  def n = @n
+end
+
+c = Counter.new
+[1, 2, 3].each { |v| c.add(v) }
+puts c.n</code></pre>
+      </div>
+      <div class="side">
+        <p class="label hy">The tool writes (you never see it; sketch)</p>
+<pre><code>fn Counter__new()
+  return {cls: CLS_Counter, n: 0}
+end
+
+fn Counter__add(self, k)
+  return {...self, n: self.n + k}
+end
+
+fn Counter__n(self)
+  return self.n
+end
+
+program
+  let c = Counter__new()
+  for v in [1, 2, 3]
+    set c = Counter__add(c, v)
+  end
+  Rb.puts(Counter__n(c))
+end</code></pre>
+      </div>
+    </div>
+    <ul>
+      <li><strong>The method call is direct.</strong> Spinel proved <code>c.add</code> can only mean <code>Counter#add</code>.</li>
+      <li><strong>The block is a plain loop.</strong> Spinel proved it can be inlined.</li>
+      <li><strong>Integers never overflow wrongly.</strong> Hey grows an Int into a big integer, just like Ruby, and
+        keeps the plain fast path where it can prove the value fits.</li>
+      <li><strong>The object is a plain value.</strong> Only one name ever holds <code>c</code>, so "change it" can
+        become "make the changed one and rebind the name", and Hey does that in place. The compiler proves this for
+        each kind of object; about 80% of the classes in Spinel's benchmarks qualify (an estimate from a scan).</li>
+      <li><strong>Only objects that are shared <em>and</em> changed</strong>, such as tree nodes with parent pointers, go
+        into a <code>Cell</code> from Hey's standard library, the one mutable box Hey offers.</li>
+    </ul>
+
+    <h2>"Why not just read Ruby's own syntax tree?"</h2>
+    <div class="qa">
+      <p>Ruby will hand you its syntax tree (Prism, <code>RubyVM::AbstractSyntaxTree</code>). And Hey infers types by
+        itself. So why bring Spinel in?</p>
+      <p>Because Hey's inference knows about numbers, strings and arrays of integers. It doesn't know about Ruby
+        <em>objects</em>. Translated without Spinel, every object looks the same to Hey. Then every method call
+        needs a lookup at run time, every instance variable is a boxed value, and every block becomes a closure.</p>
+      <p>The estimate: you'd save 0&ndash;4 weeks of building, and object-heavy programs would run 3&ndash;10x slower.
+        So the compiler uses Spinel, and keeps a "no Spinel" mode only for testing.</p>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Your code</th><th>Ruby's syntax tree + Hey's inference</th><th>+ Spinel's facts</th></tr></thead>
+      <tbody>
+        <tr><td>number crunching in a method</td><td>fast</td><td>fast</td></tr>
+        <tr><td><code>shape.area</code> (Circle or Square)</td><td>run-time lookup on every call</td><td>direct call, or a two-way switch</td></tr>
+        <tr><td><code>@x</code> that is always an Integer</td><td>boxed, checked on every use</td><td>a plain machine integer</td></tr>
+        <tr><td><code>h[k]</code> that may be nil</td><td>boxed</td><td>an integer plus a nil flag</td></tr>
+        <tr><td><code>arr.each { ... }</code></td><td>a closure and a call per element</td><td>a plain loop</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>Will my program compile?</h2>
+    <div class="cards">
+      <div class="card decided"><span class="pill decided">Works</span>
+        <h3>Everyday Ruby</h3>
+        <p>Classes, modules, mixins, <code>super</code>, Struct, blocks, procs, lambdas, Integer (any size), Float, String, Symbol, Array, Hash, Range, Regexp, File, ARGV, ENV.</p></div>
+      <div class="card decided"><span class="pill decided">Works</span>
+        <h3><code>rescue</code>, <code>ensure</code>, <code>retry</code></h3>
+        <p>Raise and rescue as usual. An uncaught exception prints <code>Class: message</code>; Ruby's exact message and exit status 1 come in version 2.</p></div>
+      <div class="card decided"><span class="pill decided">Works</span>
+        <h3>Common thread patterns</h3>
+        <p><code>Thread.new { }.join</code>, <code>.value</code>, Queue, SizedQueue, <code>Mutex#synchronize</code>, Fiber and Enumerator as generators. See below.</p></div>
+      <div class="card dropped"><span class="pill dropped">Refused, with a message</span>
+        <h3>What Spinel refuses</h3>
+        <p><code>eval</code> of a string, <code>method_missing</code>, <code>send</code> or <code>define_method</code> with a computed name, <code>ObjectSpace</code>, <code>binding</code>.</p></div>
+      <div class="card dropped"><span class="pill dropped">The one exception</span>
+        <h3>Your own C code</h3>
+        <p>Gems or packages that bring their own <code>.c</code> files need a C compiler, which this tool promises you won't need. Spinel's own bundled packages are ported, so they work.</p></div>
+    </div>
+    <p>Everything else Spinel compiles, this compiles. Not sure? <code>hey-spinel --check app.rb</code> lists every line it would refuse, and why.</p>
+
+    <h2>How your threads run</h2>
+    <p>
+      Hey runs work as <dfn>actors</dfn>: small, isolated workers that share nothing and talk by messages, and that run
+      in parallel across your cores. Each Ruby thread or fiber becomes one. Your objects never do: an object is a
+      value, or a value in a Cell.
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 200" role="img" aria-labelledby="f2t f2d">
+        <title id="f2t">Threads, a Queue and a Mutex as actors</title>
+        <desc id="f2d">The main program and two worker threads are each an actor. A Queue is an actor holding the items: a push is a message and a pop is a request and reply. A Mutex-protected counter lives in a guard actor; synchronize sends the block there and waits for the answer.</desc>
+        <rect x="20" y="75" width="150" height="50" rx="10" class="rb"/><text x="95" y="105" font-size="14" text-anchor="middle">main</text>
+        <rect x="370" y="20" width="160" height="50" rx="10" class="mir"/><text x="450" y="50" font-size="14" text-anchor="middle">Queue actor</text>
+        <rect x="700" y="20" width="180" height="50" rx="10" class="box"/><text x="790" y="50" font-size="14" text-anchor="middle">Thread 1</text>
+        <rect x="700" y="130" width="180" height="50" rx="10" class="box"/><text x="790" y="160" font-size="14" text-anchor="middle">Thread 2</text>
+        <rect x="370" y="130" width="160" height="50" rx="10" class="llvm"/><text x="450" y="160" font-size="14" text-anchor="middle">Mutex guard</text>
+        <line x1="170" y1="90" x2="368" y2="45" class="ln"/><text x="230" y="60" font-size="12" class="m">q &lt;&lt; job</text>
+        <line x1="530" y1="45" x2="698" y2="45" class="ln"/><text x="580" y="38" font-size="12" class="m">q.pop</text>
+        <line x1="530" y1="50" x2="698" y2="150" class="ln"/>
+        <line x1="700" y1="70" x2="532" y2="148" class="ln"/><line x1="700" y1="160" x2="532" y2="160" class="ln"/>
+        <text x="560" y="190" font-size="12" class="m">m.synchronize { total += x }</text>
+      </svg>
+      <figcaption>A pop or a synchronize is a round trip of two messages, about 160&ndash;240 ns at Hey's measured message cost: fine for pipelines, slow in a tight loop.</figcaption>
+    </figure>
+    <p>
+      Threads that share nothing, or share only through a Queue or a Mutex, run in parallel. Threads that share a changed
+      object (Ruby allows it; it's a data race) are put in one group that Hey runs one at a time, like Ruby's own global
+      lock. Your program still works; that group just doesn't run in parallel.
+    </p>
+
+    <h2>How fast? The targets</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Version</th><th>vs Ruby (interpreter)</th><th>vs Ruby + YJIT</th><th>vs Spinel's own C binary</th></tr></thead>
+      <tbody>
+        <tr><td>v1</td><td>at least 5x faster</td><td>at least 2x faster</td><td>within 3x</td></tr>
+        <tr><td>v2</td><td>at least 8x</td><td>at least 3.5x</td><td>within 2x</td></tr>
+        <tr><td>v3</td><td>at least 10x</td><td>at least 5x</td><td>within 1.3x</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="muted">Targets, not measurements. Every release reports the real numbers on Spinel's own benchmark set.</p>
+
+    <h2>How we'll know it's right</h2>
+    <p>
+      Every test program runs three ways: under Ruby, as Spinel's C binary, and through this compiler. The outputs
+      must match exactly. The corpus starts with Spinel's own benchmarks and its thousands of feature tests, which
+      already carry Ruby's expected output, plus hand-written thread tests, each run 20 times.
+    </p>
+
+    <h2>The road</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Step</th><th>You get</th><th>Effort (estimate)</th></tr></thead>
+      <tbody>
+        <tr><td>M0, in Hey</td><td><code>Cell</code> and its warning; thread groups; calling C libraries; a finalizer hook</td><td>9&ndash;18 weeks</td></tr>
+        <tr><td>M1</td><td>numbers, loops, methods, <code>puts</code>: the first binaries</td><td>6&ndash;10 weeks</td></tr>
+        <tr><td>M2</td><td>classes, plain-value objects, strings, arrays, hashes, blocks</td><td>18&ndash;34 weeks</td></tr>
+        <tr><td>M3</td><td>exceptions, procs, Regexp, formatting: <strong>all of Spinel's benchmarks match</strong> (a preview)</td><td>16&ndash;31 weeks</td></tr>
+        <tr><td>M4</td><td>threads, queues, mutexes, fibers</td><td>8&ndash;16 weeks</td></tr>
+        <tr><td>M5</td><td>the rest of the core library; Spinel's whole test suite matches</td><td>40&ndash;80 weeks</td></tr>
+        <tr><td>M6</td><td>downloads for macOS and Linux</td><td>2&ndash;4 weeks</td></tr>
+        <tr><td>M7</td><td><code>--target</code> for other platforms</td><td>1&ndash;3 weeks after Hey v608</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="muted">Version 2: Ruby's exact exception messages and exit status, a public name and gems, faster objects. Version 3: an option to see the generated Hey, and more of Ruby.</p>
+
+    <h2>Open decisions</h2>
+    <div class="cards">
+      <div class="card decided"><span class="pill decided">Decided</span>
+        <h3>Values first, then a public <code>Cell</code></h3>
+        <p>Hey's compiler warns on every <code>Cell</code>: you're writing shared mutable code, here's the value-based rewrite, and you lose parallelism. The warning is off only in files this tool generates.</p></div>
+      <div class="card open"><span class="pill open">Recommended: yes</span>
+        <h3>A small private Spinel patch</h3>
+        <p>About 100&ndash;300 added lines that print what Spinel already worked out. That saves re-creating its 30,000-line desugarer.</p></div>
+      <div class="card open"><span class="pill open">Recommended: accept for v1</span>
+        <h3>Cyclic object graphs leak</h3>
+        <p>A cycle of objects is freed only at exit in v1. A collector that scans only the cells comes in v2.</p></div>
+      <div class="card open"><span class="pill open">Recommended: pick before going public</span>
+        <h3>The name</h3>
+        <p><code>hey-spinel</code> is a working name. The public one shouldn't borrow "Spinel" alone, which is Matz's project.</p></div>
+      <div class="card open"><span class="pill open">Recommended: tarball now, gems later</span>
+        <h3>How it's installed</h3>
+        <p>One private repository, a download per platform; platform gems for <code>gem install</code> when it's public.</p></div>
+    </div>
+
+    <details>
+      <summary>Why some objects need a Cell at all</summary>
+      <p>Two shared, changing objects, such as a tree node and its parent, can't be plain values: a change made through
+        one name has to show up through the other. Plain Hey can't express that cheaply. Building the box out of an actor
+        would cost a message round trip per field read (about 50&ndash;200x slower), which is why the design rejects
+        that. Passing one immutable heap through every function copies the whole heap the moment anything shares it,
+        and never frees memory. So Hey's standard library gets one small, honest box, <code>stdlib:Cell</code>, with a
+        warning that tells hand-written code how to avoid it.</p>
+    </details>
+    <details>
+      <summary>How Spinel is shipped</summary>
+      <p>We build Spinel's compiler from its release archive on each platform we support, at our release time, and put
+        the binary in the download, with its MIT license. It runs on your machine; the target you choose doesn't
+        change it. Its C output is never compiled.</p>
+    </details>
+
+    <h2>Got a Rails app? There's a shorter road</h2>
+    <p>
+      Spinel compiles plain Ruby. A Rails app is mostly metaprogramming, so on its own Spinel refuses it.
+      Sam Ruby's <a href="https://github.com/roundhouse-rb/roundhouse">roundhouse</a> solves that: it works out
+      what your Rails app means at build time and writes the same app as a standalone project in Rust, Go,
+      Crystal, Elixir and six more languages. It checks each one against live Rails, page by page. 37signals'
+      Campfire already runs this way, compiled by Spinel.
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 150" role="img" aria-labelledby="f5t f5d">
+        <title id="f5t">Two roads to a binary</title>
+        <desc id="f5d">Plain Ruby goes through Spinel and the translator to Hey. A Rails app goes through roundhouse, which gets a new Hey target, straight to Hey. Both end as one native binary per platform.</desc>
+        <rect x="10" y="15" width="150" height="46" rx="10" class="rb"/><text x="85" y="44" font-size="14" text-anchor="middle">plain Ruby</text>
+        <rect x="200" y="15" width="260" height="46" rx="10" class="box"/><text x="330" y="44" font-size="14" text-anchor="middle">Spinel + translator (this page)</text>
+        <rect x="10" y="89" width="150" height="46" rx="10" class="rb"/><text x="85" y="118" font-size="14" text-anchor="middle">Rails app</text>
+        <rect x="200" y="89" width="260" height="46" rx="10" class="old"/><text x="330" y="118" font-size="14" text-anchor="middle">roundhouse --target hey</text>
+        <rect x="520" y="52" width="150" height="46" rx="10" class="mir"/><text x="595" y="81" font-size="14" text-anchor="middle">Hey</text>
+        <rect x="720" y="52" width="170" height="46" rx="10" class="llvm"/><text x="805" y="81" font-size="14" text-anchor="middle">one binary per platform</text>
+        <line x1="160" y1="38" x2="198" y2="38" class="ln"/><line x1="160" y1="112" x2="198" y2="112" class="ln"/>
+        <line x1="460" y1="38" x2="518" y2="70" class="ln"/><line x1="460" y1="112" x2="518" y2="82" class="ln"/>
+        <line x1="670" y1="75" x2="718" y2="75" class="ln"/>
+      </svg>
+      <figcaption>Both roads share the Hey pieces underneath: the web server, WebSockets, SQLite, cookies.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>The plan:</strong> add a Hey target to roundhouse, modelled on its Elixir target, which already turns
+        Rails' changing objects into values passed along, the way Hey wants them.</li>
+      <li><strong>The proof:</strong> roundhouse's own check, same URL against Rails, first on its blog app, then
+        Lobsters, then Campfire.</li>
+      <li><strong>The cost:</strong> about 16&ndash;28 engineer-weeks to the blog, about 25&ndash;46 to Campfire
+        (estimates). That's far less than the plain-Ruby road, which is why it starts first.</li>
+      <li><strong>The speed goal:</strong> at least as fast as roundhouse's Go output (about 5,200 requests a second on
+        its blog page, 10x stock Rails) in version 1; then Spinel's, then Crystal's. These are targets.</li>
+    </ul>
+
+    <h2>Sources</h2>
+    <ul id="sources">
+      <li>Spinel: <a href="https://github.com/matz/spinel">github.com/matz/spinel</a> (README, <code>docs/emit-types.md</code>,
+        <code>docs/internals/AST.md</code>, <code>docs/limitations.md</code>; read November 6, 2026)</li>
+      <li>RubyKaigi 2026 keynote report: <a href="https://gihyo.jp/article/2026/05/rubykaigi-2026-keynote-report-day3">gihyo.jp, May 2026</a>;
+        <a href="https://www.theregister.com/devops/2026/05/06/ruby-inventor-matz-working-on-native-compiler-with-ai-help/5230532">The Register, May 6, 2026</a></li>
+      <li>roundhouse: <a href="https://github.com/roundhouse-rb/roundhouse">github.com/roundhouse-rb/roundhouse</a>; benchmarks at <a href="https://roundhouse-rb.dev/bench/">roundhouse-rb.dev/bench</a> (November 6, 2026)</li>
+      <li>Hey: <code>docs/developers/12-actors-and-mailboxes.md</code>, <code>actor-local-call.md</code>,
+        <code>docs/actor-throughput-receipt.md</code>, <code>functions-and-callables.md</code>. Companion page:
+        <a href="2026-11-01-hey-without-a-c-compiler.html">Hey Without a C Compiler</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>The generated code above is a sketch of the design, not compiler output; nothing here was built or run. Effort figures are estimates for one engineer who knows the code; speed figures are targets.</p>
+  </footer>
+</body>
+</html>
