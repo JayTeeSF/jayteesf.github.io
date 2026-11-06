@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="article-bucket" content="compiler">
+  <meta name="article-index-rank" content="44">
+  <meta name="article-index-desc" content="Every device Hey could build for from your Mac with no C compiler: macOS, iOS, tvOS, Linux glibc and musl, Windows and Android. What each target needs, what works today, estimated effort, the recommended order, licensing, and eight questions for the Maintainer.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The extended cross-compile target table for Hey without a C compiler: one build fanning out to macOS, iOS, tvOS, Linux, Windows and Android, the linker and stubs each needs, status today, estimated effort, milestones, licensing, how hey_ios and hey_android plug in, and eight open questions with recommendations.">
+  <meta name="article-desc" content="A visual walk through every target Hey could build for from a Mac with no C compiler. One picture of the fan-out, one of what goes into each binary, a card per target with status, estimated effort and milestone, a timeline of the recommended order, a licensing check marked known or open, how the iOS and Android packages plug in, and eight decisions for the Maintainer.">
+  <title>Hey Cross-Compile Targets</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: rgba(128,128,128,0.35);
+      --muted: rgba(128,128,128,0.9);
+      --panel: rgba(128,128,128,0.10);
+      --code: rgba(128,128,128,0.16);
+      --hey: #2f7de1;
+      --hey-soft: rgba(47,125,225,0.18);
+      --warm: #e8912d;
+      --warm-soft: rgba(232,145,45,0.18);
+      --bad: #d9473f;
+      --bad-soft: rgba(217,71,63,0.16);
+      --good: #2e9e5b;
+      --good-soft: rgba(46,158,91,0.16);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1rem 5rem; background: Canvas; color: CanvasText; }
+    header { margin-bottom: 2.5rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 0.5rem; font-size: clamp(2rem, 6vw, 3.2rem); }
+    h2 { margin-top: 3.2rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    h3 { margin-top: 2rem; }
+    a { text-underline-offset: 0.18em; }
+    .lede { max-width: 760px; font-size: 1.15rem; color: var(--muted); }
+    .tldr, .callout {
+      margin: 1.5rem 0 2rem;
+      padding: 1.1rem 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 0.7rem;
+      background: var(--panel);
+    }
+    .tldr h2, .callout h2, .callout h3 { margin: 0 0 0.75rem; padding: 0; border: 0; }
+    .callout.you { border-color: var(--hey); background: var(--hey-soft); }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid var(--border); border-radius: 0.55rem; background: var(--code); line-height: 1.45; }
+    pre code { background: none; padding: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; background: var(--code); padding: 0 0.25em; border-radius: 0.25em; overflow-wrap: anywhere; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; margin: 1rem 0 1.5rem; border-collapse: collapse; }
+    th, td { padding: 0.5rem 0.65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    tr.group td { background: var(--panel); font-weight: 700; }
+    .muted { color: var(--muted); }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: 0.3rem 0; }
+    dfn { font-style: normal; font-weight: 700; }
+    footer { margin-top: 4rem; font-size: 0.95rem; color: var(--muted); }
+
+    figure { margin: 1.75rem 0 2.25rem; }
+    figure svg { width: 100%; height: auto; display: block; }
+    figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+    svg text { fill: CanvasText; font-family: system-ui, -apple-system, sans-serif; }
+    svg .m { fill: var(--muted); }
+    svg .ln { stroke: CanvasText; stroke-opacity: 0.55; fill: none; stroke-width: 2; }
+    svg .tick { stroke: CanvasText; stroke-opacity: 0.18; stroke-width: 1; }
+    svg .box { fill: var(--panel); stroke: var(--border); }
+    svg .mir { fill: var(--hey-soft); stroke: var(--hey); }
+    svg .llvm { fill: var(--good-soft); stroke: var(--good); }
+    svg .c { fill: var(--warm-soft); stroke: var(--warm); }
+    svg .old { fill: var(--bad-soft); stroke: var(--bad); }
+    svg .range { fill: none; stroke-dasharray: 5 4; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.9rem; margin: 1.25rem 0 2rem; }
+    .card { border: 1px solid var(--border); border-left-width: 6px; border-radius: 0.7rem; padding: 0.9rem 1rem; background: var(--panel); }
+    .card.decided, .card.known { border-left-color: var(--good); }
+    .card.dropped { border-left-color: var(--bad); }
+    .card.open { border-left-color: var(--warm); }
+    .card.ask { border-left-color: var(--hey); }
+    .card h3 { margin: 0.35rem 0 0.35rem; font-size: 1.05rem; }
+    .card p { margin: 0.35rem 0 0; font-size: 0.95rem; }
+    .pill { display: inline-block; padding: 0.05rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--border); }
+    .pill.decided, .pill.known, .pill.s1 { background: var(--good-soft); }
+    .pill.dropped, .pill.none { background: var(--bad-soft); }
+    .pill.open, .pill.clang { background: var(--warm-soft); }
+    .pill.part { background: var(--hey-soft); }
+    .qa { margin: 1.5rem 0; padding: 1rem 1.25rem; border-left: 6px solid var(--hey); background: var(--hey-soft); border-radius: 0 0.7rem 0.7rem 0; }
+    .qa p:first-child { margin-top: 0; }
+    .qa p:last-child { margin-bottom: 0; }
+    details { margin: 1rem 0; padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 0.7rem; }
+    summary { cursor: pointer; font-weight: 700; padding: 0.3rem 0; }
+    .rec { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px dashed var(--border); }
+    .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; font-size: 0.9rem; margin: 0.5rem 0 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted"><a href="index.html">Articles</a> &middot; How the compiler works &middot; November 6, 2026</p>
+    <h1>Hey Cross-Compile Targets</h1>
+    <p class="lede">
+      You write Hey on your Mac. You type one command. You get a binary for every one of these devices: Macs, iPhones,
+      Apple TVs, Linux servers, Windows PCs and Android phones. No C compiler on your machine. This page shows what each
+      of those binaries needs, what works today, what it costs, and the order to build it in.
+    </p>
+    <p class="muted">
+      Why we want this at all: <a href="2026-11-01-hey-without-a-c-compiler.html">Hey Without a C Compiler</a>.
+      This page is the extended target table that page promised.
+    </p>
+  </header>
+
+  <main>
+    <section class="tldr">
+      <h2>Short version</h2>
+      <ul>
+        <li><strong>14 targets across 7 platform families.</strong> Three of them come first, in v608: macOS arm64, Linux
+          x86-64 and Linux arm64. All three can be tested from the Mac.</li>
+        <li><strong>Every target uses lld and stubs Hey writes itself.</strong> No Apple, Microsoft or Android NDK files
+          are copied into Hey.</li>
+        <li><strong>Effort is an estimate.</strong> The first three targets take 2.5&ndash;5 weeks of the 5&ndash;9 week
+          step 1. Everything else adds about 15&ndash;30 weeks. All figures are engineer-weeks for one person who knows
+          the code.</li>
+        <li><strong>One hard limit:</strong> Apple only takes App Store uploads built with Xcode 26. Development and
+          simulator builds can skip Xcode; store builds can't.</li>
+        <li><strong>Eight decisions are waiting for you</strong> at the bottom of the page, each with a recommendation.</li>
+      </ul>
+    </section>
+
+    <h2>One build, every device</h2>
+    <p>
+      Here's the end state. One <code>hey build --target</code> on your Mac, and a binary falls out for each box on the
+      right. The colour says when it's planned.
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 520" role="img" aria-labelledby="f1t f1d">
+        <title id="f1t">One Hey build on a Mac fanning out to every target, grouped by operating system</title>
+        <desc id="f1d">From the Mac, hey build --target reaches seven groups: macOS arm64 and x86_64; iOS device and two simulators; tvOS device and simulators; Linux glibc x86_64 and arm64; Linux musl x86_64 and arm64; Windows x86_64 and arm64; Android arm64-v8a and x86_64. macOS arm64 and the two Linux glibc targets are step 1 in v608. Musl and Android are planned for v609 to v610. Windows from v610. iOS and tvOS from v611.</desc>
+        <rect x="20" y="215" width="230" height="90" rx="12" class="mir"/>
+        <text x="135" y="245" font-size="15" font-weight="700" text-anchor="middle">You, on your Mac</text>
+        <text x="135" y="270" font-size="13" text-anchor="middle">hey build --target &#8230;</text>
+        <text x="135" y="290" font-size="12" text-anchor="middle" class="m">no clang on PATH</text>
+
+        <line x1="250" y1="260" x2="360" y2="49" class="ln"/>
+        <line x1="250" y1="260" x2="360" y2="119" class="ln"/>
+        <line x1="250" y1="260" x2="360" y2="189" class="ln"/>
+        <line x1="250" y1="260" x2="360" y2="259" class="ln"/>
+        <line x1="250" y1="260" x2="360" y2="329" class="ln"/>
+        <line x1="250" y1="260" x2="360" y2="399" class="ln"/>
+        <line x1="250" y1="260" x2="360" y2="469" class="ln"/>
+
+        <rect x="360" y="20" width="520" height="58" rx="10" class="llvm"/>
+        <text x="378" y="44" font-size="15" font-weight="700">macOS</text>
+        <text x="378" y="66" font-size="13">arm64 (v608, step 1) &#183; x86_64 (right after)</text>
+
+        <rect x="360" y="90" width="520" height="58" rx="10" class="old"/>
+        <text x="378" y="114" font-size="15" font-weight="700">iOS</text>
+        <text x="378" y="136" font-size="13">device arm64 &#183; simulator arm64 &#183; simulator x86_64 (v611+)</text>
+
+        <rect x="360" y="160" width="520" height="58" rx="10" class="old"/>
+        <text x="378" y="184" font-size="15" font-weight="700">tvOS</text>
+        <text x="378" y="206" font-size="13">device arm64 &#183; simulators (v612+)</text>
+
+        <rect x="360" y="230" width="520" height="58" rx="10" class="llvm"/>
+        <text x="378" y="254" font-size="15" font-weight="700">Linux, glibc</text>
+        <text x="378" y="276" font-size="13">x86_64 &#183; arm64 (v608, step 1)</text>
+
+        <rect x="360" y="300" width="520" height="58" rx="10" class="mir"/>
+        <text x="378" y="324" font-size="15" font-weight="700">Linux, musl (one static file)</text>
+        <text x="378" y="346" font-size="13">x86_64 &#183; arm64 (step 2, v609&#8211;v610)</text>
+
+        <rect x="360" y="370" width="520" height="58" rx="10" class="c"/>
+        <text x="378" y="394" font-size="15" font-weight="700">Windows</text>
+        <text x="378" y="416" font-size="13">x86_64 (v610) &#183; arm64 (v611+)</text>
+
+        <rect x="360" y="440" width="520" height="58" rx="10" class="mir"/>
+        <text x="378" y="464" font-size="15" font-weight="700">Android (phones, tablets, Android TV, Google TV)</text>
+        <text x="378" y="486" font-size="13">arm64-v8a &#183; x86_64 emulator (v609&#8211;v610)</text>
+      </svg>
+      <figcaption>
+        Green: step 1 in v608. Blue: v609&ndash;v610. Orange: v610 onward. Red: v611 and later. Milestones after step 1
+        are proposals, not rulings.
+      </figcaption>
+    </figure>
+    <p>
+      WebAssembly isn't on the picture. The Hey repo doesn't target it today; question 7 asks whether it should.
+    </p>
+
+    <h2>What's in the box for each target</h2>
+    <p>
+      A binary isn't just your compiled code. Each one needs four more things: a linker that knows the file format, small
+      <dfn>stubs</dfn> that tell the linker which system functions exist (names only, no code), a way to sign and
+      package it, and a way to run a test. Here's what each family gets.
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 470" role="img" aria-labelledby="f2t f2d">
+        <title id="f2t">What goes into a binary for each platform family</title>
+        <desc id="f2d">Apple targets link with ld64.lld against .tbd stubs Hey writes, get an ad-hoc signature or an app bundle, and test natively, in the simulator or on a paired device. Linux links with ld.lld against pinned glibc link files or musl built from source, ships as a tarball or one static file, and tests in Docker on the Mac. Windows links with lld-link against import libraries Hey generates, ships as an exe, and tests in Wine and on a real Windows VM. Android links with ld.lld -shared against bionic stubs generated from AOSP, packages as an APK with aapt2, zipalign and apksigner, and tests on a pinned emulator.</desc>
+        <text x="215" y="34" font-size="15" font-weight="700" text-anchor="middle">Apple</text>
+        <text x="410" y="34" font-size="15" font-weight="700" text-anchor="middle">Linux</text>
+        <text x="605" y="34" font-size="15" font-weight="700" text-anchor="middle">Windows</text>
+        <text x="800" y="34" font-size="15" font-weight="700" text-anchor="middle">Android</text>
+
+        <text x="20" y="80" font-size="13" font-weight="700">Linker</text>
+        <text x="20" y="170" font-size="13" font-weight="700">Stubs Hey</text>
+        <text x="20" y="187" font-size="13" font-weight="700">generates</text>
+        <text x="20" y="290" font-size="13" font-weight="700">Signing and</text>
+        <text x="20" y="307" font-size="13" font-weight="700">packaging</text>
+        <text x="20" y="400" font-size="13" font-weight="700">How it's</text>
+        <text x="20" y="417" font-size="13" font-weight="700">tested</text>
+
+        <rect x="122" y="50" width="186" height="50" rx="9" class="llvm"/>
+        <text x="215" y="81" font-size="14" font-weight="700" text-anchor="middle">ld64.lld</text>
+        <rect x="317" y="50" width="186" height="50" rx="9" class="llvm"/>
+        <text x="410" y="81" font-size="14" font-weight="700" text-anchor="middle">ld.lld</text>
+        <rect x="512" y="50" width="186" height="50" rx="9" class="llvm"/>
+        <text x="605" y="81" font-size="14" font-weight="700" text-anchor="middle">lld-link</text>
+        <rect x="707" y="50" width="186" height="50" rx="9" class="llvm"/>
+        <text x="800" y="81" font-size="14" font-weight="700" text-anchor="middle">ld.lld -shared</text>
+
+        <rect x="122" y="110" width="186" height="110" rx="9" class="mir"/>
+        <text x="132" y="134" font-size="12.5">.tbd files listing only</text>
+        <text x="132" y="152" font-size="12.5">what Hey imports:</text>
+        <text x="132" y="170" font-size="12.5">libSystem; for iOS/tvOS</text>
+        <text x="132" y="188" font-size="12.5">also UIKit, Foundation,</text>
+        <text x="132" y="206" font-size="12.5">Security, libobjc</text>
+        <rect x="317" y="110" width="186" height="110" rx="9" class="mir"/>
+        <text x="327" y="134" font-size="12.5">glibc: pinned old link</text>
+        <text x="327" y="152" font-size="12.5">files (crt1.o, stub</text>
+        <text x="327" y="170" font-size="12.5">libc.so.6, libm &#8230;)</text>
+        <text x="327" y="188" font-size="12.5">musl: libc.a built</text>
+        <text x="327" y="206" font-size="12.5">from source per CPU</text>
+        <rect x="512" y="110" width="186" height="110" rx="9" class="mir"/>
+        <text x="522" y="134" font-size="12.5">import libraries from</text>
+        <text x="522" y="152" font-size="12.5">a .def list: kernel32,</text>
+        <text x="522" y="170" font-size="12.5">ws2_32 (maybe ucrtbase),</text>
+        <text x="522" y="188" font-size="12.5">plus Hey's own</text>
+        <text x="522" y="206" font-size="12.5">mainCRTStartup</text>
+        <rect x="707" y="110" width="186" height="110" rx="9" class="mir"/>
+        <text x="717" y="134" font-size="12.5">bionic stubs from</text>
+        <text x="717" y="152" font-size="12.5">AOSP's .map.txt lists</text>
+        <text x="717" y="170" font-size="12.5">(libc, libm, libdl, liblog,</text>
+        <text x="717" y="188" font-size="12.5">libandroid); crt objects</text>
+        <text x="717" y="206" font-size="12.5">built from AOSP source</text>
+
+        <rect x="122" y="230" width="186" height="110" rx="9" class="box"/>
+        <text x="132" y="254" font-size="12.5">macOS: ad-hoc signature</text>
+        <text x="132" y="272" font-size="12.5">written by the linker</text>
+        <text x="132" y="290" font-size="12.5">iOS/tvOS: .app bundle,</text>
+        <text x="132" y="308" font-size="12.5">provisioning profile,</text>
+        <text x="132" y="326" font-size="12.5">.ipa to distribute</text>
+        <rect x="317" y="230" width="186" height="110" rx="9" class="box"/>
+        <text x="327" y="254" font-size="12.5">no signing</text>
+        <text x="327" y="272" font-size="12.5">glibc: a tarball</text>
+        <text x="327" y="290" font-size="12.5">musl: one static file</text>
+        <text x="327" y="308" font-size="12.5">that runs on any</text>
+        <text x="327" y="326" font-size="12.5">Linux kernel</text>
+        <rect x="512" y="230" width="186" height="110" rx="9" class="box"/>
+        <text x="522" y="254" font-size="12.5">a PE .exe</text>
+        <text x="522" y="272" font-size="12.5">Authenticode script</text>
+        <text x="522" y="290" font-size="12.5">exists; it needs a</text>
+        <text x="522" y="308" font-size="12.5">certificate</text>
+        <rect x="707" y="230" width="186" height="110" rx="9" class="box"/>
+        <text x="717" y="254" font-size="12.5">APK: aapt2 link,</text>
+        <text x="717" y="272" font-size="12.5">zipalign -P 16,</text>
+        <text x="717" y="290" font-size="12.5">apksigner v2/v3;</text>
+        <text x="717" y="308" font-size="12.5">AAB for Play through</text>
+        <text x="717" y="326" font-size="12.5">bundletool</text>
+
+        <rect x="122" y="350" width="186" height="110" rx="9" class="c"/>
+        <text x="132" y="374" font-size="12.5">natively on the Mac;</text>
+        <text x="132" y="392" font-size="12.5">x86_64 under Rosetta;</text>
+        <text x="132" y="410" font-size="12.5">simctl simulators;</text>
+        <text x="132" y="428" font-size="12.5">paired device with</text>
+        <text x="132" y="446" font-size="12.5">devicectl</text>
+        <rect x="317" y="350" width="186" height="110" rx="9" class="c"/>
+        <text x="327" y="374" font-size="12.5">Docker on the Mac</text>
+        <text x="327" y="392" font-size="12.5">(arm64 runs natively);</text>
+        <text x="327" y="410" font-size="12.5">the shared Linux</text>
+        <text x="327" y="428" font-size="12.5">machine; alpine image</text>
+        <text x="327" y="446" font-size="12.5">for musl</text>
+        <rect x="512" y="350" width="186" height="110" rx="9" class="c"/>
+        <text x="522" y="374" font-size="12.5">Wine 9+ on Linux for</text>
+        <text x="522" y="392" font-size="12.5">smoke tests; a real</text>
+        <text x="522" y="410" font-size="12.5">Windows VM (Azure) for</text>
+        <text x="522" y="428" font-size="12.5">the promotion receipt;</text>
+        <text x="522" y="446" font-size="12.5">Arm VM for arm64</text>
+        <rect x="707" y="350" width="186" height="110" rx="9" class="c"/>
+        <text x="717" y="374" font-size="12.5">pinned emulator</text>
+        <text x="717" y="392" font-size="12.5">(API 36, arm64-v8a)</text>
+        <text x="717" y="410" font-size="12.5">on the Mac; a real</text>
+        <text x="717" y="428" font-size="12.5">device through adb;</text>
+        <text x="717" y="446" font-size="12.5">x86_64 AVD on Intel</text>
+      </svg>
+      <figcaption>
+        Three linkers, all from lld, cover all seven families. The blue row is the work that's new per target; nothing
+        in it is copied from Apple, Microsoft or the Android NDK.
+      </figcaption>
+    </figure>
+    <p>
+      Notice that Android uses the same linker as Linux. Once step 1 proves <code>ld.lld</code> on Linux, Android's new
+      work is mostly its stubs. That's why it comes before Windows, which needs a third file format.
+    </p>
+
+    <h2>The targets, one row each</h2>
+    <p>
+      Status is what Hey can do <em>today</em>. "Works with clang" means it runs, but the build still needs a C
+      compiler, so it doesn't count yet.
+    </p>
+    <p class="legend">
+      <span><span class="pill clang">Works with clang</span> runs today, needs a C compiler</span>
+      <span><span class="pill part">Partial</span> pieces exist</span>
+      <span><span class="pill none">Not started</span></span>
+    </p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Target</th><th>Today</th><th>Effort (estimate, weeks)</th><th>Milestone</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="4">macOS</td></tr>
+        <tr><td>arm64</td><td><span class="pill clang">Works with clang</span> product archive; contained toolchain still runs clang</td><td>1&ndash;2</td><td><span class="pill s1">v608 step 1</span></td></tr>
+        <tr><td>x86_64</td><td><span class="pill part">Partial</span> host name mapped, no archive</td><td>0.5&ndash;1</td><td>step 1 if cheap, else v609</td></tr>
+        <tr class="group"><td colspan="4">iOS</td></tr>
+        <tr><td>device arm64</td><td><span class="pill clang">Works with clang</span> builds, signs (development) and launches through Xcode clang; no IPA</td><td>3&ndash;6</td><td>v611+</td></tr>
+        <tr><td>simulator arm64</td><td><span class="pill clang">Works with clang</span> links with Xcode clang, ad-hoc signed</td><td>1&ndash;2 after device</td><td>v611+</td></tr>
+        <tr><td>simulator x86_64</td><td><span class="pill part">Partial</span> structural object only</td><td>0.5</td><td>v611+, or drop (Q5)</td></tr>
+        <tr class="group"><td colspan="4">tvOS</td></tr>
+        <tr><td>device + simulators</td><td><span class="pill clang">Works with clang</span> <code>hey_ios_tv</code> 0.4.24 apps build and run, with Xcode</td><td>1&ndash;2 after iOS</td><td>v612+</td></tr>
+        <tr class="group"><td colspan="4">Linux, glibc</td></tr>
+        <tr><td>x86_64</td><td><span class="pill clang">Works with clang</span> product archive, host only</td><td>1&ndash;2</td><td><span class="pill s1">v608 step 1</span></td></tr>
+        <tr><td>arm64</td><td><span class="pill part">Partial</span> host name mapped; Docker bench lane</td><td>0.5&ndash;1</td><td><span class="pill s1">v608 step 1</span></td></tr>
+        <tr class="group"><td colspan="4">Linux, musl</td></tr>
+        <tr><td>x86_64</td><td><span class="pill none">Not started</span> runtime has no musl branch</td><td>1&ndash;3 (the TLS decision dominates)</td><td>step 2 (v609&ndash;v610)</td></tr>
+        <tr><td>arm64</td><td><span class="pill none">Not started</span></td><td>0.5 after x86_64</td><td>step 2</td></tr>
+        <tr class="group"><td colspan="4">Windows</td></tr>
+        <tr><td>x86_64</td><td><span class="pill part">Partial</span> cross SDK stages <code>lld-link</code>, 6 COFF objects, a Hey-written PE bootstrap; native run not yet verified</td><td>3&ndash;6</td><td>v610</td></tr>
+        <tr><td>arm64</td><td><span class="pill none">Not started</span></td><td>1&ndash;2 after x86_64</td><td>v611+</td></tr>
+        <tr class="group"><td colspan="4">Android</td></tr>
+        <tr><td>arm64-v8a</td><td><span class="pill clang">Works with clang</span> <code>hey_android</code> builds signed API-36 APKs and AABs and passes emulator suites, with NDK clang</td><td>2&ndash;4</td><td>v609&ndash;v610</td></tr>
+        <tr><td>x86_64 (emulator)</td><td><span class="pill part">Partial</span> structural object</td><td>0.5&ndash;1</td><td>with arm64</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="muted">
+      Effort counts only the work added for that target, on top of the shared step-1 machinery (target table,
+      <code>opt</code>/<code>llc</code>, direct lld, per-target runtime build, cache, rig), which is costed at 5&ndash;9
+      weeks. Every figure is an estimate.
+    </p>
+
+    <details>
+      <summary>Build facts: triples, linker flags and stubs per target</summary>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Target</th><th>LLVM triple</th><th>Format / linker</th><th>Stubs to generate or ship</th></tr></thead>
+        <tbody>
+          <tr><td>macOS arm64</td><td><code>arm64-apple-macos11.0</code></td><td>Mach-O / <code>ld64.lld -arch arm64 -platform_version macos 11.0</code></td><td>Hey-generated <code>libSystem.tbd</code> (install name <code>/usr/lib/libSystem.B.dylib</code>); <code>libresolv</code> only if DNS needs it</td></tr>
+          <tr><td>macOS x86_64</td><td><code>x86_64-apple-macos10.15</code></td><td>Mach-O / <code>ld64.lld -arch x86_64</code></td><td>same <code>.tbd</code> with an x86_64 entry</td></tr>
+          <tr><td>iOS device</td><td><code>arm64-apple-ios13.0</code></td><td>Mach-O / <code>ld64.lld -platform_version ios</code></td><td><code>.tbd</code> for libSystem, UIKit, Foundation, Security, libobjc (only symbols used); UIKit host prebuilt</td></tr>
+          <tr><td>iOS simulators</td><td><code>arm64-apple-ios13.0-simulator</code>, <code>x86_64-apple-ios13.0-simulator</code></td><td>Mach-O / <code>ld64.lld</code></td><td>same set, simulator target in each stub</td></tr>
+          <tr><td>tvOS</td><td><code>arm64-apple-tvos17.0</code> (+ <code>-simulator</code>, x86_64 sim)</td><td>Mach-O / <code>ld64.lld -platform_version tvos</code></td><td><code>.tbd</code> for libSystem, UIKit (TV), Foundation, AVFoundation</td></tr>
+          <tr><td>Linux x86_64 glibc</td><td><code>x86_64-unknown-linux-gnu</code></td><td>ELF / <code>ld.lld -dynamic-linker /lib64/ld-linux-x86-64.so.2</code></td><td>pinned old glibc: <code>crt1.o crti.o crtn.o</code>, stub <code>libc.so.6</code>, <code>libc_nonshared.a</code>, libm, libpthread, libdl</td></tr>
+          <tr><td>Linux arm64 glibc</td><td><code>aarch64-unknown-linux-gnu</code></td><td>ELF / <code>ld.lld</code> (<code>/lib/ld-linux-aarch64.so.1</code>)</td><td>same set for aarch64</td></tr>
+          <tr><td>Linux musl</td><td><code>x86_64-unknown-linux-musl</code>, <code>aarch64-unknown-linux-musl</code></td><td>ELF / <code>ld.lld -static</code></td><td>musl <code>libc.a</code> + crt objects, built from source per CPU (about 1&nbsp;MB)</td></tr>
+          <tr><td>Windows x86_64</td><td><code>x86_64-pc-windows-msvc</code></td><td>PE/COFF / <code>lld-link</code></td><td>import libs from a <code>.def</code> list for kernel32, ws2_32, maybe ucrtbase; Hey's own <code>mainCRTStartup</code></td></tr>
+          <tr><td>Windows arm64</td><td><code>aarch64-pc-windows-msvc</code></td><td>PE/COFF / <code>lld-link /machine:arm64</code></td><td>same import libs, ARM64 machine type</td></tr>
+          <tr><td>Android</td><td><code>aarch64-linux-android35</code>, <code>x86_64-linux-android35</code></td><td>ELF / <code>ld.lld -shared -z max-page-size=16384</code></td><td>bionic stubs from AOSP map files; <code>crtbegin_so.o</code>/<code>crtend_so.o</code> built from AOSP source; not copied from the NDK</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="muted">Exact <code>ld64.lld</code> and <code>ld.lld</code> argument sets are not verified yet; they're to be learned from <code>clang -###</code>.</p>
+    </details>
+
+    <h2>The order, and roughly how long</h2>
+    <p>
+      The rule behind the order: prove the cheap, testable-from-the-Mac targets first, then reuse what they proved. Each
+      bar's solid part is the low estimate; the dashed part runs to the high estimate.
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 470" role="img" aria-labelledby="f3t f3d">
+        <title id="f3t">Recommended order with estimated effort</title>
+        <desc id="f3d">1, v608 step 1: macOS arm64, Linux x86_64 and arm64, 5 to 9 weeks for the whole step, of which the three targets are 2.5 to 5. 2, right after: macOS x86_64, 0.5 to 1 week. 3, step 2, v609 to v610: musl x86_64 1 to 3 weeks plus arm64 0.5. 4, v609 to v610: Android arm64-v8a 2 to 4 plus x86_64 0.5 to 1. 5, v610 then v611: Windows x86_64 3 to 6 plus arm64 1 to 2. 6, v611 and later: iOS 3 to 6 plus simulators 1 to 2 plus 0.5, then tvOS 1 to 2. All estimates.</desc>
+        <text x="20" y="26" font-size="13" font-weight="700">Step and targets</text>
+        <text x="330" y="26" font-size="13" font-weight="700">Engineer-weeks (estimate)</text>
+        <line x1="330" y1="40" x2="330" y2="440" class="tick"/>
+        <line x1="430" y1="40" x2="430" y2="440" class="tick"/>
+        <line x1="530" y1="40" x2="530" y2="440" class="tick"/>
+        <line x1="630" y1="40" x2="630" y2="440" class="tick"/>
+        <line x1="730" y1="40" x2="730" y2="440" class="tick"/>
+        <line x1="830" y1="40" x2="830" y2="440" class="tick"/>
+        <text x="330" y="458" font-size="12" text-anchor="middle" class="m">0</text>
+        <text x="430" y="458" font-size="12" text-anchor="middle" class="m">2</text>
+        <text x="530" y="458" font-size="12" text-anchor="middle" class="m">4</text>
+        <text x="630" y="458" font-size="12" text-anchor="middle" class="m">6</text>
+        <text x="730" y="458" font-size="12" text-anchor="middle" class="m">8</text>
+        <text x="830" y="458" font-size="12" text-anchor="middle" class="m">10</text>
+
+        <text x="20" y="64" font-size="14" font-weight="700">1 &#183; v608 &#183; step 1</text>
+        <text x="20" y="84" font-size="12.5" class="m">macOS arm64, Linux x86_64 + arm64</text>
+        <rect x="330" y="52" width="250" height="34" rx="6" class="llvm"/>
+        <rect x="580" y="52" width="200" height="34" rx="6" class="llvm range"/>
+        <text x="340" y="74" font-size="12.5">5&#8211;9 wks whole step (targets: 2.5&#8211;5)</text>
+
+        <text x="20" y="130" font-size="14" font-weight="700">2 &#183; right after step 1</text>
+        <text x="20" y="150" font-size="12.5" class="m">macOS x86_64, before Rosetta goes</text>
+        <rect x="330" y="118" width="25" height="34" rx="6" class="llvm"/>
+        <rect x="355" y="118" width="25" height="34" rx="6" class="llvm range"/>
+        <text x="392" y="140" font-size="12.5">0.5&#8211;1 wk</text>
+
+        <text x="20" y="196" font-size="14" font-weight="700">3 &#183; v609&#8211;v610 &#183; step 2</text>
+        <text x="20" y="216" font-size="12.5" class="m">Linux musl x86_64, then arm64</text>
+        <rect x="330" y="184" width="75" height="34" rx="6" class="mir"/>
+        <rect x="405" y="184" width="100" height="34" rx="6" class="mir range"/>
+        <text x="517" y="206" font-size="12.5">1&#8211;3 + 0.5 wks, after the TLS ruling</text>
+
+        <text x="20" y="262" font-size="14" font-weight="700">4 &#183; v609&#8211;v610</text>
+        <text x="20" y="282" font-size="12.5" class="m">Android arm64-v8a + x86_64</text>
+        <rect x="330" y="250" width="125" height="34" rx="6" class="mir"/>
+        <rect x="455" y="250" width="125" height="34" rx="6" class="mir range"/>
+        <text x="592" y="272" font-size="12.5">2&#8211;4 + 0.5&#8211;1 wks</text>
+
+        <text x="20" y="328" font-size="14" font-weight="700">5 &#183; v610, then v611+</text>
+        <text x="20" y="348" font-size="12.5" class="m">Windows x86_64, then arm64</text>
+        <rect x="330" y="316" width="200" height="34" rx="6" class="c"/>
+        <rect x="530" y="316" width="200" height="34" rx="6" class="c range"/>
+        <text x="742" y="338" font-size="12.5">3&#8211;6 + 1&#8211;2 wks</text>
+
+        <text x="20" y="394" font-size="14" font-weight="700">6 &#183; v611+, then v612+</text>
+        <text x="20" y="414" font-size="12.5" class="m">iOS device + simulators, then tvOS</text>
+        <rect x="330" y="382" width="275" height="34" rx="6" class="old"/>
+        <rect x="605" y="382" width="250" height="34" rx="6" class="old range"/>
+        <text x="340" y="404" font-size="12.5">3&#8211;6 + 1&#8211;2 + 0.5, then tvOS 1&#8211;2 wks</text>
+      </svg>
+      <figcaption>
+        All estimates. Steps 2&ndash;6 together add about 15&ndash;30 weeks on top of step 1. Milestones after v608 are
+        proposals.
+      </figcaption>
+    </figure>
+    <div class="qa">
+      <p>
+        <strong>Why Android before Windows?</strong> Android is ELF and <code>ld.lld</code>, both proven by step 1. Its
+        new parts are the generated bionic stubs and crt objects. It's the cheapest way to take an existing, shipping
+        product target off the C compiler.
+      </p>
+      <p>
+        <strong>Why iOS last?</strong> It has the most Apple-specific work (framework stubs, bundles, signing), and store
+        builds still need Xcode anyway.
+      </p>
+    </div>
+
+    <h2>Licensing: what we know and what's open</h2>
+    <p>
+      The pattern is the same everywhere: where a vendor's files can't be shipped, Hey writes its own list of names and
+      generates the stub. A list of function names copies nobody's file.
+    </p>
+    <div class="cards">
+      <div class="card known">
+        <span class="pill known">Known</span>
+        <h3>Android NDK: not redistributable</h3>
+        <p>The SDK License Agreement (3.4) forbids redistributing "the SDK or any part of the SDK". So Hey generates
+          bionic stubs instead of shipping the NDK sysroot.</p>
+      </div>
+      <div class="card open">
+        <span class="pill open">Open, likely fine</span>
+        <h3>Bionic stubs and crt objects from AOSP</h3>
+        <p>Bionic is BSD/Apache source. Generating stubs from its <code>.map.txt</code> lists and building crt objects
+          needs a NOTICE audit first.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known</span>
+        <h3>Windows import libraries Hey generates</h3>
+        <p>A <code>.def</code> list of DLL export names, written by Hey, copies no third-party file. Preferred.</p>
+      </div>
+      <div class="card open">
+        <span class="pill open">Open</span>
+        <h3>mingw-w64 import libraries and CRT</h3>
+        <p>Mostly permissive, but the runtime notice lists Wine-derived headers under LGPL-2.1+ and an unresolved Cephes
+          note. Avoided by generating our own.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known</span>
+        <h3>MSVC runtime and Windows SDK <code>.lib</code> files</h3>
+        <p>Don't ship them. Hey's own <code>mainCRTStartup</code> removes the need.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known</span>
+        <h3>musl: MIT</h3>
+        <p>Fine to build from source and ship inside Hey.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known</span>
+        <h3>glibc link files: LGPL-2.1</h3>
+        <p>Stubs and <code>libc_nonshared.a</code> can be redistributed with a notice.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known for our route</span>
+        <h3>Apple SDK stubs: we generate our own</h3>
+        <p>Hey writes its own <code>.tbd</code> files from its own import list, framework stubs too. Copying Apple's
+          <code>.tbd</code> files stays <strong>open</strong>: no Apple or Zig statement on it was found.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known constraint</span>
+        <h3>App Store needs Xcode 26</h3>
+        <p>Since 28 April 2026, App Store Connect accepts only apps built with Xcode 26 or later against the iOS 26 /
+          tvOS 26 SDKs. A store build without Xcode won't be accepted even if it links. Simulator and development builds
+          are unaffected.</p>
+      </div>
+      <div class="card known">
+        <span class="pill known">Known</span>
+        <h3>LLVM and lld inside Hey</h3>
+        <p>Apache-2.0 with LLVM Exceptions. The archive carries the notice; the programs Hey builds carry nothing.</p>
+      </div>
+    </div>
+
+    <h2>How hey_ios and hey_android plug in</h2>
+    <p>
+      The packages have their own native glue (Objective-C on Apple, C on Android). The rule is simple: that glue is
+      <strong>built once per target on the release builders</strong> and shipped prebuilt in the package release, just
+      like the runtime. Your machine only links.
+    </p>
+    <figure>
+      <svg viewBox="0 0 900 330" role="img" aria-labelledby="f4t f4d">
+        <title id="f4t">Package glue is prebuilt at release time; the user's Mac only links</title>
+        <desc id="f4d">On the release builders, the runtime, libhey_stdlib.a and each package's native glue are compiled once per target into prebuilt archives in the package release. On your Mac, Hey turns your program into app.o with llc, then lld links app.o with those prebuilt archives and Hey's generated stubs. For Android, ld.lld -shared makes a .so, which aapt2, zipalign and apksigner turn into an APK. For iOS, ld64.lld links against generated framework .tbd files, Hey writes the .app and signs it.</desc>
+        <text x="20" y="26" font-size="15" font-weight="700">Release builders (once per target)</text>
+        <text x="470" y="26" font-size="15" font-weight="700">Your Mac (every build, no C compiler)</text>
+
+        <rect x="20" y="44" width="380" height="120" rx="10" class="c"/>
+        <text x="36" y="70" font-size="14" font-weight="700">C and Objective-C, compiled here only</text>
+        <text x="36" y="94" font-size="13">runtime + libhey_stdlib.a, per triple</text>
+        <text x="36" y="116" font-size="13">hey_android: native/glue, native/ui, crypto</text>
+        <text x="36" y="138" font-size="13">hey_ios / hey_ios_tv / hey_carplay: UIKit hosts</text>
+        <text x="36" y="156" font-size="12" class="m">device, simulator arm64, simulator x86_64; each ABI</text>
+
+        <line x1="210" y1="164" x2="210" y2="200" class="ln"/><polygon points="204,200 210,212 216,200" fill="CanvasText" fill-opacity="0.55"/>
+        <rect x="20" y="214" width="380" height="60" rx="10" class="mir"/>
+        <text x="210" y="240" font-size="14" font-weight="700" text-anchor="middle">package release</text>
+        <text x="210" y="262" font-size="13" text-anchor="middle">prebuilt .a archives, one per target</text>
+
+        <line x1="400" y1="244" x2="456" y2="160" class="ln"/><polygon points="450,158 462,152 458,165" fill="CanvasText" fill-opacity="0.55"/>
+
+        <rect x="470" y="44" width="410" height="50" rx="10" class="llvm"/>
+        <text x="675" y="74" font-size="13" text-anchor="middle">your Hey code &#8594; llc --target &#8230; &#8594; app.o</text>
+        <line x1="675" y1="94" x2="675" y2="118" class="ln"/>
+        <rect x="470" y="120" width="410" height="70" rx="10" class="llvm"/>
+        <text x="675" y="146" font-size="13" text-anchor="middle">lld links app.o + prebuilt archives</text>
+        <text x="675" y="168" font-size="13" text-anchor="middle">+ stubs Hey generates</text>
+        <line x1="575" y1="190" x2="575" y2="214" class="ln"/>
+        <line x1="785" y1="190" x2="785" y2="214" class="ln"/>
+        <rect x="470" y="216" width="200" height="100" rx="10" class="box"/>
+        <text x="570" y="240" font-size="14" font-weight="700" text-anchor="middle">Android</text>
+        <text x="570" y="262" font-size="12.5" text-anchor="middle">ld.lld -shared &#8594; .so</text>
+        <text x="570" y="282" font-size="12.5" text-anchor="middle">aapt2, zipalign,</text>
+        <text x="570" y="302" font-size="12.5" text-anchor="middle">apksigner &#8594; APK</text>
+        <rect x="680" y="216" width="200" height="100" rx="10" class="box"/>
+        <text x="780" y="240" font-size="14" font-weight="700" text-anchor="middle">iOS / tvOS</text>
+        <text x="780" y="262" font-size="12.5" text-anchor="middle">ld64.lld + framework</text>
+        <text x="780" y="282" font-size="12.5" text-anchor="middle">.tbd stubs &#8594; .app,</text>
+        <text x="780" y="302" font-size="12.5" text-anchor="middle">then sign</text>
+      </svg>
+      <figcaption>The orange box is the only place C still compiles, and it isn't your machine.</figcaption>
+    </figure>
+    <ul>
+      <li><strong><code>hey_android</code> / <code>hey_android_tv</code>.</strong> Today <code>hey-android-app.sh</code>
+        compiles your program, the runtime, the glue and the crypto profile with NDK clang, then links with
+        <code>clang -shared</code>. Under the plan, only the APK tools stay: <code>aapt2</code>, <code>zipalign</code>,
+        <code>apksigner</code>, <code>bundletool</code>, and a JDK for the Java renderer's <code>d8</code>. None of those
+        is a C compiler. The <code>hasCode=false</code> NativeActivity lane needs no JDK at all.</li>
+      <li><strong><code>hey_ios</code> / <code>hey_ios_tv</code> / <code>hey_carplay</code>.</strong> The UIKit and TV hosts
+        are Objective-C, built today with <code>-fobjc-arc -fmodules</code>. They ship as static archives per Apple
+        target. <code>actool</code> (asset catalogs) and store signing stay Xcode tools until question 1 is answered.</li>
+      <li><strong><code>hey_mobile</code> / <code>hey_tv</code>.</strong> Plain Hey code, no target-specific parts.
+        Nothing changes.</li>
+    </ul>
+
+    <section class="callout you">
+      <h2>What you can do after reading this</h2>
+      <ul>
+        <li>Say yes or no to the v608 starting set: macOS arm64, Linux x86-64 glibc, Linux arm64 glibc.</li>
+        <li>Answer the eight questions below. Most are a one-word yes or no; each has a recommendation you can take as is.</li>
+        <li>Rule on the TLS approach for static Linux, which unblocks step 2 (from the <a href="2026-11-01-hey-without-a-c-compiler.html">why page</a>).</li>
+        <li>Ask for the AOSP NOTICE audit, the one licensing item standing between Android and "no C compiler".</li>
+      </ul>
+    </section>
+
+    <h2>Eight decisions for you</h2>
+    <div class="cards">
+      <div class="card ask">
+        <span class="pill part">Q1</span>
+        <h3>Must iOS and tvOS store builds be Xcode-free?</h3>
+        <p>Apple rejects uploads not built with Xcode 26 and the 26 SDKs.</p>
+        <p class="rec"><strong>Recommend: no.</strong> "No C compiler" covers simulator and development builds. Store
+          builds keep Xcode for the final link check, <code>actool</code> and signing.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q2</span>
+        <h3>May package native glue stay C, if it's prebuilt per target at release?</h3>
+        <p>It's the same bridge the runtime uses.</p>
+        <p class="rec"><strong>Recommend: yes, for now.</strong> Port it to Hey along with the runtime in step 3.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q3</span>
+        <h3>Windows C runtime: kernel32/ws2_32 only, or also ucrtbase?</h3>
+        <p>The main runtime still calls some C functions on Windows.</p>
+        <p class="rec"><strong>Recommend: Hey's own <code>mainCRTStartup</code> plus generated import libs for
+          ucrtbase</strong> (ships with Windows 10+), shrinking to kernel32-only with step 3.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q4</span>
+        <h3>Android: generate bionic stubs from AOSP, or make users install the NDK?</h3>
+        <p>The NDK can't be shipped inside Hey.</p>
+        <p class="rec"><strong>Recommend: generate from AOSP</strong>, after the NOTICE audit.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q5</span>
+        <h3>Keep darwin-x64 and the x86_64 Apple simulators?</h3>
+        <p>Intel Macs are still around; Apple Silicon Macs run arm64 simulators.</p>
+        <p class="rec"><strong>Recommend: keep darwin-x64</strong> (cheap); <strong>drop the x86_64 iOS/tvOS
+          simulators</strong> unless a user needs them.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q6</span>
+        <h3>Android minimum API: 21 or 35?</h3>
+        <p>Hey's structural objects use 21; <code>hey_android</code> pins 35.</p>
+        <p class="rec"><strong>Recommend: one value, 35</strong>, matching the shipped package. 21 only if a user needs
+          older devices.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q7</span>
+        <h3>Add WebAssembly (wasm32-wasi, browser) to the table?</h3>
+        <p>The repo doesn't target it today.</p>
+        <p class="rec"><strong>Recommend: not before step 3.</strong> The C runtime's threads, signals and
+          <code>dlopen</code> don't map to WASI, and <code>wasm-ld</code> is a fourth format. Revisit when the runtime is
+          Hey.</p>
+      </div>
+      <div class="card ask">
+        <span class="pill part">Q8</span>
+        <h3>Are Windows arm64 and Android armeabi-v7a in scope?</h3>
+        <p>One is a growing platform; the other is 32-bit.</p>
+        <p class="rec"><strong>Recommend: Windows arm64 yes</strong> (after x86_64); <strong>drop armeabi-v7a</strong>
+          (Play's 64-bit rule makes it optional).</p>
+      </div>
+    </div>
+
+    <h2>Optional: the details</h2>
+    <details>
+      <summary>Not verified yet</summary>
+      <ul>
+        <li>The exact <code>ld64.lld</code> and <code>ld.lld</code> arguments for each target.</li>
+        <li>Whether the main <code>hey_runtime.c</code> builds for Windows at all; only the Windows boundary files are proven.</li>
+        <li>The Rosetta end-of-life date beyond Apple's WWDC 2025 statement that general availability ends after macOS 27.</li>
+        <li>Whether bionic crt objects can be built without NDK headers (they need bionic's own headers, which are in AOSP).</li>
+        <li>Every effort figure on this page. They are estimates.</li>
+      </ul>
+    </details>
+    <details>
+      <summary>Where the runtime stands per platform</summary>
+      <ul>
+        <li><code>hey_runtime.c</code> branches on <code>__APPLE__</code>, <code>__linux__</code> and <code>_WIN32</code>.
+          tvOS/watchOS get a capability closure: no process spawn, no sigaltstack, no TLS, no AEAD, no password KDF.</li>
+        <li>Windows has its own boundary files that compile without Windows SDK headers; WinHTTP is loaded at run time.</li>
+        <li>There is no <code>musl</code> or <code>__GLIBC__</code> branch. A musl port must decide on
+          <code>malloc_usable_size</code>, <code>pthread_getattr_np</code> and <code>dlopen</code> (OpenSSL, native modules).</li>
+        <li>The Android stdlib archive task was accepted on 2026-09-29: the Android <code>libhey_stdlib.a</code> builds and
+          links into a signed APK and no longer goes through the Apple crypto path. It still compiles with NDK clang.</li>
+        <li>Product archives exist only for <code>linux-x64</code> and <code>darwin-arm64</code>, and refuse host/target mismatches.</li>
+      </ul>
+    </details>
+
+    <h2>Sources</h2>
+    <ul id="sources">
+      <li>Apple: <a href="https://developer.apple.com/news/upcoming-requirements/">Upcoming requirements</a> (Xcode 26 for App Store uploads)</li>
+      <li>Android: <a href="https://developer.android.com/studio/terms">Android SDK License Agreement</a>;
+        <a href="https://android.googlesource.com/platform/bionic/">AOSP bionic</a></li>
+      <li>mingw-w64: <a href="https://sourceforge.net/p/mingw-w64/mingw-w64/ci/master/tree/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt">runtime licence notice</a></li>
+      <li>musl: <a href="https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT">COPYRIGHT</a></li>
+      <li>Hey: <code>tools/hey_windows_target_plan.hey</code>, <code>tools/hey_ios_sdk_stage.hey</code>,
+        <code>tools/hey_android_sdk_stage.hey</code>, <code>tools/hey_target_archive.hey</code>, <code>bin/heyc</code>,
+        <code>runtime/hey_runtime.c</code>, <code>docs/developers/windows-runtime.md</code>; packages
+        <code>hey_ios</code>, <code>hey_ios_tv</code>, <code>hey_android</code>, <code>hey_android_tv</code>,
+        <code>hey_carplay</code>, <code>hey_tv</code>, <code>hey_mobile</code>.</li>
+      <li>Companion page: <a href="2026-11-01-hey-without-a-c-compiler.html">Hey Without a C Compiler</a> (the why, and the step-1 costs)</li>
+    </ul>
+  </main>
+
+  <footer>
+    <p>Hey facts were read from the repository at <code>270b055b0</code>; nothing was built or run for this page. Effort figures are estimates in engineer-weeks for one engineer who knows the code, counting only the work added per target. Milestones after v608 are proposals.</p>
+  </footer>
+</body>
+</html>
