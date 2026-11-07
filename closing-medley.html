@@ -12,7 +12,7 @@
     h1 { margin: .25rem 0; font: 500 clamp(2rem, 5vw, 3.5rem)/1.1 Georgia, serif; }
     .intro { color: #c2c7cd; margin: .5rem 0 1.4rem; }
     #player { width: 100%; aspect-ratio: 16 / 9; background: #050708; border-radius: 12px; overflow: hidden; }
-    #player iframe { width: 100%; height: 100%; }
+    #player iframe { width: 100%; height: 100%; }\n    .audio-option { margin-top: 28px; padding-top: 18px; border-top: 1px solid #333c45; }\n    audio { display: block; width: 100%; margin-top: 12px; }
     .controls { display: flex; gap: 12px; margin-top: 18px; }
     button { border: 0; border-radius: 999px; padding: 12px 22px; font: inherit; font-weight: 700; color: #17130b; background: #e7c77f; cursor: pointer; }
     button:disabled { opacity: .55; cursor: wait; }
@@ -40,7 +40,7 @@
       <li><span>Never Lost</span><span>0:15–1:15</span></li>
       <li><span>Be Still and Know</span><span>0:07–1:08</span></li>
     </ol>
-    <p class="note">Keep this page open during playback. YouTube may briefly load between songs.</p>
+    <section class="audio-option"><h2>Optional: play the finished medley</h2><p class="intro">Use the MP3 version for uninterrupted playback with fades.</p><audio controls preload="metadata"><source src="closing-medley.mp3" type="audio/mpeg">Your browser does not support audio playback.</audio></section>\n    <p class="note">Keep this page open during playback. YouTube may briefly load between songs.</p>
   </main>
   <script>
     // Official YouTube recordings; excerpt times are seconds from each video’s start.
@@ -52,6 +52,8 @@
     let player;
     let index = 0;
     let started = false;
+    let transitioning = false;
+    let endWatch = null;
     const startButton = document.getElementById('start');
     const restartButton = document.getElementById('restart');
     const status = document.getElementById('now-playing');
@@ -62,7 +64,17 @@
         playerVars: { playsinline: 1, rel: 0 },
         events: {
           onReady: () => { startButton.disabled = false; startButton.textContent = 'Start medley'; status.textContent = 'Ready'; },
-          onStateChange: (event) => { if (event.data === YT.PlayerState.ENDED && started) playNext(); },
+          onStateChange: (event) => {
+            if (event.data === YT.PlayerState.PLAYING) {
+              transitioning = false;
+              watchExcerptEnd();
+            } else if (event.data === YT.PlayerState.ENDED && started) {
+              checkExcerptEnd(true);
+            } else if (event.data !== YT.PlayerState.BUFFERING && endWatch) {
+              clearInterval(endWatch);
+              endWatch = null;
+            }
+          },
           onError: () => { status.textContent = 'A video could not be played. Check the internet connection and reload this page.'; }
         }
       });
@@ -70,13 +82,35 @@
 
     function playAt(position) {
       index = position;
+      transitioning = false;
       const song = songs[index];
       status.textContent = `Playing ${song.title} (${format(song.start)}–${format(song.end)})`;
       player.loadVideoById({ videoId: song.id, startSeconds: song.start, endSeconds: song.end });
     }
+    function watchExcerptEnd() {
+      if (endWatch) clearInterval(endWatch);
+      endWatch = setInterval(() => checkExcerptEnd(false), 200);
+    }
+    function checkExcerptEnd(fromEndedEvent) {
+      if (!started || transitioning || !player || !songs[index]) return;
+      const song = songs[index];
+      const currentId = player.getVideoData().video_id;
+      if (currentId !== song.id) return;
+      const time = player.getCurrentTime();
+      if (time >= song.end - 0.2 || (fromEndedEvent && time >= song.end - 1.5)) playNext();
+    }
     function playNext() {
-      if (index + 1 < songs.length) playAt(index + 1);
-      else { started = false; status.textContent = 'Medley complete'; restartButton.hidden = false; }
+      if (transitioning) return;
+      transitioning = true;
+      if (endWatch) { clearInterval(endWatch); endWatch = null; }
+      if (index + 1 < songs.length) {
+        const next = index + 1;
+        setTimeout(() => { if (started) playAt(next); }, 250);
+      } else {
+        started = false;
+        status.textContent = 'Medley complete';
+        restartButton.hidden = false;
+      }
     }
     function format(seconds) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }
     startButton.addEventListener('click', () => {
