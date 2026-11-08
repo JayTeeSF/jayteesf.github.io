@@ -19,7 +19,7 @@ window.MEDLEY_KINETIC = (() => {
     const face = document.createElement('span');
     face.className = 'focus-face';
     focus.append(face);
-    stage.prepend(focus);
+    stage.querySelector('.lyric').after(focus);
     const label = document.createElement('label');
     label.className = 'style-picker';
     label.append('Style ');
@@ -40,9 +40,10 @@ window.MEDLEY_KINETIC = (() => {
       screen.dispatchEvent(new Event('presentationchange'));
     });
 
-    function render(elements, cue, time, reduceMotion) {
+    function render(elements, cue, time, reduceMotion, active) {
       const mode = select.value;
-      const active = cue ? cue.words.findIndex(w => time >= w.start && time < w.end) : -1;
+      // Support an already-open page still running the previous player script.
+      if (typeof active !== 'number') active = cue ? cue.words.findIndex(w => time >= w.start && time < w.end) : -1;
       const word = active >= 0 ? cue.words[active] : null;
       const text = word?.text || '';
       face.textContent = text;

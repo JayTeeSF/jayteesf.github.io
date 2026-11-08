@@ -31,8 +31,9 @@
       if (i === songIndex) button.setAttribute('aria-current', 'true');
       else button.removeAttribute('aria-current');
     });
-    const cueIndex = cues.findIndex(cue => time >= cue.start && time < cue.end);
+    const cueIndex = cues.findIndex(cue => time >= (cue.displayStart ?? cue.start) && time < cue.end);
     const cue = cues[cueIndex];
+    const active = cue && !audio.ended ? cue.words.findIndex(word => time >= word.start && time < word.end) : -1;
     const key = audio.ended ? 'ended' : cue ? cueIndex : `title-${songIndex}`;
     if (key !== lastKey) {
       lastKey = key;
@@ -54,7 +55,7 @@
     // Derive entrance and gentle growth from the media time, so pausing freezes
     // motion and seeking reconstructs the correct point in the animation.
     if (cue && !audio.ended && !reducedMotion.matches && !kinetic) {
-      const age = Math.max(0, time - cue.start);
+      const age = Math.max(0, time - (cue.displayStart ?? cue.start));
       const entrance = Math.min(1, age / .42);
       const eased = 1 - Math.pow(1 - entrance, 3);
       const scale = 1 + Math.min(age / Math.max(.1, cue.end - cue.start), 1) * .018;
@@ -65,8 +66,6 @@
       lyric.style.transform = 'none';
     }
     if (wordElements.length && cue) {
-      let active = -1;
-      cue.words.forEach((word, i) => { if (time >= word.start && time < word.end) active = i; });
       wordElements.forEach((span, i) => {
         span.classList.toggle('sung', time >= cue.words[i].end);
         span.classList.toggle('active', i === active);
@@ -74,7 +73,7 @@
     }
     if (kinetic) {
       screen.dataset.motion = cue?.motion || song.motion;
-      kinetic.render(wordElements, audio.ended ? null : cue, time, reducedMotion.matches);
+      kinetic.render(wordElements, audio.ended ? null : cue, time, reducedMotion.matches, active);
     }
     status.textContent = playError || (audio.ended ? 'Medley complete. Press play to listen again.' : audio.paused ? (time === 0 ? 'Press play below to begin.' : 'Paused') : buffering ? 'Loading audio…' : '\u00a0');
   }
