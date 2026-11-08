@@ -10,7 +10,8 @@
   const count = document.getElementById('song-count');
   const fullscreen = document.getElementById('fullscreen');
   const songButtons = [...document.querySelectorAll('[data-song]')];
-  const wordsMode = document.body.dataset.lyrics === 'words';
+  const kinetic = document.body.dataset.lyrics === 'kinetic' ? window.MEDLEY_KINETIC : null;
+  const wordsMode = document.body.dataset.lyrics === 'words' || Boolean(kinetic);
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let lastKey = null;
   let wordElements = [];
@@ -41,7 +42,7 @@
         text.split(/\s+/).forEach((word, i) => {
           if (i) lyric.append(' ');
           const span = document.createElement('span');
-          span.className = 'word';
+          span.className = kinetic ? 'word kinetic-word' : 'word';
           span.textContent = word;
           lyric.append(span);
           wordElements.push(span);
@@ -50,7 +51,7 @@
     }
     // Derive entrance and gentle growth from the media time, so pausing freezes
     // motion and seeking reconstructs the correct point in the animation.
-    if (cue && !audio.ended && !reducedMotion.matches) {
+    if (cue && !audio.ended && !reducedMotion.matches && !kinetic) {
       const age = Math.max(0, time - cue.start);
       const entrance = Math.min(1, age / .42);
       const eased = 1 - Math.pow(1 - entrance, 3);
@@ -68,6 +69,11 @@
         span.classList.toggle('sung', i < active);
         span.classList.toggle('active', i === active);
       });
+    }
+    if (kinetic) {
+      screen.dataset.motion = cue?.motion || song.motion;
+      if (cue && !audio.ended) kinetic.render(wordElements, cue, time, reducedMotion.matches, screen);
+      else screen.style.setProperty('--vocal-bloom', '0');
     }
     status.textContent = playError || (audio.ended ? 'Medley complete. Press play to listen again.' : audio.paused ? (time === 0 ? 'Press play below to begin.' : 'Paused') : buffering ? 'Loading audio…' : '\u00a0');
   }
