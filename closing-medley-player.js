@@ -10,7 +10,9 @@
   const count = document.getElementById('song-count');
   const fullscreen = document.getElementById('fullscreen');
   const songButtons = [...document.querySelectorAll('[data-song]')];
-  const kinetic = document.body.dataset.lyrics === 'kinetic' ? window.MEDLEY_KINETIC : null;
+  const kinetic = document.body.dataset.lyrics === 'kinetic'
+    ? window.MEDLEY_KINETIC.create(document.querySelector('.lyric-stage'), screen, document.body.dataset.presentation || 'crescendo')
+    : null;
   const wordsMode = document.body.dataset.lyrics === 'words' || Boolean(kinetic);
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let lastKey = null;
@@ -36,7 +38,7 @@
       lastKey = key;
       wordElements = [];
       lyric.replaceChildren();
-      const text = audio.ended ? 'Be still and know' : cue ? cue.text : song.title;
+      const text = !audio.ended && cue ? cue.text : '';
       lyric.classList.toggle('long-line', text.length > 62);
       if (wordsMode && cue && !audio.ended) {
         text.split(/\s+/).forEach((word, i) => {
@@ -64,16 +66,15 @@
     }
     if (wordElements.length && cue) {
       let active = -1;
-      cue.words.forEach((word, i) => { if (time >= word.start) active = i; });
+      cue.words.forEach((word, i) => { if (time >= word.start && time < word.end) active = i; });
       wordElements.forEach((span, i) => {
-        span.classList.toggle('sung', i < active);
+        span.classList.toggle('sung', time >= cue.words[i].end);
         span.classList.toggle('active', i === active);
       });
     }
     if (kinetic) {
       screen.dataset.motion = cue?.motion || song.motion;
-      if (cue && !audio.ended) kinetic.render(wordElements, cue, time, reducedMotion.matches, screen);
-      else screen.style.setProperty('--vocal-bloom', '0');
+      kinetic.render(wordElements, audio.ended ? null : cue, time, reducedMotion.matches);
     }
     status.textContent = playError || (audio.ended ? 'Medley complete. Press play to listen again.' : audio.paused ? (time === 0 ? 'Press play below to begin.' : 'Paused') : buffering ? 'Loading audio…' : '\u00a0');
   }
@@ -115,6 +116,8 @@
     });
   }
   reducedMotion.addEventListener('change', render);
+  window.addEventListener('resize', render);
+  screen.addEventListener('presentationchange', render);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopFrames();
     else if (!audio.paused && !audio.ended && !buffering) startFrames();
@@ -134,6 +137,7 @@
       const expanded = document.fullscreenElement === screen;
       fullscreen.textContent = expanded ? '⛶ Exit full screen' : '⛶ Full screen';
       fullscreen.setAttribute('aria-pressed', String(expanded));
+      render();
     });
   }
   render();

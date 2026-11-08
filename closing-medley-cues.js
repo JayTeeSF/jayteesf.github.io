@@ -2,6 +2,7 @@
 // WhisperKit large-v3 word alignment; source wording retained, audible chorus repeat added.
 // Cue ends include sustained notes/breaths. Playback always uses audio.currentTime.
 // Emphasis combines measured vocal-range mix energy, held-word duration and curated lyric stress.
+// Revised from separated vocals: forced alignment, onset refinement and vocal-tail measurements.
 window.CLOSING_MEDLEY = {
   "duration": 181,
   "songs": [
@@ -26,2025 +27,2025 @@ window.CLOSING_MEDLEY = {
   ],
   "cues": [
     {
-      "start": 0.02,
-      "end": 3.66,
+      "start": 0.06,
+      "end": 3.3,
       "text": "Blessed assurance",
       "words": [
         {
           "text": "Blessed",
-          "start": 0.02,
-          "end": 0.46,
+          "start": 0.06,
+          "end": 0.54,
           "emphasis": 0.351,
-          "energy": 0,
-          "crest": 0.2
+          "energy": 0.135,
+          "crest": 0.27
         },
         {
           "text": "assurance",
-          "start": 0.46,
-          "end": 1.94,
+          "start": 0.54,
+          "end": 3.18,
           "emphasis": 0.821,
-          "energy": 0.411,
-          "crest": 1.52
+          "energy": 0.497,
+          "crest": 1.06
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 3.66,
-      "end": 9.48,
+      "start": 4.939,
+      "end": 7.63,
       "text": "Jesus is mine",
       "words": [
         {
           "text": "Jesus",
-          "start": 3.66,
-          "end": 5.3,
+          "start": 4.939,
+          "end": 5.624,
           "emphasis": 0.804,
-          "energy": 0.209,
-          "crest": 5.0
+          "energy": 1,
+          "crest": 5.37
         },
         {
           "text": "is",
-          "start": 5.3,
-          "end": 5.94,
+          "start": 5.624,
+          "end": 6.234,
           "emphasis": 0.253,
-          "energy": 0.622,
-          "crest": 5.32
+          "energy": 0.8,
+          "crest": 5.71
         },
         {
           "text": "mine",
-          "start": 5.94,
-          "end": 6.66,
+          "start": 6.234,
+          "end": 7.51,
           "emphasis": 0.769,
-          "energy": 0.467,
-          "crest": 6.12
+          "energy": 0.391,
+          "crest": 6.33
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 9.48,
-      "end": 17.2,
+      "start": 9.716,
+      "end": 17.65,
       "text": "He's been my fourth man in the fire time after time",
       "words": [
         {
           "text": "He's",
-          "start": 9.48,
-          "end": 9.96,
+          "start": 9.716,
+          "end": 10.11,
           "emphasis": 0.205,
-          "energy": 0.389,
-          "crest": 9.68
+          "energy": 0.982,
+          "crest": 10.08
         },
         {
           "text": "been",
-          "start": 9.96,
-          "end": 10.22,
+          "start": 10.11,
+          "end": 10.335,
           "emphasis": 0.234,
-          "energy": 0.682,
-          "crest": 10.04
+          "energy": 1,
+          "crest": 10.11
         },
         {
           "text": "my",
-          "start": 10.22,
-          "end": 10.64,
+          "start": 10.335,
+          "end": 10.931,
           "emphasis": 0.259,
-          "energy": 0.783,
-          "crest": 10.36
+          "energy": 0.828,
+          "crest": 10.41
         },
         {
           "text": "fourth",
-          "start": 10.64,
+          "start": 10.931,
           "end": 11.28,
           "emphasis": 0.777,
-          "energy": 0.564,
-          "crest": 10.96
+          "energy": 1,
+          "crest": 11.02
         },
         {
           "text": "man",
           "start": 11.28,
-          "end": 11.68,
+          "end": 11.936,
           "emphasis": 0.403,
-          "energy": 0.367,
-          "crest": 11.64
+          "energy": 0.647,
+          "crest": 11.71
         },
         {
           "text": "in",
-          "start": 11.68,
-          "end": 12.34,
+          "start": 11.936,
+          "end": 12.526,
           "emphasis": 0.229,
-          "energy": 0.456,
-          "crest": 12.08
+          "energy": 0.806,
+          "crest": 12.12
         },
         {
           "text": "the",
-          "start": 12.34,
-          "end": 12.92,
+          "start": 12.526,
+          "end": 12.9,
           "emphasis": 0.228,
-          "energy": 0.492,
-          "crest": 12.64
+          "energy": 0.868,
+          "crest": 12.69
         },
         {
           "text": "fire",
-          "start": 12.92,
-          "end": 13.44,
+          "start": 12.9,
+          "end": 14.46,
           "emphasis": 0.738,
-          "energy": 0.367,
-          "crest": 13.32
+          "energy": 0.408,
+          "crest": 13.38
         },
         {
           "text": "time",
-          "start": 14.54,
-          "end": 15.06,
+          "start": 14.46,
+          "end": 15.015,
           "emphasis": 0.463,
-          "energy": 0.704,
-          "crest": 14.54
+          "energy": 1,
+          "crest": 14.58
         },
         {
           "text": "after",
-          "start": 15.06,
-          "end": 15.34,
+          "start": 15.015,
+          "end": 15.4,
           "emphasis": 0.37,
-          "energy": 0.197,
-          "crest": 15.12
+          "energy": 0.462,
+          "crest": 15.15
         },
         {
           "text": "time",
-          "start": 15.34,
-          "end": 16.16,
+          "start": 15.4,
+          "end": 17.53,
           "emphasis": 0.42,
-          "energy": 0.254,
-          "crest": 15.64
+          "energy": 0.384,
+          "crest": 15.68
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 17.2,
-      "end": 23.72,
+      "start": 19.316,
+      "end": 22.42,
       "text": "Born of His Spirit",
       "words": [
         {
           "text": "Born",
-          "start": 17.2,
-          "end": 19.42,
+          "start": 19.316,
+          "end": 19.649,
           "emphasis": 0.499,
-          "energy": 0.257,
-          "crest": 19.16
+          "energy": 1,
+          "crest": 19.316
         },
         {
           "text": "of",
-          "start": 19.42,
-          "end": 19.86,
+          "start": 19.649,
+          "end": 19.919,
           "emphasis": 0.229,
-          "energy": 0.575,
-          "crest": 19.42
+          "energy": 0.725,
+          "crest": 19.649
         },
         {
           "text": "His",
-          "start": 19.86,
-          "end": 20.18,
+          "start": 19.919,
+          "end": 20.26,
           "emphasis": 0.212,
-          "energy": 0.521,
-          "crest": 20.04
+          "energy": 0.874,
+          "crest": 20.0
         },
         {
           "text": "Spirit",
-          "start": 20.18,
-          "end": 21.04,
+          "start": 20.26,
+          "end": 22.3,
           "emphasis": 0.778,
-          "energy": 0.456,
-          "crest": 20.44
+          "energy": 0.507,
+          "crest": 20.48
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 23.72,
-      "end": 28.18,
+      "start": 24.056,
+      "end": 26.9,
       "text": "Washed in His blood",
       "words": [
         {
           "text": "Washed",
-          "start": 23.72,
-          "end": 24.26,
+          "start": 24.056,
+          "end": 24.378,
           "emphasis": 0.432,
-          "energy": 0.488,
-          "crest": 23.88
+          "energy": 0.665,
+          "crest": 24.31
         },
         {
           "text": "in",
-          "start": 24.26,
-          "end": 24.52,
+          "start": 24.378,
+          "end": 24.785,
           "emphasis": 0.233,
-          "energy": 0.674,
-          "crest": 24.32
+          "energy": 0.99,
+          "crest": 24.71
         },
         {
           "text": "His",
-          "start": 24.52,
-          "end": 25.28,
+          "start": 24.785,
+          "end": 25.417,
           "emphasis": 0.27,
-          "energy": 0.678,
-          "crest": 24.68
+          "energy": 0.826,
+          "crest": 24.84
         },
         {
           "text": "blood",
-          "start": 25.28,
-          "end": 25.94,
+          "start": 25.417,
+          "end": 26.78,
           "emphasis": 0.776,
-          "energy": 0.546,
-          "crest": 25.6
+          "energy": 0.55,
+          "crest": 25.63
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 28.18,
-      "end": 37.74,
+      "start": 28.836,
+      "end": 36.33,
       "text": "And what He did for me on Calvary is more than enough",
       "words": [
         {
           "text": "And",
-          "start": 28.18,
-          "end": 28.92,
+          "start": 28.836,
+          "end": 29.052,
           "emphasis": 0.216,
-          "energy": 0.328,
-          "crest": 28.72
+          "energy": 1,
+          "crest": 28.836
         },
         {
           "text": "what",
-          "start": 28.92,
-          "end": 29.28,
+          "start": 29.052,
+          "end": 29.466,
           "emphasis": 0.462,
-          "energy": 0.783,
-          "crest": 29.12
+          "energy": 0.791,
+          "crest": 29.14
         },
         {
           "text": "He",
-          "start": 29.28,
-          "end": 29.52,
+          "start": 29.466,
+          "end": 29.68,
           "emphasis": 0.176,
-          "energy": 0.294,
-          "crest": 29.48
+          "energy": 0.974,
+          "crest": 29.52
         },
         {
           "text": "did",
-          "start": 29.52,
-          "end": 30.28,
+          "start": 29.68,
+          "end": 30.255,
           "emphasis": 0.461,
-          "energy": 0.563,
-          "crest": 30.08
+          "energy": 0.793,
+          "crest": 30.01
         },
         {
           "text": "for",
-          "start": 30.28,
-          "end": 30.76,
+          "start": 30.255,
+          "end": 31.025,
           "emphasis": 0.225,
-          "energy": 0.526,
-          "crest": 30.56
+          "energy": 0.784,
+          "crest": 30.74
         },
         {
           "text": "me",
-          "start": 30.76,
-          "end": 31.28,
+          "start": 31.025,
+          "end": 31.594,
           "emphasis": 0.244,
-          "energy": 0.63,
-          "crest": 31.08
+          "energy": 1,
+          "crest": 31.11
         },
         {
           "text": "on",
-          "start": 31.28,
-          "end": 32.12,
+          "start": 31.594,
+          "end": 32.486,
           "emphasis": 0.258,
-          "energy": 0.55,
-          "crest": 31.68
+          "energy": 0.708,
+          "crest": 32.47
         },
         {
           "text": "Calvary",
-          "start": 32.12,
-          "end": 33.02,
+          "start": 32.486,
+          "end": 33.341,
           "emphasis": 0.78,
-          "energy": 0.445,
-          "crest": 32.44
+          "energy": 0.506,
+          "crest": 32.486
         },
         {
           "text": "is",
-          "start": 33.02,
-          "end": 33.46,
+          "start": 33.341,
+          "end": 33.765,
           "emphasis": 0.164,
-          "energy": 0.141,
-          "crest": 33.36
+          "energy": 0.951,
+          "crest": 33.68
         },
         {
           "text": "more",
-          "start": 33.46,
-          "end": 34.04,
+          "start": 33.765,
+          "end": 34.3,
           "emphasis": 0.503,
-          "energy": 0.936,
-          "crest": 33.64
+          "energy": 0.949,
+          "crest": 33.98
         },
         {
           "text": "than",
-          "start": 34.04,
-          "end": 34.42,
+          "start": 34.308,
+          "end": 34.499,
           "emphasis": 0.213,
-          "energy": 0.494,
-          "crest": 34.04
+          "energy": 0.652,
+          "crest": 34.36
         },
         {
           "text": "enough",
-          "start": 34.42,
-          "end": 35.52,
+          "start": 34.499,
+          "end": 36.21,
           "emphasis": 0.778,
-          "energy": 0.327,
-          "crest": 34.72
+          "energy": 0.362,
+          "crest": 34.71
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 37.74,
-      "end": 41.42,
+      "start": 37.78,
+      "end": 40.15,
       "text": "So, I trust in God",
       "words": [
         {
           "text": "So,",
-          "start": 37.74,
-          "end": 38.08,
+          "start": 37.78,
+          "end": 38.355,
           "emphasis": 0.172,
-          "energy": 0.246,
-          "crest": 38.04
+          "energy": 0.59,
+          "crest": 38.27
         },
         {
           "text": "I",
-          "start": 38.08,
-          "end": 38.36,
+          "start": 38.355,
+          "end": 38.688,
           "emphasis": 0.242,
-          "energy": 0.733,
-          "crest": 38.24
+          "energy": 0.706,
+          "crest": 38.36
         },
         {
           "text": "trust",
-          "start": 38.36,
-          "end": 38.86,
+          "start": 38.688,
+          "end": 39.086,
           "emphasis": 0.763,
-          "energy": 0.545,
-          "crest": 38.68
+          "energy": 0.697,
+          "crest": 38.71
         },
         {
           "text": "in",
-          "start": 38.86,
-          "end": 39.28,
+          "start": 39.086,
+          "end": 39.591,
           "emphasis": 0.193,
-          "energy": 0.345,
-          "crest": 39.12
+          "energy": 0.912,
+          "crest": 39.58
         },
         {
           "text": "God",
-          "start": 39.28,
-          "end": 39.94,
+          "start": 39.591,
+          "end": 40.03,
           "emphasis": 0.823,
-          "energy": 0.861,
-          "crest": 39.56
+          "energy": 0.818,
+          "crest": 39.6
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 41.42,
-      "end": 43.66,
+      "start": 41.412,
+      "end": 43.58,
       "text": "My Savior",
       "words": [
         {
           "text": "My",
-          "start": 41.42,
+          "start": 41.412,
           "end": 41.62,
           "emphasis": 0.274,
-          "energy": 0.948,
-          "crest": 41.44
+          "energy": 1,
+          "crest": 41.47
         },
         {
           "text": "Savior",
           "start": 41.62,
-          "end": 43.08,
+          "end": 43.58,
           "emphasis": 0.862,
-          "energy": 0.698,
-          "crest": 42.04
+          "energy": 1,
+          "crest": 43.28
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 43.66,
-      "end": 52.84,
+      "start": 43.58,
+      "end": 52.43,
       "text": "The One who will never fail",
       "words": [
         {
           "text": "The",
-          "start": 43.66,
-          "end": 43.94,
+          "start": 43.58,
+          "end": 44.04,
           "emphasis": 0.253,
-          "energy": 0.806,
-          "crest": 43.72
+          "energy": 1,
+          "crest": 43.58
         },
         {
           "text": "One",
-          "start": 43.94,
-          "end": 44.54,
+          "start": 44.04,
+          "end": 44.6,
           "emphasis": 0.793,
-          "energy": 0.692,
-          "crest": 44.32
+          "energy": 0.755,
+          "crest": 44.26
         },
         {
           "text": "who",
-          "start": 44.54,
-          "end": 45.98,
+          "start": 44.6,
+          "end": 44.81,
           "emphasis": 0.269,
-          "energy": 0.306,
-          "crest": 45.96
+          "energy": 0.277,
+          "crest": 44.6
         },
         {
           "text": "will",
-          "start": 45.98,
-          "end": 46.46,
+          "start": 46.252,
+          "end": 47.025,
           "emphasis": 0.272,
-          "energy": 0.835,
-          "crest": 46.32
+          "energy": 1,
+          "crest": 46.36
         },
         {
           "text": "never",
-          "start": 46.46,
-          "end": 47.92,
+          "start": 47.025,
+          "end": 48.78,
           "emphasis": 0.877,
-          "energy": 0.796,
-          "crest": 46.8
+          "energy": 0.987,
+          "crest": 48.38
         },
         {
           "text": "fail",
-          "start": 47.92,
-          "end": 50.68,
+          "start": 49.36,
+          "end": 52.31,
           "emphasis": 0.935,
           "energy": 1,
-          "crest": 49.8
+          "crest": 49.87
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 52.84,
-      "end": 57.34,
+      "start": 53.112,
+      "end": 57.536,
       "text": "He will never fail",
       "words": [
         {
           "text": "He",
-          "start": 52.84,
-          "end": 53.18,
+          "start": 53.112,
+          "end": 53.322,
           "emphasis": 0.245,
-          "energy": 0.73,
-          "crest": 53.16
+          "energy": 1,
+          "crest": 53.27
         },
         {
           "text": "will",
-          "start": 53.18,
-          "end": 53.44,
+          "start": 53.322,
+          "end": 53.652,
           "emphasis": 0.262,
-          "energy": 0.866,
-          "crest": 53.4
+          "energy": 1,
+          "crest": 53.57
         },
         {
           "text": "never",
-          "start": 53.44,
-          "end": 53.72,
+          "start": 53.652,
+          "end": 54.76,
           "emphasis": 0.815,
           "energy": 1,
-          "crest": 53.56
+          "crest": 54.35
         },
         {
           "text": "fail",
-          "start": 53.72,
-          "end": 55.36,
+          "start": 54.76,
+          "end": 57.45,
           "emphasis": 0.922,
-          "energy": 1,
-          "crest": 54.32
+          "energy": 0.801,
+          "crest": 54.95
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 57.34,
-      "end": 60.78,
+      "start": 57.536,
+      "end": 59.43,
       "text": "I trust in God",
       "words": [
         {
           "text": "I",
-          "start": 57.34,
-          "end": 57.54,
+          "start": 57.536,
+          "end": 57.855,
           "emphasis": 0.234,
-          "energy": 0.677,
-          "crest": 57.52
+          "energy": 1,
+          "crest": 57.55
         },
         {
           "text": "trust",
-          "start": 57.54,
-          "end": 58.14,
+          "start": 57.855,
+          "end": 58.456,
           "emphasis": 0.828,
-          "energy": 0.926,
-          "crest": 57.54
+          "energy": 0.703,
+          "crest": 57.98
         },
         {
           "text": "in",
-          "start": 58.14,
-          "end": 58.6,
+          "start": 58.456,
+          "end": 59.12,
           "emphasis": 0.199,
-          "energy": 0.36,
-          "crest": 58.36
+          "energy": 0.597,
+          "crest": 58.78
         },
         {
           "text": "God",
-          "start": 58.6,
-          "end": 59.08,
+          "start": 59.12,
+          "end": 59.31,
           "emphasis": 0.756,
-          "energy": 0.51,
-          "crest": 58.76
+          "energy": 0.223,
+          "crest": 59.12
         }
       ],
       "motion": "rise"
     },
     {
-      "start": 60.78,
-      "end": 62.42,
+      "start": 60.7,
+      "end": 62.61,
       "text": "Miracles when You move",
       "words": [
         {
           "text": "Miracles",
-          "start": 60.78,
-          "end": 61.1,
+          "start": 60.7,
+          "end": 61.42,
           "emphasis": 0.695,
-          "energy": 0.189,
-          "crest": 61.04
+          "energy": 0.678,
+          "crest": 61.07
         },
         {
           "text": "when",
-          "start": 61.5,
-          "end": 61.62,
+          "start": 61.42,
+          "end": 61.66,
           "emphasis": 0.234,
-          "energy": 0.677,
-          "crest": 61.5
+          "energy": 1,
+          "crest": 61.52
         },
         {
           "text": "You",
-          "start": 61.62,
+          "start": 61.66,
           "end": 61.86,
           "emphasis": 0.2,
-          "energy": 0.452,
-          "crest": 61.68
+          "energy": 1,
+          "crest": 61.72
         },
         {
           "text": "move",
           "start": 61.86,
-          "end": 62.24,
+          "end": 62.49,
           "emphasis": 0.743,
-          "energy": 0.475,
-          "crest": 62.08
+          "energy": 0.955,
+          "crest": 62.12
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 62.42,
-      "end": 66.68,
+      "start": 62.84,
+      "end": 65.46,
       "text": "Such an easy thing for You to do",
       "words": [
         {
           "text": "Such",
-          "start": 62.42,
-          "end": 62.96,
+          "start": 62.84,
+          "end": 63.1,
           "emphasis": 0.151,
-          "energy": 0,
-          "crest": 62.92
+          "energy": 1,
+          "crest": 63.0
         },
         {
           "text": "an",
-          "start": 62.96,
-          "end": 63.36,
+          "start": 63.1,
+          "end": 63.589,
           "emphasis": 0.214,
-          "energy": 0.496,
-          "crest": 62.96
+          "energy": 1,
+          "crest": 63.47
         },
         {
           "text": "easy",
-          "start": 63.36,
-          "end": 63.72,
+          "start": 63.589,
+          "end": 63.972,
           "emphasis": 0.425,
-          "energy": 0.532,
-          "crest": 63.52
+          "energy": 0.973,
+          "crest": 63.59
         },
         {
           "text": "thing",
-          "start": 63.72,
-          "end": 64.06,
+          "start": 63.972,
+          "end": 64.24,
           "emphasis": 0.386,
-          "energy": 0.287,
-          "crest": 63.92
+          "energy": 0.947,
+          "crest": 63.98
         },
         {
           "text": "for",
-          "start": 64.06,
-          "end": 64.32,
+          "start": 64.244,
+          "end": 64.496,
           "emphasis": 0.174,
-          "energy": 0.283,
-          "crest": 64.24
+          "energy": 1,
+          "crest": 64.48
         },
         {
           "text": "You",
-          "start": 64.32,
-          "end": 64.5,
+          "start": 64.496,
+          "end": 64.683,
           "emphasis": 0.225,
-          "energy": 0.62,
-          "crest": 64.4
+          "energy": 1,
+          "crest": 64.496
         },
         {
           "text": "to",
-          "start": 64.5,
-          "end": 64.76,
+          "start": 64.683,
+          "end": 64.969,
           "emphasis": 0.206,
-          "energy": 0.493,
-          "crest": 64.5
+          "energy": 1,
+          "crest": 64.95
         },
         {
           "text": "do",
-          "start": 64.76,
-          "end": 65.06,
+          "start": 64.969,
+          "end": 65.34,
           "emphasis": 0.406,
-          "energy": 0.443,
-          "crest": 64.92
+          "energy": 0.749,
+          "crest": 64.969
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 66.68,
-      "end": 72.06,
+      "start": 66.743,
+      "end": 71.98,
       "text": "Your hand is moving right now",
       "words": [
         {
           "text": "Your",
-          "start": 66.68,
-          "end": 67.16,
+          "start": 66.743,
+          "end": 67.14,
           "emphasis": 0.253,
-          "energy": 0.712,
-          "crest": 66.88
+          "energy": 1,
+          "crest": 66.95
         },
         {
           "text": "hand",
-          "start": 67.16,
-          "end": 68.22,
+          "start": 67.14,
+          "end": 68.37,
           "emphasis": 0.804,
-          "energy": 0.519,
+          "energy": 1,
           "crest": 67.16
         },
         {
           "text": "is",
-          "start": 68.22,
-          "end": 68.66,
+          "start": 68.376,
+          "end": 69.058,
           "emphasis": 0.143,
-          "energy": 0,
-          "crest": 68.24
+          "energy": 1,
+          "crest": 68.99
         },
         {
           "text": "moving",
-          "start": 68.66,
-          "end": 69.32,
+          "start": 69.058,
+          "end": 69.615,
           "emphasis": 0.8,
-          "energy": 0.711,
-          "crest": 68.96
+          "energy": 1,
+          "crest": 69.12
         },
         {
           "text": "right",
-          "start": 69.32,
-          "end": 69.96,
+          "start": 69.615,
+          "end": 70.184,
           "emphasis": 0.775,
-          "energy": 0.554,
-          "crest": 69.76
+          "energy": 1,
+          "crest": 69.8
         },
         {
           "text": "now",
-          "start": 69.96,
-          "end": 70.42,
+          "start": 70.184,
+          "end": 71.98,
           "emphasis": 0.773,
-          "energy": 0.634,
-          "crest": 70.4
+          "energy": 0.95,
+          "crest": 70.45
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 72.06,
-      "end": 73.9,
+      "start": 71.98,
+      "end": 74.21,
       "text": "You are still showing up",
       "words": [
         {
           "text": "You",
-          "start": 72.06,
-          "end": 72.36,
+          "start": 71.98,
+          "end": 72.38,
           "emphasis": 0.207,
-          "energy": 0.497,
-          "crest": 72.28
+          "energy": 1,
+          "crest": 72.3
         },
         {
           "text": "are",
-          "start": 72.36,
-          "end": 72.56,
+          "start": 72.38,
+          "end": 72.62,
           "emphasis": 0.264,
-          "energy": 0.877,
-          "crest": 72.4
+          "energy": 1,
+          "crest": 72.47
         },
         {
           "text": "still",
-          "start": 72.56,
-          "end": 72.98,
+          "start": 72.62,
+          "end": 72.96,
           "emphasis": 0.735,
-          "energy": 0.402,
-          "crest": 72.92
+          "energy": 1,
+          "crest": 72.94
         },
         {
           "text": "showing",
-          "start": 72.98,
-          "end": 73.52,
+          "start": 72.96,
+          "end": 73.755,
           "emphasis": 0.444,
-          "energy": 0.567,
-          "crest": 73.24
+          "energy": 1,
+          "crest": 73.29
         },
         {
           "text": "up",
-          "start": 73.52,
-          "end": 73.9,
+          "start": 73.755,
+          "end": 74.09,
           "emphasis": 0.396,
-          "energy": 0.327,
-          "crest": 73.76
+          "energy": 0.66,
+          "crest": 73.82
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 73.9,
-      "end": 78.32,
+      "start": 74.63,
+      "end": 77.3,
       "text": "At the tomb of every Lazarus",
       "words": [
         {
           "text": "At",
-          "start": 73.9,
-          "end": 74.88,
+          "start": 74.63,
+          "end": 74.97,
           "emphasis": 0.196,
-          "energy": 0.064,
-          "crest": 74.64
+          "energy": 0.925,
+          "crest": 74.68
         },
         {
           "text": "the",
-          "start": 74.88,
-          "end": 75,
+          "start": 74.992,
+          "end": 75.08,
           "emphasis": 0.166,
-          "energy": 0.228,
-          "crest": 74.96
+          "energy": 0.785,
+          "crest": 75.01
         },
         {
           "text": "tomb",
-          "start": 75,
-          "end": 75.36,
+          "start": 75.08,
+          "end": 75.516,
           "emphasis": 0.727,
-          "energy": 0.384,
-          "crest": 75.16
+          "energy": 1,
+          "crest": 75.21
         },
         {
           "text": "of",
-          "start": 75.36,
-          "end": 75.56,
+          "start": 75.516,
+          "end": 75.786,
           "emphasis": 0.216,
-          "energy": 0.559,
-          "crest": 75.48
+          "energy": 1,
+          "crest": 75.66
         },
         {
           "text": "every",
-          "start": 75.56,
-          "end": 75.9,
+          "start": 75.786,
+          "end": 76.0,
           "emphasis": 0.419,
-          "energy": 0.502,
-          "crest": 75.64
+          "energy": 1,
+          "crest": 75.94
         },
         {
           "text": "Lazarus",
-          "start": 75.9,
-          "end": 76.96,
+          "start": 76.0,
+          "end": 77.18,
           "emphasis": 0.792,
-          "energy": 0.441,
-          "crest": 76.08
+          "energy": 0.958,
+          "crest": 76.64
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 78.32,
-      "end": 83.2,
+      "start": 78.35,
+      "end": 83.01,
       "text": "Your voice is calling me out",
       "words": [
         {
           "text": "Your",
-          "start": 78.32,
-          "end": 78.82,
+          "start": 78.35,
+          "end": 79.206,
           "emphasis": 0.237,
-          "energy": 0.595,
-          "crest": 78.56
+          "energy": 1,
+          "crest": 78.61
         },
         {
           "text": "voice",
-          "start": 78.82,
-          "end": 79.8,
+          "start": 79.206,
+          "end": 80.08,
           "emphasis": 0.818,
-          "energy": 0.656,
-          "crest": 79.04
+          "energy": 1,
+          "crest": 79.4
         },
         {
           "text": "is",
-          "start": 79.8,
-          "end": 80.36,
+          "start": 80.111,
+          "end": 80.591,
           "emphasis": 0.153,
-          "energy": 0,
-          "crest": 79.88
+          "energy": 0.556,
+          "crest": 80.56
         },
         {
           "text": "calling",
-          "start": 80.36,
-          "end": 81,
+          "start": 80.591,
+          "end": 81.428,
           "emphasis": 0.783,
-          "energy": 0.606,
-          "crest": 80.52
+          "energy": 1,
+          "crest": 80.7
         },
         {
           "text": "me",
-          "start": 81,
-          "end": 81.56,
+          "start": 81.428,
+          "end": 82.004,
           "emphasis": 0.201,
-          "energy": 0.319,
-          "crest": 81.52
+          "energy": 1,
+          "crest": 81.6
         },
         {
           "text": "out",
-          "start": 81.56,
-          "end": 82.5,
+          "start": 82.004,
+          "end": 82.89,
           "emphasis": 0.787,
-          "energy": 0.474,
-          "crest": 82.08
+          "energy": 0.878,
+          "crest": 82.16
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 83.2,
-      "end": 88.83,
+      "start": 83.218,
+      "end": 88.9,
       "text": "And right now I know You're able",
       "words": [
         {
           "text": "And",
-          "start": 83.2,
-          "end": 83.3,
+          "start": 83.218,
+          "end": 83.514,
           "emphasis": 0.159,
-          "energy": 0.181,
-          "crest": 83.2
+          "energy": 0.976,
+          "crest": 83.47
         },
         {
           "text": "right",
-          "start": 83.3,
-          "end": 84.14,
+          "start": 83.514,
+          "end": 84.512,
           "emphasis": 0.828,
-          "energy": 0.797,
-          "crest": 83.72
+          "energy": 1,
+          "crest": 83.78
         },
         {
           "text": "now",
-          "start": 84.14,
-          "end": 85.22,
+          "start": 84.512,
+          "end": 85.3,
           "emphasis": 0.832,
-          "energy": 0.694,
-          "crest": 84.96
+          "energy": 1,
+          "crest": 84.98
         },
         {
           "text": "I",
-          "start": 85.38,
-          "end": 86.46,
+          "start": 85.3,
+          "end": 85.53,
           "emphasis": 0.229,
-          "energy": 0.23,
-          "crest": 86.44
+          "energy": 0.304,
+          "crest": 85.3
         },
         {
           "text": "know",
-          "start": 86.46,
-          "end": 87.12,
+          "start": 86.669,
+          "end": 87.04,
           "emphasis": 0.816,
-          "energy": 0.815,
-          "crest": 87.04
+          "energy": 1,
+          "crest": 86.84
         },
         {
           "text": "You're",
-          "start": 87.12,
-          "end": 87.58,
+          "start": 87.04,
+          "end": 87.915,
           "emphasis": 0.225,
-          "energy": 0.536,
-          "crest": 87.56
+          "energy": 1,
+          "crest": 87.64
         },
         {
           "text": "able",
-          "start": 87.58,
-          "end": 88.26,
+          "start": 87.915,
+          "end": 88.78,
           "emphasis": 0.79,
-          "energy": 0.629,
-          "crest": 87.6
+          "energy": 1,
+          "crest": 88.32
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 88.83,
-      "end": 96.22,
+      "start": 89.032,
+      "end": 95.64,
       "text": "And my God come through again",
       "words": [
         {
           "text": "And",
-          "start": 88.83,
-          "end": 89.06,
+          "start": 89.032,
+          "end": 89.16,
           "emphasis": 0.146,
-          "energy": 0.095,
-          "crest": 89.04
+          "energy": 1,
+          "crest": 89.15
         },
         {
           "text": "my",
-          "start": 89.06,
-          "end": 90.3,
+          "start": 89.16,
+          "end": 90.22,
           "emphasis": 0.311,
-          "energy": 0.692,
-          "crest": 89.28
+          "energy": 1,
+          "crest": 89.85
         },
         {
           "text": "God",
-          "start": 90.3,
-          "end": 91.3,
+          "start": 90.22,
+          "end": 91.54,
           "emphasis": 0.827,
-          "energy": 0.706,
-          "crest": 90.96
+          "energy": 1,
+          "crest": 90.99
         },
         {
           "text": "come",
-          "start": 92.2,
-          "end": 92.66,
+          "start": 92.12,
+          "end": 92.644,
           "emphasis": 0.446,
-          "energy": 0.623,
-          "crest": 92.4
+          "energy": 1,
+          "crest": 92.22
         },
         {
           "text": "through",
-          "start": 92.66,
-          "end": 93,
+          "start": 92.644,
+          "end": 93.297,
           "emphasis": 0.241,
-          "energy": 0.707,
-          "crest": 92.88
+          "energy": 1,
+          "crest": 92.92
         },
         {
           "text": "again",
-          "start": 93,
-          "end": 93.86,
+          "start": 93.297,
+          "end": 95.52,
           "emphasis": 0.817,
-          "energy": 0.713,
-          "crest": 93.76
+          "energy": 1,
+          "crest": 93.8
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 96.22,
-      "end": 102.3,
+      "start": 96.66,
+      "end": 100.97,
       "text": "You can do all things",
       "words": [
         {
           "text": "You",
-          "start": 96.22,
-          "end": 96.78,
+          "start": 96.66,
+          "end": 96.95,
           "emphasis": 0.234,
-          "energy": 0.542,
-          "crest": 96.56
+          "energy": 1,
+          "crest": 96.82
         },
         {
           "text": "can",
-          "start": 96.78,
-          "end": 97.28,
+          "start": 96.95,
+          "end": 97.618,
           "emphasis": 0.46,
-          "energy": 0.694,
-          "crest": 97.12
+          "energy": 1,
+          "crest": 97.15
         },
         {
           "text": "do",
-          "start": 97.28,
-          "end": 97.82,
+          "start": 97.618,
+          "end": 98.014,
           "emphasis": 0.453,
-          "energy": 0.626,
-          "crest": 97.76
+          "energy": 1,
+          "crest": 97.78
         },
         {
           "text": "all",
-          "start": 97.82,
-          "end": 98.3,
+          "start": 98.014,
+          "end": 99.089,
           "emphasis": 0.818,
-          "energy": 0.924,
-          "crest": 98.08
+          "energy": 1,
+          "crest": 98.15
         },
         {
           "text": "things",
-          "start": 98.3,
-          "end": 100.14,
+          "start": 99.089,
+          "end": 100.85,
           "emphasis": 0.898,
-          "energy": 0.753,
-          "crest": 98.56
+          "energy": 1,
+          "crest": 99.19
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 102.3,
-      "end": 107.68,
+      "start": 102.37,
+      "end": 107.57,
       "text": "You can do all things but fail",
       "words": [
         {
           "text": "You",
-          "start": 102.3,
-          "end": 102.68,
+          "start": 102.37,
+          "end": 102.916,
           "emphasis": 0.215,
-          "energy": 0.512,
-          "crest": 102.48
+          "energy": 1,
+          "crest": 102.52
         },
         {
           "text": "can",
-          "start": 102.68,
-          "end": 103.22,
+          "start": 102.916,
+          "end": 103.436,
           "emphasis": 0.438,
-          "energy": 0.526,
-          "crest": 102.96
+          "energy": 1,
+          "crest": 102.98
         },
         {
           "text": "do",
-          "start": 103.22,
-          "end": 103.6,
+          "start": 103.436,
+          "end": 104.38,
           "emphasis": 0.424,
-          "energy": 0.516,
-          "crest": 103.48
+          "energy": 1,
+          "crest": 103.99
         },
         {
           "text": "all",
-          "start": 103.6,
-          "end": 104.82,
+          "start": 104.38,
+          "end": 105.436,
           "emphasis": 0.889,
           "energy": 1,
-          "crest": 103.96
+          "crest": 104.88
         },
         {
           "text": "things",
-          "start": 104.82,
-          "end": 106.1,
+          "start": 105.436,
+          "end": 106.298,
           "emphasis": 0.827,
-          "energy": 0.558,
-          "crest": 104.84
+          "energy": 1,
+          "crest": 105.46
         },
         {
           "text": "but",
-          "start": 106.1,
-          "end": 106.76,
+          "start": 106.298,
+          "end": 106.72,
           "emphasis": 0.235,
-          "energy": 0.496,
-          "crest": 106.36
+          "energy": 1,
+          "crest": 106.42
         },
         {
           "text": "fail",
-          "start": 106.76,
-          "end": 107.32,
+          "start": 106.72,
+          "end": 107.45,
           "emphasis": 0.78,
-          "energy": 0.625,
-          "crest": 106.88
+          "energy": 1,
+          "crest": 106.95
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 107.68,
-      "end": 110.12,
+      "start": 107.75,
+      "end": 109.94,
       "text": "'Cause You've never lost a battle",
       "words": [
         {
           "text": "'Cause",
-          "start": 107.68,
-          "end": 108,
+          "start": 107.75,
+          "end": 108.06,
           "emphasis": 0.456,
-          "energy": 0.763,
-          "crest": 107.84
+          "energy": 1,
+          "crest": 107.87
         },
         {
           "text": "You've",
-          "start": 108,
-          "end": 108.16,
+          "start": 108.06,
+          "end": 108.556,
           "emphasis": 0.195,
-          "energy": 0.421,
-          "crest": 108.12
+          "energy": 1,
+          "crest": 108.36
         },
         {
           "text": "never",
-          "start": 108.16,
-          "end": 108.54,
+          "start": 108.556,
+          "end": 108.87,
           "emphasis": 0.809,
-          "energy": 0.914,
-          "crest": 108.32
+          "energy": 1,
+          "crest": 108.84
         },
         {
           "text": "lost",
-          "start": 108.54,
+          "start": 108.87,
           "end": 109.14,
           "emphasis": 0.776,
-          "energy": 0.58,
-          "crest": 108.8
+          "energy": 1,
+          "crest": 108.87
         },
         {
           "text": "a",
           "start": 109.14,
-          "end": 109.2,
+          "end": 109.32,
           "emphasis": 0.192,
-          "energy": 0.403,
-          "crest": 109.16
+          "energy": 1,
+          "crest": 109.3
         },
         {
           "text": "battle",
-          "start": 109.2,
-          "end": 109.54,
+          "start": 109.32,
+          "end": 109.82,
           "emphasis": 0.797,
-          "energy": 0.858,
-          "crest": 109.4
+          "energy": 1,
+          "crest": 109.32
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 110.12,
-      "end": 112.04,
+      "start": 110.15,
+      "end": 112.431,
       "text": "No, You've never lost a battle",
       "words": [
         {
           "text": "No,",
-          "start": 110.12,
-          "end": 110.38,
+          "start": 110.15,
+          "end": 110.56,
           "emphasis": 0.279,
-          "energy": 0.982,
-          "crest": 110.24
+          "energy": 1,
+          "crest": 110.27
         },
         {
           "text": "You've",
-          "start": 110.38,
-          "end": 110.56,
+          "start": 110.56,
+          "end": 110.94,
           "emphasis": 0.23,
-          "energy": 0.654,
-          "crest": 110.38
+          "energy": 1,
+          "crest": 110.74
         },
         {
           "text": "never",
-          "start": 110.56,
-          "end": 110.96,
+          "start": 110.94,
+          "end": 111.324,
           "emphasis": 0.816,
-          "energy": 0.955,
-          "crest": 110.72
+          "energy": 1,
+          "crest": 111.29
         },
         {
           "text": "lost",
-          "start": 110.96,
-          "end": 111.42,
+          "start": 111.324,
+          "end": 111.62,
           "emphasis": 0.787,
-          "energy": 0.725,
-          "crest": 111.2
+          "energy": 1,
+          "crest": 111.324
         },
         {
           "text": "a",
-          "start": 111.42,
-          "end": 111.6,
+          "start": 111.62,
+          "end": 112.0,
           "emphasis": 0.166,
-          "energy": 0.225,
-          "crest": 111.56
+          "energy": 1,
+          "crest": 111.77
         },
         {
           "text": "battle",
-          "start": 111.6,
-          "end": 112,
+          "start": 112.0,
+          "end": 112.431,
           "emphasis": 0.779,
-          "energy": 0.706,
-          "crest": 111.72
+          "energy": 0.501,
+          "crest": 112.0
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 112.04,
-      "end": 114.92,
+      "start": 112.431,
+      "end": 115.308,
       "text": "And I know, I know",
       "words": [
         {
           "text": "And",
-          "start": 112.04,
-          "end": 112.5,
+          "start": 112.431,
+          "end": 112.651,
           "emphasis": 0.146,
-          "energy": 0.009,
-          "crest": 112.04
+          "energy": 0.409,
+          "crest": 112.51
         },
         {
           "text": "I",
-          "start": 112.5,
-          "end": 112.94,
+          "start": 112.651,
+          "end": 113.263,
           "emphasis": 0.226,
-          "energy": 0.549,
-          "crest": 112.84
+          "energy": 1,
+          "crest": 112.88
         },
         {
           "text": "know,",
-          "start": 112.94,
-          "end": 113.54,
+          "start": 113.263,
+          "end": 113.87,
           "emphasis": 0.822,
-          "energy": 0.884,
-          "crest": 113.32
+          "energy": 1,
+          "crest": 113.39
         },
         {
           "text": "I",
-          "start": 113.82,
-          "end": 114.4,
+          "start": 114.276,
+          "end": 114.978,
           "emphasis": 0.232,
-          "energy": 0.518,
-          "crest": 114.16
+          "energy": 1,
+          "crest": 114.78
         },
         {
           "text": "know",
-          "start": 114.4,
-          "end": 114.92,
+          "start": 114.978,
+          "end": 115.308,
           "emphasis": 0.81,
-          "energy": 0.848,
-          "crest": 114.76
+          "energy": 0.859,
+          "crest": 114.98
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 114.92,
-      "end": 119.96,
+      "start": 115.308,
+      "end": 119.03,
       "text": "You never will",
       "words": [
         {
           "text": "You",
-          "start": 114.92,
-          "end": 115.74,
+          "start": 115.308,
+          "end": 115.847,
           "emphasis": 0.235,
-          "energy": 0.409,
-          "crest": 114.92
+          "energy": 0.68,
+          "crest": 115.68
         },
         {
           "text": "never",
-          "start": 115.74,
-          "end": 116.64,
+          "start": 115.847,
+          "end": 116.68,
           "emphasis": 0.85,
-          "energy": 0.916,
-          "crest": 116.28
+          "energy": 1,
+          "crest": 116.33
         },
         {
           "text": "will",
-          "start": 116.64,
-          "end": 118.34,
+          "start": 116.68,
+          "end": 118.91,
           "emphasis": 0.339,
-          "energy": 0.634,
-          "crest": 116.64
+          "energy": 1,
+          "crest": 116.68
         }
       ],
       "motion": "strong"
     },
     {
-      "start": 119.96,
-      "end": 122.72,
+      "start": 120.21,
+      "end": 121.74,
       "text": "How many know He's faithful?",
       "words": [
         {
           "text": "How",
-          "start": 119.96,
-          "end": 120.38,
+          "start": 120.21,
+          "end": 120.435,
           "emphasis": 0.142,
-          "energy": 0,
-          "crest": 120.28
+          "energy": 0.228,
+          "crest": 120.33
         },
         {
           "text": "many",
-          "start": 120.38,
-          "end": 120.5,
+          "start": 120.435,
+          "end": 120.62,
           "emphasis": 0.133,
-          "energy": 0.005,
-          "crest": 120.48
+          "energy": 0.379,
+          "crest": 120.61
         },
         {
           "text": "know",
-          "start": 120.5,
-          "end": 120.7,
+          "start": 120.62,
+          "end": 120.72,
           "emphasis": 0.689,
-          "energy": 0.161,
-          "crest": 120.6
+          "energy": 0.673,
+          "crest": 120.64
         },
         {
           "text": "He's",
-          "start": 120.7,
-          "end": 120.9,
+          "start": 120.72,
+          "end": 120.94,
           "emphasis": 0.161,
-          "energy": 0.194,
-          "crest": 120.8
+          "energy": 0.453,
+          "crest": 120.81
         },
         {
           "text": "faithful?",
-          "start": 120.9,
-          "end": 121.22,
+          "start": 120.94,
+          "end": 121.62,
           "emphasis": 0.712,
-          "energy": 0.305,
-          "crest": 121.0
+          "energy": 0.468,
+          "crest": 121.35
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 127.66,
-      "end": 132.6,
+      "start": 127.68,
+      "end": 132.62,
       "text": "I have faced many mountains",
       "words": [
         {
           "text": "I",
-          "start": 127.66,
-          "end": 127.86,
+          "start": 127.68,
+          "end": 128.357,
           "emphasis": 0.27,
-          "energy": 0.92,
-          "crest": 127.84
+          "energy": 1,
+          "crest": 127.9
         },
         {
           "text": "have",
-          "start": 127.86,
-          "end": 129,
+          "start": 128.357,
+          "end": 129.208,
           "emphasis": 0.504,
-          "energy": 0.643,
-          "crest": 127.88
+          "energy": 1,
+          "crest": 128.79
         },
         {
           "text": "faced",
-          "start": 129,
-          "end": 129.82,
+          "start": 129.208,
+          "end": 129.89,
           "emphasis": 0.444,
-          "energy": 0.416,
-          "crest": 129.2
+          "energy": 0.873,
+          "crest": 129.25
         },
         {
           "text": "many",
-          "start": 129.82,
-          "end": 130.46,
+          "start": 129.921,
+          "end": 130.501,
           "emphasis": 0.2,
-          "energy": 0.274,
-          "crest": 130.2
+          "energy": 0.849,
+          "crest": 130.22
         },
         {
           "text": "mountains",
-          "start": 130.46,
-          "end": 131.1,
+          "start": 130.501,
+          "end": 132.58,
           "emphasis": 0.77,
-          "energy": 0.521,
-          "crest": 130.68
+          "energy": 0.735,
+          "crest": 130.74
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 132.6,
-      "end": 134.02,
+      "start": 132.62,
+      "end": 134.5,
       "text": "Been through trials",
       "words": [
         {
           "text": "Been",
-          "start": 132.6,
-          "end": 132.82,
+          "start": 132.62,
+          "end": 133.036,
           "emphasis": 0.188,
-          "energy": 0.374,
-          "crest": 132.64
+          "energy": 0.953,
+          "crest": 132.65
         },
         {
           "text": "through",
-          "start": 132.82,
-          "end": 133.32,
+          "start": 133.036,
+          "end": 133.593,
           "emphasis": 0.179,
-          "energy": 0.21,
-          "crest": 133.12
+          "energy": 0.788,
+          "crest": 133.18
         },
         {
           "text": "trials",
-          "start": 133.32,
-          "end": 134.02,
+          "start": 133.593,
+          "end": 134.38,
           "emphasis": 0.785,
-          "energy": 0.589,
-          "crest": 133.64
+          "energy": 1,
+          "crest": 133.67
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 134.02,
-      "end": 137.56,
+      "start": 134.798,
+      "end": 137.63,
       "text": "And shed many tears",
       "words": [
         {
           "text": "And",
-          "start": 134.02,
-          "end": 134.9,
+          "start": 134.798,
+          "end": 135.084,
           "emphasis": 0.228,
-          "energy": 0.331,
-          "crest": 134.64
+          "energy": 0.735,
+          "crest": 134.798
         },
         {
           "text": "shed",
-          "start": 134.9,
-          "end": 135.54,
+          "start": 135.084,
+          "end": 135.71,
           "emphasis": 0.438,
-          "energy": 0.473,
-          "crest": 135.12
+          "energy": 0.921,
+          "crest": 135.16
         },
         {
           "text": "many",
-          "start": 135.54,
-          "end": 136.3,
+          "start": 135.956,
+          "end": 136.59,
           "emphasis": 0.205,
-          "energy": 0.239,
-          "crest": 136.16
+          "energy": 0.905,
+          "crest": 136.07
         },
         {
           "text": "tears",
-          "start": 136.3,
-          "end": 136.76,
+          "start": 136.59,
+          "end": 137.51,
           "emphasis": 0.731,
-          "energy": 0.352,
-          "crest": 136.6
+          "energy": 0.514,
+          "crest": 136.79
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 137.56,
-      "end": 143.98,
+      "start": 138.46,
+      "end": 143.77,
       "text": "When I look around and it all seems hopeless",
       "words": [
         {
           "text": "When",
-          "start": 137.56,
-          "end": 138.6,
+          "start": 138.46,
+          "end": 138.876,
           "emphasis": 0.201,
-          "energy": 0.066,
-          "crest": 138.56
+          "energy": 1,
+          "crest": 138.57
         },
         {
           "text": "I",
-          "start": 138.6,
-          "end": 138.94,
+          "start": 138.876,
+          "end": 139.148,
           "emphasis": 0.21,
-          "energy": 0.499,
-          "crest": 138.88
+          "energy": 1,
+          "crest": 139.08
         },
         {
           "text": "look",
-          "start": 138.94,
-          "end": 139.24,
+          "start": 139.148,
+          "end": 139.494,
           "emphasis": 0.388,
-          "energy": 0.319,
-          "crest": 139.04
+          "energy": 0.666,
+          "crest": 139.38
         },
         {
           "text": "around",
-          "start": 139.24,
-          "end": 139.98,
+          "start": 139.494,
+          "end": 139.94,
           "emphasis": 0.474,
-          "energy": 0.657,
-          "crest": 139.72
+          "energy": 1,
+          "crest": 139.58
         },
         {
           "text": "and",
-          "start": 139.98,
-          "end": 140.84,
+          "start": 139.94,
+          "end": 140.882,
           "emphasis": 0.234,
-          "energy": 0.382,
-          "crest": 140.52
+          "energy": 0.87,
+          "crest": 140.55
         },
         {
           "text": "it",
-          "start": 140.84,
-          "end": 140.94,
+          "start": 140.882,
+          "end": 141.045,
           "emphasis": 0.236,
-          "energy": 0.696,
-          "crest": 140.92
+          "energy": 1,
+          "crest": 141.01
         },
         {
           "text": "all",
-          "start": 140.94,
-          "end": 141.56,
+          "start": 141.045,
+          "end": 141.702,
           "emphasis": 0.79,
-          "energy": 0.664,
-          "crest": 140.96
+          "energy": 0.995,
+          "crest": 141.06
         },
         {
           "text": "seems",
-          "start": 141.56,
-          "end": 142.18,
+          "start": 141.702,
+          "end": 142.515,
           "emphasis": 0.394,
-          "energy": 0.188,
-          "crest": 141.96
+          "energy": 0.748,
+          "crest": 142.48
         },
         {
           "text": "hopeless",
-          "start": 142.18,
-          "end": 142.92,
+          "start": 142.515,
+          "end": 143.65,
           "emphasis": 0.764,
-          "energy": 0.424,
-          "crest": 142.44
+          "energy": 0.86,
+          "crest": 142.97
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 143.98,
-      "end": 147.02,
+      "start": 144.423,
+      "end": 147.53,
       "text": "I won't fear",
       "words": [
         {
           "text": "I",
-          "start": 143.98,
-          "end": 144.64,
+          "start": 144.423,
+          "end": 144.874,
           "emphasis": 0.192,
-          "energy": 0.205,
-          "crest": 144.4
+          "energy": 1,
+          "crest": 144.44
         },
         {
           "text": "won't",
-          "start": 144.64,
-          "end": 145.26,
+          "start": 144.874,
+          "end": 145.325,
           "emphasis": 0.752,
-          "energy": 0.411,
-          "crest": 145.04
+          "energy": 1,
+          "crest": 145.09
         },
         {
           "text": "fear",
-          "start": 145.26,
-          "end": 145.82,
+          "start": 145.325,
+          "end": 147.53,
           "emphasis": 0.763,
-          "energy": 0.513,
-          "crest": 145.72
+          "energy": 0.801,
+          "crest": 147.42
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 147.02,
-      "end": 152.16,
+      "start": 147.53,
+      "end": 151.63,
       "text": "I won't fear",
       "words": [
         {
           "text": "I",
-          "start": 147.02,
-          "end": 147.66,
+          "start": 147.53,
+          "end": 147.7,
           "emphasis": 0.228,
-          "energy": 0.459,
-          "crest": 147.4
+          "energy": 1,
+          "crest": 147.55
         },
         {
           "text": "won't",
-          "start": 147.66,
-          "end": 148.52,
+          "start": 147.7,
+          "end": 148.54,
           "emphasis": 0.818,
-          "energy": 0.723,
-          "crest": 147.96
+          "energy": 1,
+          "crest": 148.03
         },
         {
           "text": "fear",
-          "start": 148.52,
-          "end": 149.04,
+          "start": 148.54,
+          "end": 151.51,
           "emphasis": 0.755,
-          "energy": 0.484,
-          "crest": 148.68
+          "energy": 0.709,
+          "crest": 148.7
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 152.16,
-      "end": 155.16,
+      "start": 152.7,
+      "end": 155.37,
       "text": "I'll be still and know",
       "words": [
         {
           "text": "I'll",
-          "start": 152.16,
-          "end": 152.68,
+          "start": 152.7,
+          "end": 152.775,
           "emphasis": 0.15,
-          "energy": 0,
-          "crest": 152.64
+          "energy": 0.673,
+          "crest": 152.7
         },
         {
           "text": "be",
-          "start": 152.68,
-          "end": 153.04,
+          "start": 152.775,
+          "end": 153.261,
           "emphasis": 0.28,
-          "energy": 0.957,
-          "crest": 152.8
+          "energy": 1,
+          "crest": 152.85
         },
         {
           "text": "still",
-          "start": 153.04,
-          "end": 153.36,
+          "start": 153.261,
+          "end": 153.857,
           "emphasis": 0.767,
-          "energy": 0.669,
-          "crest": 153.32
+          "energy": 1,
+          "crest": 153.34
         },
         {
           "text": "and",
-          "start": 153.36,
-          "end": 154.26,
+          "start": 153.857,
+          "end": 154.354,
           "emphasis": 0.315,
-          "energy": 0.9,
-          "crest": 153.56
+          "energy": 1,
+          "crest": 153.9
         },
         {
           "text": "know",
-          "start": 154.26,
-          "end": 154.78,
+          "start": 154.354,
+          "end": 155.25,
           "emphasis": 0.833,
           "energy": 1,
-          "crest": 154.4
+          "crest": 154.43
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 155.16,
-      "end": 158.46,
+      "start": 155.6,
+      "end": 158.34,
       "text": "Know You are God",
       "words": [
         {
           "text": "Know",
-          "start": 155.16,
-          "end": 156.08,
+          "start": 155.6,
+          "end": 156.0,
           "emphasis": 0.82,
-          "energy": 0.703,
-          "crest": 155.72
+          "energy": 1,
+          "crest": 155.78
         },
         {
           "text": "You",
-          "start": 156.08,
-          "end": 156.34,
+          "start": 156.0,
+          "end": 156.596,
           "emphasis": 0.265,
-          "energy": 0.888,
-          "crest": 156.32
+          "energy": 1,
+          "crest": 156.54
         },
         {
           "text": "are",
-          "start": 156.34,
-          "end": 157.1,
+          "start": 156.596,
+          "end": 157.275,
           "emphasis": 0.3,
-          "energy": 0.876,
-          "crest": 156.52
+          "energy": 1,
+          "crest": 156.82
         },
         {
           "text": "God",
-          "start": 157.1,
-          "end": 157.72,
+          "start": 157.275,
+          "end": 158.22,
           "emphasis": 0.836,
-          "energy": 0.97,
-          "crest": 157.28
+          "energy": 1,
+          "crest": 157.34
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 158.46,
-      "end": 160.96,
+      "start": 158.43,
+      "end": 161.59,
       "text": "You're right here with me",
       "words": [
         {
           "text": "You're",
-          "start": 158.46,
-          "end": 159.08,
+          "start": 158.43,
+          "end": 159.23,
           "emphasis": 0.287,
-          "energy": 0.862,
-          "crest": 158.72
+          "energy": 1,
+          "crest": 158.74
         },
         {
           "text": "right",
-          "start": 159.08,
-          "end": 159.6,
+          "start": 159.23,
+          "end": 159.716,
           "emphasis": 0.81,
-          "energy": 0.847,
-          "crest": 159.2
+          "energy": 1,
+          "crest": 159.24
         },
         {
           "text": "here",
-          "start": 159.6,
-          "end": 160.06,
+          "start": 159.716,
+          "end": 160.216,
           "emphasis": 0.792,
-          "energy": 0.763,
-          "crest": 160.04
+          "energy": 1,
+          "crest": 159.73
         },
         {
           "text": "with",
-          "start": 160.06,
-          "end": 160.58,
+          "start": 160.216,
+          "end": 160.805,
           "emphasis": 0.262,
-          "energy": 0.752,
+          "energy": 1,
           "crest": 160.24
         },
         {
           "text": "me",
-          "start": 160.58,
-          "end": 160.96,
+          "start": 160.805,
+          "end": 161.47,
           "emphasis": 0.265,
-          "energy": 0.844,
-          "crest": 160.72
+          "energy": 0.828,
+          "crest": 160.805
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 160.96,
-      "end": 163.76,
+      "start": 161.62,
+      "end": 164.25,
       "text": "Through all my troubles",
       "words": [
         {
           "text": "Through",
-          "start": 160.96,
-          "end": 161.74,
+          "start": 161.62,
+          "end": 162.219,
           "emphasis": 0.244,
-          "energy": 0.489,
-          "crest": 161.68
+          "energy": 1,
+          "crest": 162.17
         },
         {
           "text": "all",
-          "start": 161.74,
-          "end": 162.56,
+          "start": 162.219,
+          "end": 162.808,
           "emphasis": 0.857,
           "energy": 1,
-          "crest": 162.16
+          "crest": 162.25
         },
         {
           "text": "my",
-          "start": 162.56,
-          "end": 162.86,
+          "start": 162.808,
+          "end": 163.146,
           "emphasis": 0.226,
-          "energy": 0.629,
-          "crest": 162.8
+          "energy": 1,
+          "crest": 162.85
         },
         {
           "text": "troubles",
-          "start": 162.86,
-          "end": 163.76,
+          "start": 163.146,
+          "end": 164.13,
           "emphasis": 0.834,
-          "energy": 0.807,
-          "crest": 163.32
+          "energy": 1,
+          "crest": 163.34
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 163.76,
-      "end": 167.5,
+      "start": 164.536,
+      "end": 167.23,
       "text": "I'll be still and know",
       "words": [
         {
           "text": "I'll",
-          "start": 163.76,
-          "end": 164.6,
+          "start": 164.536,
+          "end": 164.732,
           "emphasis": 0.253,
-          "energy": 0.522,
-          "crest": 164.56
+          "energy": 1,
+          "crest": 164.64
         },
         {
           "text": "be",
-          "start": 164.6,
-          "end": 164.82,
+          "start": 164.732,
+          "end": 165.096,
           "emphasis": 0.259,
-          "energy": 0.846,
-          "crest": 164.6
+          "energy": 0.885,
+          "crest": 164.77
         },
         {
           "text": "still",
-          "start": 164.82,
-          "end": 165.18,
+          "start": 165.096,
+          "end": 165.764,
           "emphasis": 0.77,
-          "energy": 0.67,
-          "crest": 165.12
+          "energy": 1,
+          "crest": 165.47
         },
         {
           "text": "and",
-          "start": 165.18,
-          "end": 166.06,
+          "start": 165.764,
+          "end": 166.42,
           "emphasis": 0.316,
-          "energy": 0.919,
-          "crest": 165.56
+          "energy": 1,
+          "crest": 166.23
         },
         {
           "text": "know",
-          "start": 166.06,
-          "end": 166.62,
+          "start": 166.42,
+          "end": 167.11,
           "emphasis": 0.83,
-          "energy": 0.96,
-          "crest": 166.2
+          "energy": 0.875,
+          "crest": 166.46
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 167.5,
-      "end": 170.25,
+      "start": 167.42,
+      "end": 170.14,
       "text": "Know You are God",
       "words": [
         {
           "text": "Know",
-          "start": 167.5,
-          "end": 167.78,
+          "start": 167.42,
+          "end": 167.864,
           "emphasis": 0.815,
           "energy": 1,
-          "crest": 167.52
+          "crest": 167.6
         },
         {
           "text": "You",
-          "start": 167.78,
-          "end": 168.1,
+          "start": 167.864,
+          "end": 168.6,
           "emphasis": 0.256,
-          "energy": 0.816,
-          "crest": 168.04
+          "energy": 1,
+          "crest": 168.51
         },
         {
           "text": "are",
-          "start": 168.1,
-          "end": 168.9,
+          "start": 168.6,
+          "end": 169.196,
           "emphasis": 0.305,
-          "energy": 0.888,
-          "crest": 168.48
+          "energy": 1,
+          "crest": 169.14
         },
         {
           "text": "God",
-          "start": 168.9,
-          "end": 169.62,
+          "start": 169.196,
+          "end": 170.02,
           "emphasis": 0.834,
-          "energy": 0.905,
-          "crest": 169.12
+          "energy": 1.0,
+          "crest": 169.52
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 170.25,
-      "end": 176.16,
+      "start": 170.523,
+      "end": 175.87,
       "text": "You are the light and rest for my soul",
       "words": [
         {
           "text": "You",
-          "start": 170.25,
-          "end": 170.56,
+          "start": 170.523,
+          "end": 170.887,
           "emphasis": 0.222,
-          "energy": 0.597,
-          "crest": 170.44
+          "energy": 1,
+          "crest": 170.523
         },
         {
           "text": "are",
-          "start": 170.56,
-          "end": 171.64,
+          "start": 170.887,
+          "end": 171.56,
           "emphasis": 0.332,
-          "energy": 0.916,
-          "crest": 170.96
+          "energy": 1,
+          "crest": 171.0
         },
         {
           "text": "the",
-          "start": 171.64,
-          "end": 171.88,
+          "start": 171.56,
+          "end": 171.8,
           "emphasis": 0.262,
-          "energy": 0.87,
-          "crest": 171.68
+          "energy": 1,
+          "crest": 171.71
         },
         {
           "text": "light",
-          "start": 171.88,
+          "start": 171.8,
           "end": 172.52,
           "emphasis": 0.807,
-          "energy": 0.767,
-          "crest": 171.88
+          "energy": 1,
+          "crest": 171.92
         },
         {
           "text": "and",
           "start": 172.52,
-          "end": 173.2,
+          "end": 173.384,
           "emphasis": 0.255,
-          "energy": 0.62,
-          "crest": 172.88
+          "energy": 0.869,
+          "crest": 172.91
         },
         {
           "text": "rest",
-          "start": 173.2,
-          "end": 173.72,
+          "start": 173.384,
+          "end": 173.85,
           "emphasis": 0.768,
-          "energy": 0.572,
-          "crest": 173.4
+          "energy": 0.768,
+          "crest": 173.41
         },
         {
           "text": "for",
-          "start": 173.72,
-          "end": 174.26,
+          "start": 173.862,
+          "end": 174.295,
           "emphasis": 0.263,
-          "energy": 0.742,
-          "crest": 173.88
+          "energy": 1,
+          "crest": 173.92
         },
         {
           "text": "my",
-          "start": 174.26,
-          "end": 174.66,
+          "start": 174.295,
+          "end": 174.84,
           "emphasis": 0.256,
-          "energy": 0.776,
-          "crest": 174.4
+          "energy": 1,
+          "crest": 174.43
         },
         {
           "text": "soul",
-          "start": 174.66,
-          "end": 175.1,
+          "start": 174.84,
+          "end": 175.75,
           "emphasis": 0.777,
-          "energy": 0.674,
-          "crest": 175.0
+          "energy": 0.919,
+          "crest": 174.96
         }
       ],
       "motion": "settle"
     },
     {
-      "start": 176.16,
-      "end": 181,
+      "start": 176.396,
+      "end": 180.89,
       "text": "You're God and I'll be still and know",
       "words": [
         {
           "text": "You're",
-          "start": 176.16,
-          "end": 176.78,
+          "start": 176.396,
+          "end": 176.961,
           "emphasis": 0.266,
-          "energy": 0.72,
-          "crest": 176.52
+          "energy": 1,
+          "crest": 176.94
         },
         {
           "text": "God",
-          "start": 176.78,
+          "start": 176.961,
           "end": 177.36,
           "emphasis": 0.833,
-          "energy": 0.971,
-          "crest": 176.92
+          "energy": 1,
+          "crest": 176.961
         },
         {
           "text": "and",
           "start": 177.36,
-          "end": 177.84,
+          "end": 177.86,
           "emphasis": 0.263,
-          "energy": 0.775,
-          "crest": 177.64
+          "energy": 1,
+          "crest": 177.66
         },
         {
           "text": "I'll",
-          "start": 177.84,
-          "end": 179.14,
+          "start": 177.86,
+          "end": 178.73,
           "emphasis": 0.27,
-          "energy": 0.385,
-          "crest": 178.0
+          "energy": 0.893,
+          "crest": 177.86
         },
         {
           "text": "be",
-          "start": 179.14,
-          "end": 179.56,
+          "start": 179.434,
+          "end": 179.54,
           "emphasis": 0.169,
-          "energy": 0.184,
-          "crest": 179.32
+          "energy": 0.598,
+          "crest": 179.434
         },
         {
           "text": "still",
-          "start": 179.56,
-          "end": 179.94,
+          "start": 179.54,
+          "end": 180.3,
           "emphasis": 0.673,
-          "energy": 0.014,
-          "crest": 179.56
+          "energy": 0.337,
+          "crest": 179.55
         },
         {
           "text": "and",
-          "start": 179.94,
-          "end": 180.5,
+          "start": 180.3,
+          "end": 180.62,
           "emphasis": 0.153,
-          "energy": 0,
-          "crest": 180.0
+          "energy": 0.175,
+          "crest": 180.45
         },
         {
           "text": "know",
-          "start": 180.5,
-          "end": 180.88,
+          "start": 180.62,
+          "end": 180.77,
           "emphasis": 0.671,
-          "energy": 0,
-          "crest": 180.5
+          "energy": 0.082,
+          "crest": 180.62
         }
       ],
       "motion": "settle"
