@@ -2,6 +2,8 @@
 // Contextual phonetic alignment of separated vocals; isolated vowel attacks
 // measured with 10ms RMS. Recognition frames alone miss sustained vowel starts.
 // Phrase previews are neutral; word intervals include sung tails and exclude pauses.
+// Detailed mix/vocal spectrogram review includes consonants before vowel peaks;
+// the breath at 57.35s is excluded from the final I in song one.
 window.CLOSING_MEDLEY = {
   "duration": 181,
   "songs": [
@@ -26,18 +28,18 @@ window.CLOSING_MEDLEY = {
   ],
   "cues": [
     {
-      "start": 0.14,
+      "start": 0.1,
       "end": 3.34,
       "text": "Blessed assurance",
       "words": [
         {
           "text": "Blessed",
-          "start": 0.14,
+          "start": 0.1,
           "end": 1.021,
           "emphasis": 0.351,
-          "energy": 0.425,
+          "energy": 0.409,
           "crest": 0.93,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "assurance",
@@ -53,27 +55,27 @@ window.CLOSING_MEDLEY = {
       "displayStart": 0
     },
     {
-      "start": 4.845,
+      "start": 4.75,
       "end": 7.7,
       "text": "Jesus is mine",
       "words": [
         {
           "text": "Jesus",
-          "start": 4.845,
-          "end": 5.766,
+          "start": 4.75,
+          "end": 5.7,
           "emphasis": 0.804,
-          "energy": 1,
+          "energy": 0.947,
           "crest": 5.38,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "is",
-          "start": 5.766,
+          "start": 5.7,
           "end": 6.127,
           "emphasis": 0.253,
-          "energy": 0.856,
+          "energy": 0.911,
           "crest": 5.86,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "mine",
@@ -86,21 +88,21 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "rise",
-      "displayStart": 4.045
+      "displayStart": 3.95
     },
     {
-      "start": 9.57,
+      "start": 9.48,
       "end": 17.71,
       "text": "He's been my fourth man in the fire time after time",
       "words": [
         {
           "text": "He's",
-          "start": 9.57,
+          "start": 9.48,
           "end": 10.071,
           "emphasis": 0.205,
-          "energy": 0.969,
+          "energy": 0.866,
           "crest": 9.76,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "been",
@@ -114,20 +116,20 @@ window.CLOSING_MEDLEY = {
         {
           "text": "my",
           "start": 10.391,
-          "end": 10.791,
+          "end": 10.71,
           "emphasis": 0.259,
-          "energy": 0.911,
+          "energy": 1,
           "crest": 10.42,
           "timingSource": "contextual-phonetic-alignment"
         },
         {
           "text": "fourth",
-          "start": 10.791,
+          "start": 10.71,
           "end": 11.452,
           "emphasis": 0.777,
-          "energy": 0.754,
+          "energy": 0.692,
           "crest": 11.02,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "man",
@@ -194,21 +196,21 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "rise",
-      "displayStart": 8.77
+      "displayStart": 8.68
     },
     {
-      "start": 19.12,
+      "start": 19.02,
       "end": 22.41,
       "text": "Born of His Spirit",
       "words": [
         {
           "text": "Born",
-          "start": 19.12,
+          "start": 19.02,
           "end": 19.661,
           "emphasis": 0.499,
           "energy": 1,
           "crest": 19.16,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "of",
@@ -222,38 +224,38 @@ window.CLOSING_MEDLEY = {
         {
           "text": "His",
           "start": 19.941,
-          "end": 20.282,
+          "end": 20.21,
           "emphasis": 0.212,
-          "energy": 0.872,
+          "energy": 1,
           "crest": 20.07,
           "timingSource": "contextual-phonetic-alignment"
         },
         {
           "text": "Spirit",
-          "start": 20.282,
+          "start": 20.21,
           "end": 22.29,
           "emphasis": 0.778,
-          "energy": 0.509,
+          "energy": 0.505,
           "crest": 20.49,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         }
       ],
       "motion": "rise",
-      "displayStart": 18.32
+      "displayStart": 18.22
     },
     {
-      "start": 23.865,
+      "start": 23.68,
       "end": 26.91,
       "text": "Washed in His blood",
       "words": [
         {
           "text": "Washed",
-          "start": 23.865,
+          "start": 23.68,
           "end": 24.366,
           "emphasis": 0.432,
-          "energy": 0.891,
+          "energy": 0.872,
           "crest": 23.95,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "in",
@@ -284,21 +286,21 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "rise",
-      "displayStart": 23.065
+      "displayStart": 22.88
     },
     {
-      "start": 28.771,
+      "start": 28.67,
       "end": 36.37,
       "text": "And what He did for me on Calvary is more than enough",
       "words": [
         {
           "text": "And",
-          "start": 28.771,
+          "start": 28.67,
           "end": 29.111,
           "emphasis": 0.216,
           "energy": 1,
           "crest": 28.771,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "what",
@@ -401,30 +403,30 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "rise",
-      "displayStart": 27.971
+      "displayStart": 27.87
     },
     {
-      "start": 37.98,
+      "start": 37.81,
       "end": 40.13,
       "text": "So, I trust in God",
       "words": [
         {
           "text": "So,",
-          "start": 37.98,
-          "end": 38.301,
+          "start": 37.81,
+          "end": 38.26,
           "emphasis": 0.172,
-          "energy": 0.658,
-          "crest": 38.29,
-          "timingSource": "contextual-phonetic-alignment"
+          "energy": 0.376,
+          "crest": 38.26,
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "I",
-          "start": 38.301,
+          "start": 38.26,
           "end": 38.581,
           "emphasis": 0.242,
-          "energy": 0.863,
+          "energy": 0.97,
           "crest": 38.301,
-          "timingSource": "vocal-attack-10ms"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "trust",
@@ -455,34 +457,34 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "rise",
-      "displayStart": 37.18
+      "displayStart": 37.01
     },
     {
-      "start": 41.423,
+      "start": 41.38,
       "end": 43.926,
       "text": "My Savior",
       "words": [
         {
           "text": "My",
-          "start": 41.423,
-          "end": 41.844,
+          "start": 41.38,
+          "end": 41.79,
           "emphasis": 0.274,
-          "energy": 0.822,
+          "energy": 0.852,
           "crest": 41.48,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "Savior",
-          "start": 41.844,
+          "start": 41.79,
           "end": 43.926,
           "emphasis": 0.862,
           "energy": 1,
           "crest": 43.29,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         }
       ],
       "motion": "rise",
-      "displayStart": 40.623
+      "displayStart": 40.58
     },
     {
       "start": 43.926,
@@ -549,7 +551,7 @@ window.CLOSING_MEDLEY = {
     },
     {
       "start": 53.094,
-      "end": 57.35,
+      "end": 57.1,
       "text": "He will never fail",
       "words": [
         {
@@ -582,9 +584,9 @@ window.CLOSING_MEDLEY = {
         {
           "text": "fail",
           "start": 53.955,
-          "end": 57.35,
+          "end": 57.1,
           "emphasis": 0.922,
-          "energy": 0.898,
+          "energy": 0.96,
           "crest": 54.37,
           "timingSource": "contextual-phonetic-alignment"
         }
@@ -593,18 +595,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 52.41
     },
     {
-      "start": 57.35,
+      "start": 57.53,
       "end": 59.47,
       "text": "I trust in God",
       "words": [
         {
           "text": "I",
-          "start": 57.35,
+          "start": 57.53,
           "end": 57.878,
           "emphasis": 0.234,
-          "energy": 0.94,
+          "energy": 1,
           "crest": 57.57,
-          "timingSource": "vocal-attack-10ms"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "trust",
@@ -635,21 +637,21 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "rise",
-      "displayStart": 57.35
+      "displayStart": 57.1
     },
     {
-      "start": 60.481,
+      "start": 60.41,
       "end": 62.52,
       "text": "Miracles when You move",
       "words": [
         {
           "text": "Miracles",
-          "start": 60.481,
+          "start": 60.41,
           "end": 61.482,
           "emphasis": 0.695,
-          "energy": 0.652,
+          "energy": 0.624,
           "crest": 61.08,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "when",
@@ -680,21 +682,21 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "strong",
-      "displayStart": 59.681
+      "displayStart": 59.61
     },
     {
-      "start": 62.883,
+      "start": 62.74,
       "end": 65.43,
       "text": "Such an easy thing for You to do",
       "words": [
         {
           "text": "Such",
-          "start": 62.883,
+          "start": 62.74,
           "end": 63.324,
           "emphasis": 0.151,
-          "energy": 1,
+          "energy": 0.915,
           "crest": 62.97,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "an",
@@ -764,18 +766,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 62.52
     },
     {
-      "start": 66.868,
+      "start": 66.73,
       "end": 72.254,
       "text": "Your hand is moving right now",
       "words": [
         {
           "text": "Your",
-          "start": 66.868,
+          "start": 66.73,
           "end": 67.348,
           "emphasis": 0.253,
           "energy": 1,
           "crest": 66.96,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "hand",
@@ -824,7 +826,7 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "strong",
-      "displayStart": 66.068
+      "displayStart": 65.93
     },
     {
       "start": 72.254,
@@ -881,18 +883,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 72.254
     },
     {
-      "start": 74.736,
+      "start": 74.66,
       "end": 77.32,
       "text": "At the tomb of every Lazarus",
       "words": [
         {
           "text": "At",
-          "start": 74.736,
+          "start": 74.66,
           "end": 74.977,
           "emphasis": 0.196,
-          "energy": 0.795,
+          "energy": 0.994,
           "crest": 74.8,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "the",
@@ -944,18 +946,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 74.14
     },
     {
-      "start": 78.501,
+      "start": 78.4,
       "end": 83.226,
       "text": "Your voice is calling me out",
       "words": [
         {
           "text": "Your",
-          "start": 78.501,
+          "start": 78.4,
           "end": 79.001,
           "emphasis": 0.237,
           "energy": 1,
           "crest": 78.62,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "voice",
@@ -1004,7 +1006,7 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "strong",
-      "displayStart": 77.701
+      "displayStart": 77.6
     },
     {
       "start": 83.226,
@@ -1142,18 +1144,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 88.81
     },
     {
-      "start": 96.56,
+      "start": 96.44,
       "end": 101.06,
       "text": "You can do all things",
       "words": [
         {
           "text": "You",
-          "start": 96.56,
+          "start": 96.44,
           "end": 97.021,
           "emphasis": 0.234,
           "energy": 1,
           "crest": 96.62,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "can",
@@ -1193,7 +1195,7 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "strong",
-      "displayStart": 95.76
+      "displayStart": 95.64
     },
     {
       "start": 102.465,
@@ -1593,7 +1595,7 @@ window.CLOSING_MEDLEY = {
     },
     {
       "start": 132.634,
-      "end": 134.696,
+      "end": 134.63,
       "text": "Been through trials",
       "words": [
         {
@@ -1617,10 +1619,10 @@ window.CLOSING_MEDLEY = {
         {
           "text": "trials",
           "start": 133.535,
-          "end": 134.696,
+          "end": 134.63,
           "emphasis": 0.785,
-          "energy": 0.849,
-          "crest": 134.67,
+          "energy": 0.826,
+          "crest": 134.63,
           "timingSource": "contextual-phonetic-alignment"
         }
       ],
@@ -1628,18 +1630,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 132.634
     },
     {
-      "start": 134.696,
+      "start": 134.63,
       "end": 137.72,
       "text": "And shed many tears",
       "words": [
         {
           "text": "And",
-          "start": 134.696,
+          "start": 134.63,
           "end": 135.056,
           "emphasis": 0.228,
           "energy": 1,
           "crest": 134.696,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "shed",
@@ -1670,7 +1672,7 @@ window.CLOSING_MEDLEY = {
         }
       ],
       "motion": "settle",
-      "displayStart": 134.696
+      "displayStart": 134.63
     },
     {
       "start": 138.52,
@@ -1707,20 +1709,20 @@ window.CLOSING_MEDLEY = {
         {
           "text": "around",
           "start": 139.401,
-          "end": 140.602,
+          "end": 140.53,
           "emphasis": 0.474,
-          "energy": 0.96,
-          "crest": 140.56,
+          "energy": 0.913,
+          "crest": 140.53,
           "timingSource": "contextual-phonetic-alignment"
         },
         {
           "text": "and",
-          "start": 140.602,
+          "start": 140.53,
           "end": 140.902,
           "emphasis": 0.234,
           "energy": 1,
           "crest": 140.602,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "it",
@@ -1779,7 +1781,7 @@ window.CLOSING_MEDLEY = {
         {
           "text": "won't",
           "start": 144.866,
-          "end": 145.367,
+          "end": 145.29,
           "emphasis": 0.752,
           "energy": 1,
           "crest": 145.11,
@@ -1787,12 +1789,12 @@ window.CLOSING_MEDLEY = {
         },
         {
           "text": "fear",
-          "start": 145.367,
+          "start": 145.29,
           "end": 147.23,
           "emphasis": 0.763,
-          "energy": 0.78,
+          "energy": 0.768,
           "crest": 145.76,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         }
       ],
       "motion": "settle",
@@ -1815,7 +1817,7 @@ window.CLOSING_MEDLEY = {
         {
           "text": "won't",
           "start": 147.889,
-          "end": 148.65,
+          "end": 148.57,
           "emphasis": 0.818,
           "energy": 1,
           "crest": 148.04,
@@ -1823,12 +1825,12 @@ window.CLOSING_MEDLEY = {
         },
         {
           "text": "fear",
-          "start": 148.65,
+          "start": 148.57,
           "end": 151.53,
           "emphasis": 0.755,
-          "energy": 0.718,
+          "energy": 0.704,
           "crest": 148.71,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         }
       ],
       "motion": "settle",
@@ -1851,7 +1853,7 @@ window.CLOSING_MEDLEY = {
         {
           "text": "be",
           "start": 152.814,
-          "end": 153.195,
+          "end": 153.11,
           "emphasis": 0.28,
           "energy": 1,
           "crest": 152.86,
@@ -1859,12 +1861,12 @@ window.CLOSING_MEDLEY = {
         },
         {
           "text": "still",
-          "start": 153.195,
+          "start": 153.11,
           "end": 153.895,
           "emphasis": 0.767,
           "energy": 1,
           "crest": 153.34,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "and",
@@ -1889,18 +1891,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 151.8
     },
     {
-      "start": 155.737,
+      "start": 155.63,
       "end": 158.26,
       "text": "Know You are God",
       "words": [
         {
           "text": "Know",
-          "start": 155.737,
+          "start": 155.63,
           "end": 156.278,
           "emphasis": 0.82,
           "energy": 1,
           "crest": 155.78,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "You",
@@ -2049,7 +2051,7 @@ window.CLOSING_MEDLEY = {
         {
           "text": "be",
           "start": 164.61,
-          "end": 165.011,
+          "end": 164.95,
           "emphasis": 0.259,
           "energy": 1,
           "crest": 164.66,
@@ -2057,12 +2059,12 @@ window.CLOSING_MEDLEY = {
         },
         {
           "text": "still",
-          "start": 165.011,
+          "start": 164.95,
           "end": 165.712,
           "emphasis": 0.77,
           "energy": 1,
           "crest": 165.48,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "and",
@@ -2087,18 +2089,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 164.12
     },
     {
-      "start": 167.515,
+      "start": 167.44,
       "end": 170.19,
       "text": "Know You are God",
       "words": [
         {
           "text": "Know",
-          "start": 167.515,
+          "start": 167.44,
           "end": 168.036,
           "emphasis": 0.815,
           "energy": 1,
           "crest": 167.55,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "You",
@@ -2132,18 +2134,18 @@ window.CLOSING_MEDLEY = {
       "displayStart": 167.17
     },
     {
-      "start": 170.46,
+      "start": 170.41,
       "end": 175.78,
       "text": "You are the light and rest for my soul",
       "words": [
         {
           "text": "You",
-          "start": 170.46,
+          "start": 170.41,
           "end": 171.041,
           "emphasis": 0.222,
           "energy": 1,
           "crest": 170.98,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "are",
@@ -2174,12 +2176,12 @@ window.CLOSING_MEDLEY = {
         },
         {
           "text": "and",
-          "start": 172.965,
+          "start": 172.9,
           "end": 173.386,
           "emphasis": 0.255,
           "energy": 1,
           "crest": 173.06,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "rest",
@@ -2265,29 +2267,29 @@ window.CLOSING_MEDLEY = {
         {
           "text": "be",
           "start": 179.337,
-          "end": 179.758,
+          "end": 179.69,
           "emphasis": 0.169,
-          "energy": 0.485,
+          "energy": 0.524,
           "crest": 179.38,
           "timingSource": "contextual-phonetic-alignment"
         },
         {
           "text": "still",
-          "start": 179.758,
-          "end": 180.3,
+          "start": 179.69,
+          "end": 180.43,
           "emphasis": 0.673,
-          "energy": 0.316,
+          "energy": 0.279,
           "crest": 180.06,
-          "timingSource": "contextual-phonetic-alignment"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "and",
-          "start": 180.3,
+          "start": 180.43,
           "end": 180.62,
           "emphasis": 0.153,
-          "energy": 0.177,
+          "energy": 0.203,
           "crest": 180.46,
-          "timingSource": "prior-estimate"
+          "timingSource": "mix-and-vocal-spectrogram-review"
         },
         {
           "text": "know",
