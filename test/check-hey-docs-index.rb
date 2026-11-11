@@ -12,7 +12,7 @@ assert = ->(ok, message) { failures << message unless ok }
 text = ->(html) { CGI.unescapeHTML(html.gsub(/<[^>]*>/m, '')).strip }
 attribute = ->(attrs, name) { match = attrs.match(/\b#{Regexp.escape(name)}="([^"]*)"/); match && CGI.unescapeHTML(match[1]) }
 
-assert.call(pages.length == 26, 'expected the complete 26-page Hey inventory')
+assert.call(pages.length == 31, 'expected the complete 31-page Hey inventory')
 catalogue = index.scan(/data-doc-page="([^"]+)"/).flatten
 assert.call(catalogue.sort == (pages.map { |p| p.basename.to_s } - [index_name]).sort, 'catalogue must list every other page exactly once')
 %w[picture thesis start reference legend today decisions organised notes-h].each do |id|

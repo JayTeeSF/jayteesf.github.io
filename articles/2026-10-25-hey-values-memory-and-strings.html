@@ -10,7 +10,7 @@
 <meta name="article-index-rank" content="08">
 <meta name="article-index-desc" content="If Hey values never change, why isn't every update a copy? Reference counts, copy-on-write, ownership decided by the compiler, Strings, maps, and how to watch memory yourself.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, ownership decided in MIR, the implemented 16-byte String runtime and the remaining compiler migration, maps, regions, the small-block allocator, and how to watch memory yourself.">
+<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, ownership decided in MIR, the 16-byte String (built on the development line, not released yet), maps, regions, the small-block allocator, and how to watch memory yourself.">
 <meta name="article-index-title" content="Reference 8: Hey values, memory and Strings">
 <title>Hey values, memory and Strings</title>
 <style>:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
@@ -113,9 +113,10 @@ That sounds like a copy every time. Usually it isn't, and this page shows why, w
 what's decided to make it cheaper.</p>
 
 <section class="aside" aria-labelledby="string-update">
-<h2 id="string-update" data-doc-purpose="Read the scoped String16 implementation update.">October 31 update: the runtime now stores the 16-byte String</h2>
+<h2 id="string-update" data-doc-purpose="Read the scoped String16 implementation update.">October 31 update: the development line stores the 16-byte String</h2>
+<p><strong>Not in a release yet.</strong> This update describes the development line of the compiler and runtime. In the published 0.99.605a every String is still a pointer to an SDS block (section 4), and the 16-byte type exists in the runtime source without being used for String values. Where sections 4 and 5 say a short String keeps its bytes inline, that is the development line.</p>
 <p><strong>A short String keeps its bytes inside the value.</strong> <code>'hello'</code> needs five bytes of text, so it fits inside the 16-byte String without a separate text allocation. Longer text lives outside the value; the owned form uses a reference-counted backing block. The cutoff counts <em>bytes</em>, not characters. A generic <code>HeyValue</code> still occupies 32 bytes: its separate Bytes payload is larger.</p>
-<p>The boxed runtime and its owning stores now use this layout. Native C tests cover optimized and unoptimized builds, address and undefined-behavior checks, embedded zero bytes, aliases and borrowed views. Counted literal transport and a small program built by the maintained compiler now pass native checks too. <strong>The compiler migration and release qualification remain open.</strong> Control flow, Windows indirect calls, typed job names, the full product/archive and Linux qualification still need work. Historical measurements below are not measurements of this candidate.</p>
+<p>On the development line the boxed runtime and its owning stores use this layout. Native C tests cover optimized and unoptimized builds, address and undefined-behavior checks, embedded zero bytes, aliases and borrowed views. Counted literal transport and a small program built by the maintained compiler now pass native checks too. <strong>The compiler migration and release qualification remain open.</strong> Control flow, Windows indirect calls, typed job names, the full product/archive and Linux qualification still need work. The measurements below were not taken on this code.</p>
 <p>To check the storage promise, read <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/runtime/hey_str.h">the String definition</a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/test/gate_phase_s_storage_promotions.rb">the owning-store test</a>. This update changes storage, not the language's String semantics.</p>
 </section>
 
@@ -279,7 +280,7 @@ end</code></pre>
 <figcaption>Figure 1. Two names, one block, a write. Writing in place is safe exactly when nobody else can observe the old
 value, and "refs is 1" is the test for that.</figcaption>
 </figure>
-<p>Heap-backed maps, arrays, records and owned long String backing use reference counts. Sharing that backing increments a count; a short String copies its inline bytes.
+<p>Heap-backed maps, arrays, records and owned long String backing use reference counts. Sharing that backing increments a count. In 0.99.605a every String has a counted backing; on the development line a short String copies its inline bytes instead.
 Copy-on-write is <strong>on by default</strong>;<sup><a href="#n2">2</a></sup> it removed the
 clone-per-<code>put</code> on values with one owner.</p>
 <p>The runtime has <strong>one</strong> uniqueness test, <code>hey_rc_count_is_unique</code>: is the count exactly 1?
@@ -331,7 +332,7 @@ inside an <code>if</code>, a helper that takes the map over, and maps of maps. <
 verifier on every module, covers every program shape.<sup><a href="#n3">3</a></sup> <span class="badge b-decided">Decided, coming</span></p>
 
 <h2 id="strings" data-doc-purpose="Understand the SDS backing used by owned and static long Strings.">4. How long Strings keep their bytes: SDS</h2>
-<p>Long Owned and Static Strings use an <em>SDS</em> block ("simple dynamic string", the layout Redis made famous): a small header, then the bytes, then a NUL byte. An Owned backing is allocated and reference-counted; a Static backing is permanent and is never freed. The 16-byte value in section 5 points to those bytes. Borrowed text may instead point into live foreign or interior storage; short Strings need no backing block.</p>
+<p>In 0.99.605a every String is an SDS block, and a String value is a pointer to its first byte. The rest of this section describes the development line, where only long Strings have one. Long Owned and Static Strings use an <em>SDS</em> block ("simple dynamic string", the layout Redis made famous): a small header, then the bytes, then a NUL byte. An Owned backing is allocated and reference-counted; a Static backing is permanent and is never freed. The 16-byte value in section 5 points to those bytes. Borrowed text may instead point into live foreign or interior storage; short Strings need no backing block.</p>
 <figure>
 <svg viewBox="0 0 880 170" role="img" aria-labelledby="r3t r3d">
 <title id="r3t">SDS block layout</title>
@@ -408,8 +409,8 @@ station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
 
-<h2 id="phases" data-doc-purpose="Read the 16-byte String layout and storage classes.">5. How a String is stored: the 16-byte value</h2>
-<p>Hey has one String carrier: a 16-byte value in the “German string” family of layouts. Its short form contains the bytes; its long form describes separately stored bytes. Owned and Static long Strings use SDS backing. A Borrowed String is a length-delimited view into live external or interior storage. The runtime implementation is tested; using this carrier throughout every compiled program is still being qualified.</p>
+<h2 id="phases" data-doc-purpose="Read the 16-byte String layout and storage classes.">5. How a String is stored: the 16-byte value <span class="badge b-decided">Decided, coming</span></h2>
+<p>This section describes the development line. It is not in 0.99.605a. Hey has one String carrier: a 16-byte value in the “German string” family of layouts. Its short form contains the bytes; its long form describes separately stored bytes. Owned and Static long Strings use SDS backing. A Borrowed String is a length-delimited view into live external or interior storage. The runtime implementation is tested; using this carrier throughout every compiled program is still being qualified.</p>
 <figure>
 <svg viewBox="0 0 880 360" role="img" aria-labelledby="r4t r4d">
 <title id="r4t">The 16-byte String, short and long</title>
@@ -477,7 +478,7 @@ and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layo
 
 <h3>Implemented storage and remaining work</h3>
 <div class="tablewrap"><table>
-<caption>The runtime carrier is implemented; full compiler qualification is separate.</caption>
+<caption>On the development line the runtime carrier is implemented; full compiler qualification is separate. None of these rows is in 0.99.605a.</caption>
 <thead><tr><th scope="col">Contract</th><th scope="col">State</th></tr></thead>
 <tbody>
 <tr><td>16-byte String, with text of 0–12 bytes inline and longer owned text backed by SDS</td><td>Implemented and tested in the boxed runtime</td></tr>
@@ -487,7 +488,7 @@ and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layo
 <tr><td>A small program built by the maintained compiler</td><td>Native cold/warm builds and output checks pass; its emitted application code and freshly built runtime also pass address and undefined-behavior checks, with an existing node object linked. This is separate from the literal test and does not qualify the full product or every target</td></tr>
 <tr><td>Every compiled language family and target, full archive and release</td><td>Still open; no new whole-program speed claim</td></tr>
 </tbody></table></div>
-<p>The <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/8ae77f54e/test/gate_structured_string_literals.rb">literal test</a> and the <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_says_ownership.rb">small-program ownership test</a> record these separate scopes. The compiler still has unqualified language and target families.</p>
+<p>The <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_string_literals.rb">literal test</a> and the <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_says_ownership.rb">small-program ownership test</a> record these separate scopes. The compiler still has unqualified language and target families.</p>
 <p>An empty String, including the all-zero value, is a valid result. Ordinary compiled failures leave the active work unit instead of using empty text as a failure marker. MIR registers initialized owner slots before fallible work so that unwinding can release them. Probe and count-and-return interfaces have separate contracts; a language String value alone never tells you whether failure occurred.</p>
 <p>At a C boundary that requires terminated text, the runtime checks for embedded zero bytes before effects. A pointer into short text must refer to a live, stable String value, or to caller-owned scratch storage. Returning a pointer into a temporary copy would leave the caller with a dangling pointer.</p>
 
