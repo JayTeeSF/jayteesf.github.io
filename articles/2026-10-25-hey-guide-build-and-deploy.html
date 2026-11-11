@@ -6,7 +6,7 @@
 <meta name="article-index-rank" content="6">
 <meta name="article-index-desc" content="What hey build produces, what it links, how fast it starts, the run cache, platform targets, a small container image, and a deploy recipe.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="What hey build produces, measured: binary name and location, size, what it links statically and dynamically, startup time, the run cache, platform targets, a 9.4 MB container image, and a Kamal deploy.">
+<meta name="description" content="What hey build produces, measured: binary name and location, size, what it links statically and dynamically, startup time, the run cache, platform targets, a small container image, and a Kamal deploy.">
 <meta name="article-index-title" content="Guide 6: Build and deploy">
 <title>Build and deploy Hey programs</title>
 <style>
@@ -104,11 +104,12 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </svg></figure>
 
 <h1>Build and deploy Hey programs</h1>
-<p class="lede"><code>hey build app.hey -o build/app</code> gives you one native file. On a Mac, hello world is a little over a hundred kilobytes and needs nothing but the operating system's C library to start. This guide opens that file up and follows it into a container and onto a server.</p>
+<p class="lede"><code>hey build app.hey -o build/app</code> gives you one native file. On a Mac, with the 606a candidate build, hello world is a little over a hundred kilobytes and needs nothing but the operating system's C library to start. This guide opens that file up and follows it into a container and onto a server.</p>
 
 <div class="note">
 <p><strong>Badges:</strong> <span class="badge b-works">Works today</span> <span class="badge b-partly">Partly works</span> <span class="badge b-decided">Decided, coming</span> <span class="badge b-proposed">Proposed</span> (meanings in <a href="2026-10-25-hey-index.html#legend">the index</a>).</p>
 <p><strong>Every command here is run by Hey's documentation test</strong> on a Mac, and its output must match; a line with <code>...</code> stands for text that differs on your machine. Blocks that need Docker or a server are marked as fragments and say what they need.</p>
+<p><strong>Which toolchain.</strong> The published release is 0.99.605a. The sessions on this page were run with a 0.99.606a candidate build, which has not been released, so some output differs on 605a. Known differences on a Mac with 605a: a program that links the runtime is about 1.1 MB larger, and it links OpenSSL (Homebrew's <code>openssl@3</code>) at start, so <code>otool -L</code> lists <code>libssl</code> and <code>libcrypto</code> as well as <code>libSystem</code>, and starting it takes about 1.3 ms more.</p>
 </div>
 
 <nav class="toc" aria-label="Contents"><ol>
@@ -133,11 +134,11 @@ end</code></pre>
 <span class="cmd">$ otool -L build/hello</span>
 <span class="out">build/hello:
 	/usr/lib/libSystem.B.dylib (...)</span></code></pre>
-<p><strong>Name and place:</strong> exactly what you pass to <code>-o</code>. Leave the folder out and it lands next to where you ran the command. <code>otool -L</code> (on Linux, <code>ldd</code>) lists the shared libraries a program loads at start: here, only the system C library.</p>
+<p><strong>Name and place:</strong> exactly what you pass to <code>-o</code>. Leave the folder out and it lands next to where you ran the command. <code>otool -L</code> (on Linux, <code>ldd</code>) lists the shared libraries a program loads at start: here, only the system C library (on 0.99.605a a program that links the runtime also lists OpenSSL).</p>
 <figure class="fig" aria-labelledby="dg6-1-cap">
 <svg viewBox="0 0 900 330" role="img" aria-labelledby="dg6-1-title dg6-1-desc">
 <title id="dg6-1-title">Anatomy of a Hey executable</title>
-<desc id="dg6-1-desc">The executable file holds three layers, all linked in statically: your compiled code; only the standard library pieces your program calls, taken from libhey_stdlib.a; and only the runtime pieces it needs, such as the actor scheduler and memory management. Outside the file, loaded by the operating system at start: the C library (libSystem on macOS, musl or glibc on Linux). OpenSSL is loaded only when a program first uses TLS.</desc>
+<desc id="dg6-1-desc">The executable file holds three layers, all linked in statically: your compiled code; only the standard library pieces your program calls, taken from libhey_stdlib.a; and only the runtime pieces it needs, such as the actor scheduler and memory management. Outside the file, loaded by the operating system at start: the C library (libSystem on macOS, musl or glibc on Linux). With the 606a candidate build on macOS, OpenSSL is loaded only when a program first uses TLS; 0.99.605a links it at start.</desc>
 <defs><marker id="g6a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--mid)"/></marker></defs>
 <rect x="20" y="20" width="430" height="290" rx="12" class="good"/>
 <text x="235" y="46" text-anchor="middle" class="b mono">build/app (one file)</text>
@@ -146,7 +147,7 @@ end</code></pre>
 <rect x="45" y="214" width="380" height="64" rx="8" class="acc"/><text x="235" y="240" text-anchor="middle" class="b">Hey runtime pieces you need</text><text x="235" y="260" text-anchor="middle" class="xs">actors, scheduler, reference counts, strings, I/O</text>
 <text x="235" y="300" text-anchor="middle" class="sm">all static: copied in at build time</text>
 <rect x="540" y="60" width="340" height="80" rx="8" class="box"/><text x="710" y="86" text-anchor="middle" class="b">C library (always)</text><text x="710" y="106" text-anchor="middle" class="xs mono">macOS: /usr/lib/libSystem.B.dylib</text><text x="710" y="124" text-anchor="middle" class="xs mono">Alpine: musl libc</text>
-<rect x="540" y="170" width="340" height="110" rx="8" class="warnb"/><text x="710" y="196" text-anchor="middle" class="b">OpenSSL (only for TLS)</text><text x="710" y="218" text-anchor="middle" class="xs">Linux 605a: linked when the program can reach TLS</text><text x="710" y="236" text-anchor="middle" class="xs">(libssl.so.3, libcrypto.so.3)</text><text x="710" y="256" text-anchor="middle" class="xs">macOS 606a: opened on first TLS use, from</text><text x="710" y="272" text-anchor="middle" class="xs mono">/opt/homebrew/opt/openssl@3/lib</text>
+<rect x="540" y="170" width="340" height="110" rx="8" class="warnb"/><text x="710" y="196" text-anchor="middle" class="b">OpenSSL (only for TLS)</text><text x="710" y="218" text-anchor="middle" class="xs">Linux 605a: linked when the program can reach TLS</text><text x="710" y="236" text-anchor="middle" class="xs">(libssl.so.3, libcrypto.so.3)</text><text x="710" y="256" text-anchor="middle" class="xs">macOS, 606a candidate: opened on first TLS use, from</text><text x="710" y="272" text-anchor="middle" class="xs mono">/opt/homebrew/opt/openssl@3/lib</text>
 <path d="M450,100H538" class="ln-dash" marker-end="url(#g6a)"/><path d="M450,225H538" class="ln-dash" marker-end="url(#g6a)"/>
 <text x="495" y="92" text-anchor="middle" class="xs">dynamic</text><text x="495" y="217" text-anchor="middle" class="xs">dynamic</text>
 </svg>
@@ -175,7 +176,7 @@ end</code></pre>
 <span class="cmd">$ otool -L build/health</span>
 <span class="out">build/health:
 	/usr/lib/libSystem.B.dylib (...)</span></code></pre>
-<p>A web server in about a quarter of a megabyte, linking only the system C library (<code>libSystem</code> on macOS; on Linux, the C library and, for a program that can reach TLS, OpenSSL). Your code, the standard library pieces it uses and the Hey runtime are all inside the file.<sup><a href="#n1">1</a></sup></p>
+<p>A web server in about a quarter of a megabyte with the 606a candidate build, linking only the system C library (<code>libSystem</code> on macOS; on Linux, the C library and, for a program that can reach TLS, OpenSSL). Your code, the standard library pieces it uses and the Hey runtime are all inside the file.<sup><a href="#n1">1</a></sup></p>
 <p><strong>Run it.</strong> It needs no environment variables and no Hey installation. This one listens on port 8080 on every network interface. Start it in one terminal with <code>./build/health</code>, then <strong>point a client at it</strong> from another:</p>
 <pre data-example="runnable" data-background="./build/health" data-wait="curl -s -f localhost:8080/health"><code><span class="cmd">$ curl -si http://localhost:8080/health</span>
 <span class="out">HTTP/1.1 200 OK
@@ -187,7 +188,7 @@ connection: keep-alive
 <p><strong>Copy it to another machine</strong> of the same kind (same operating system and CPU) with <code>scp build/health server:</code>, and run <code>./health</code> there. Nothing else needs installing. To check that it doesn't lean on anything in your build folder or your shell, copy it somewhere else and start it with an empty environment, <code>mkdir -p elsewhere &amp;&amp; cp build/health elsewhere/ &amp;&amp; cd elsewhere &amp;&amp; env -i ./health</code>:</p>
 <pre data-example="runnable" data-background="mkdir -p elsewhere &amp;&amp; cp build/health elsewhere/ &amp;&amp; cd elsewhere &amp;&amp; env -i ./health" data-wait="curl -s -f localhost:8080/health"><code><span class="cmd">$ curl -s http://localhost:8080/health</span>
 <span class="out">{"ok":true}</span></code></pre>
-<p>Starting a built file directly takes about a millisecond; <code>hey app.hey</code> adds a cache check of a few milliseconds (<a href="2026-10-25-hey-guide-cli-tool.html#ship">Guide 3</a>).</p>
+<p>Starting a built file directly takes about a millisecond (606a candidate build); <code>hey app.hey</code> adds a cache check of a few milliseconds (<a href="2026-10-25-hey-guide-cli-tool.html#ship">Guide 3</a>).</p>
 
 <h2 id="cache">3. The run cache</h2>
 <p><span class="badge b-works">Works today</span></p>
@@ -246,11 +247,11 @@ release_ready=true</span></code></pre>
 
 <h2 id="containers">5. Containers</h2>
 <p><span class="badge b-works">Works today</span></p>
-<p>The <strong>toolchain image</strong> is Hey's compiler in an Alpine Linux image, tagged with the exact version and CPU (<code>hey-toolchain:0.99.607a-amd64</code>). Because it's cached by its version tag, every Hey release bumps the version, so an app never compiles against a stale compiler. It's big and it never ships: you compile in it, then copy the result out.</p>
+<p>The <strong>toolchain image</strong> is Hey's compiler in an Alpine Linux image, tagged with the exact version and CPU (<code>hey-toolchain:0.99.605a-amd64</code> for the published release). Because it's cached by its version tag, every Hey release bumps the version, so an app never compiles against a stale compiler. It's big and it never ships: you compile in it, then copy the result out.</p>
 <p>The same <code>health.hey</code> from section 2, in a container:</p>
 <p>A two-stage <code>Dockerfile</code>: compile in the toolchain image, ship only the binary.</p>
 <pre data-example="fragment" data-needs="Docker and the Hey toolchain image"><code># Stage 1: compile with the Hey toolchain image
-FROM hey-toolchain:0.99.607a-amd64 AS build
+FROM hey-toolchain:0.99.605a-amd64 AS build
 WORKDIR /app
 COPY health.hey .
 RUN hey build health.hey -o /out/health
@@ -292,12 +293,12 @@ hey-kamal deploy/hey-kamal.yml deploy</code></pre>
 <h2 id="deps">7. Install layout and hidden host dependencies</h2>
 <p><span class="badge b-decided">Decided, coming</span></p>
 <p>The rule: an installed Hey, and the programs it builds, depend on nothing on the machine that isn't declared. Toolchains live in one versioned folder (<code>/opt/hey/VERSION</code> or <code>~/.local/hey/VERSION</code>), caches in the user cache folder, and built apps find their native libraries relative to themselves (<code>@loader_path/../lib/hey/native</code> on macOS, <code>$ORIGIN/../lib/hey/native</code> on Linux).</p>
-<p><span class="badge b-partly">Partly works</span> The one hidden dependency left is OpenSSL on macOS. The runtime opens it with <code>dlopen</code> (which loads a library while the program is already running) the first time a program uses TLS, searching a library path written into the binary that points at Homebrew's <code>openssl@3</code>. On a Mac without it, a TLS call fails with a named error (<code>could not load OpenSSL ...</code>); programs that never use TLS don't care. On Linux, OpenSSL is an ordinary declared dependency that <code>ldd</code> shows.</p>
+<p><span class="badge b-partly">Partly works</span> The one hidden dependency left is OpenSSL on macOS. On 0.99.605a a program that links the runtime links Homebrew's <code>openssl@3</code> at start, whether it uses TLS or not. With the 606a candidate build the runtime opens it with <code>dlopen</code> (which loads a library while the program is already running) the first time a program uses TLS, searching a library path written into the binary that points at Homebrew's <code>openssl@3</code>. On a Mac without it, a TLS call fails with a named error (<code>could not load OpenSSL ...</code>); programs that never use TLS don't care. On Linux, OpenSSL is an ordinary declared dependency that <code>ldd</code> shows.</p>
 
 <section class="notes" id="notes" aria-labelledby="notes-h">
 <h2 id="notes-h">Notes</h2>
 <ol>
-<li id="n1">The runtime loads OpenSSL on first TLS or crypto use, not at program start: e18214.</li>
+<li id="n1">The runtime loads OpenSSL on first TLS or crypto use, not at program start: e18214. This change is after 0.99.605a.</li>
 </ol>
 </section>
 <footer>
