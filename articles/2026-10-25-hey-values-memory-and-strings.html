@@ -160,7 +160,7 @@ end</code></pre>
 {&quot;name&quot;:&quot;Ada&quot;}
 {&quot;name&quot;:&quot;Ada&quot;,&quot;visits&quot;:1}</code></pre>
 <p><code>fruit</code> and <code>doc</code> are untouched. (<code>hey file.hey</code> compiled this to native code and ran it.)</p>
-<p class="id">Measured on a Mac M3 Pro.</p>
+<p class="id">Measured on a Mac M3 Pro with an unreleased 0.99.606a candidate build, not a release.</p>
 <p>That's the safe part: no function can change a value you passed it, and an actor can be handed a value (copied or moved) without locks, because nothing can change it.
 Now the puzzle. This is how everyone counts things in Hey:</p>
 <pre data-example="fragment" data-needs="one line from the program below"><code>set counts = counts.put(word, counts[word] + 1)</code></pre>
@@ -236,7 +236,7 @@ end</code></pre>
 <tr><td class="num">50,000</td><td><code>50</code>, <code>1067</code></td><td class="num">23,409,854,804</td><td class="num">468,197</td></tr>
 <tr><td class="num">100,000</td><td><code>100</code>, <code>2150</code></td><td class="num">47,037,189,247</td><td class="num">470,372</td></tr></table></div>
 <p>About <strong>290 times</strong> the work per word. While <code>before</code> still holds the old map, the map has two owners, so every <code>put</code> must copy all 1,000 entries to keep <code>before</code> unchanged. That's the price of immutability, paid only when you really keep the old value.</p></details></div>
-<p class="id">Measured on a Mac M3 Pro.</p>
+<p class="id">Measured on a Mac M3 Pro with an unreleased 0.99.606a candidate build, not a release.</p>
 
 <h2 id="cow">2. Reference counts and copy-on-write <span class="badge b-works">Works today</span></h2>
 <figure>
@@ -334,7 +334,7 @@ made famous): one allocation holding a small header, then the bytes, then a NUL 
 <text x="490" y="140" class="t-small">a String value is a pointer to the first byte</text>
 <text x="20" y="140" class="t-small t-muted">refs: atomic count; literals start at 2^62 = immortal</text>
 </svg>
-<figcaption>Figure 3. Almost always one allocation per String. The last field packs the capacity with flag bits (an origin bit and a region bit). <code>struct HeyStringBacking</code>, in the runtime.</figcaption>
+<figcaption>Figure 3. Almost always one allocation per String. The last field packs the capacity with a flag bit (the origin bit); a region bit joins it when regions ship. <code>struct HeyStringBacking</code>, in the runtime.</figcaption>
 </figure>
 <ul>
 <li><strong>Almost always one allocation</strong> per String, header and bytes together. The exception is a buffer adopted from C, whose bytes stay in their own allocation.</li>
@@ -372,7 +372,7 @@ end</code></pre>
 <tr><td class="num">500,000</td><td><code>5888890</code>, <code>21</code></td><td class="num">394,272,120</td><td class="num">8.4 MB</td></tr>
 <tr><td class="num">1,000,000</td><td><code>11888890</code>, <code>40</code></td><td class="num">774,082,565</td><td class="num">14.4 MB</td></tr></table></div>
 <p>Linear: each doubling roughly doubles the instructions. <code>out</code> has one owner and is dead after the <code>+</code>, so its block grows in place.<sup><a href="#n4">4</a></sup></p>
-<p class="id">Measured on a Mac M3 Pro.</p>
+<p class="id">Measured on a Mac M3 Pro with an unreleased 0.99.606a candidate build, not a release.</p>
 
 <h3>Bytes <span class="badge b-works">Works today</span></h3>
 <p><code>Bytes</code> is immutable binary data in a block of the same shape. <code>slice</code> on Bytes is a view: it
@@ -563,7 +563,7 @@ changing what the program means.</p>
 cases</strong>. No fact mentions a function name, a field name, a file or a benchmark. A first planner that classified
 calls by their names was reverted, and a version whose rule only fit the
 binary-trees benchmark was deleted (<a href="2026-10-25-hey-performance.html#honest">Performance</a> tells both
-stories). Today the runtime half is built and tested;<sup><a href="#n6">6</a></sup> the MIR facts and their lowering are coming.</p>
+stories). The runtime half is built and tested, but it is not in a released build yet;<sup><a href="#n6">6</a></sup> the MIR facts and their lowering are coming.</p>
 
 <h3>Flat records, then regions <span class="badge b-decided">Decided, coming</span></h3>
 <p>The direction is both, in order: first a compact record header and then shaped records that store fields flat
@@ -572,13 +572,13 @@ costs: flat records make each record cheaper; regions make freeing many records 
 
 <h3>Actor and turn regions <span class="badge b-proposed">Proposed</span></h3>
 <p>The same machinery applied to actors: an actor's memory, or the temporaries of one message-handling turn, freed in
-one step when the actor stops or the turn ends. The runtime has regions and a
+one step when the actor stops or the turn ends. The unreleased runtime has regions and a
 failure path that pops them, so a failed turn closes its region too; the ownership proofs that would open one per turn
 aren't built. Actors: <a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>.</p>
 
-<h2 id="allocator">8. The small-block allocator <span class="badge b-works">Works today</span></h2>
-<p>Record headers, array headers and short String blocks are 32 bytes to 1 KiB, and ordinary programs make and free
-them at a furious rate. They come from Hey's own pages instead of <code>malloc</code>,<sup><a href="#n7">7</a></sup> after
+<h2 id="allocator">8. The small-block allocator <span class="badge b-decided">Decided, coming</span></h2>
+<p>This allocator is built and tested, but it is not in a released build yet: 0.99.605a takes these blocks from <code>malloc</code>. Record headers, array headers and short String blocks are 32 bytes to 1 KiB, and ordinary programs make and free
+them at a furious rate. With the allocator they come from Hey's own pages instead of <code>malloc</code>,<sup><a href="#n7">7</a></sup> after
 mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019).</p>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-labelledby="r6t r6d">
@@ -690,11 +690,11 @@ object
 [&quot;xmalloc_calls&quot;,&quot;xmalloc_bytes&quot;,&quot;strdup_calls&quot;,&quot;strdup_bytes&quot;,&quot;string_values&quot;,&quot;bytes_values&quot;,&quot;json_objects&quot;,&quot;json_pairs&quot;,&quot;json_arrays&quot;,&quot;array_appends&quot;,&quot;clones&quot;,&quot;releases&quot;,&quot;string_grows&quot;,&quot;json_gets&quot;,&quot;json_puts&quot;,&quot;json_get_key_fast&quot;,&quot;json_put_key_fast&quot;,&quot;json_has_key_fast&quot;,&quot;json_delete_key_fast&quot;,&quot;json_write_inplace&quot;,&quot;json_write_cow_copy&quot;,&quot;message_allocs&quot;,&quot;message_reuses&quot;,&quot;message_returns&quot;,&quot;message_outstanding&quot;,&quot;message_peak_outstanding&quot;,&quot;send_clones&quot;,&quot;send_moves&quot;,&quot;boxes_made&quot;,&quot;boxes_retired&quot;,&quot;boxes_live&quot;,&quot;io_transfer_arms&quot;,&quot;io_transfer_takes&quot;,&quot;io_transfer_poisons&quot;,&quot;io_handle_closes&quot;,&quot;io_governed_clones&quot;,&quot;shape_interns&quot;,&quot;shape_reuses&quot;,&quot;node_field_snapshot_clones&quot;,&quot;node_borrow_begins&quot;,&quot;node_borrow_ends&quot;,&quot;node_borrow_promotions&quot;,&quot;shape_queries&quot;]
 true</code></pre>
 <p>Two environment variables help outside the program: <code>HEY_ALLOC_STATS=1</code> prints every counter as one JSON line on exit (it also turns on the six allocation counters, such as <code>xmalloc_calls</code>, which read 0 without it), and <code>/usr/bin/time -l</code> (Mac) or <code>/usr/bin/time -v</code> (Linux) gives instructions and peak memory. <code>HEY_ALLOC_STATS=1 hey watch.hey</code> printed the same three lines, then (shortened) <code>HEY_ALLOC_STATS {"xmalloc_calls":6722,"xmalloc_bytes":4034208, &hellip; "json_write_inplace":0,"json_write_cow_copy":1000, &hellip;}</code>; its totals are for the whole run after the last reset.</p>
-<p class="id">Measured on a Mac M3 Pro.</p>
+<p class="id">Measured on a Mac M3 Pro with an unreleased 0.99.606a candidate build, not a release.</p>
 
 <h2 id="sources">Sources</h2>
 <ul>
-<li>Every runnable sample on this page is run by the documentation test; the timing tables were measured on a Mac M3 Pro.</li>
+<li>Every runnable sample on this page is run by the documentation test; the timing tables were measured on a Mac M3 Pro with an unreleased 0.99.606a candidate build, not a release.</li>
 <li>Reinking, Xie, de Moura, Leijen, <em>Perceus: Garbage Free Reference Counting with Reuse</em>, PLDI 2021. Tofte and Talpin, <em>Region-Based Memory Management</em>, 1997. Leijen, Zorn, de Moura, <em>Mimalloc: Free List Sharding in Action</em>, MSR-TR-2019-18. The 16-byte "German string": cedardb.com/blog/german_strings, as cited by the research brief above.</li>
 <li>Rulings, one line each above: one String form and Phase S; ownership decisions belong in MIR; no special cases. Full cards: <a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</li>
 </ul>
@@ -708,9 +708,9 @@ true</code></pre>
 <section class="notes" id="notes" aria-labelledby="notes-h">
 <h2 id="notes-h">Notes</h2>
 <ol>
-<li id="n1">Measured with a toolchain built from cb817d.</li>
+<li id="n1">Measured with an unreleased 0.99.606a candidate build (a toolchain built from cb817d), not a release.</li>
 <li id="n2">Copy-on-write enabled by default, with in-place mutation for sole-owned values: d443da.</li>
-<li id="n3">MIR gained explicit ownership statements in its one reader and a consume-exactly-once verifier: 03e9ee.</li>
+<li id="n3">MIR gained explicit ownership statements in its one reader and a consume-exactly-once verifier: 03e9ee. That change is later than 0.99.605a and is not in a released build yet.</li>
 <li id="n4">A boxed String self-append reuses its accumulator: c800ef.</li>
 <li id="n5">MIR owns a map updated by a call that also reads one of its elements: 675cdd.</li>
 <li id="n6">A temporary record graph lent to a reader is built in a region and freed at once: 65770f.</li>

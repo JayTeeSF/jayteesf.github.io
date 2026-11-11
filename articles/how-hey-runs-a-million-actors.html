@@ -128,7 +128,7 @@
           stops that actor's turn, and the thread moves straight on to the next actor. Error state lives with
           the actor, because thousands of actors share each thread.</li>
         <li><strong>Next: memory freed per turn and per actor.</strong> When an actor dies, its memory should go back
-          in one step, the way Erlang frees a process heap. Regions already do that for temporary record graphs.</li>
+          in one step, the way Erlang frees a process heap. Regions are the designed way to do that for temporary record graphs.</li>
       </ul>
     </section>
 
@@ -226,7 +226,7 @@
       <div class="bar-row"><div class="bar-label">Erlang process</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div><span class="bar-val">about 2,616 B</span></div></div>
     </div>
     <p class="muted">
-      Hey and Go were measured on the same Apple M3 Pro (12 cores), Hey built with 0.99.606a: the program's peak
+      Hey and Go were measured on the same Apple M3 Pro (12 cores), Hey built with an unreleased 0.99.606a candidate build: the program's peak
       memory holding a million parked actors or goroutines (each goroutine waiting on its own channel), less its
       peak with none, divided by a million; medians of five and three runs. The Tokio, Pony and Erlang figures are
       from their own documentation.
@@ -256,7 +256,7 @@
         <rect x="45" y="108" width="60" height="30" rx="6" fill="var(--good-soft)" stroke="var(--good)"/>
         <text x="75" y="128" font-size="13" text-anchor="middle">B</text>
         <text x="118" y="128" font-size="13">"run next" slot</text>
-        <text x="45" y="160" font-size="13" class="m">local queue (256 slots, no lock):</text>
+        <text x="45" y="160" font-size="13" class="m">local queue (4,096 slots, no lock):</text>
         <g>
           <rect x="45"  y="168" width="26" height="26" rx="4" class="actor"/><rect x="75"  y="168" width="26" height="26" rx="4" class="actor"/>
           <rect x="105" y="168" width="26" height="26" rx="4" class="actor"/><rect x="135" y="168" width="26" height="26" rx="4" class="actor"/>
@@ -406,7 +406,9 @@
     <h3>Stopping at once, without slowing the normal path</h3>
     <p>
       A handler that hits an error stops right there; nothing after the error runs. The condition was that this
-      must not turn into a heavyweight exception system that slows every program down. The design meets it this way:
+      must not turn into a heavyweight exception system that slows every program down. The design meets it this way.
+      It is not what 0.99.605a does yet: that release jumps straight to the unit's boundary and releases what the failed
+      turn owned from clean-up records, and a computed String held only in a register can leak one block per failure.
     </p>
     <ul>
       <li>The compiler's middle stage (MIR, the step that already decides who owns each value) marks which calls
@@ -485,8 +487,8 @@
       process dies, nothing has to be walked or counted: the whole heap goes back at once.
     </p>
     <p>
-      Hey already has the building block. A <strong>region</strong> is a group of allocations that share one
-      lifetime, allocated side by side and freed together. MIR proves where a temporary
+      The building block is designed but is not in 0.99.605a (a narrower earlier version was removed). A <strong>region</strong> is a group of allocations that share one
+      lifetime, allocated side by side and freed together. In the design, MIR proves where a temporary
       graph of records, such as decoded JSON, is built, only read, and then dropped. That graph goes into a
       region, and the region is freed in one step instead of one object at a time.
     </p>
