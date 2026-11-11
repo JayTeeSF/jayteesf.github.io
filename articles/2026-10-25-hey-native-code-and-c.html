@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="hey-docs-group" content="build">
+<meta name="hey-docs-title" content="Native packages and C">
+<meta name="hey-docs-purpose" content="Understand native-call interfaces, ownership rules, costs and the typed ABI plan.">
+<meta name="hey-docs-rank" content="17">
 <meta name="article-bucket" content="reference">
 <meta name="article-index-rank" content="07">
 <meta name="article-index-desc" content="Native packages: the manifest, the generated shim, Native.call, where blocking calls may run, what a call costs, and the decided direct calls.">
@@ -90,8 +94,10 @@ svg .t-good{fill:var(--good)}svg .t-bad{fill:var(--bad)}svg .t-acc{fill:var(--ac
 .notes ol{padding-left:1.4rem}
 sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </style>
+<link rel="stylesheet" href="hey-docs-navigation.css">
 </head>
 <body>
+<nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav>
 <div class="wrap">
 <p class="eyebrow">Reference 7 of 10</p>
 <h1>Native code and calling C: native packages, and the direct calls that are decided</h1>
@@ -114,10 +120,12 @@ import and an ordinary call.</p>
 <div class="summary"><strong>On one screen</strong>
 Today <span class="badge b-works">Works today</span> (Unix): describe the C functions in <code>hey.native.json</code>,
 run <code>hey native</code> to generate a <em>shim</em> (small generated C glue between Hey and the library), and call through <code>Native.open</code> and <code>Native.call</code>.
-Hey's internal value type never crosses into C. Each call costs about 5,400 instructions, of which the C work is about
+Package-facing C APIs never receive Hey's internal <code>HeyValue</code>. Each call costs about 5,400 instructions, of which the C work is about
 100. Decided <span class="badge b-decided">Decided, coming</span>: <em>native ABI v2</em>, typed calls bound at compile
-time, estimated 40 to 90 instructions, after the String format freezes. The way to C for your code is native packages,
+time, estimated 40 to 90 instructions, after the String calling-convention migration is qualified. The way to C for your code is native packages,
 and that is ruled.</div>
+
+<p class="aside"><strong>October 31 implementation update:</strong> the runtime now stores the 16-byte String. That storage change does not complete native ABI v2 or qualify every compiled call. The costs below describe the earlier measured path, not a new performance result. See <a href="2026-10-25-hey-values-memory-and-strings.html#string-update">the storage update</a>.</p>
 
 <p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test (on a 0.99.606a candidate build that has not been released; the published release is 0.99.605a). <span class="badge b-decided">Decided, coming</span> ruled, not in a released build yet. <span class="badge b-proposed">Proposed</span> not ruled.</p>
 
@@ -132,15 +140,11 @@ and that is ruled.</div>
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
 
-<h2 id="why">1. Why native packages exist, and the one rule</h2>
-<p>A Hey value in memory (the runtime's <code>HeyValue</code>) has a layout that changes between releases: it is
-changing right now, as Strings move to a 16-byte form. If C code could see that layout, every release would break every
-C library. So the rule is: <strong><code>HeyValue</code> never crosses into C.</strong> C sees only booleans, fixed-size
-integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec
-fails the build if the package-facing header ever mentions <code>HeyValue</code>.
+<h2 id="why" data-doc-purpose="Understand the purpose and ownership boundary of native packages.">1. Why native packages exist, and the one rule</h2>
+<p>The runtime's <code>HeyValue</code> layout now contains the 16-byte String. Exposing that internal layout could break native packages when the representation changes. <strong>Package-facing C APIs never receive <code>HeyValue</code>.</strong> The runtime itself is written in C and does use that type internally. A package sees only booleans, fixed-size integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec fails the build if the package-facing header mentions <code>HeyValue</code>.
 <span class="badge b-works">Works today</span></p>
 
-<h2 id="today">2. Calling C today</h2>
+<h2 id="today" data-doc-purpose="Read the existing native-call workflow.">2. Calling C today</h2>
 <p>A tiny C library with two functions, <code>add_i64</code> and <code>scale_i64</code>. The manifest says what each
 takes and returns, who owns what, whether it can be null, whether it <strong>blocks</strong> (waits on disk or network),
 and whether it is safe to call from two threads at once:</p>
@@ -288,7 +292,7 @@ $ echo $?
 handle does not make the C resource immutable or thread-safe; keep stateful resources under one owner, often a
 partitioned Job.</p>
 
-<h2 id="cost">3. What one call costs today, and why</h2>
+<h2 id="cost" data-doc-purpose="Understand the dated per-call cost discussion.">3. What one call costs today, and why</h2>
 <figure class="fig">
 <svg viewBox="0 0 760 300" role="img" aria-labelledby="f1t">
 <title id="f1t">Today's call takes seven steps: build the argument list, box the name, find the extension by handle and the function by name, convert each argument by tag, lock and call the generic invoke switch, convert the result back and build a Result record, then release it all. The C work is about one percent. The decided direct call is one step: a typed call to a flat wrapper.</title>
@@ -367,7 +371,7 @@ $ echo $?
 <p>The two lines with timings change from run to run. On a 12-core Mac, one <code>Native.call</code> of a C function that adds two integers takes a few hundred nanoseconds (360 to 560 across runs); the same loop calling a Hey function takes about 35. One run, timed with <code>Time.now_ns()</code> inside the program, so treat the numbers as a size, not a benchmark. The gap is the seven steps in the picture: building and freeing a list and a Result per call, not the addition.</p>
 
 
-<h2 id="v2">4. Decided: direct, typed calls (the native ABI v2 release)</h2>
+<h2 id="v2" data-doc-purpose="Read the proposed direct typed native ABI.">4. Decided: direct, typed calls (the native ABI v2 release)</h2>
 <p> <span class="badge b-decided">Decided, coming</span><sup><a href="#n3">3</a></sup> You import a package's
 functions as a module and call them like Hey functions. The compiler binds each call at compile time:</p>
 <pre data-example="fragment" data-needs="a native package installed in the project"><code>import 'native:hey_sqlite3'
@@ -402,11 +406,11 @@ and 4n calls and take the difference, so start-up cost cancels out).</td><td><sp
 <tr><td>Pointer-and-length borrowed views at the C boundary</td><td>Text and bytes passed as <code>(data, length)</code> pointing at Hey's own storage, valid only during the call. Flat C wrappers with scalar parameters keep the platform's struct-passing rules clang's job.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 <tr><td>Callback and native-effect summaries</td><td>Each native function's effects (what it keeps, what it calls back) declared and checked, so ownership and regions stay correct across the call; unknown fails closed.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 <tr><td>Manifest and hash authority</td><td>The compiler reads only the generated, hash-checked lock file; a stale lock is refused.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>After the String format freezes</td><td>Passing text across waits until the 16-byte String value is frozen (see <a href="2026-10-25-hey-values-memory-and-strings.html">Values, memory and Strings</a>).</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>After String calling conventions are qualified</td><td>The boxed runtime now stores the 16-byte String, but complete compiled-call and platform qualification still remains (see <a href="2026-10-25-hey-values-memory-and-strings.html">Values, memory and Strings</a>).</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 </tbody></table></div>
 
 
-<h2 id="open">5. The rules around a native call</h2>
+<h2 id="open" data-doc-purpose="Check lifetime, ownership and failure rules around a call.">5. The rules around a native call</h2>
 <div class="scroll"><table>
 <thead><tr><th>Question</th><th>Answer</th><th>Status</th></tr></thead><tbody>
 <tr><td>How does a program import a package's C functions?</td><td><code>import 'native:hey_sqlite3'</code>; the manifest's <code>module</code> field names the module.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
@@ -424,7 +428,7 @@ There is no other way to declare C functions in Hey source, and none is coming. 
 the runtime inside the toolchain; your code calls them like any other Hey function. See the
 <a href="2026-10-25-hey-every-decision.html">decision ledger</a>.</p></div>
 
-<h2 id="packages">6. The 16 packages that re-release</h2>
+<h2 id="packages" data-doc-purpose="Find native package migration scope.">6. The 16 packages that re-release</h2>
 <p> <span class="badge b-works">Works today</span> (as packages on the current manifest
 format). All 16 local repositories with a <code>hey.native.json</code> use manifest schema
 <code>hey-native-package-v1</code> with the ABI v2 value types, and all will re-release for native ABI v2: new manifest,
@@ -440,7 +444,7 @@ version bump, package check, publish, then their dependents.</p>
 </tbody></table></div>
 <p>The <code>hey native</code> command and its flags are listed in <a href="2026-10-25-hey-commands-and-platforms.html">Commands and platforms</a>.</p>
 
-<h2 id="limits">7. Limits</h2>
+<h2 id="limits" data-doc-purpose="Check constraints before relying on native integration.">7. Limits</h2>
 <ul>
 <li><strong>A native call cannot be interrupted, by any scheme.</strong>
 <span class="badge b-works">Works today</span> (a standing fact). Erlang's "dirty NIFs" (C functions run on separate
@@ -454,19 +458,19 @@ are documented with the platform matrix in
 <a href="2026-10-25-hey-commands-and-platforms.html">Commands and platforms</a>.</li>
 </ul>
 
-<h2 id="sources">Sources</h2>
+<h2 id="sources" data-doc-purpose="Inspect the source references and background reading for this page.">Sources</h2>
 <ul>
 <li>Every <em>Works today</em> sample on this page is run by the documentation test.</li>
 
 </ul>
-<h2>Read next</h2>
+<h2 id="read-next" data-doc-purpose="Choose a related guide or reference to read next.">Read next</h2>
 <ul>
 <li><a href="2026-10-25-hey-compiler-from-source-to-native.html">How the Hey compiler turns source into native code</a>: built-in binding inside the toolchain, the resolver and MIR.</li>
 <li><a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4: Workers, Jobs and streams</a>: where blocking calls belong.</li>
 <li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>.</li>
 </ul>
 <section class="notes" id="notes" aria-labelledby="notes-h">
-<h2 id="notes-h">Notes</h2>
+<h2 id="notes-h" data-doc-purpose="Follow the evidence notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">Native declaration facts are verified against lock files: e8bc74.</li>
 <li id="n2"><code>Native.call</code> and <code>Native.call_blocking</code> carry declared typed native calling conventions: f7e9f5.</li>

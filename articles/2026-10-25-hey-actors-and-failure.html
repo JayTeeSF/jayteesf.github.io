@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="hey-docs-group" content="concurrency">
+<meta name="hey-docs-title" content="Actors and failure">
+<meta name="hey-docs-purpose" content="Give state an owner and understand requests, I/O waits, supervision and failure.">
+<meta name="hey-docs-rank" content="13">
 <meta name="article-bucket" content="reference">
 <meta name="article-index-rank" content="03">
 <meta name="article-index-desc" content="Actors, asking and answering, links, monitors, supervisors, the scheduler, and how one failure stays contained.">
@@ -90,8 +94,10 @@ svg .t-good{fill:var(--good)}svg .t-bad{fill:var(--bad)}svg .t-acc{fill:var(--ac
 .notes ol{padding-left:1.4rem}
 sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </style>
+<link rel="stylesheet" href="hey-docs-navigation.css">
 </head>
 <body>
+<nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav>
 <div class="wrap">
 <p class="eyebrow">Reference 3 of 10 · toolchain 0.99.606a (unreleased candidate build; the current release is 0.99.605a)</p>
 <h1>Actors and failure: give state an owner, and let failures stay small</h1>
@@ -133,7 +139,7 @@ threads. Not sure an actor is the right tool? <a href="2026-10-25-hey-workers-jo
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
 
-<h2 id="owner">1. When state must live, give it an owner</h2>
+<h2 id="owner" data-doc-purpose="Decide when persistent state needs an actor owner.">1. When state must live, give it an owner</h2>
 
 <figure class="fig">
 <svg viewBox="0 0 760 230" role="img" aria-labelledby="d1t">
@@ -214,7 +220,7 @@ between actors or jobs: a counter that many parties update lives in an actor, an
 form <code>set count += 1</code> means the same thing and applies only to actor state.
 <span class="badge b-decided">Decided, coming</span> (the <code>+=</code> spelling; the long form works today)</div>
 
-<h2 id="words">2. The actor words</h2>
+<h2 id="words" data-doc-purpose="Look up the actor operations and vocabulary.">2. The actor words</h2>
 <p>Every word below is part of the language; no import is needed. Status is for the compiled road
 (<code>hey file.hey</code> and <code>hey build</code>).</p>
 <div class="scroll"><table>
@@ -231,7 +237,7 @@ form <code>set count += 1</code> means the same thing and applies only to actor 
 <tr><td><code>spawn_named</code>, <code>supervise_named</code>, <code>actor_by_pid</code>, <code>actors()</code>, <code>send_pid</code>, <code>pid</code></td><td>Builtins: start with a registered name, look an actor up by its number (its <em>pid</em>, process id), list live actors, send to a pid.</td><td><span class="badge b-works">Works today</span></td></tr>
 </tbody></table></div>
 
-<h2 id="ask">3. Asking and answering, and why a timeout means "unknown"</h2>
+<h2 id="ask" data-doc-purpose="Understand request replies, timeouts and uncertain outcomes.">3. Asking and answering, and why a timeout means "unknown"</h2>
 <p><code>send</code> never waits for an answer. When ordinary code (not another actor) needs one, use
 <code>Actor.call(target, body, timeout_ms)</code> from <code>stdlib:Actor</code>. The actor receives
 <code>{kind: 'actor_call', body: …, reply_id: …}</code> in normal mailbox order and answers with
@@ -276,7 +282,7 @@ target gives <code>actor_unavailable</code>; a timeout outside 1 to 3,600,000 ms
 <li>Only the first reply from the target counts. Late or duplicate replies return <code>false</code>.</li>
 </ul>
 
-<h2 id="await">4. Waiting for I/O inside an actor with <code>await</code></h2>
+<h2 id="await" data-doc-purpose="Wait for I/O while keeping actor ownership explicit.">4. Waiting for I/O inside an actor with <code>await</code></h2>
 <p>A turn must not sit on a blocking read; it would hold one of the few scheduler threads. Instead, inside an actor,
 <code>await handles, timeout_ms, tag</code> registers the handles with the runtime's one I/O reactor (kqueue on macOS,
 epoll on Linux, poll as a fallback) and <strong>ends the turn</strong>. When a handle is ready, the actor gets an
@@ -328,7 +334,7 @@ true</code></pre>
 <p>Until then, <code>Io.select_async</code> from <code>stdlib:Io</code> delivers the same tagged completion message to an actor.</p>
 
 
-<h2 id="watch">5. Links, monitors and supervisors</h2>
+<h2 id="watch" data-doc-purpose="Compare links, monitors and supervision.">5. Links, monitors and supervisors</h2>
 <p>Three ways for one actor to care about another:</p>
 <ul>
 <li><strong>Link</strong> <code>link(a, b)</code>: the two share a fate. When one exits, the runtime stops
@@ -482,7 +488,7 @@ $ echo $?
 <tr><td>A supervised actor runs on the shared thread pool like any other actor, so a large supervision tree isn't limited by the operating system's thread ceiling.</td><td><span class="badge b-decided">Decided, coming</span> Today each supervised actor still takes two threads, so a tree meets the limit near 4,096 on macOS.</td></tr>
 </tbody></table></div>
 
-<h2 id="failfast">6. Fail fast, Erlang style</h2>
+<h2 id="failfast" data-doc-purpose="Understand failure containment and recovery boundaries.">6. Fail fast, Erlang style</h2>
 <p>The Maintainer ruled: a runtime error <strong>stops the current unit of work at once and stays
 isolated</strong>; the system carries on or restarts around it. There is <strong>no catch or rescue</strong> in Hey.
 Errors you expect (a missing file, bad input) are values: functions return a Result (<code>stdlib:Result</code>) and you
@@ -724,7 +730,7 @@ process-wide error count only counts errors no unit took, so a contained failure
 70.</p>
 </details>
 
-<h2 id="runs">7. How it runs: a few threads, many actors</h2>
+<h2 id="runs" data-doc-purpose="Read how actors share runtime threads.">7. How it runs: a few threads, many actors</h2>
 <figure class="fig">
 <svg viewBox="0 0 760 250" role="img" aria-labelledby="d2t">
 <title id="d2t">Scheduler: a fixed set of worker threads, one per core by default, each with a run queue of actors that have mail. An idle thread steals runnable actors from a busy thread's queue. Each actor has a lock-free many-sender mailbox. Most actors are parked in memory with no thread.</title>
@@ -760,7 +766,7 @@ ones. Each mailbox accepts many senders without a lock.</figcaption>
 <p>What an idle actor costs in memory, and how that compares with a worker pool, a Job and a stream, is measured in <a href="2026-10-25-hey-workers-jobs-streams.html#tradeoffs">Reference 4</a>. <a href="how-hey-runs-a-million-actors.html">How Hey runs a million actors</a> explains why the cost stays that low.</p>
 
 
-<h2 id="messages">8. What a message costs, and what changes next</h2>
+<h2 id="messages" data-doc-purpose="Understand message sharing and copying costs.">8. What a message costs, and what changes next</h2>
 <p>Today, every <code>send</code> makes one copy of the message for the mailbox. With reference counting, a copy of an
 object or list is just a count increase, but a value handed to another thread is copied deeply, because the counts
 aren't thread-safe. Two decisions change that:</p>
@@ -791,7 +797,7 @@ aren't thread-safe. Two decisions change that:</p>
 <figcaption>Figure 5. Decided: an inline turn is its own unit of work.</figcaption>
 </figure>
 
-<h2 id="next">9. Mailboxes, long turns and stopping</h2>
+<h2 id="next" data-doc-purpose="Read the mailbox, long-turn and stopping concerns.">9. Mailboxes, long turns and stopping</h2>
 <div class="scroll"><table>
 <thead><tr><th>Item</th><th>What happens</th><th>Status</th></tr></thead><tbody>
 <tr><td>A sender that outruns its receiver</td><td>The runtime slows the sender down, as Pony does: past a backlog, or after a run of sends to a receiver that hasn't run yet, the sender pauses until the receiver gets a turn. Nothing is dropped, and there's no <code>try_send</code>.</td><td><span class="badge b-works">Works today</span></td></tr>
@@ -801,13 +807,13 @@ aren't thread-safe. Two decisions change that:</p>
 <tr><td>Freeing everything a turn allocated in one step</td><td>Owned by <a href="2026-10-25-hey-values-memory-and-strings.html">Reference 8: Values, memory and Strings</a>.</td><td>see Reference 8</td></tr>
 </tbody></table></div>
 
-<h2 id="sources">Sources</h2>
+<h2 id="sources" data-doc-purpose="Inspect the source references and background reading for this page.">Sources</h2>
 <ul>
 <li>Every <em>Works today</em> sample on this page is run by the documentation test.</li>
 <li>Rulings, with details in the <a href="2026-10-25-hey-every-decision.html">decision ledger</a>: fail fast, no catch; actor errors must not kill the process; a turn runs to completion; shared messages and inline turns; mailbox backpressure and ceiling; budgets and safe points.</li>
 </ul>
 
-<h2>Read next</h2>
+<h2 id="read-next" data-doc-purpose="Choose a related guide or reference to read next.">Read next</h2>
 <ul>
 <li><a href="2026-10-25-hey-workers-jobs-streams.html">Reference 4: Workers, Jobs and streams</a>: when you want parallel work without identity or state.</li>
 <li><a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>: actors on other machines.</li>
@@ -822,7 +828,7 @@ aren't thread-safe. Two decisions change that:</p>
 <li><a href="should-heys-mailboxes-have-limits.html">Should Hey's mailboxes have limits?</a></li>
 </ul></details>
 <section class="notes" id="notes" aria-labelledby="notes-h">
-<h2 id="notes-h">Notes</h2>
+<h2 id="notes-h" data-doc-purpose="Follow the evidence notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">A failure ends only its own actor, Job attempt or request: 14d886.</li>
 <li id="n2">A runtime error in a web handler stops it and fails only its request with 500: 1bf9dc.</li>
