@@ -101,13 +101,19 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <p class="lede">This is the one reference for Hey's compiler. It shows the single road a program takes from source to a native executable, which stage decides each fact, and what each stage must never do. It also covers the compiler overhaul, which deletes every other road, and the work that then makes the compiler and its programs faster.</p>
 <p><strong>Status on November 10, 2026.</strong> The published release is 0.99.605a, and "today" on this page describes it. 0.99.606a has not shipped, and the consolidation release is still being built. One part of its plan changed after this page was written: the first compiler is to be built from a committed C seed printed from the compiler's own MIR, and the stage-0 compiler written in C is to be deleted instead of kept for bootstrap (<a href="2026-11-01-hey-c-backend-bootstrap.html">Building Hey's Compiler from C</a>). Where this page says the C interpreter stays "for bootstrap", read "as a test oracle only".</p>
 
+<section class="note warn" aria-labelledby="implementation-scope">
+<h2 id="implementation-scope">Implementation note · October 31, 2026</h2>
+<p><strong>The design below is the contract; the migration is still in progress.</strong> Connected native tests now cover selected String and scalar operations, ordinary calls, borrowed parameters, explicit memory cleanup, and linking a separately compiled provider. Those checks include wrong identities, calling conventions and ownership claims that must be refused. They do not establish support for every language construct, self-compilation through this replacement path, removal of every old text reader, or a qualified release.</p>
+<p>The old-code counts and “today” comparisons below describe the historical consolidation audit, not a live inventory. The language examples explain the language contract; they are not a claim that every example already passes through the replacement compiler.</p>
+</section>
+
 <section class="note good" aria-labelledby="short">
 <h2 id="short">The short version</h2>
 <ul>
 <li><strong>One chain, one owner per fact.</strong> Parser, then syntax tree, then resolution, then HIR (meaning and types), then MIR (order, storage, ownership), then LLVM, then native code. A later stage never re-reads source text or guesses from a name.</li>
 <li><strong>Builtins are ordinary Hey declarations.</strong> Runtime functions get typed declarations in the built-in library, read by the same parser and resolver as your code. The declaration form is internal to the toolchain and is never shown to users. The lists of builtin names in the compiler, and the generated signature table, get deleted.</li>
 <li><strong>Types come from two layers.</strong> First the compiler works out each function's types from what its body does. Then, at code-generation time, it makes fast native copies of a function for the concrete types its callers actually pass.</li>
-<li><strong>Ownership is typed and always checked.</strong> MIR records who owns each value as typed facts, not text notes, and a verifier checks every module.</li>
+<li><strong>Typed ownership is the contract.</strong> MIR records who owns each value as typed facts, not text notes, and independent verification checks those facts before LLVM. The implementation note above states the tested scope.</li>
 <li><strong>The consolidation release deletes the other roads</strong> (up to about 48,100 lines of production code) and proves it by making the old entry points crash if anything calls them. Then optimizations land, built only on the one chain.</li>
 </ul>
 </section>
@@ -115,7 +121,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <nav class="toc" aria-label="Contents"><strong>Contents</strong>
 <ol>
 <li><a href="#chain">The one chain, and who owns what</a></li>
-<li><a href="#why">Why one chain: today a fact can enter six ways</a></li>
+<li><a href="#why">Why one chain: the audit found six side roads</a></li>
 <li><a href="#builtins">Builtins are typed declarations in the built-in library</a></li>
 <li><a href="#types">Types: infer in the body, specialise at the call</a></li>
 <li><a href="#ownership">Ownership: typed MIR facts, checked everywhere</a></li>
@@ -147,8 +153,23 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <path class="ln" d="M220 226H246" marker-end="url(#ar)"/><path class="ln" d="M460 226H486" marker-end="url(#ar)"/><path class="ln" d="M700 226H726" marker-end="url(#ar)"/>
 <text x="10" y="310" class="sm">Blue: structure (what the program says). Green: meaning and plan (what it does, and how). Purple: translation only.</text>
 </g></svg>
-<figcaption id="cap-chain">The compiler's one chain. Each arrow carries facts forward by numeric identity, never as text to be re-read.</figcaption>
+<figcaption id="cap-chain">The compiler's one chain. Each arrow carries facts forward by numeric identity, never as text to be re-read. MIR has two steps: name the ordered operations, then select physical operations after resolved linkage and calling conventions have been joined.</figcaption>
 </figure>
+
+<details id="record-walk">
+<summary>Follow one value through the compiler's record interfaces</summary>
+<p>A record carries fields such as a type, a numeric binding identity and child values. Saving it as JSON is transport, not permission to turn an expression back into source and parse it again.</p>
+<dl>
+<dt><code>HeyHir.admitted_program</code></dt><dd>The admitted syntax tree and resolved numeric identities become typed expression, statement and function records.</dd>
+<dt><code>HeyExtern.prepare_context</code> (when providers are supplied)</dt><dd>Before MIR lowering, actual provider artifacts and their original admitted declarations establish the rebased calling conventions and result-ownership witnesses. These are inputs to lowering, not guesses made later from a function name.</dd>
+<dt><code>HeyMir.lower_module</code> or <code>lower_module_with_context</code></dt><dd>Typed HIR becomes ordered MIR: every intermediate has a name, arguments have an explicit evaluation order, and copies, moves, drops and failure checks are explicit operations.</dd>
+<dt><code>HeyExtern.annotate_module</code></dt><dd>Later, original admitted declarations are joined into exact links and public calling conventions, then MIR is verified again. This remains ordered MIR; annotation does not invent ownership.</dd>
+<dt><code>HeyMir.lower_physical_module</code></dt><dd>The final MIR pass selects declared primitive calls, physical representations and explicit cleanup edges. Independent verification checks the resulting module.</dd>
+<dt><code>HeyLlvm.emit_module</code></dt><dd>Verified physical MIR becomes LLVM instructions. Parameter records become machine arguments; supplied calls and cleanup operations are encoded, not rediscovered.</dd>
+</dl>
+<p>For a borrowed String parameter returned to its caller, MIR explicitly retains a reference and returns that owned reference. LLVM emits the supplied retain and return. It does not decide that an extra reference is needed.</p>
+<p>Reproducible checks: <code>test/gate_structured_phase_pipeline.rb</code>, <code>test/gate_structured_foreign_physical.rb</code> and <code>test/gate_structured_function_parameters.rb</code> in the compiler repository. These exercise the scoped paths described in the implementation note, including native behavior and malformed-record refusal; they are not full-release qualification.</p>
+</details>
 
 <p>Take a tiny program whose answer you can predict:</p>
 <pre data-example="fragment" data-needs="a few lines to illustrate the idea, not a whole program"><code>fn add_fee(total)
@@ -178,7 +199,7 @@ end</code></pre>
 
 <!-- ============================================================ 2 -->
 <section id="why" aria-labelledby="h-why">
-<h2 id="h-why">2 · Why one chain: today a fact can enter six ways</h2>
+<h2 id="h-why">2 · Why one chain: the audit found six side roads</h2>
 <p class="summary"><strong>In plain English</strong>Before the overhaul, the main chain existed, but six side roads still let a fact into the program a second way. Whenever two parts of the compiler read the same program separately, they can disagree. That's why the same kinds of bug keep coming back.</p>
 
 <figure class="fig" aria-labelledby="cap-roads">
@@ -224,7 +245,7 @@ end</code></pre>
 
 <div class="scroll"><table>
 <caption>The six side roads</caption>
-<thead><tr><th>#</th><th>Side road</th><th>Where it is today</th></tr></thead>
+<thead><tr><th>#</th><th>Side road</th><th>Historical audit finding</th></tr></thead>
 <tbody>
 <tr><td>1</td><td>The old parser feeds HIR</td><td>HIR checks the admitted snapshot, then re-parses the file with <code>HeyParser</code> (in the HIR stage). 78 of the matrix's 115 construct rows were read only that way.</td></tr>
 <tr><td>2</td><td>A second LLVM emitter, written in C</td><td><code>heyc_llvm_*</code>, about 14,524 lines, runs whenever HeyLlvm declines a program (in the self-compile driver). HeyLlvm still refuses 48 examples and 13 stdlib modules.</td></tr>
@@ -395,7 +416,7 @@ end</code></pre>
 <!-- ============================================================ 5 -->
 <section id="ownership" aria-labelledby="h-own">
 <h2 id="h-own">5 · Ownership: typed MIR facts, checked everywhere</h2>
-<p class="summary"><strong>In plain English</strong>Hey frees memory by counting references, and it can update an immutable value in place when nobody else can see the old version. MIR decides when that's safe. Today it writes those decisions as text notes on the end of lines, and only checks them for some modules. After this release they're typed facts that a verifier checks for every module, every time.<sup><a href="#n5">5</a></sup></p>
+<p class="summary"><strong>In plain English</strong>Hey frees memory by counting references, and it can update an immutable value in place when nobody else can see the old version. MIR decides when that's safe. The historical audit found those decisions written as text notes on the end of lines, checked only for some modules. The design requires typed facts checked for every module, every time. Selected paths now do this; the <a href="#implementation-scope">implementation note</a> states the limit.<sup><a href="#n5">5</a></sup></p>
 
 <figure class="fig" aria-labelledby="cap-own">
 <svg viewBox="0 0 960 250" role="img" aria-labelledby="t-own"><title id="t-own">Before: ownership as text tags, verified only on opt-in. After: typed ownership facts verified for every module before LLVM.</title>
@@ -415,7 +436,7 @@ end</code></pre>
 <rect class="vio" x="670" y="164" width="280" height="44" rx="8"/><text x="682" y="182" class="sm b">LLVM obeys the plan</text><text x="682" y="198" class="xs">missing or contradictory fact: refuse</text>
 <text x="10" y="242" class="sm">No file, snapshot, annotation or import can assert ownership unchecked. MIR derives it and checks it.</text>
 </svg>
-<figcaption id="cap-own">Today's side from the retirement ledger (in the MIR stage). The typed record is illustrative; its exact shape belongs to the MIR owner.</figcaption>
+<figcaption id="cap-own">The “Today” side records the historical retirement-ledger audit, not a current count. The typed record illustrates the required design; its exact shape belongs to the MIR owner.</figcaption>
 </figure>
 
 <p>The technique is <a href="https://www.microsoft.com/en-us/research/uploads/prod/2020/11/perceus-tr-v1.pdf">Perceus</a> (Reinking, Xie, de Moura and Leijen, PLDI 2021), also used by Koka. Every intermediate value in MIR gets a name. <strong>dup</strong> (add a reference) and <strong>drop</strong> (remove one) are explicit MIR steps, placed at each value's last use. A value nobody uses again is dropped at once. When a dead value is passed to a call, the call <em>consumes</em> it instead of copying it. So <code>m2 = put(m, k, v)</code> with <code>m</code> dead can update <code>m</code> in place if the runtime confirms nobody else holds it. These are compiler facts. You don't write them.</p>
