@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windows research supplement for Hey (2026-11-11)</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.5; color: #1b1f24; background: #ffffff; max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.7rem; margin-bottom: 0.2em; }
+  h2 { font-size: 1.3rem; margin-top: 2.2em; border-bottom: 2px solid #d0d7de; padding-bottom: 4px; }
+  h3 { font-size: 1.08rem; margin-top: 1.6em; }
+  p, li { font-size: 0.97rem; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 18px; font-size: 0.88rem; }
+  th, td { border: 1px solid #d0d7de; padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: #f3f5f7; }
+  code { background: #f3f5f7; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+  .note { background: #fff8e1; border-left: 4px solid #e0a800; padding: 8px 12px; margin: 12px 0; }
+  .unv { background: #fdecea; border-left: 4px solid #c62828; padding: 8px 12px; margin: 12px 0; }
+  .tag { display: inline-block; font-size: 0.75rem; padding: 0 6px; border-radius: 8px; border: 1px solid #999; margin-left: 4px; white-space: nowrap; }
+  .small { background: #e6f4ea; } .medium { background: #fff3cd; } .large { background: #fde0dc; }
+  .toc li { margin: 2px 0; }
+  .wrap { overflow-x: auto; }
+  .src li { font-size: 0.85rem; word-break: break-word; }
+</style>
+</head>
+<body>
+<p><a href="2026-11-11-hey-on-windows.html">Back to the explainer: Windows for Hey</a> &middot; <a href="index.html">All articles</a></p>
+
+
+<h1>Windows research supplement for Hey</h1>
+<p>Date: 2026-11-11. This supplements, and does not repeat, <code>docs/research/2026-11-10-how-languages-target-windows.md</code> (the "existing document"). References written <b>[R<i>n</i>]</b> point at this report's source register at the end; references written <b>[S<i>n</i>]</b> point at the existing document's register. Every web source here was fetched on 2026-11-11. Where a page could not be fetched, or a statement comes from memory and not from a fetched page, the text says <b>unverified</b>.</p>
+
+<div class="note"><b>How to read the confidence marks.</b> A statement with an [R] or [S] number was read from that source today. A statement marked "unverified" was not confirmed from a fetched page and must not be quoted as fact. Section 12 lists every failed fetch.</div>
+
+<ul class="toc">
+<li><a href="#s1">1. Which languages Hey compares itself against, and what the existing document misses</a></li>
+<li><a href="#s2">2. Ruby on Windows</a></li>
+<li><a href="#s3">3. Erlang, Elixir and the BEAM on Windows</a></li>
+<li><a href="#s4">4. Java and the JVM in more depth</a></li>
+<li><a href="#s5">5. TypeScript: Node, Deno and Bun as shipped Windows executables</a></li>
+<li><a href="#s6">6. Windows-first languages the existing document omits</a></li>
+<li><a href="#s7">7. Actor and concurrency runtime specifics on Windows</a></li>
+<li><a href="#s8">8. Self-contained toolchains, import libraries, cross-compiling from Windows, and ARM64</a></li>
+<li><a href="#s9">9. C# performance facts a "faster than C#" claim has to beat</a></li>
+<li><a href="#s10">10. Integration parity with C++ and C#</a></li>
+<li><a href="#s11">11. What this adds to the Hey Windows plan</a></li>
+<li><a href="#s12">12. What could not be verified</a></li>
+<li><a href="#s13">13. Source register</a></li>
+</ul>
+
+<h2 id="s1">1. Which languages Hey compares itself against</h2>
+
+<p>Found by reading (read only) the benchmark tree of the 606a integration job and the <code>hey-benchmarks</code> project posts.</p>
+
+<div class="wrap"><table>
+<tr><th>Language or runtime</th><th>Where Hey compares against it</th><th>Covered by the existing document?</th></tr>
+<tr><td>C (clang)</td><td>1BRC reference <code>benchmarks/c/one_brc_reference.c</code>; C oracle for the W1 to W12 micro-matrix; hand-rolled socket server in the web harness [R1][R2]</td><td>Yes (section 9)</td></tr>
+<tr><td>Rust (std and Tokio)</td><td>W1 to W12; <code>real_server.rs</code>; Tokio actor reference with bounded channels [R1][R2]</td><td>Rust toolchain yes; <b>Tokio's Windows I/O model no</b></td></tr>
+<tr><td>Go</td><td>W1 to W12; <code>go-reference</code> actor workloads; <code>net/http</code> server; the main throughput rival in <code>Web.serve.benchmarks.md</code> [R1][R2][R3]</td><td>Toolchain yes; <b>scheduler and netpoller on Windows no</b></td></tr>
+<tr><td>Ruby (YJIT) and Puma</td><td>W1 to W12; <code>real_server.rb</code>, <code>plain_server_puma.rb</code>; "Hey vs Go vs Ruby/Puma" headline [R2][R3]</td><td><b>No</b></td></tr>
+<tr><td>Erlang (OTP 29)</td><td>W1 to W12; <code>real_server.erl</code>; actor reference <code>actor_ref.erl</code> [R1][R2]</td><td><b>No</b></td></tr>
+<tr><td>Pony</td><td>Actor reference (<code>ponyc</code>) [R1]</td><td><b>No</b></td></tr>
+<tr><td>Python</td><td>W1 to W12; <code>http.server</code> lane [R2]</td><td>Only native extensions and installers (section 17)</td></tr>
+<tr><td>Node</td><td><code>real_server.js</code>, web9 lane [R1][R2]</td><td>Only node-gyp and installers (section 17)</td></tr>
+<tr><td>Java (OpenJDK 26)</td><td><code>RealServer.java</code>, web9 lane [R1][R2]</td><td>Briefly (section 11)</td></tr>
+<tr><td>CAF and Akka</td><td>Named in the actor README as absent implementations that must stay visible [R1]</td><td>No</td></tr>
+</table></div>
+
+<p><b>Two findings matter more than the list.</b></p>
+<ol>
+<li><b>C# is not in any Hey benchmark.</b> No C#, F# or .NET lane exists in the benchmark tree or in the 2026-08-31 complete run, whose toolchain line reads "clang 22.1.8 | rustc 1.98.0 | go 1.27.0 | ruby 4.0.6 +YJIT | python 3.14.7 | erlang OTP 29 | node 26.8.1 | openjdk 26.0.2.1" [R2]. The Maintainer's goal is "Windows users choose Hey over C#", so the comparison the goal depends on has never been measured.</li>
+<li><b>Every recorded number is from Linux or Darwin.</b> The complete run is on "Linux 7.1.9-arch1-2 x86_64 | i7-1165G7" [R2], and the web harness uses <code>/proc</code>, <code>perf</code>, <code>strace</code> and <code>ss</code> [R3]. Nothing in the harness runs on Windows today.</li>
+</ol>
+<p>For reference, the most recent recorded web9 result (Linux, plaintext, <code>oha -c64 -z8s</code>) was Rust 328,170 rps, Hey 266,085, C 243,371, Go 205,097, Java 200,293, Erlang 166,187, Node 156,984, Ruby/Puma 79,151, Python 1,113 [R2]. The same post records Hey at 2x to 20x behind C on several micro workloads (for example W11 binary-trees 4.466 s against 0.306 s for C) [R2]. These are project facts, not web facts.</p>
+
+<h2 id="s2">2. Ruby on Windows</h2>
+
+<p>Hey has Ruby-like syntax, so Ruby users on Windows are a natural audience. What they live with today:</p>
+
+<h3>How Ruby gets onto a Windows machine</h3>
+<ul>
+<li>ruby-lang.org says "On Windows, RubyInstaller gives you everything you need to set up a full Ruby development environment", also names WSL as an option, and lists winget with a note that for projects you may want the <code>RubyWithDevKit</code> package [R7].</li>
+<li>RubyInstaller describes itself as a "self-contained Windows-based installer that includes the Ruby language" that "combines the possibilities of native Windows programs with the rich UNIX toolset of MSYS2" and "the large repository of MINGW libraries". Its news lists a Microsoft Store install for Ruby 4.0 (January 2026) and "a brand-new package for Windows on ARM" in 3.4.1-2 [R4].</li>
+<li>Ruby's own build document names two Windows builds: "mswin: Build using Microsoft Visual C++ compiler with vcruntimeXXX.dll" and "mingw-ucrt: Build using compiler for Mingw with Windows Universal CRT". The mswin build needs "Visual C++ 14.15 (Visual Studio 2017 version 15.8) or later" [R8]. RubyInstaller is the mingw-ucrt kind.</li>
+</ul>
+
+<h3>The C runtime switch and what it cost</h3>
+<p>RubyInstaller 3.1.0 (2021-12-31) changed runtime: "RubyInstaller-3.1.0-x64 has a changed C-runtime called UCRT replacing the old MSVCRT", so "the ruby and gem platform is now <code>x64-mingw-ucrt</code> instead of <code>x64-mingw32</code>", and "gems with C extensions are not compatible between ruby-3.0 and 3.1" [R5]. This matches the existing document's point that msvcrt and ucrt must not be mixed [S36]. A language that links no CRT at all never has this migration.</p>
+
+<h3>Native gems: the main pain point</h3>
+<ul>
+<li>Building a gem with a C extension needs the MSYS2 Devkit: "Run <code>ridk install</code> for MSYS2 installation subsequent to the installer", and "To enable MSYS2 and MINGW tools in cmd or powershell simply run" <code>ridk enable</code> [R6].</li>
+<li>Prebuilt binary gems lag new Ruby versions: "Most of the binary gems are updated for Ruby-3.3, but not necessary for Ruby-3.4". The fallback is <code>gem install &lt;gem&gt; --platform ruby</code> to force a source build, or <code>bundle config force_ruby_platform true</code>, which "requires to manually install dependent pacman packages" [R6].</li>
+<li>Paths are fragile: "Spaces in the path will cause issues when installing gems, so its better to avoid them", and per-user installs can break "if the username contains spaces or non-ASCII characters" [R6].</li>
+</ul>
+
+<h3>Performance on Windows</h3>
+<ul>
+<li>JIT: Ruby's YJIT document now says YJIT is supported "for Windows (mswin) on x64 and arm64 CPUs", and "On Windows (mswin), YJIT can be built only in release mode" with a Rust msvc target [R9]. That is the Visual C++ build, not RubyInstaller's mingw-ucrt build. The RubyInstaller FAQ still says "Neither RJIT not YJIT work on Windows, so far" and that MJIT "did not provide any performance advantage" [R6]. <b>Unverified:</b> whether a current RubyInstaller release ships YJIT; the FAQ may be stale.</li>
+<li><b>Unverified:</b> no current, reputable Windows-versus-Linux Ruby benchmark was found. A search returned only forum posts from roughly 2007 to 2011 that blame slow Windows file operations and process creation; those are not used as evidence here.</li>
+</ul>
+
+<h3>What Hey must match or beat for this audience</h3>
+<div class="wrap"><table>
+<tr><th>Ruby-on-Windows fact</th><th>Hey target</th></tr>
+<tr><td>Installer plus a second MSYS2 toolchain for native gems [R6]</td><td>One installer, no MSYS2, no C compiler for packages</td></tr>
+<tr><td>CRT change broke every native gem once [R5]</td><td>No CRT dependency, as in the existing plan's route 1 [S16][S23]</td></tr>
+<tr><td>Spaces and non-ASCII user names break gem installs [R6]</td><td>UTF-16 at the OS boundary and long-path support from day one [S7][S61]</td></tr>
+<tr><td>JIT availability depends on which Windows build you have [R9][R6]</td><td>Ahead-of-time native code on every Windows target</td></tr>
+<tr><td>ruby-lang.org itself offers WSL as an option [R7]</td><td>Native <code>hey.exe</code>, no WSL</td></tr>
+</table></div>
+
+<h2 id="s3">3. Erlang, Elixir and the BEAM on Windows</h2>
+
+<p>Hey has BEAM-like actors, so this is the runtime Hey's actor model will be compared with on Windows.</p>
+
+<h3>How the BEAM runs on Windows</h3>
+<div class="wrap"><table>
+<tr><th>Part</th><th>What the source or documentation says</th></tr>
+<tr><td>Build</td><td>"The procedure described uses WSL as a build environment", driving Visual Studio 2019's <code>cl.exe</code>; the emulator is "mostly compiled with Microsoft Visual C++", but "one of the files is compiled using MinGW's GCC" (<code>beam_emu.c</code>) and converted to MSVC-compatible COFF. The installer is built with NSIS 3.05 or later. The instructions cover 32-bit and 64-bit x86; ARM64 is not mentioned [R11].</td></tr>
+<tr><td>Schedulers</td><td><code>+S</code> sets scheduler threads; <code>+SDio</code> sets dirty I/O schedulers (default 10); <code>+A</code> sets the async thread pool (default 1). Scheduler binding (<code>+sbt</code>) is supported on "newer Linux, Solaris, FreeBSD, and Windows systems", and is off by default [R10].</td></tr>
+<tr><td>I/O polling</td><td><code>+IOt</code> sets poll threads and <code>+IOp</code> pollsets, but more than one pollset only matters "on platforms that support concurrent updates of a pollset" [R10]. The Windows poll backend (<code>erts/emulator/sys/win32/erl_poll.c</code>) does not use I/O completion ports. Each descriptor is a Win32 event handle; "waiter" threads each block in <code>WaitForMultipleObjects</code> on up to <code>MAXIMUM_WAIT_OBJECTS</code> handles, and more waiter threads are created as handles are added; the pollset comment says "There can currently be only one" [R12].</td></tr>
+<tr><td>Ports and files</td><td>A port's external program "reads from standard input (file descriptor 0) and writes to standard output" [R18]. The Windows port code (<code>sys/win32/sys.c</code>) uses overlapped I/O and, where needed, dedicated <code>threaded_reader</code> and <code>threaded_writer</code> threads per handle [R13].</td></tr>
+<tr><td>New socket API</td><td>The <code>socket</code> module has a separate Windows model: asynchronous calls return <code>{select, SelectInfo}</code> on Unix and <code>{completion, CompletionInfo}</code> on Windows, completion being supported by "currently only Windows" [R14]. So Erlang code that uses <code>socket</code> directly behaves differently per platform.</td></tr>
+<tr><td>JIT</td><td>BeamAsm compiles "BEAM instructions into native code on x86-64 and aarch64" and handles "the System V and Windows ABIs"; the team says "it took us about 2-3 weeks to implement support for Windows". The profiler support described is for Linux <code>perf</code> only [R15].</td></tr>
+</table></div>
+
+<h3>Installers</h3>
+<ul>
+<li>Erlang: the download page offers a 64-bit Windows installer (<code>otp_win64_29.1.2.exe</code>) and a 64-bit zip; no x86, ARM64, winget or Chocolatey entry is listed on that page [R16].</li>
+<li>Elixir: "The only prerequisite for Elixir is Erlang, version 27.0 or later". On Windows you "Download and run the Erlang installer", then "the Elixir installer compatible with your Erlang/OTP version"; alternatives are an <code>install.bat</code> script, Scoop (<code>scoop install erlang</code> then <code>scoop install elixir</code>) and Chocolatey (<code>choco install elixir</code>). winget is not mentioned [R17].</li>
+</ul>
+<div class="unv"><b>Unverified:</b> whether OTP 29 ships a native Windows ARM64 build; the pages fetched do not say [R11][R16]. No published Windows-versus-Linux BEAM benchmark was found.</div>
+
+<h3>What this means for Hey</h3>
+<ul>
+<li>The BEAM's default Windows poller is a thread-per-64-handles design [R12]. A Hey runtime on IOCP (section 7) starts with a structural advantage for many-connection actor servers on Windows, and that is a claim worth measuring against Erlang on the same Windows machine.</li>
+<li>Elixir users install two things in a version-matched order [R17]. One <code>hey.exe</code> beats that.</li>
+<li>The BEAM is built with Microsoft's compiler under WSL scripting [R11]. A Hey toolchain that builds itself natively on Windows (existing plan step d) is a cleaner story.</li>
+</ul>
+
+<h2 id="s4">4. Java and the JVM in more depth</h2>
+
+<h3>GraalVM Native Image on Windows</h3>
+<ul>
+<li>What it promises: a native executable "Starts in milliseconds", "Delivers peak performance immediately, with no warmup" and "Uses a fraction of the resources required by the Java Virtual Machine"; a sample HelloWorld run shows "Max RSS: 7620 KB". It is "Available for Linux, macOS, and Windows platforms" [R20].</li>
+<li>Windows prerequisites: "To use Native Image on Windows, you need Microsoft Visual C++ (MSVC) compiler version 14.x or later"; Visual Studio 2022 17.6.0 or later with the "Desktop development with C++" workload and the Windows 11 SDK ("Use Visual Studio 2022 version 17.13.2 or later for best compatibility") [R19][R20].</li>
+<li>Architecture: "GraalVM is available for Windows on the x64 architecture"; ARM64 is not listed [R19].</li>
+<li>Cross-compiling: the reference page only says the builder creates "a binary for a specific operating system and architecture"; it does not offer cross-OS builds [R20].</li>
+<li>Static linking: the static and mostly-static guide covers Linux only (musl); Windows is not mentioned [R21].</li>
+</ul>
+<p>So the JVM's native-executable answer on Windows has the same weakness as .NET Native AOT: it needs Visual Studio's C++ tools and SDK, and it is x64 only.</p>
+
+<h3>jpackage and startup</h3>
+<ul>
+<li>jpackage produces <code>exe</code> or <code>msi</code> installers and bundles a runtime; each format "must be built on the platform it runs on" [S100]. That is a packaged JVM, not a native executable.</li>
+<li>Startup work in the JDK itself (AOT class loading and linking, JEP 483) could not be read: openjdk.org returned HTTP 403 for JEP 483 and JEP 444. <b>Unverified:</b> any JDK startup figure.</li>
+</ul>
+
+<h3>Concurrency model</h3>
+<p>Virtual threads are the JVM's closest thing to cheap actors: "the Java runtime schedules when a virtual thread is run", mounting it on a platform thread called a carrier; it "can unmount from its carrier" when it "performs a blocking I/O operation". A virtual thread "is pinned when it runs a <code>native</code> method or a foreign function", which "might hinder its scalability" [R22]. The fetched page gives no Windows-specific behaviour. In Hey's own Linux web9 run, the JDK's built-in HTTP server reached 200,293 rps against Hey's 266,085 [R2].</p>
+
+<h2 id="s5">5. TypeScript: Node, Deno and Bun as shipped Windows executables</h2>
+
+<div class="wrap"><table>
+<tr><th>Tool</th><th>How the exe is made</th><th>Cross-compile</th><th>Windows specifics</th></tr>
+<tr><td>Node single executable application (SEA)</td><td>"allowing the injection of a blob prepared by Node.js, which can contain a bundled script, into the <code>node</code> binary"; built with <code>node --build-sea sea-config.json</code>. Status: "Stability: 1.1 - Active development" [R23]</td><td>Possible, but for cross-platform SEAs "<code>useCodeCache</code> and <code>useSnapshot</code> must be set to false", and the Node binary version must match the one that made the blob [R23]</td><td>Output must end in <code>.exe</code>; signing with <code>signtool sign /fd SHA256</code> is optional ("the unsigned binary would still be runnable") [R23]</td></tr>
+<tr><td>Deno <code>deno compile</code></td><td>Embeds the program into <code>denort</code>, a slimmed runtime, downloaded and cached per target on first use [R24]</td><td>Yes, to all listed targets "regardless of host platform": Windows x64 and ARM64 ("supported starting in Deno 2.9.3"), macOS x64 and ARM64, Linux x64 and ARM64 [R24]</td><td><code>--icon</code> sets the exe icon; <code>--no-terminal</code> hides the console; "the compiled executable can be signed using the <code>SignTool.exe</code> utility" [R24]</td></tr>
+<tr><td>Bun <code>bun build --compile</code></td><td colspan="3"><b>Unverified.</b> The Bun executables documentation returned HTTP 404 at every URL tried, so its Windows targets and flags are not stated here.</td></tr>
+</table></div>
+
+<p>Two lessons. First, these tools ship a whole JavaScript engine in every exe; neither page gives a size figure [R23][R24], so size claims against them need Hey's own measurement. Second, Deno shows the product shape the Maintainer asked for: one tool on any host that produces executables for Windows, macOS and Linux with no C compiler, by keeping prebuilt runtime pieces per target [R24]. Hey can do the same with real native code.</p>
+
+<h2 id="s6">6. Windows-first languages the existing document omits</h2>
+
+<h3>F#</h3>
+<p>F# ships inside the .NET SDK and shares everything in the existing document's C# section. Microsoft calls it "a universal programming language for writing succinct, robust and performant code", with "Lightweight syntax", "Immutable by default", "Pattern matching" and "Async programming" [R25], "used by many thousands of developers" [R28]. Two points matter to Hey:</p>
+<ul>
+<li>F# already has an in-process actor: <code>MailboxProcessor</code> is "A message-processing agent which executes an asynchronous computation" that "encapsulates a message queue that supports multiple-writers and a single reader agent" [R27]. A Windows developer who wants actors without leaving .NET has this today.</li>
+<li>F# <code>task { }</code> expressions compile to .NET tasks through "Resumable State Machines", and continuations go to the .NET thread pool [R26]. So F# concurrency sits on the same thread pool described in section 7.</li>
+</ul>
+
+<h3>Visual Basic (.NET)</h3>
+<p>Microsoft's stated strategy: Visual Basic has "hundreds of thousands of developers ... concentrated around the traditional Windows-based client workloads"; it "will remain a straightforward and approachable language with a stable design", "will generally adopt a consumption-only approach and avoid new syntax", and "won't be extended to new workloads" [R28][R29]. That is a large group of Windows developers on a language Microsoft has frozen. What they have and value is the Visual Studio WinForms designer and readability ("natural language syntax enables programmers and non-programmers to read code") [R29]. Hey's readable Ruby-like syntax is relevant to them; a GUI designer is not something Hey can match in 607a.</p>
+
+<h3>PowerShell (what administrators script in)</h3>
+<ul>
+<li>PowerShell is "a command-line shell, a scripting language, and a configuration management framework"; "Unlike most shells that only accept and return text, PowerShell accepts and returns .NET objects" and is "built on the .NET Common Language Runtime" [R30].</li>
+<li>Two versions coexist: "Windows PowerShell 5.1 is built on top of the .NET Framework v4.5"; PowerShell 6 and later are built on .NET Core, and the binary was renamed to <code>pwsh.exe</code> to "support side-by-side installations" [R31].</li>
+<li>Script policy: the default on Windows is <code>RemoteSigned</code>, which "Requires a digital signature from a trusted publisher on scripts and configuration files that are downloaded from the internet"; if nothing is set, the effective policy is "Restricted for Windows clients" [R32]. A Hey install script written in PowerShell must therefore be signed or delivered through an installer.</li>
+<li>Cmdlets "are instances of .NET classes; they aren't stand-alone executables" and pass objects, not text [R33].</li>
+</ul>
+<p>What Hey must match: a compiled <code>hey.exe</code> is an ordinary native command to PowerShell, so it must behave well as one: correct exit codes, UTF-8 output that PowerShell reads correctly (section 10, console row), and machine-readable output (JSON) that an administrator can pipe into <code>ConvertFrom-Json</code> [R30]. Hey's advantage for administrators is a single signed exe that starts fast and needs no runtime, where a PowerShell script needs the right PowerShell version and an execution policy that allows it [R31][R32].</p>
+
+<h3>Delphi and Object Pascal</h3>
+<div class="unv"><b>Partly unverified.</b> Embarcadero's documentation wiki returned HTTP 403 for every page tried, and the Free Pascal wiki was offline. The statements below come from Embarcadero's product page and Wikipedia only.</div>
+<ul>
+<li>Delphi compiles "native code for Microsoft Windows, macOS, iOS, Android and Linux (x64)", and "supports native cross-compilation to many platforms including Windows, Linux, iOS, and Android" [R37]. Embarcadero's headline is "One Codebase, Any Platform and Device!" [R36]. The Windows ARM64 target is not named on the product page [R36].</li>
+<li>The compiler can produce a single executable that does not require DLLs, and also standard DLLs, ActiveX DLLs, COM automation servers and Windows services [R37].</li>
+<li>UI: the "Visual Component Library (VCL) is the framework for developing pure Windows applications" [R37], with "Extensive Windows UI component libraries for fast visual UI design and data binding" and design-time styling [R36]; FireMonkey is the cross-platform GUI framework [R36][R37].</li>
+<li>COM: Delphi has native COM support, including interfaces with reference-counted class implementations [R37].</li>
+<li>The latest version listed is RAD Studio 13.2 Florence (2026-09-18), with a free Community edition limited to low-revenue users [R37].</li>
+</ul>
+<p>Delphi matters as the long-standing proof that a non-Microsoft language can be a first-class Windows citizen: single native exe, no runtime to install, COM built into the language, a visual designer, and cross-compilation from a Windows host. That list is very close to the Maintainer's brief for Hey. <b>Unverified:</b> that Delphi and Free Pascal link with their own linkers and need no Visual Studio; this is widely known but no page stating it could be fetched.</p>
+
+<h3>C++/CLI and C++/WinRT</h3>
+<ul>
+<li>C++/CLI "is a technology designed during the early years of .NET (2003-2010) and remains supported for compatibility purposes"; "no new feature work is planned"; it is "only supported on Windows" and is "a bridge between native C++ code and managed code" [R34]. On modern .NET, "Compiling a C++/CLI project to an executable isn't supported. You must compile to a DLL" [R35]. Native AOT does not support it at all [S65]. Hey need not match C++/CLI; the lesson is that mixing native and managed code in one binary is a legacy path even for Microsoft.</li>
+<li>C++/WinRT is covered in the existing document [S90] and in section 10 below.</li>
+</ul>
+
+<h3>What a Windows developer using these gets that Hey must match</h3>
+<div class="wrap"><table>
+<tr><th>They get</th><th>From</th><th>Hey answer</th></tr>
+<tr><td>Nothing extra to install on the target PC</td><td>Delphi single exe [R37]; PowerShell 5.1 is part of Windows [R31]</td><td>Static exe with no runtime (existing plan a)</td></tr>
+<tr><td>Actors or agents in the language</td><td>F# <code>MailboxProcessor</code> [R27]</td><td>Hey actors; must be measured against it</td></tr>
+<tr><td>COM and services from the language</td><td>Delphi [R37]; .NET [R83][R109]</td><td>Section 10</td></tr>
+<tr><td>A visual form designer</td><td>VB and C# WinForms [S74][R29]; Delphi VCL [R36]</td><td>Out of reach for 607a; say so plainly</td></tr>
+<tr><td>Object pipelines for admin work</td><td>PowerShell [R30][R33]</td><td>JSON output and clean exit codes now; a PowerShell module later</td></tr>
+</table></div>
+
+<h2 id="s7">7. Actor and concurrency runtime specifics on Windows</h2>
+
+<h3>The Windows primitives, and which to use</h3>
+<div class="wrap"><table>
+<tr><th>Primitive</th><th>What Microsoft documents</th><th>Verdict for a Hey actor runtime</th></tr>
+<tr><td>I/O completion ports (IOCP)</td><td>The general async I/O mechanism [S62]. <code>SetFileCompletionNotificationModes</code> with <code>FILE_SKIP_COMPLETION_PORT_ON_SUCCESS</code> means that when "A request returns success immediately without returning ERROR_PENDING", "the I/O Manager does not queue a completion entry to the port" [R45].</td><td><b>Use.</b> This is what Go, mio/Tokio and .NET sit on (below). Use the batch dequeue call and the skip-on-success mode.</td></tr>
+<tr><td>I/O rings (IoRing)</td><td><code>CreateIoRing</code> "Creates a new instance of an I/O ring submission/completion queue pair"; minimum Windows build 22000 (Windows 11) [R48]. A 2021 analysis: "The current implementation of I/O rings only supports read operations", with four opcodes (read, registered files, registered buffers, cancel) [R49]; a follow-up says write and flush came in later versions, and that Windows lacks Linux's wait-for-N-completions call [R50].</td><td><b>Do not build on it for 607a.</b> Windows 11 only, file-oriented, and the sources fetched do not show socket operations. Consider later for bulk file reads. <b>Unverified:</b> the current opcode list (the Microsoft enum page returned no extractable text).</td></tr>
+<tr><td>Registered I/O (RIO)</td><td>A Winsock extension that lets send and receive "be performed with pre-registered buffers using queues for requests and completions"; completion "polling can be performed entirely in user-mode and without making system calls"; aimed at "very high message rates"; supports TCP, UDP, IPv4 and IPv6 [R47].</td><td><b>Later, optional.</b> A possible fast path for a high-rate <code>Web.serve</code>; sockets only; needs a separate buffer model.</td></tr>
+<tr><td>Thread pool API</td><td>Windows has an original and a current thread pool API; the current one includes <code>CreateThreadpoolIo</code> and <code>StartThreadpoolIo</code> for I/O completion callbacks [R40].</td><td><b>Do not use for the scheduler.</b> Hey has its own scheduler; a callback pool owned by the OS takes that control away. .NET Native AOT's use of it is discussed below.</td></tr>
+<tr><td>User-mode scheduling (UMS)</td><td>"As of Windows 11, user-mode scheduling is not supported. All calls fail with the error ERROR_NOT_SUPPORTED"; never available on Arm64 [R38].</td><td><b>Dead.</b> Do not design around it.</td></tr>
+<tr><td>Fibers</td><td>"In general, fibers do not provide advantages over a well-designed multithreaded application" [R39].</td><td><b>Not needed.</b> Hey's own actor or coroutine switching should stay in the Hey runtime.</td></tr>
+<tr><td>Timer resolution</td><td><code>timeBeginPeriod</code>: before Windows 10 2004 it changed a global setting; since then it is per process; on Windows 11 a hidden or minimised window-owning process is not guaranteed the higher resolution; and higher resolution "can also reduce overall system performance" and block power saving [R41]. <code>CREATE_WAITABLE_TIMER_HIGH_RESOLUTION</code> exists for "time-critical situations when short expiration delays on the order of a few milliseconds are unacceptable", from Windows 10 1803 [R42].</td><td><b>Use high-resolution waitable timers</b>, not <code>timeBeginPeriod</code>. Without this, sleeps and actor timeouts round to the default tick (Go measured it as 15.6 ms, below).</td></tr>
+<tr><td>Wait on address</td><td><code>WaitOnAddress</code> "Waits for the value at the specified address to change"; Windows 8 and later [R46].</td><td><b>Use</b> for parking idle scheduler workers and for mutexes; it is the Windows counterpart of a futex.</td></tr>
+<tr><td>Processor groups</td><td>A group is "a static set of up to 64 logical processors". "Starting with Windows 11 and Windows Server 2022 ... processes and their threads have processor affinities that by default span all processors in the system"; before that an application was confined to one group by default [R44].</td><td><b>Handle.</b> On Windows 10 and Server 2019 machines with more than 64 logical processors the runtime must spread workers across groups itself.</td></tr>
+<tr><td>Large pages</td><td>Need <code>SeLockMemoryPrivilege</code>; size from <code>GetLargePageMinimum</code>; memory "is always read/write and nonpageable"; hard to get once memory is fragmented, so "allocate all large pages one time, at startup" [R43].</td><td><b>Later, opt-in.</b> The privilege is not granted to ordinary users, so it cannot be a default.</td></tr>
+</table></div>
+
+<h3>How each runtime sits on these</h3>
+<div class="wrap"><table>
+<tr><th>Runtime</th><th>Network I/O</th><th>File I/O</th><th>Timers and parking</th><th>Notes</th></tr>
+<tr><td>Go</td><td>IOCP through <code>GetQueuedCompletionStatusEx</code> in the runtime poller [S16][R51]; uses the skip-completion-port-on-success mode where safe (<code>canSkipCompletionPortOnSuccess</code>) [R52]</td><td>Overlapped handles go through the same poller; non-overlapped handles block a thread [R52]</td><td>The runtime keeps a <code>highResTimer</code> ("high resolution timer handle used in usleep") and a <code>waitIocpTimer</code> ("used in netpoll"), and uses <code>NtAssociateWaitCompletionPacket</code> so a timer can wake the IOCP wait [R53]</td><td>Go 1.23: "On Windows, Timer, Ticker, and functions that put the goroutine to sleep, such as Sleep, got their time resolution improved to 0.5ms instead of 15.6ms" [R54]. Preemption uses <code>SuspendThread</code> [R53].</td></tr>
+<tr><td>Tokio (via mio)</td><td>mio is an "I/O event queue backed by epoll, kqueue, and IOCP"; on Windows "polling sockets is using the wepoll strategy. This uses the Windows AFD system to access socket readiness events" [R57]: it issues <code>IOCTL_AFD_POLL</code> through <code>NtDeviceIoControlFile</code> and collects results from a completion port with <code>GetQueuedCompletionStatusEx</code> [R58]. Named pipes have a dedicated module [R60].</td><td>"Tokio currently uses spawn_blocking on all platforms"; io_uring is Linux only and unstable [R59]</td><td>Not stated in fetched pages</td><td>Tokio keeps a readiness (epoll-like) model on Windows by going under Winsock to AFD. Zig's standard library also uses "direct AFD access" [S23].</td></tr>
+<tr><td>BEAM</td><td>Default poller: event handles and <code>WaitForMultipleObjects</code> waiter threads, no IOCP [R12]. The newer <code>socket</code> module uses a completion model on Windows [R14].</td><td>Overlapped I/O plus reader and writer threads for ports [R13]; dirty I/O schedulers and async threads [R10]</td><td>Not stated in fetched pages</td><td>One pollset only on Windows [R12][R10]</td></tr>
+<tr><td>.NET</td><td>Thread pool threads serve "asynchronous I/O completion" and "System.Net socket connections" [R62]</td><td>Same pool [R62]</td><td>Not stated in fetched pages</td><td>Two pools exist on Windows. "Only applications published with Native AOT on Windows use the Windows thread pool by default". Microsoft says the Windows pool "may perform better in some cases", and that the .NET pool may be better "in heavy I/O handling on larger machines". With the Windows pool, <code>SetMinThreads</code>, <code>SetMaxThreads</code> and <code>BindHandle</code> are unsupported [R61]. Default thread stack is 1.5 MB on Windows, 8 MB on Linux [R61]. CPU groups are all used by default on Windows 11 and later only [R61].</td></tr>
+</table></div>
+
+<h3>Published Windows-versus-Linux gaps</h3>
+<ul>
+<li><b>Go:</b> the one first-party, documented Windows-specific gap found is the timer resolution fixed in Go 1.23 (15.6 ms down to 0.5 ms) [R54]. A search also surfaced Go issues 5284 and 40243 about Windows network slowdowns; those issue pages were not fetched, so they are <b>unverified</b> [R116].</li>
+<li><b>.NET:</b> Microsoft's own configuration page admits the Windows-pool-versus-.NET-pool trade-off without numbers [R61]. One independent microbenchmark (2022-09-18, .NET 7 RC1, Windows 11, Threadripper Pro 3955WX) measured Native AOT on the Windows pool at 2.060 ms against 3.914 ms for .NET 7 JIT on a 63,000-wait-handle test; the author warns against drawing wider conclusions [R63].</li>
+<li><b>TechEmpower:</b> the benchmark toolset runs frameworks in Docker with Linux containers [R78], so its published rounds give no Windows figures for any language.</li>
+<li><b>ASP.NET:</b> Microsoft's team tracks results at aka.ms/aspnet/benchmarks [R79], which redirects to a Power BI page the fetch tool cannot read. <b>Unverified:</b> any Windows-versus-Linux Kestrel number.</li>
+<li><b>Tokio, BEAM, Ruby:</b> no published Windows-versus-Linux comparison was found.</li>
+</ul>
+<p>The conclusion is itself useful: almost nobody publishes Windows numbers. If Hey publishes honest Windows results for Hey, C#, Go, Rust/Tokio and Erlang on one machine, it will be nearly alone in doing so.</p>
+
+<h3>The recipe this implies for a fast Hey on Windows</h3>
+<ol>
+<li>One IOCP per scheduler (or one shared), dequeued in batches with <code>GetQueuedCompletionStatusEx</code>, as Go does [S16][R51].</li>
+<li>Set <code>FILE_SKIP_COMPLETION_PORT_ON_SUCCESS</code> on sockets so synchronous completions cost no port round trip [R45][R52].</li>
+<li>Overlapped file I/O through the same port, so files do not need Tokio's blocking pool [R59][R52].</li>
+<li>High-resolution waitable timers tied into the IOCP wait, as Go does with <code>NtAssociateWaitCompletionPacket</code> [R42][R53][R54].</li>
+<li><code>WaitOnAddress</code> for worker parking and locks [R46].</li>
+<li>Processor-group awareness for more than 64 logical processors on pre-Windows 11 systems [R44].</li>
+<li>No UMS, no fibers, no OS thread pool [R38][R39][R40].</li>
+<li>Decide completion-style (Go) or readiness-style through AFD (mio, Zig) early; completion is the documented, supported route [S62], AFD is undocumented but used by two major projects [R57][S23].</li>
+</ol>
+
+<h2 id="s8">8. Self-contained toolchains, import libraries, cross-compiling from Windows, and ARM64</h2>
+
+<h3>Who needs Visual Studio or an SDK on Windows</h3>
+<div class="wrap"><table>
+<tr><th>Language</th><th>Needs Visual Studio or SDK on the user's PC?</th><th>How it gets Win32 imports</th></tr>
+<tr><td>Go</td><td>No for pure Go; own compiler and linker [S13]. cgo needs a GCC (mingw-w64) [S15], with DWARF 5 support from Go 1.25 [R56].</td><td>No import libraries. Imports are declared as <code>//go:cgo_import_dynamic ... "kernel32.dll"</code> and resolved by the loader [S16]; <code>mkwinsyscall</code> generates call stubs from <code>//sys</code> comments [R105].</td></tr>
+<tr><td>Zig</td><td>No; any host, any target [S20].</td><td>Generates import libraries from bundled mingw-w64 <code>.def</code> files, no longer needing LLVM for that [S21][S23].</td></tr>
+<tr><td>Rust (msvc)</td><td>Yes: linker and import libraries from Visual Studio [S4].</td><td>Import libraries from the SDK, <b>or none</b>: <code>kind = "raw-dylib"</code> "instructs the compiler to generate an import library during compilation and provide that to the linker" [R65]. Microsoft's <code>windows-link</code> crate exists to "Declare Windows DLL imports without import libraries" [R66][R67].</td></tr>
+<tr><td>Rust (gnullvm)</td><td>No for pure Rust (<code>rust-lld</code>) [S2].</td><td>mingw-style, or raw-dylib [R65].</td></tr>
+<tr><td>D</td><td>No: falls back to bundled LLD and mingw-derived libraries [S31].</td><td>Bundled.</td></tr>
+<tr><td>Deno, Node SEA</td><td>No: they copy a prebuilt runtime binary and append data [R23][R24].</td><td>Not applicable.</td></tr>
+<tr><td>Delphi</td><td><b>Unverified</b> (believed no; documentation could not be fetched).</td><td>Unverified.</td></tr>
+<tr><td>.NET Native AOT, GraalVM Native Image, Swift, Odin, Flutter</td><td>Yes [S65][R19][S25][S103][S96].</td><td>Windows SDK.</td></tr>
+</table></div>
+
+<h3>Getting import libraries legally</h3>
+<p>The cleanest answer is to need none. A DLL import is only a pair of names (DLL name, function name) written into the executable's import table; nothing from Microsoft has to be copied. Three working precedents:</p>
+<ol>
+<li><b>Go:</b> the linker writes the import table from declarations in Go source [S16].</li>
+<li><b>Rust raw-dylib:</b> the compiler synthesises the import library from the declaration [R65], and Microsoft's own crate uses it [R66].</li>
+<li><b>Zig:</b> import libraries generated from mingw-w64's <code>.def</code> files, which are that project's own text files, not Microsoft binaries [S21][S23].</li>
+</ol>
+<p>Hey already has a PE32+ writer (project fact in the existing document), so it can write import directory entries directly from Hey declarations, the Go way, and never ship or download a <code>.lib</code>. The function names themselves can be generated from Microsoft's win32metadata, published for exactly this purpose: "metadata for Win32 APIs such that idiomatic projections ... can be generated for all languages" [R95]. The existing document's unresolved question about the Windows SDK licence [S42] then does not arise.</p>
+
+<h3>Cross-compiling FROM Windows to Linux and macOS</h3>
+<div class="wrap"><table>
+<tr><th>Language</th><th>From Windows to Linux</th><th>From Windows to macOS</th><th>C compiler needed?</th></tr>
+<tr><td>Go</td><td>Yes: set <code>GOOS</code> and <code>GOARCH</code> [S13]</td><td>Yes; Go's own linker also computes the Mach-O code signature itself (<code>codesign.Sign</code> in <code>cmd/link</code>) [R68]</td><td>No, for pure Go [S13]</td></tr>
+<tr><td>Zig</td><td>Yes, bundled libcs [S20]</td><td>Yes; Zig ships a vendored <code>libSystem.tbd</code> [R70]</td><td>No [S20]</td></tr>
+<tr><td>Rust</td><td>Needs a Linux linker and target libraries; cargo-zigbuild supplies them by using "zig as linker" [R69]</td><td>Same route [R69]. <b>Unverified:</b> exact SDK needs.</td><td>Effectively yes, or Zig</td></tr>
+<tr><td>Deno</td><td>Yes [R24]</td><td>Yes [R24]</td><td>No</td></tr>
+<tr><td>Node SEA</td><td>Yes, with code cache and snapshot off [R23]</td><td>Same [R23]</td><td>No</td></tr>
+<tr><td>.NET Native AOT</td><td colspan="2">No: "Native AOT does not support cross-OS compilation" [S32][R71]</td><td>Yes</td></tr>
+<tr><td>GraalVM Native Image</td><td colspan="2">Not offered on the pages fetched [R20]</td><td>Yes [R19]</td></tr>
+<tr><td>Dart</td><td>Linux is the only cross target [S97]</td><td>No [S97]</td><td>No</td></tr>
+<tr><td>Delphi</td><td colspan="2">Yes from the Windows IDE per Wikipedia [R37]; mechanism <b>unverified</b></td><td>Unverified</td></tr>
+</table></div>
+
+<p>What Hey on Windows needs to do the same, with no C compiler installed:</p>
+<ol>
+<li><b>A linker for ELF and Mach-O that ships inside the Hey install.</b> Either bundle LLD (the existing plan already uses lld-link [S40]) or extend Hey's own writers. Zig is moving off LLD to its own linker [S23]; Go has always had its own [S13].</li>
+<li><b>No dependence on the target's C library files at link time.</b> For Linux, either a runtime that makes system calls directly, or bundled libc stubs as Zig carries [S20]. This fits the Maintainer's plan to rewrite the C runtime in Hey.</li>
+<li><b>For macOS, a stub for libSystem and a code signature.</b> Zig vendors <code>libSystem.tbd</code> [R70]; Go signs in its own linker [R68]. Hey needs both, because macOS has no stable system-call interface to bypass libSystem. <b>Unverified:</b> the exact Apple signing requirement text was not fetched.</li>
+<li><b>Prebuilt runtime objects per target inside the install</b> (the Deno model [R24]), until the runtime is Hey source that the compiler can build for any target on the spot (the Go and Zig model [S13][S20]).</li>
+</ol>
+
+<h3>Windows on ARM64, per language</h3>
+<p>Windows 11 on Arm runs unmodified x86 and x64 apps under emulation, but "For the best performance, responsiveness, and battery life, users will want and need Arm-native Windows apps" [R114].</p>
+<div class="wrap"><table>
+<tr><th>Language</th><th>Windows ARM64 status</th></tr>
+<tr><td>Rust</td><td><code>aarch64-pc-windows-msvc</code> is Tier 1 with host tools; <code>aarch64-pc-windows-gnullvm</code> Tier 2 with host tools; <code>arm64ec-pc-windows-msvc</code> Tier 2 without host tools [R64]. CI on <code>windows-11-arm</code> [S12].</td></tr>
+<tr><td>Zig</td><td><code>aarch64-windows</code> Tier 2, with CI marked partial [R70]</td></tr>
+<tr><td>Go</td><td><b>Unverified</b> from fetched pages (the requirements page gives no Windows ARM64 detail [R56]); a windows/arm64 port is believed to exist.</td></tr>
+<tr><td>.NET</td><td>Supported; Native AOT can cross-compile between x64 and ARM64 on Windows when "VS 2022 C++ ARM64/ARM64EC build tools" are installed [R71]. Arm-native Visual Studio exists [R114].</td></tr>
+<tr><td>GraalVM</td><td>Not available: Windows is x64 only [R19]</td></tr>
+<tr><td>Deno</td><td><code>aarch64-pc-windows-msvc</code> "supported starting in Deno 2.9.3" [R24]</td></tr>
+<tr><td>Swift</td><td>arm64 installer exists [S25]</td></tr>
+<tr><td>Dart</td><td>Windows Arm64 "Verified" [S98]</td></tr>
+<tr><td>Ruby</td><td>RubyInstaller has "a brand-new package for Windows on ARM" [R4]; YJIT supports mswin arm64 [R9]</td></tr>
+<tr><td>Erlang</td><td>BeamAsm supports aarch64 [R15], but no Windows ARM64 installer is listed [R16]. Unverified.</td></tr>
+<tr><td>Crystal, Kotlin/Native</td><td>Crystal: Tier 3 targets [S109]. Kotlin/Native: only <code>mingwX64</code> [S33].</td></tr>
+</table></div>
+<p>Arm64EC is a separate ABI: "Code built as Arm64EC interoperates with x64 code running under emulation within the same process", but "isn't compatible with code built as Arm64"; it needs Windows 11 [R115]. It only matters when a Hey program must load x64-only DLLs on an Arm PC.</p>
+
+<h2 id="s9">9. C# performance facts a "faster than C#" claim has to beat</h2>
+
+<p>Only first-party or clearly attributed numbers are listed. The measurement platform is often not stated by Microsoft, and that is noted.</p>
+
+<div class="wrap"><table>
+<tr><th>Metric</th><th>C# figure</th><th>Source and date</th><th>Caveat</th></tr>
+<tr><td>Hello-world size, Native AOT</td><td>.NET 7: "~13Mb"; .NET 8: "~1.5M", smaller with <code>OptimizationPreference=Size</code>, <code>InvariantGlobalization</code> and <code>StackTraceSupport=false</code></td><td>Microsoft .NET blog, "Performance Improvements in .NET 8" (2023; exact day not extracted) [R75]</td><td>Measured "on Linux", not Windows. The final reduced figure was not extracted.</td></tr>
+<tr><td>Minimal web API: startup</td><td>Default 156 ms; Native AOT 48 ms</td><td rowspan="3">Microsoft, "Announcing ASP.NET Core in .NET 8", 2023-11-14 [R74]</td><td rowspan="3">Run "in our benchmarking lab"; OS and hardware not stated</td></tr>
+<tr><td>Minimal web API: size</td><td>Default 92.6 MB; Native AOT 10.0 MB</td></tr>
+<tr><td>Minimal web API: working set</td><td>Default 96 MB; Native AOT 41 MB</td></tr>
+<tr><td>Larger API app (CRUD, JWT, PostgreSQL)</td><td>Startup 473 ms default, 115 ms AOT; size 98.27 MB against 21.55 MB; working set 193 MB against 121 MB</td><td>Same post [R74]</td><td>Same</td></tr>
+<tr><td>Real app startup</td><td>Aspire dashboard: 1,429 ms (JIT) to 491 ms (Native AOT); 183.08 MB to 110.22 MB</td><td>Microsoft Aspire blog, 2026-10-06 [S69]</td><td>Hardware and OS not stated</td></tr>
+<tr><td>Web throughput</td><td>TechEmpower Round 23 (post dated 2025-03-17) ran on Xeon Gold 6330 servers (56 cores, 64 GB, 40 Gbps) "generously provided" by Microsoft [R77]. A secondary write-up cites about 27.5 million plaintext requests per second for ASP.NET Core on .NET 9.</td><td>[R77]; the 27.5 M figure is from a search summary of a third-party article [R117]</td><td>The 27.5 M figure is <b>unverified</b>; the official results page is script-rendered and could not be read. TechEmpower runs Linux containers [R78], so this is not a Windows number.</td></tr>
+<tr><td>ASP.NET Native AOT on Windows</td><td>About 17 ms startup against about 80 ms for the regular runtime; about 9 MB</td><td>Thinktecture article, seen only in a search summary [R117]</td><td><b>Unverified</b>; third party, page not fetched</td></tr>
+</table></div>
+
+<h3>Qualitative facts that shape the contest</h3>
+<ul>
+<li>Native AOT gives "Reduced startup time", "Minimized disk footprint" and "Reduced memory demand", but "Not all features in ASP.NET Core are currently compatible with Native AOT": Minimal APIs and SignalR work (some partially), MVC does not [R72].</li>
+<li>Native AOT has no tiered recompilation: "tiering doesn't exist in the Native AOT world" [R75]. The JIT, in contrast, keeps getting profile-guided gains: .NET 10 adds stack allocation of small arrays, escape analysis for struct fields and delegates, array-interface devirtualization, and profile-driven inlining [R80]. So C# has two different opponents: <b>Native AOT</b> (fast start, small, fixed code quality) and <b>JIT</b> (slow start, large, very good steady-state code).</li>
+<li>Native AOT chooses "a blended approach: generate fast code, but be mindful of the size"; <code>OptimizationPreference</code> can favour <code>Size</code> or <code>Speed</code> [R73].</li>
+<li>Native AOT on Windows uses the Windows thread pool by default, which changes its concurrency behaviour from JIT .NET [R61][R63].</li>
+<li>Native AOT needs Visual Studio's C++ workload and cannot cross-compile across operating systems [S65][S32].</li>
+</ul>
+
+<h3>What "faster than C#" should mean, stated so it can be tested</h3>
+<div class="wrap"><table>
+<tr><th>Claim</th><th>Bar from the sources</th><th>Hey's standing</th></tr>
+<tr><td>Starts faster</td><td>48 ms for a minimal web API under Native AOT [R74]</td><td>Not measured on Windows</td></tr>
+<tr><td>Smaller</td><td>About 1.5 MB hello world [R75]; 10.0 MB minimal web API [R74]</td><td>Not measured on Windows</td></tr>
+<tr><td>Less memory</td><td>41 MB working set, minimal web API [R74]</td><td>Not measured on Windows</td></tr>
+<tr><td>More requests per second</td><td>No first-party Windows number exists to beat; Hey must measure Kestrel (JIT and Native AOT) itself</td><td>Linux only: Hey 266,085 rps against Go 205,097 and Java 200,293 on a 4-core laptop [R2]; no C# lane</td></tr>
+<tr><td>Faster compute</td><td>.NET JIT with dynamic PGO [R80]</td><td>Hey is 2x to 20x behind C on several micro workloads [R2], so this claim is at risk and must not be made before measuring</td></tr>
+</table></div>
+
+<h2 id="s10">10. Integration parity with C++ and C#</h2>
+
+<p>The Maintainer added this scope: Windows Hey may need to match the platform integration that C++ (MSVC) and C# have. For each point the table gives what C++ has, what C# has, which third-party language reached parity and how, and an effort class for Hey. Effort classes: <span class="tag small">small</span> days to two weeks, mostly wiring; <span class="tag medium">medium</span> weeks, a real subsystem; <span class="tag large">large</span> months or an ongoing ecosystem effort.</p>
+
+<h3>10.1 Calling the platform</h3>
+<div class="wrap"><table>
+<tr><th>Point</th><th>C++ (MSVC)</th><th>C#</th><th>Who else reached parity, and how</th><th>Hey effort</th></tr>
+<tr><td>Win32 functions</td><td>SDK headers and import libraries [S39]</td><td>CsWin32 generates P/Invoke from <code>.winmd</code> [S80]; <code>LibraryImport</code> generates the marshalling code at compile time [R82]</td><td>Rust: <code>windows</code> and <code>windows-sys</code> generated from metadata by <code>windows-bindgen</code> [S9][R67]. Zig: zigwin32, "A complete autogenerated set of Zig bindings for the Win32 API" [R97]. Go: <code>mkwinsyscall</code> from <code>//sys</code> comments [R105]. Odin: hand-written files [S106]. All of these rest on win32metadata's goal of projections "for all languages" [R95].</td><td><span class="tag medium">medium</span> A <code>.winmd</code> reader and a Hey binding generator; the calls themselves are plain C ABI.</td></tr>
+<tr><td>COM (IUnknown, HRESULT, apartments)</td><td>Native: a COM interface is a C++ vtable; C++/WinRT builds on it [S90]</td><td>Built-in COM interop on Windows, plus the source-generated <code>ComWrappers</code> for <code>IUnknown</code>-based interfaces that works with Native AOT [R83][S79]</td><td>Rust: <code>windows-core</code> gives "COM and WinRT types, traits, and authoring macros" with <code>#[interface]</code> and <code>#[implement]</code> [R67]. Swift: maps <code>IUnknown</code> to a protocol and reference counting to ARC [S95]. Go: go-ole, "Go bindings for Windows COM using shared libraries instead of cgo" [R99]. Delphi: native COM with reference-counted interfaces [R37].</td><td><span class="tag medium">medium</span> Calling COM is vtable calls plus AddRef and Release; implementing COM objects and apartment rules (an object's methods may be called only from its apartment's thread, otherwise through a proxy [R84]) is the harder half and conflicts with actors moving between threads.</td></tr>
+<tr><td>WinRT and Windows App SDK</td><td>C++/WinRT, a header-only C++17 projection [S90]</td><td>C#/WinRT: generates C# from <code>.winmd</code> so that "neither the C# compiler nor the .NET Runtime require built-in knowledge of WinRT" [R96]</td><td>Rust: <code>windows</code> crate covers WinRT [R67]. Swift: Swift/WinRT, "based on the Microsoft created cppwinrt project", generating both the C ABI and the Swift bindings [R98].</td><td><span class="tag large">large</span> A full projection (generics, async, events, activation) on top of COM; needed only for WinUI and newer APIs.</td></tr>
+<tr><td>Calling C ABI DLLs, and callbacks from C</td><td>Native</td><td>P/Invoke "allows you to access structs, callbacks, and functions in unmanaged libraries" [R82]</td><td>Go without cgo: <code>syscall.NewCallback</code> "converts a Go function to a function pointer conforming to the stdcall calling convention", with a limit on how many can exist [R107]. Rust and Zig: native.</td><td><span class="tag small">small</span> Hey already emits LLVM IR with the Windows x64 calling convention; needs <code>LoadLibraryExW</code> loading (existing plan b.6) and a callback thunk.</td></tr>
+<tr><td>Exporting a DLL that C++ and C# can consume</td><td>Native (<code>__declspec(dllexport)</code>)</td><td>Native AOT builds shared libraries exposing methods marked <code>UnmanagedCallersOnly</code> with an <code>EntryPoint</code>; static libraries are "not officially supported"; unloading is not supported [R81]</td><td>Go: <code>-buildmode=c-shared</code> and <code>c-archive</code> exist [R106] (<b>unverified</b> for Windows specifically). Rust: <code>cdylib</code> (unverified, not fetched). Delphi: standard DLLs and COM servers [R37].</td><td><span class="tag medium">medium</span> Export table is easy with Hey's own PE writer; the hard part is a runtime (scheduler, GC or allocator) that initialises correctly when it is a guest in another process. Native AOT's "no unloading" limit shows the same difficulty [R81].</td></tr>
+<tr><td>COM server authored in the language</td><td>Native (ATL, C++/WinRT)</td><td>Yes [R83]</td><td>Rust <code>#[implement]</code> [R67]; Delphi COM automation servers [R37]</td><td><span class="tag large">large</span> Needs class factories, registration and apartment handling on top of DLL export.</td></tr>
+<tr><td>SEH and x64 unwind tables</td><td>Every non-leaf function has a <code>RUNTIME_FUNCTION</code> entry in <code>.pdata</code> pointing at <code>.xdata</code> unwind info; failure to provide it "results in unreliable exception handling and debugging" [R85]</td><td>The runtime and Native AOT compiler emit it; managed exceptions are thrown through <code>RhThrowEx</code> [S77]</td><td>Rust (msvc): panics call <code>_CxxThrowException</code> and unwind through SEH [R87]. LLVM supports this with funclets and the <code>__CxxFrameHandler3</code> and <code>__C_specific_handler</code> personalities [R86]. Go: since 1.21 "the linker (with help from the compiler) now emits SEH unwinding data by default, which improves the integration of Go applications with Windows debuggers and other tools" [R55].</td><td><span class="tag small">small</span> for unwind tables (LLVM emits <code>.pdata</code> and <code>.xdata</code> when functions carry unwind info); <span class="tag medium">medium</span> if Hey errors must unwind through foreign C++ frames with funclets [R86].</td></tr>
+</table></div>
+
+<h3>10.2 Tooling</h3>
+<div class="wrap"><table>
+<tr><th>Point</th><th>C++ (MSVC)</th><th>C#</th><th>Who else reached parity, and how</th><th>Hey effort</th></tr>
+<tr><td>Debugger with PDB in Visual Studio and VS Code</td><td>Native [S85][S89]</td><td>Managed debugger; native debuggers for Native AOT output [S77]</td><td>Rust: PDB by default on msvc [S123]. Swift: CodeView on request [S94]. Zig and Odin: PDB [S23][S105]. Go: DWARF only, a known gap [S122].</td><td><span class="tag small">small</span> Already existing plan step (c): CodeView metadata plus <code>/DEBUG</code> in lld-link [S86][S87].</td></tr>
+<tr><td>natvis visualizers</td><td>"The Visual Studio Natvis framework customizes the way native types appear in debugger variable windows" [R93]</td><td>Not needed for managed code; Native AOT is debugged as native [S77]</td><td>Rust: <code>#![debugger_visualizer(natvis_file = "...")]</code> can "embed a debugger visualizer file into the debug information" [R94].</td><td><span class="tag small">small</span> One <code>.natvis</code> file for Hey String, Array, Map and actor handles, embedded in the PDB as Rust does.</td></tr>
+<tr><td>Language server and editor extension</td><td>VS Code C++ extension, including on Arm [R114]</td><td>C# Dev Kit [S68]</td><td>Swift: SourceKit-LSP and a VS Code extension [S25]. Rust and Go: language servers (unverified, not fetched).</td><td><span class="tag medium">medium</span> if Hey has no language server yet; <span class="tag small">small</span> if one exists and only a Windows build and a VS Code extension with a <code>cppvsdbg</code> launch template are needed [S89].</td></tr>
+<tr><td>Project system (MSBuild) and Test Explorer in Visual Studio</td><td>Native</td><td>Native</td><td>None of the third-party languages surveyed has first-class Visual Studio project support in the pages fetched; they live in VS Code. Unverified beyond that.</td><td><span class="tag large">large</span> A Visual Studio extension is its own product. Recommend VS Code only.</td></tr>
+<tr><td>WinDbg</td><td>Native; Time Travel Debugging [S88]</td><td>Native AOT output is debuggable in WinDbg [S77]</td><td>Any language with correct PDB and unwind data [R55][R85]</td><td><span class="tag small">small</span> Falls out of PDB plus unwind tables.</td></tr>
+<tr><td>ETW and Windows Performance Analyzer</td><td>TraceLogging: "a system for logging events that can be decoded without a manifest" [R113]; WPR and WPA are the recorder and analyzer [R112]</td><td>PerfView for Native AOT [S77]; Visual Studio profiler [S78]</td><td>Rust: Microsoft publishes TraceLogging support beyond C++ in <code>microsoft/tracelogging</code> [R102]. Go: go-winio is the Microsoft Go library for Win32 I/O [R100] (its ETW package is unverified).</td><td><span class="tag small">small</span> for CPU sampling (WPA needs only PDBs and unwind data); <span class="tag medium">medium</span> for a Hey ETW provider that emits scheduler and actor events.</td></tr>
+<tr><td>Crash dumps and Windows Error Reporting</td><td>WER can store user-mode dumps locally via the <code>LocalDumps</code> registry key; it is "not enabled by default" and "Applications that do their own custom crash reporting are not supported by this feature" [R91]</td><td>Same OS facility</td><td>Go: "Crashing Go applications can now opt-in to Windows Error Reporting (WER) by setting the environment variable GOTRACEBACK=wer" [R55]. Rust: a minidump writer crate exists [R103].</td><td><span class="tag small">small</span> Let fatal errors fall through to the unhandled exception path so WER can take a dump; print Hey's own trace first.</td></tr>
+<tr><td>Symbol servers</td><td>SymSrv and SymStore: "The symbol server enables the debuggers to automatically retrieve the correct symbol files" indexed by time stamp and image size [R92]</td><td>Same</td><td>Anything that emits a PDB matching its exe [S85]</td><td><span class="tag small">small</span> Emit matching PDB signatures; publish <code>hey.exe</code> PDBs with each release.</td></tr>
+</table></div>
+
+<h3>10.3 Packaging and ecosystem</h3>
+<div class="wrap"><table>
+<tr><th>Point</th><th>C++ (MSVC)</th><th>C#</th><th>Who else reached parity, and how</th><th>Hey effort</th></tr>
+<tr><td>Consuming NuGet and vcpkg libraries</td><td>vcpkg, 2,300+ libraries [S84]</td><td>NuGet</td><td>win32metadata and WebView2 are themselves delivered as NuGet packages [R95][S52]. Rust and Go use their own registries.</td><td><span class="tag medium">medium</span> Not package-manager integration, but the ability to link a vcpkg-built C library (<code>.lib</code> or <code>.dll</code>) through the C ABI.</td></tr>
+<tr><td>MSIX and winget</td><td>Yes [S57][S58]</td><td>Yes</td><td>Zig, Swift, Dart, .NET on winget [S124][S25][S98][S68]</td><td><span class="tag small">small</span> Existing plan step (e).</td></tr>
+<tr><td>Code signing</td><td>signtool</td><td>signtool; MSBuild hooks [S67]</td><td>Deno and Node document <code>signtool</code> for their outputs [R24][R23]</td><td><span class="tag small">small</span> Signing is an external step; Hey must leave room in the PE for the certificate table and not append data after it.</td></tr>
+<tr><td>Application manifest</td><td>Embedded XML with <code>supportedOS</code>, <code>dpiAwareness</code>, <code>longPathAware</code>, <code>activeCodePage</code>, <code>heapType</code> [R88]</td><td>Same</td><td>All native toolchains can embed one</td><td><span class="tag small">small</span> Emit a default manifest in every Hey exe. <code>activeCodePage</code> UTF-8 "forces a process to use UTF-8 as the process code page" from Windows 10 1903 [R88][R89].</td></tr>
+<tr><td>Resources (icon, version info)</td><td><code>.rc</code> compiled by the resource compiler</td><td>Project properties</td><td>Odin: <code>-resource:</code> [S105]. Deno: <code>--icon</code> [R24]. Tauri cross-builds with llvm-rc [S54].</td><td><span class="tag small">small</span> Write the <code>.rsrc</code> section from Hey's PE writer; no <code>rc.exe</code> needed.</td></tr>
+</table></div>
+
+<h3>10.4 Operating system citizenship</h3>
+<div class="wrap"><table>
+<tr><th>Point</th><th>C++ (MSVC)</th><th>C#</th><th>Who else reached parity, and how</th><th>Hey effort</th></tr>
+<tr><td>Windows services</td><td>A service implements <code>ServiceMain</code> and a control handler for the service control manager [R108]</td><td>A <code>BackgroundService</code> worker can run as a Windows Service [R109]</td><td>Go: <code>golang.org/x/sys/windows/svc</code> "provides everything required to build Windows service" [R104]. Rust: <code>windows-service</code> crate [R101]. Delphi: Windows services [R37].</td><td><span class="tag small">small</span> A library over three Win32 calls; the actor runtime maps well onto the control handler.</td></tr>
+<tr><td>Event Log</td><td>Win32 event logging API</td><td>Built-in logging provider (unverified, not fetched)</td><td>Go has an eventlog package under <code>x/sys/windows/svc</code> (unverified, not fetched)</td><td><span class="tag small">small</span> Library work over Win32.</td></tr>
+<tr><td>Registry</td><td>Win32 registry API</td><td><code>Microsoft.Win32.Registry</code> (unverified, not fetched)</td><td>Go <code>x/sys/windows/registry</code> (unverified, not fetched)</td><td><span class="tag small">small</span> Library work over Win32.</td></tr>
+<tr><td>Console and Windows Terminal</td><td>VT sequences work once <code>ENABLE_VIRTUAL_TERMINAL_PROCESSING</code> is set with <code>SetConsoleMode</code> [R90]</td><td>Runtime handles it</td><td>Every modern CLI runtime sets the mode at startup</td><td><span class="tag small">small</span> Set the VT flag and UTF-8 output code page at startup; write with the wide-character console API when attached to a console.</td></tr>
+<tr><td>Named pipes</td><td>Win32</td><td><code>System.IO.Pipes</code> (unverified, not fetched)</td><td>Tokio: "support for Windows named pipes" [R60]. Go: go-winio, "accessing named pipes and other file handles, and for using named pipes as a net transport" [R100].</td><td><span class="tag small">small</span> once IOCP is in place; a pipe is another overlapped handle.</td></tr>
+<tr><td>Job objects</td><td>"A job object allows groups of processes to be managed as a unit", including "terminating all processes associated with a job" [R110]</td><td>Through P/Invoke</td><td>Used by build tools and supervisors generally</td><td><span class="tag small">small</span> and valuable: it is how a Hey supervisor can guarantee child processes die with the parent.</td></tr>
+<tr><td>ACLs and security descriptors</td><td>Win32 security API</td><td><code>System.Security.AccessControl</code> (unverified, not fetched)</td><td>go-winio covers security descriptors (unverified, not fetched)</td><td><span class="tag medium">medium</span> Large, awkward API surface; expose through generated bindings first, wrap later.</td></tr>
+<tr><td>ARM64</td><td>Arm-native Visual Studio and MSVC [R114]</td><td>Supported; cross-arch Native AOT [R71]</td><td>Rust Tier 1 [R64]; Zig Tier 2 [R70]; Deno [R24]; Swift [S25]</td><td><span class="tag medium">medium</span> LLVM does the code generation; runtime assembly, unwind format and CI on <code>windows-11-arm</code> [S47] are the work.</td></tr>
+<tr><td>ARM64EC</td><td>Supported [R115]</td><td>Build tools listed as "ARM64/ARM64EC" [R71]</td><td>Rust Tier 2 without host tools [R64]</td><td><span class="tag large">large</span> A separate ABI with x64 conventions on Arm [R115]; only needed to mix with x64 DLLs. Defer.</td></tr>
+</table></div>
+
+<h3>10.5 User interface</h3>
+<div class="wrap"><table>
+<tr><th>Point</th><th>C++ (MSVC)</th><th>C#</th><th>Who else reached parity, and how</th><th>Hey effort</th></tr>
+<tr><td>WinUI 3</td><td>Yes, through C++/WinRT [S75][S90]</td><td>Yes, through C#/WinRT, which "is needed to support the changes required for lifting the XAML APIs out of Windows.UI.XAML and into Microsoft.UI.XAML" [R96]</td><td>Rust: windows-rs now lists <code>windows-reactor</code>, a "Declarative UI library backed by WinUI 3" [R67]. Swift: Swift/WinRT [R98].</td><td><span class="tag large">large</span> Needs the whole WinRT projection plus Windows App Runtime deployment.</td></tr>
+<tr><td>WPF and WinForms</td><td>No (WPF and WinForms are .NET) [S73][S74]</td><td>Yes, with visual designers [S73][S74]</td><td>Nobody outside .NET. Delphi has its own equivalent, VCL, with a designer [R36][R37].</td><td>Not applicable. Do not attempt; they are .NET frameworks.</td></tr>
+<tr><td>Win32 window plus WebView2</td><td>Yes [S51]</td><td>Yes</td><td>Rust (Tauri) [S53]; Go (Wails) [S55]; C (webview) [S56]</td><td><span class="tag medium">medium</span> Window class, message loop on a dedicated thread, and COM calls into WebView2 (needs the COM calling half from 10.1). The existing plan's interim C shell covers the gap [S56].</td></tr>
+<tr><td>Direct3D and DirectX</td><td>Native COM interfaces</td><td>Through interop or wrappers</td><td>Rust: covered by the <code>windows</code> crate's COM bindings [R67]</td><td><span class="tag medium">medium</span> No extra mechanism beyond COM calling and generated bindings; cost is in the bindings' size and a sample.</td></tr>
+</table></div>
+
+<h3>10.6 Ranked: minimum integration for 607a, and what comes later</h3>
+<p><b>Minimum for 607a</b>, in order. Each is small or is a prerequisite for a "native and fast" claim.</p>
+<ol>
+<li><b>x64 unwind tables in every Hey function</b>, so debuggers, profilers and crash dumps work [R85][R55]. Small.</li>
+<li><b>PDB with CodeView, plus one embedded natvis file</b> for Hey's core types [S86][S87][R93][R94]. Small.</li>
+<li><b>Default application manifest</b>: UTF-8 active code page, long-path aware, DPI aware, <code>asInvoker</code> [R88][R89]. Small.</li>
+<li><b>Console correctness</b>: VT processing on, UTF-8 in and out, correct behaviour as a PowerShell native command [R90][R30]. Small.</li>
+<li><b>C ABI in both directions</b>: call any DLL by name with no import library, and pass Hey callbacks to C [R65][R66][R107][R82]. Small.</li>
+<li><b>Icon and version resources</b> written by Hey's PE writer [S105][R24]. Small.</li>
+<li><b>Crash path that cooperates with Windows Error Reporting</b> [R91][R55]. Small.</li>
+<li><b>Win32 bindings generated from win32metadata</b> for at least kernel32, user32, advapi32, ws2_32 and shell32 [R95][S80][R67][R97]. Medium, but it removes hand-written bindings for everything after it.</li>
+<li><b>Services, named pipes, job objects, registry, Event Log</b> as thin standard-library modules over those bindings [R104][R101][R100][R110][R108]. Small each.</li>
+<li><b>Signed installer, winget, published PDBs</b> [S58][S59][R92]. Small (existing plan e).</li>
+</ol>
+<p><b>Later</b>, in rough order of value.</p>
+<ol>
+<li>Calling COM (consume only), which unlocks WebView2 and Direct3D from Hey itself [R83][R67][S95]. Medium.</li>
+<li>Windows ARM64 target and CI [R64][R70][S47]. Medium.</li>
+<li>ETW provider for the actor scheduler, viewable in WPA [R113][R112][R102]. Medium.</li>
+<li>Exporting a Hey DLL for C++ and C# to consume [R81][R106]. Medium.</li>
+<li>VS Code extension with debugger templates and a language server on Windows [S89][S25]. Medium.</li>
+<li>Implementing COM objects and COM servers; apartments against the actor model [R84][R67]. Large.</li>
+<li>WinRT projection and WinUI 3 [R96][R98][R67]. Large.</li>
+<li>ARM64EC [R115]. Large, on demand only.</li>
+<li>Visual Studio project system and Test Explorer. Large; recommend not doing it.</li>
+</ol>
+
+<h2 id="s11">11. What this adds to the Hey Windows plan</h2>
+
+<p>The existing document's section 20 has steps (a) cross-compile to <code>x86_64-pc-windows-msvc</code>, (b) port the runtime platform surface, (c) CodeView and PDB, (d) native self-hosted <code>hey.exe</code>, (e) installer and winget, (f) CI, (g) acceptance. The additions below are tied to those letters.</p>
+
+<div class="wrap"><table>
+<tr><th>#</th><th>Addition or change</th><th>Where</th><th>Sources</th></tr>
+<tr><td>1</td><td><b>Add C# to the benchmarks before claiming anything.</b> Add .NET JIT and .NET Native AOT lanes (and F# <code>MailboxProcessor</code> for the actor workloads) to the W1 to W12, web and actor harnesses, and port the harness off <code>/proc</code>, <code>perf</code> and <code>strace</code> so it runs on Windows. Targets to beat: 48 ms startup, 10.0 MB, 41 MB working set for a minimal web API; about 1.5 MB hello world.</td><td>New step before (g); changes (g)'s definition of done</td><td>[R1][R2][R3][R74][R75][R27]</td></tr>
+<tr><td>2</td><td><b>Fix Int-as-C-<code>long</code> first.</b> Hey's decision log already records that the runtime carries a 64-bit Hey Int as C <code>long</code>, which is 32 bits on Windows. This blocks every runtime step.</td><td>Precondition of (b)</td><td>Project fact (Hey decisions log, read 2026-11-11)</td></tr>
+<tr><td>3</td><td><b>Need no import libraries at all.</b> Have Hey's PE writer emit import table entries from Hey declarations (Go's model, Rust's raw-dylib), with names generated from win32metadata. This removes the open Windows SDK licence question and the llvm-mingw dependency from step (a).</td><td>Replaces the two "routes" under (a) with a third, preferred one</td><td>[S16][R65][R66][R95][S42]</td></tr>
+<tr><td>4</td><td><b>Add the reverse direction: <code>hey.exe</code> on Windows cross-compiles to Linux and macOS with no C compiler.</b> Needs an ELF and Mach-O linker inside the install, no link-time dependence on target libc files, a libSystem stub and self-computed code signature for macOS, and prebuilt runtime objects per target until the runtime is Hey source.</td><td>New step after (d)</td><td>[S13][S20][R68][R70][R24][R69][S32]</td></tr>
+<tr><td>5</td><td><b>Specify the Windows scheduler and I/O design, not just "IOCP".</b> Batch dequeue with <code>GetQueuedCompletionStatusEx</code>; <code>FILE_SKIP_COMPLETION_PORT_ON_SUCCESS</code>; overlapped file I/O on the same port; high-resolution waitable timers tied to the port; <code>WaitOnAddress</code> parking; processor groups. Explicitly reject UMS, fibers, the OS thread pool, and IoRing for 607a; list RIO and large pages as later options.</td><td>Expands (b.2) and (b.5)</td><td>[R51][R52][R53][R54][R45][R42][R41][R46][R44][R38][R39][R40][R48][R49][R50][R47][R43]</td></tr>
+<tr><td>6</td><td><b>Add unwind tables, natvis, WER and symbol publishing to the debug step.</b> PDB alone is not parity.</td><td>Expands (c)</td><td>[R85][R55][R93][R94][R91][R92]</td></tr>
+<tr><td>7</td><td><b>Every Hey exe gets a default manifest and resources</b> (UTF-8 code page, long paths, DPI, icon, version), and the runtime enables VT and UTF-8 console output at startup.</td><td>New item in (a) (PE writer) and (b)</td><td>[R88][R89][R90][S105]</td></tr>
+<tr><td>8</td><td><b>Add Windows ARM64 as a named second target</b> with CI on <code>windows-11-arm</code>; note GraalVM has none and Rust is Tier 1. Defer ARM64EC.</td><td>Expands (a) and (f)</td><td>[R64][R70][R19][R71][R24][S47][R115]</td></tr>
+<tr><td>9</td><td><b>Add the integration minimum from section 10.6</b> (C ABI both ways, generated Win32 bindings, services, pipes, job objects, registry, Event Log) as a new step, and record the "later" list (COM, DLL export, ETW provider, WinRT) as explicit non-goals for 607a.</td><td>New step between (d) and (e)</td><td>[R95][R67][R97][R104][R100][R110][R107][R81][R83][R96]</td></tr>
+<tr><td>10</td><td><b>Position against Ruby and Elixir installs.</b> One installer, no MSYS2 Devkit, no second runtime to install first, no C compiler for packages. Make "a Hey package with native code installs with no compiler" an acceptance test.</td><td>Expands (e) and (g)</td><td>[R4][R5][R6][R17][R11]</td></tr>
+<tr><td>11</td><td><b>PowerShell fit.</b> Ship the install script signed (default policy is <code>RemoteSigned</code>), and give <code>hey</code> machine-readable output for pipelines.</td><td>Expands (e)</td><td>[R32][R30][R33]</td></tr>
+<tr><td>12</td><td><b>Publish Windows benchmark numbers.</b> No first-party Windows-versus-Linux numbers were found for Go, Tokio, the BEAM or Kestrel, and TechEmpower is Linux only. Measure Hey against Erlang's <code>WaitForMultipleObjects</code> poller and against both .NET thread pools on the same Windows machine.</td><td>Expands (g)</td><td>[R12][R61][R63][R78][R54]</td></tr>
+<tr><td>13</td><td><b>Recommend a Dev Drive for Hey's build cache in the Windows docs</b>, since Microsoft positions it with Defender performance mode (asynchronous scanning) for developer workloads.</td><td>Note under (e)</td><td>[R111]</td></tr>
+</table></div>
+
+<h2 id="s12">12. What could not be verified</h2>
+<ul>
+<li><b>Bun</b> standalone executables: documentation returned HTTP 404 at bun.sh, bun.com and in the GitHub repository paths tried. Nothing about Bun is asserted.</li>
+<li><b>Delphi and Free Pascal</b>: docwiki.embarcadero.com returned HTTP 403 (three pages); wiki.freepascal.org was offline; two freepascal.org documentation URLs were the wrong pages. Delphi statements rest on Embarcadero's product page and Wikipedia. Own-linker and no-Visual-Studio claims for both are unverified.</li>
+<li><b>OpenJDK JEP 483 and JEP 444</b>: HTTP 403. No JDK startup number is given.</li>
+<li><b>TechEmpower results</b>: the results page is script-rendered; the Round 23 post gave hardware but not the OS or per-framework numbers. The 27.5 million plaintext figure for ASP.NET Core is from a search summary of a third-party article.</li>
+<li><b>ASP.NET team benchmarks</b> (aka.ms/aspnet/benchmarks): redirects to Power BI, unreadable.</li>
+<li><b>Native AOT on Windows</b>: no first-party hello-world size or startup number measured on Windows was found. The 1.5 MB figure is for Linux; the ASP.NET figures do not state the OS. The Thinktecture Windows 11 figures were seen only in a search summary.</li>
+<li><b>Windows IoRing opcode list</b>: the Microsoft enum page yielded no text; the opcode history comes from a 2021 to 2022 independent analysis.</li>
+<li><b>Go on Windows ARM64</b>, and Go issues 5284 and 40243 on Windows network performance: not fetched.</li>
+<li><b>Ruby</b>: no current Windows-versus-Linux benchmark; whether RubyInstaller ships YJIT; the Ruby docs site URLs for the Windows and YJIT pages returned 404 (the same documents were read from the Ruby GitHub repository instead).</li>
+<li><b>Erlang</b>: Windows ARM64 availability; any Windows performance comparison. The Erlang <code>inet_drv</code> page returned 404.</li>
+<li><b>Node</b> Windows architectures: the download page did not render its Windows options.</li>
+<li><b>Rows marked "unverified, not fetched" in section 10</b>: .NET Event Log, registry, pipes and access-control namespaces; Go's registry and eventlog packages; go-winio's ETW and security-descriptor coverage; Rust <code>cdylib</code>; language servers for Rust and Go; Go <code>c-shared</code> on Windows.</li>
+<li><b>Apple's code-signing requirement</b> for arm64 macOS binaries: not fetched; only the fact that Go's linker signs was confirmed.</li>
+<li>Several Microsoft pages were read through a line filter, so quotations are exact but the surrounding context was not fully read: manifests, natvis, thread pool API, large pages, COM apartments.</li>
+</ul>
+
+<h2 id="s13">13. Source register</h2>
+<p>All fetched 2026-11-11. "Local" means a file read on this machine, read only.</p>
+<ol class="src" style="list-style: none; padding-left: 0;">
+<li>[R1] Local: <code>hey:integrate-606a-20261111/benchmarks</code> (directory listing; <code>actor-reference/README.md</code>; <code>web/harness</code>; <code>go-reference</code>; <code>c</code>). Hey benchmark sources.</li>
+<li>[R2] Local: <code>cagents/projects/hey-benchmarks/messages/posts/linux/2026/08/20260831T080152Z-62395-complete-hey-0.99.554a-benchmark-run-w1-w12-web9-1brc-vs-c-s.md</code>. Complete Linux benchmark run, 2026-08-31.</li>
+<li>[R3] Local: <code>hey:integrate-606a-20261111/benchmarks/web/Web.serve.benchmarks.md</code> and <code>web/README.md</code>. Web throughput write-up and harness notes.</li>
+<li>[R4] https://rubyinstaller.org/ . RubyInstaller home page and news.</li>
+<li>[R5] https://rubyinstaller.org/2021/12/31/rubyinstaller-3.1.0-1-released.html . UCRT switch announcement, 2021-12-31.</li>
+<li>[R6] https://github.com/oneclick/rubyinstaller2/wiki/FAQ . RubyInstaller FAQ.</li>
+<li>[R7] https://www.ruby-lang.org/en/documentation/installation/ . Official Ruby installation page.</li>
+<li>[R8] https://raw.githubusercontent.com/ruby/ruby/master/doc/distribution/windows.md . Ruby's Windows build document.</li>
+<li>[R9] https://raw.githubusercontent.com/ruby/ruby/master/doc/jit/yjit.md . YJIT document.</li>
+<li>[R10] https://www.erlang.org/doc/apps/erts/erl_cmd.html . <code>erl</code> command flags.</li>
+<li>[R11] https://github.com/erlang/otp/blob/master/HOWTO/INSTALL-WIN32.md . Building Erlang/OTP on Windows.</li>
+<li>[R12] https://raw.githubusercontent.com/erlang/otp/master/erts/emulator/sys/win32/erl_poll.c . BEAM Windows poll implementation (source).</li>
+<li>[R13] https://raw.githubusercontent.com/erlang/otp/master/erts/emulator/sys/win32/sys.c . BEAM Windows port and file I/O (source).</li>
+<li>[R14] https://www.erlang.org/doc/apps/kernel/socket_usage.html . <code>socket</code> module usage guide.</li>
+<li>[R15] https://www.erlang.org/doc/apps/erts/beamasm.html . BeamAsm JIT.</li>
+<li>[R16] https://www.erlang.org/downloads . Erlang downloads (OTP 29.1.2).</li>
+<li>[R17] https://elixir-lang.org/install/ . Elixir install page.</li>
+<li>[R18] https://www.erlang.org/doc/system/ports.html . Ports and port drivers.</li>
+<li>[R19] https://www.graalvm.org/latest/getting-started/windows/ . GraalVM on Windows.</li>
+<li>[R20] https://www.graalvm.org/latest/reference-manual/native-image/ . Native Image reference.</li>
+<li>[R21] https://www.graalvm.org/latest/reference-manual/native-image/guides/build-static-executables/ . Static executables guide.</li>
+<li>[R22] https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html . Java virtual threads.</li>
+<li>[R23] https://nodejs.org/api/single-executable-applications.html . Node single executable applications.</li>
+<li>[R24] https://docs.deno.com/runtime/reference/cli/compile/ . <code>deno compile</code>.</li>
+<li>[R25] https://learn.microsoft.com/en-us/dotnet/fsharp/what-is-fsharp . What is F#.</li>
+<li>[R26] https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/task-expressions . F# task expressions.</li>
+<li>[R27] https://fsharp.github.io/fsharp-core-docs/reference/fsharp-control-fsharpmailboxprocessor-1.html . <code>MailboxProcessor</code>.</li>
+<li>[R28] https://learn.microsoft.com/en-us/dotnet/fundamentals/languages . .NET managed languages strategy.</li>
+<li>[R29] https://learn.microsoft.com/en-us/dotnet/visual-basic/getting-started/strategy . Visual Basic language strategy.</li>
+<li>[R30] https://learn.microsoft.com/en-us/powershell/scripting/overview . What is PowerShell.</li>
+<li>[R31] https://learn.microsoft.com/en-us/powershell/scripting/whats-new/differences-from-windows-powershell . Windows PowerShell 5.1 versus PowerShell 7.</li>
+<li>[R32] https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies . Execution policies.</li>
+<li>[R33] https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/cmdlet-overview . Cmdlet overview.</li>
+<li>[R34] https://learn.microsoft.com/en-us/cpp/dotnet/dotnet-programming-with-cpp-cli-visual-cpp . C++/CLI.</li>
+<li>[R35] https://learn.microsoft.com/en-us/dotnet/core/porting/cpp-cli . C++/CLI on .NET, limitations.</li>
+<li>[R36] https://www.embarcadero.com/products/delphi . Embarcadero Delphi product page.</li>
+<li>[R37] https://en.wikipedia.org/wiki/Delphi_(software) . Wikipedia, Delphi (secondary source).</li>
+<li>[R38] https://learn.microsoft.com/en-us/windows/win32/procthread/user-mode-scheduling . User-mode scheduling.</li>
+<li>[R39] https://learn.microsoft.com/en-us/windows/win32/procthread/fibers . Fibers.</li>
+<li>[R40] https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pool-api . Thread pool API.</li>
+<li>[R41] https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod . <code>timeBeginPeriod</code>.</li>
+<li>[R42] https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createwaitabletimerexw . <code>CreateWaitableTimerExW</code>.</li>
+<li>[R43] https://learn.microsoft.com/en-us/windows/win32/memory/large-page-support . Large-page support.</li>
+<li>[R44] https://learn.microsoft.com/en-us/windows/win32/procthread/processor-groups . Processor groups.</li>
+<li>[R45] https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setfilecompletionnotificationmodes . <code>SetFileCompletionNotificationModes</code>.</li>
+<li>[R46] https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitonaddress . <code>WaitOnAddress</code>.</li>
+<li>[R47] https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/hh997032(v=ws.11) . Registered I/O (RIO) API extensions.</li>
+<li>[R48] https://learn.microsoft.com/en-us/windows/win32/api/ioringapi/nf-ioringapi-createioring . <code>CreateIoRing</code>.</li>
+<li>[R49] https://windows-internals.com/i-o-rings-when-one-i-o-operation-is-not-enough/ . Yarden Shafir, I/O rings (2021-05-24, updated 2022-04-27).</li>
+<li>[R50] https://windows-internals.com/ioring-vs-io_uring-a-comparison-of-windows-and-linux-implementations/ . Yarden Shafir, IoRing versus io_uring (2021-10-09, updated 2022-04-18).</li>
+<li>[R51] https://raw.githubusercontent.com/golang/go/master/src/runtime/netpoll_windows.go . Go runtime network poller for Windows (source).</li>
+<li>[R52] https://raw.githubusercontent.com/golang/go/master/src/internal/poll/fd_windows.go . Go <code>internal/poll</code> for Windows (source).</li>
+<li>[R53] https://raw.githubusercontent.com/golang/go/master/src/runtime/os_windows.go . Go runtime OS layer for Windows (source; same file as [S16], read for timers).</li>
+<li>[R54] https://go.dev/doc/go1.23 . Go 1.23 release notes.</li>
+<li>[R55] https://go.dev/doc/go1.21 . Go 1.21 release notes.</li>
+<li>[R56] https://go.dev/wiki/MinimumRequirements . Go minimum requirements.</li>
+<li>[R57] https://raw.githubusercontent.com/tokio-rs/mio/master/README.md . mio README.</li>
+<li>[R58] https://raw.githubusercontent.com/tokio-rs/mio/master/src/sys/windows/afd.rs and .../selector.rs . mio Windows backend (source).</li>
+<li>[R59] https://docs.rs/tokio/latest/tokio/fs/index.html . Tokio file system module.</li>
+<li>[R60] https://docs.rs/tokio/latest/tokio/net/windows/named_pipe/index.html . Tokio Windows named pipes.</li>
+<li>[R61] https://learn.microsoft.com/en-us/dotnet/core/runtime-config/threading . .NET threading configuration.</li>
+<li>[R62] https://learn.microsoft.com/en-us/dotnet/standard/threading/the-managed-thread-pool . The managed thread pool.</li>
+<li>[R63] https://www.awise.us/2022/09/18/dotnet-nativeaot-windows-threadpool.html . Austin Wise, Native AOT and the Windows thread pool (2022-09-18).</li>
+<li>[R64] https://doc.rust-lang.org/rustc/platform-support.html . Rust platform support tiers.</li>
+<li>[R65] https://doc.rust-lang.org/reference/items/external-blocks.html . Rust reference, external blocks and <code>raw-dylib</code>.</li>
+<li>[R66] https://raw.githubusercontent.com/microsoft/windows-rs/master/crates/libs/link/readme.md . <code>windows-link</code> crate.</li>
+<li>[R67] https://github.com/microsoft/windows-rs/blob/master/docs/readme.md and https://raw.githubusercontent.com/microsoft/windows-rs/master/crates/libs/windows/readme.md . windows-rs crate index and <code>windows</code> crate readme.</li>
+<li>[R68] https://raw.githubusercontent.com/golang/go/master/src/cmd/link/internal/ld/macho.go . Go linker Mach-O output and code signing (source).</li>
+<li>[R69] https://raw.githubusercontent.com/rust-cross/cargo-zigbuild/main/README.md . cargo-zigbuild.</li>
+<li>[R70] https://ziglang.org/download/0.16.0/release-notes.html . Zig 0.16.0 release notes, support table (same page as [S23]; first 100,000 characters read).</li>
+<li>[R71] https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/cross-compile . Native AOT cross-compilation (same page as [S32], read for architecture).</li>
+<li>[R72] https://learn.microsoft.com/en-us/aspnet/core/fundamentals/native-aot . ASP.NET Core support for Native AOT.</li>
+<li>[R73] https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/optimizing . Optimizing Native AOT deployments.</li>
+<li>[R74] https://devblogs.microsoft.com/dotnet/announcing-asp-net-core-in-dotnet-8/ . Announcing ASP.NET Core in .NET 8 (2023-11-14).</li>
+<li>[R75] https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/ . Performance Improvements in .NET 8 (2023).</li>
+<li>[R76] https://devblogs.microsoft.com/dotnet/announcing-dotnet-8/ . Announcing .NET 8 (2023-11-14). Fetched; contained no usable numbers.</li>
+<li>[R77] https://www.techempower.com/blog/2025/03/17/framework-benchmarks-round-23/ (read through https://www.techempower.com/blog/tag/round-23/ ). Round 23 announcement, 2025-03-17.</li>
+<li>[R78] https://raw.githubusercontent.com/TechEmpower/FrameworkBenchmarks/master/README.md . TechEmpower benchmark toolset README.</li>
+<li>[R79] https://github.com/aspnet/Benchmarks . ASP.NET benchmarks repository.</li>
+<li>[R80] https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-10/runtime . What's new in the .NET 10 runtime.</li>
+<li>[R81] https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/libraries . Building native libraries with Native AOT.</li>
+<li>[R82] https://learn.microsoft.com/en-us/dotnet/standard/native-interop/pinvoke . P/Invoke.</li>
+<li>[R83] https://learn.microsoft.com/en-us/dotnet/standard/native-interop/cominterop . COM interop in .NET.</li>
+<li>[R84] https://learn.microsoft.com/en-us/windows/win32/com/processes--threads--and-apartments . COM processes, threads and apartments.</li>
+<li>[R85] https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64 . x64 exception handling and unwind data.</li>
+<li>[R86] https://llvm.org/docs/ExceptionHandling.html . LLVM exception handling.</li>
+<li>[R87] https://raw.githubusercontent.com/rust-lang/rust/master/library/panic_unwind/src/seh.rs . Rust panic unwinding through SEH (source).</li>
+<li>[R88] https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests . Application manifests.</li>
+<li>[R89] https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page . Use UTF-8 code pages in Windows apps.</li>
+<li>[R90] https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences . Console virtual terminal sequences.</li>
+<li>[R91] https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps . Collecting user-mode dumps.</li>
+<li>[R92] https://learn.microsoft.com/en-us/windows/win32/debug/symbol-servers-and-symbol-stores . Symbol servers and symbol stores.</li>
+<li>[R93] https://learn.microsoft.com/en-us/visualstudio/debugger/create-custom-views-of-native-objects . Natvis.</li>
+<li>[R94] https://doc.rust-lang.org/reference/attributes/debugger.html . Rust <code>debugger_visualizer</code> attribute.</li>
+<li>[R95] https://raw.githubusercontent.com/microsoft/win32metadata/main/README.md . win32metadata README.</li>
+<li>[R96] https://raw.githubusercontent.com/microsoft/CsWinRT/master/README.md . C#/WinRT README.</li>
+<li>[R97] https://raw.githubusercontent.com/marlersoft/zigwin32/main/README.md . zigwin32 README.</li>
+<li>[R98] https://raw.githubusercontent.com/thebrowsercompany/swift-winrt/main/README.md . Swift/WinRT README.</li>
+<li>[R99] https://raw.githubusercontent.com/go-ole/go-ole/master/README.md . go-ole README.</li>
+<li>[R100] https://raw.githubusercontent.com/microsoft/go-winio/main/README.md . go-winio README.</li>
+<li>[R101] https://raw.githubusercontent.com/mullvad/windows-service-rs/main/README.md . windows-service crate README.</li>
+<li>[R102] https://raw.githubusercontent.com/microsoft/tracelogging/main/README.md . Microsoft TraceLogging repository README.</li>
+<li>[R103] https://raw.githubusercontent.com/rust-minidump/minidump-writer/main/README.md . minidump-writer README.</li>
+<li>[R104] https://raw.githubusercontent.com/golang/sys/master/windows/svc/service.go . Go <code>x/sys/windows/svc</code> (source).</li>
+<li>[R105] https://raw.githubusercontent.com/golang/sys/master/windows/mkwinsyscall/mkwinsyscall.go . Go <code>mkwinsyscall</code> (source).</li>
+<li>[R106] https://raw.githubusercontent.com/golang/go/master/src/cmd/go/internal/help/helpdoc.go . Go build modes help text (source).</li>
+<li>[R107] https://raw.githubusercontent.com/golang/go/master/src/syscall/syscall_windows.go . Go <code>syscall.NewCallback</code> (source).</li>
+<li>[R108] https://learn.microsoft.com/en-us/windows/win32/services/service-programs . Service programs.</li>
+<li>[R109] https://learn.microsoft.com/en-us/dotnet/core/extensions/windows-service . Windows Service with <code>BackgroundService</code>.</li>
+<li>[R110] https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects . Job objects.</li>
+<li>[R111] https://learn.microsoft.com/en-us/windows/dev-drive/ . Dev Drive.</li>
+<li>[R112] https://learn.microsoft.com/en-us/windows-hardware/test/wpt/ . Windows Performance Toolkit.</li>
+<li>[R113] https://learn.microsoft.com/en-us/windows/win32/tracelogging/trace-logging-about . About TraceLogging.</li>
+<li>[R114] https://learn.microsoft.com/en-us/windows/arm/overview . Windows on Arm overview.</li>
+<li>[R115] https://learn.microsoft.com/en-us/windows/arm/arm64ec . Arm64EC.</li>
+<li>[R116] Web search result summary only (not a fetched page): Go issues https://golang.org/issue/5284 and https://golang.org/issue/40243 . Unverified.</li>
+<li>[R117] Web search result summaries only (not fetched pages): Thinktecture "Native AOT with ASP.NET Core" ( https://www.thinktecture.com/en/?p=20991 ) and a DEV Community article citing TechEmpower Round 23 ( https://dev.to/insight105/on-web-framework-performance-a-net-10-reality-check-4ep5 ). Unverified.</li>
+</ol>
+<p>Existing-document sources cited here by their original numbers: S2, S4, S7, S12, S13, S15, S16, S20, S21, S23, S25, S31, S32, S33, S36, S39, S40, S42, S47, S51, S52, S53, S54, S55, S56, S57, S58, S59, S61, S62, S65, S67, S68, S69, S73, S74, S75, S77, S78, S79, S80, S84, S85, S86, S87, S88, S89, S90, S94, S95, S96, S97, S98, S100, S103, S105, S106, S109, S122, S123, S124. See that document's register for their URLs.</p>
+
+</body>
+</html>
