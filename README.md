@@ -3,6 +3,39 @@ jayteesf.github.io
 
 about JayTeeSF
 
+Medley and Solitaire usage statistics
+-----------------------
+
+The six `closing-medley*.html` pages and `solitaire.html` send aggregate page-load counts to
+https://jayteesf.goatcounter.com. Reloads count separately; session tracking is
+disabled. Page versions remain separate, and query strings are excluded from
+page names. GoatCounter also collects referrers and supports tagged sharing
+links, for example:
+
+    https://www.jayteesf.com/closing-medley.html?utm_campaign=medley-share&utm_source=church-newsletter
+
+`closing-medley-analytics.js` records `medley-started:<page path>` on the first
+actual playback and `medley-completed:<page path>` when playback first reaches
+the end. Both are counted once per page load, including on the YouTube version;
+pause/resume, buffering, and replays do not inflate these counters. Reaching the
+end does not prove every second was heard, since users can seek. Events that
+happen before GoatCounter finishes loading are queued in memory. Blocked
+analytics does not prevent playback.
+
+In the GoatCounter dashboard's Settings → Data collection, enable browsers,
+systems, locations, and screen sizes to see those aggregate breakdowns. Leave
+sessions and individual pageviews disabled. These account settings must be
+checked while signed in; changing this repository cannot enable them. No visitor
+identifiers or persistent visitor storage are added by the medley code.
+
+To exclude your own browser, open the medley with `#toggle-goatcounter` appended
+and reload, then follow GoatCounter's prompt. Repeat for each browser you use.
+Counts begin after deploying these changes; historical usage is unavailable.
+
+Verify playback counters locally with:
+
+    node --test tests/medley-analytics.test.cjs
+
 Potential Image Sources:
 
 Pexels: https://www.pexels.com - Free stock photos and videos shared by talented creators.
