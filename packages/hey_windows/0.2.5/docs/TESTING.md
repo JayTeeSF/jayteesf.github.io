@@ -1,0 +1,50 @@
+# Testing
+
+`bin/check` runs `bin/package-check`, which starts `tools/package_check.hey`.
+It proves, in order:
+
+| step | proves | needs |
+|---|---|---|
+| versions | VERSION, hey-package.json and main.hey agree; main.hey names the vendored WebView2 SDK | Hey |
+| `specs/*_spec.hey` | the manifest rules (https origin, sizes, folder name, C escaping) and the app rules (description, installer script, resources, release record) | Hey |
+| header currency | `native/app_manifest.h` is byte for byte what the manifest module writes | Hey |
+| guide currency | `docs/GETTING_STARTED.html` is exactly what `docs/GETTING_STARTED.md` renders to (`bin/docs-html`) | Hey |
+| loader identity | `WebView2Loader.dll` is the vendored SDK 1.0.2903.40 file (SHA-256) | Hey |
+| loader path rule | `host.c` loads the DLL by full path beside the program, never by bare name | Hey |
+| `hey-windows-app check docs/examples/app` | the example app builds against the Universal C Runtime; under Wine its window has the described title, version and size; its installer installs and uninstalls cleanly | Docker, Wine |
+
+`HEY_WINDOWS_SKIP_NATIVE=1 bin/check` runs only the Hey steps on a host
+without Docker.
+
+## What Wine cannot prove
+
+Wine has no Microsoft Edge WebView2 runtime, so under Wine the receipt always
+says `hey_windows_webview2=absent` with the reason the loader gave. The
+browser part (the runtime starts, the controller is created, the origin loads,
+the session persists in `%LOCALAPPDATA%\<folder>`) is proven only on a real
+PC: run the program with `--self-test receipt.txt` there and read
+`hey_windows_webview2=present`, then open it normally and sign in twice to see
+the session kept.
+
+The release ZIP is `dist/hey_windows-0.2.5.zip`; no executable is in it
+(it is a build output), only what builds it.
+
+## Real Windows receipt (2026-11-11)
+
+First run on real Windows, by the linux seat in a dockur/windows VM:
+Windows 11 Enterprise Evaluation 26H2, build 26300.9457, x64. Source
+hey_windows_cmds 78df5fb (MyQueue.exe sha256 07ef5053..., loader 462b36fd...).
+
+```
+hey_windows_self_test=ok
+hey_windows_version=0.1.0
+hey_windows_title=My Queue
+hey_windows_window=1100x760
+hey_windows_min=480x600
+hey_windows_origin=https://queue.jayteesf.com
+hey_windows_webview2=present
+```
+
+WebView2 runtime 152.0.4191.66. The window rendered the public landing page
+of queue.jayteesf.com. Sign-in and session persistence were not exercised.
+Evidence: cagents projects/my_queue/evidence/windows-hey-windows-0.1.0-20261111/.
