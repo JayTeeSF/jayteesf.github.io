@@ -3,6 +3,29 @@ jayteesf.github.io
 
 about JayTeeSF
 
+Hey documentation catalogue
+---------------------------
+
+The topic catalogue is `articles/2026-10-25-hey-index.html`. Each Hey page owns
+its `hey-docs-group`, `hey-docs-title`, `hey-docs-purpose` and `hey-docs-rank`
+metadata. Each H2 owns a stable `id` and a short `data-doc-purpose`; keep the ID
+when changing a heading so existing links continue to work. There is no separate
+list of section headings to synchronize.
+
+After editing a Hey page, regenerate and check the catalogue, then regenerate
+the general articles listing:
+
+    ruby generate-hey-docs-index.rb
+    ruby generate-hey-docs-index.rb --check
+    ruby test/check-hey-docs-index.rb
+    ruby generate-articles-index.rb
+
+These Ruby generators use only the standard library. The catalogue remains
+usable without JavaScript; its small search enhancement runs entirely locally.
+The two Functions pages are current companions. Use the `history` group for
+earlier, version-scoped essays. The shared `articles/hey-docs-navigation.css`
+styles each page's return link to the docs index.
+
 Medley and Solitaire usage statistics
 -----------------------
 

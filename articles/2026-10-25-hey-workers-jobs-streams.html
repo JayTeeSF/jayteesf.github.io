@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="hey-docs-group" content="concurrency">
+<meta name="hey-docs-title" content="Workers, Jobs and streams">
+<meta name="hey-docs-purpose" content="Choose a concurrency tool and understand retries, cancellation and durability.">
+<meta name="hey-docs-rank" content="14">
 <meta name="article-bucket" content="reference">
 <meta name="article-index-rank" content="04">
 <meta name="article-index-desc" content="Worker pools, Jobs (receipts, retries, backoff, idempotency, dead letters, partitions, journals) and parallel streams, and how to choose between them.">
@@ -90,8 +94,10 @@ svg .t-good{fill:var(--good)}svg .t-bad{fill:var(--bad)}svg .t-acc{fill:var(--ac
 .notes ol{padding-left:1.4rem}
 sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </style>
+<link rel="stylesheet" href="hey-docs-navigation.css">
 </head>
 <body>
+<nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav>
 <div class="wrap">
 <p class="eyebrow">Reference 4 of 10</p>
 <h1>Workers, Jobs and streams: parallel work without the plumbing</h1>
@@ -118,7 +124,7 @@ backoff, idempotency keys, dead letters, cancellation and parallel streams all <
 Every queue has a fixed size and says "no" when full instead of growing. A failure inside a Job attempt ends only that
 attempt. Section 1 helps you pick between an actor, a pool, a Job, a stream and a plain function, with measured costs.</div>
 
-<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test. <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet; the box shows what it will print. <span class="badge b-proposed">Proposed</span> not ruled.</p>
+<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test (last run on a pre-release 0.99.606a build; 0.99.606a was released on November 13, 2026, and the samples have not been re-run on the release build). <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet; the box shows what it will print. <span class="badge b-proposed">Proposed</span> not ruled.</p>
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#choose">Actor, pool, Job, stream or function?</a></li>
@@ -133,7 +139,7 @@ attempt. Section 1 helps you pick between an actor, a pool, a Job, a stream and 
 <li><a href="#sources">Sources and read next</a></li>
 </ol></nav>
 
-<h2 id="choose">1. Actor, worker pool, Job, stream or a plain function?</h2>
+<h2 id="choose" data-doc-purpose="Choose between functions, actors, worker pools, Jobs and streams.">1. Actor, worker pool, Job, stream or a plain function?</h2>
 <p>Start from your situation, not from the tool. Find the sentence below that sounds like your problem; the tool next
 to it is the one to reach for, and the reason says why the others are a worse fit.</p>
 
@@ -185,7 +191,7 @@ is depends on the tool, and this is often what decides between them.</p>
 waits 10 ms, the way a network call would. Parallel tools get one worker per core for CPU work and 64 for waiting
 work (a stream stage takes at most 16). Each number is the median of five runs; the range under it is the fastest and
 slowest run.</p>
-<p class="youarehere" id="tradeoffs-machine">Preliminary: measured with 0.99.606a on an Apple M3 Pro (12 cores) while other builds were running, so treat the numbers as rough; re-measurement is pending. Each is the median of five runs, with the fastest and slowest run in brackets. Rust, Go and C run the same workloads, each written the way that language is normally written.</p>
+<p class="youarehere" id="tradeoffs-machine">Preliminary: measured with a pre-release 0.99.606a build (October 2026), not the released 0.99.606a, on an Apple M3 Pro (12 cores) while other builds were running, so treat the numbers as rough; re-measurement is pending. Each is the median of five runs, with the fastest and slowest run in brackets. Rust, Go and C run the same workloads, each written the way that language is normally written.</p>
 <div class="scroll"><table>
 <thead><tr><th>Hey tool</th><th>One item, sent and answered</th><th>Times a plain call</th><th>Parallel pays above</th><th>Rust</th><th>Go</th><th>C</th></tr></thead><tbody>
 <tr><td>plain <code>fn</code></td><td>63 ns (61 to 65)</td><td>1&times;</td><td>never: it's the work itself</td><td>under 1 ns (inlined)</td><td>2 ns</td><td>5 ns</td></tr>
@@ -201,7 +207,7 @@ slowest run.</p>
 </tbody></table></div>
 <p>"Parallel pays above" is the point where an item's own work is ten times what it costs to hand it to the tool, so
 the handing-over is at most a tenth of the time. The suite also runs Pony, Erlang, Java, Swift and Python, and measures
-throughput, CPU use and the cost of a failing item; the full results are published with Hey's benchmark scorecard. Job
+throughput and CPU use; this run was stopped before the cost of a failing item was measured, and the full results are not published yet. Job
 references (Sidekiq, Oban, Temporal) are not measured yet.</p>
 <p>How to read it:</p>
 <ul>
@@ -250,7 +256,7 @@ is thirty seconds whatever the hardware.</p>
 when there's nothing cached, so a program never waits for it. <code>hey calibrate</code> measures again now and prints
 the table.</p>
 
-<h2 id="workers">2. Worker pools</h2>
+<h2 id="workers" data-doc-purpose="Find the worker-pool model and examples.">2. Worker pools</h2>
 <p>A <code>worker</code> handles one immutable message, keeps nothing between messages, and runs as a lightweight turn
 on the same thread pool actors use. No import is needed.
 <span class="badge b-works">Works today</span></p>
@@ -336,7 +342,7 @@ $ echo $?
 <code>idle</code>, <code>enqueued</code>, <code>started</code>, <code>completed</code>, <code>rejected</code>,
 <code>queue_wait_avg_ns</code>, <code>queue_wait_max_ns</code>, <code>closed</code>.</p>
 
-<h2 id="jobs">3. Jobs: work with a receipt</h2>
+<h2 id="jobs" data-doc-purpose="Understand Jobs as work with a recorded outcome.">3. Jobs: work with a receipt</h2>
 <figure class="fig">
 <svg viewBox="0 0 760 250" role="img" aria-labelledby="c2t">
 <title id="c2t">Job lifecycle: enqueue gives a receipt or is rejected when full. A queued job runs; it completes, or fails; a failed attempt with retries left waits for backoff and runs again; with no retries left it becomes a dead letter and the result is failed. A queued job can be cancelled. A caller who stops waiting sees pending; an unknown receipt gives unknown.</title>
@@ -447,7 +453,6 @@ end</code></pre>
 6,8,10
 $ echo $?
 0</code></pre>
-</div>
 
 
 <div class="scroll"><table>
@@ -464,7 +469,7 @@ $ echo $?
 <tr><td><code>Job.stop()</code></td><td>stops the Job like <code>pool.stop()</code></td></tr>
 </tbody></table></div>
 
-<h2 id="reliability">4. Retries, backoff, idempotency keys, dead letters</h2>
+<h2 id="reliability" data-doc-purpose="Read retry, backoff and idempotency rules.">4. Retries, backoff, idempotency keys, dead letters</h2>
 <p>A <em>dead letter</em> is a message the Job gave up on after its last retry, kept (with its attempts and last
 error) so you can inspect it. A worker that returns <code>Result.error(…)</code> has failed this attempt. With <code>retries: 2</code> the Job tries
 again, up to three attempts in all, then records a dead letter.
@@ -588,7 +593,7 @@ $ echo $?
 <code>max_workers</code>, <code>target_queue_latency_ms</code>, <code>journal_path</code>,
 <code>journal_compact_after</code>.</p>
 
-<h2 id="more">5. Cancellation, partitions and adaptive scaling</h2>
+<h2 id="more" data-doc-purpose="Find cancellation, partitioning and scaling policies.">5. Cancellation, partitions and adaptive scaling</h2>
 <h3>Cancel a queued Job</h3>
 <p class="runlabel">job_cancel.hey</p><pre data-example="runnable" data-file="job_cancel.hey"><code>import &#39;stdlib:Jobs&#39;
 
@@ -716,7 +721,7 @@ $ echo $?
 0</code></pre>
 
 
-<h2 id="streams">6. Streams: map and filter, in parallel, in order</h2>
+<h2 id="streams" data-doc-purpose="Understand ordered stream processing.">6. Streams: map and filter, in parallel, in order</h2>
 <figure class="fig">
 <svg viewBox="0 0 760 210" role="img" aria-labelledby="c3t">
 <title id="c3t">A stream stage with four workers: items 1 to 4 go in, finish in a different order, and a resequencer puts them back in input order before the next stage. Calling unordered skips the resequencer.</title>
@@ -810,7 +815,7 @@ end</code></pre>
 $ echo $?
 0</code></pre>
 
-<h2 id="failure">7. When a Job attempt fails at run time</h2>
+<h2 id="failure" data-doc-purpose="Understand a failed Job attempt and its cleanup.">7. When a Job attempt fails at run time</h2>
 <p>Returning <code>Result.error</code> is the polite way to fail an attempt. A real runtime error or a <code>fail</code>
 inside the worker is the other way. Hey's fail-fast rule (see <a href="2026-10-25-hey-actors-and-failure.html#failfast">Actors and failure</a>)
 says it should end <em>that attempt</em>: the Job's retries run, then a dead letter of kind <code>runtime_error</code>.
@@ -853,7 +858,7 @@ attempt" on standard error, then the Job recorded <code>failed</code> with the e
 message completed, and the program exited 0.</p></div>
 
 
-<h2 id="durable">8. Durability: a local journal</h2>
+<h2 id="durable" data-doc-purpose="Read the local-journal durability model.">8. Durability: a local journal</h2>
 <p>Give a Job a <code>journal_path</code> and it writes accepted work to a JSON-lines journal (compacted after
 <code>journal_compact_after</code> events). After a restart, a Job defined with the same journal replays what was accepted and not finished
 (its status counts it under <code>replayed</code>). The sample below shows the journal being written
@@ -908,14 +913,14 @@ who has authority, fencing, retention). <code>hey_durable_log</code> is the firs
 quorum of machines and fences old leaders. The modes, from cheapest to strongest: ephemeral messaging, recoverable
 local Jobs, quorum-backed Jobs, and "effectively once" business effects (which also need an idempotent or transactional
 sink in your application; no scheduler option can promise exactly once).</p></div>
-<h2 id="across">9. Across machines</h2>
+<h2 id="across" data-doc-purpose="Distinguish local work from cross-machine coordination.">9. Across machines</h2>
 <p>A Job runs on one machine. <code>stdlib:JobsRemote</code> submits to a named Job on a configured peer, and what is delivered how many times across machines is part of the distributed delivery contract. Both are in <a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>.</p>
 
-<h2 id="sources">Sources</h2>
+<h2 id="sources" data-doc-purpose="Inspect the source references and background reading for this page.">Sources</h2>
 <ul>
 <li>Every <em>Works today</em> sample on this page is run by the documentation test. The measured costs in section 1 come from one Hey program and a Ruby runner (note 5).</li>
 </ul>
-<h2>Read next</h2>
+<h2 id="read-next" data-doc-purpose="Choose a related guide or reference to read next.">Read next</h2>
 <ul>
 <li><a href="2026-10-25-hey-actors-and-failure.html">Reference 3: Actors and failure</a>: state with an owner, and fail-fast containment.</li>
 <li><a href="2026-10-25-hey-distributed-and-clusters.html">Reference 5: Distributed Hey and clusters</a>: Jobs on other machines.</li>
@@ -923,13 +928,13 @@ sink in your application; no scheduler option can promise exactly once).</p></di
 <li><a href="2026-10-25-hey-every-decision.html">Every Hey decision</a>.</li>
 </ul>
 <section class="notes" id="notes" aria-labelledby="notes-h">
-<h2 id="notes-h">Notes</h2>
+<h2 id="notes-h" data-doc-purpose="Follow the evidence notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">A failure ends only its own actor, Job attempt or request: 14d886.</li>
 <li id="n2"><code>Jobs.result</code> carries a declared runtime identity and boxed calling convention: e91a9f.</li>
 <li id="n3"><code>Jobs.cancel</code> and <code>Jobs.dead_letters</code> are standard-library facades over declared runtime operations: 8a77b1.</li>
 <li id="n4">A turn runs to completion before the next message starts; <code>await</code> ends the turn: ledger rows L-ACT-14 and L-ACT-40.</li>
-<li id="n5">The programs: <code>tradeoffs.hey</code> (one workload, five tools, written as ordinary Hey) and a Ruby runner, kept with Hey&#39;s benchmark scorecard and rerun for every release on macOS and Linux.</li>
+<li id="n5">The programs: <code>tradeoffs.hey</code> (one workload, five tools, written as ordinary Hey) and a Ruby runner. Adding them to Hey&#39;s benchmark scorecard for every release, on macOS and Linux, is planned.</li>
 </ol>
 </section>
 </div>

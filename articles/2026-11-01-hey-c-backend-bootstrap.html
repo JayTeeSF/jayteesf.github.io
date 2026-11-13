@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="hey-docs-group" content="compiler">
+  <meta name="hey-docs-title" content="Building the compiler from C">
+  <meta name="hey-docs-purpose" content="Read the plan for a C seed that builds the first Hey compiler, with its status and measured sizes.">
+  <meta name="hey-docs-rank" content="25">
   <meta name="article-bucket" content="articles">
   <meta name="article-index-rank" content="40">
   <meta name="article-index-desc" content="How a fresh machine gets its first Hey compiler: C printed from the same MIR records the LLVM back end reads, a small committed seed, and what the portable String does and does not cost.">
@@ -86,8 +90,10 @@
     details { margin: 1rem 0; padding: 0.6rem 1rem; border: 1px solid var(--border); border-radius: 0.7rem; }
     summary { cursor: pointer; font-weight: 700; padding: 0.3rem 0; }
   </style>
+<link rel="stylesheet" href="hey-docs-navigation.css">
 </head>
 <body>
+<nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav>
   <header>
     <p class="muted"><a href="index.html">Articles</a> &middot; How the compiler works &middot; November 1, 2026</p>
     <h1>Building Hey's Compiler from C</h1>
@@ -100,7 +106,7 @@
 
   <main>
     <section class="tldr">
-      <h2>Short version</h2>
+      <h2 id="short-version" data-doc-purpose="See the plan and its status in a few lines.">Short version</h2>
       <ul>
         <li><strong>Decided: a C back end is the permanent bootstrap.</strong> It prints C from the same records the
           LLVM back end reads, and decides nothing itself.</li>
@@ -108,25 +114,41 @@
         <li><strong>Decided: a compressed seed (the compiler printed as C) is committed,</strong> estimated at 2&ndash;6&nbsp;MB and written only by
           an automatic update job.</li>
         <li><strong>Your programs don't change.</strong> LLVM still builds every user program and the final compiler.</li>
+        <li><strong>Status on November 13, 2026: released in 0.99.606a.</strong> The C seed is the only bootstrap: no stage-0
+          compiler and no interpreter takes part in building the compiler. The seed for the release (three compiler units:
+          the pipeline, the resolver and the driver) reached its fixed point on the Mac on November 12: generations B and C
+          were byte-identical (commit 4c5b6574e). As committed it is 6.4&nbsp;MB of compressed archives and expands to about
+          209&nbsp;MB of C. The stage-0 source (<code>heyc.c</code>) is still in the tree, outside <code>make all</code> and
+          <code>make test</code>; it is to be deleted later. 0.99.605a bootstrapped through <code>heyc stage0-build</code>.</li>
       </ul>
     </section>
 
-    <h2>Today the first compiler comes from a second compiler</h2>
+    <h2 id="today-the-first-compiler-comes-from-a-second-compiler" data-doc-purpose="Understand how a source build gets its first compiler in 0.99.605a.">Up to 0.99.605a, the first compiler came from a second compiler</h2>
     <p>
       A source build first runs <code>heyc stage0-build</code>, a separate compiler
       written in C in <code>runtime/heyc.c</code>. It ignores the <strong>ownership decisions</strong> the real compiler
       makes: when a String is copied, when a value is freed, when a map may be updated in place. So a bug can live in
       one compiler and not the other. The fix: print the first compiler from the real
-      compiler's output.
+      compiler's output. That is what 0.99.606a does.
+    </p>
+    <p>
+      <strong>What a seed refresh costs (measured).</strong> On the Mac build host (Apple silicon, one build slot), one
+      seed generation took 33 to 42 minutes in the runs of November 11 and 12, and one run under load from other jobs took
+      50 minutes. About 80% of that is the pipeline unit, whose C-encoding step alone takes 12 to 15 minutes. Building a
+      compiler from a seed takes about 1.5 to 2 minutes. A full refresh to an accepted seed (A, then B, then C, with a
+      compiler built between each) is about 1 hour 50 minutes of build-slot time, plus about 40 minutes when a new runtime
+      function needs an extra generation first. The largest single step peaked at 1.5 to 2.2&nbsp;GB, and a whole run at
+      3.3 to 3.9&nbsp;GB. These are measured times from the seed run log, not estimates; waiting for the build slot is
+      usually the longer delay.
     </p>
 
-    <h2>One set of records, two printers</h2>
+    <h2 id="one-set-of-records-two-printers" data-doc-purpose="See how one set of MIR records feeds both the LLVM and the C printer.">One set of records, two printers</h2>
     <p>
       <dfn>MIR</dfn> is the compiler's middle layer, where ownership is decided. Its last step, <dfn>physical MIR</dfn>,
       spells every decision out as an explicit operation, such as "copy this String" or "release that one". It's a
       closed list of 40 record kinds.
       Anything else is refused, so a printer never guesses. <code>stdlib/HeyLlvm.hey</code> prints
-      all of it as LLVM IR (the input of LLVM, the toolkit that makes machine code) in about 840 lines. A C printer should be about the same size and share the code that walks the records.
+      all of it as LLVM IR (the input of LLVM, the toolkit that makes machine code) in about 1,000 lines on the development line. (In 0.99.605a the same file is the older emitter, about 24,000 lines.) A C printer should be about the same size and share the code that walks the records.
     </p>
 
     <figure>
@@ -180,7 +202,7 @@
     </div>
     <p>Runtime functions keep their <code>hey_llvm_</code> names; the C seed calls the same runtime.</p>
 
-    <h2>The seed builds the compiler, and the compiler must rebuild itself byte for byte</h2>
+    <h2 id="the-seed-builds-the-compiler-and-the-compiler-must-rebuild-itself-byte-for-byte" data-doc-purpose="Follow the seed build and the fixed-point check.">The seed builds the compiler, and the compiler must rebuild itself byte for byte</h2>
     <p>
       The <dfn>seed</dfn> is that printed C for the whole compiler. Turning it into a working
       compiler needs only a C compiler, so Linux never waits on a Mac.
@@ -215,23 +237,23 @@
       <figcaption>Rebuild until the output stops changing, as Lean 4 and Zig do.</figcaption>
     </figure>
 
-    <h2>Is the runtime C? Yes</h2>
+    <h2 id="is-the-runtime-c-yes" data-doc-purpose="Check which parts of the runtime are C.">Is the runtime C? Yes</h2>
     <div class="qa">
       <p>
         Hey programs are compiled to LLVM, but the <dfn>runtime</dfn> they link against is C: the allocator, Strings,
         maps, actors and the scheduler. clang compiles it and links it into every Hey binary, and the compiled Hey code
-        calls into it. <code>runtime/</code> holds 20 C files, about 61,000 lines; the part every binary links is
-        <code>hey_runtime.c</code> plus <code>hey_str.c</code>, about 38,000 lines. Most of the rest is the stage-0
+        calls into it. On the development line <code>runtime/</code> holds 22 C files, about 62,000 lines; the part every binary links is
+        <code>hey_runtime.c</code> plus <code>hey_str.c</code>, about 39,000 lines (about 33,000 in 0.99.605a). Most of the rest is the stage-0
         compiler (<code>heyc.c</code>) and the REPL.
       </p>
       <p>
-        The speedups from the one billion row challenge (1BRC) were all in that runtime: a per-thread small-block allocator,
+        The speedups made on the development line for the one billion row challenge (1BRC) were all in that runtime: a per-thread small-block allocator,
         fixed-layout Result and line records, <code>read_line</code> adopting its buffer, and <code>split</code> sharing its last field.
         They speed up every compiled Hey program. <strong>None of them touched the stage-0 compiler.</strong>
       </p>
     </div>
 
-    <h2>The portable String keeps its 16 bytes; it costs one MIR ABI family and some bootstrap speed</h2>
+    <h2 id="the-portable-string-keeps-its-16-bytes-it-costs-one-mir-abi-family-and-some-bootstrap-speed" data-doc-purpose="Weigh what the 16-byte String costs the C seed.">The portable String keeps its 16 bytes; it costs one MIR ABI family and some bootstrap speed</h2>
     <figure>
       <svg viewBox="0 0 900 200" role="img" aria-labelledby="f3t f3d">
         <title id="f3t">The 16-byte HeyStr value</title>
@@ -276,7 +298,7 @@
         guaranteed tail calls and stricter aliasing and overflow rules. That slows only the bootstrap step.</li>
     </ul>
 
-    <h2>The decisions</h2>
+    <h2 id="the-decisions" data-doc-purpose="Find the rulings behind the plan.">The decisions</h2>
     <div class="cards">
       <div class="card decided">
         <span class="pill decided">Decided</span>
@@ -286,7 +308,7 @@
       <div class="card decided">
         <span class="pill decided">Decided</span>
         <h3>A compressed seed is committed</h3>
-        <p>An estimated 2&ndash;6&nbsp;MB with <code>xz</code>: one <code>bootstrap/seed/&lt;unit&gt;.c.xz</code> per compiler unit plus <code>MANIFEST.json</code>.</p>
+        <p>Estimated at 2&ndash;6&nbsp;MB with <code>xz</code>; the seed on the development line is 6.1&nbsp;MB: one <code>seed/&lt;unit&gt;.c.tar.xz</code> per compiler unit (three units) plus <code>manifest.json</code>.</p>
       </div>
       <div class="card dropped">
         <span class="pill dropped">Dropped</span>
@@ -305,7 +327,7 @@
       </div>
     </div>
 
-    <h2>Optional: the details</h2>
+    <h2 id="optional-the-details" data-doc-purpose="Look up file layout, sizes and other details.">Optional: the details</h2>
 
     <details>
       <summary>How other compilers bootstrap</summary>
@@ -331,6 +353,7 @@
         <li>An earlier stage-0 C build of the pipeline was 21.1 MB (279,000 lines; later builds 24.5&ndash;27.2 MB) and 0.88 MB with <code>xz</code>. It has no ownership code.</li>
         <li>C from physical MIR has the <code>.ll</code> file's operation count, which keeps every temporary, reference-count call, shadow slot and guard. The product <code>.ll</code> is 80&ndash;91 MB in normal builds and was 346 MB in one release build.</li>
         <li>Estimate: about 30&ndash;60 MB of raw C, up to about 120 MB if the 346 MB shape is normal; 2&ndash;6 MB with <code>xz</code>. Even the worst case is under a fifth of Lean's 654 MB seed.</li>
+        <li>Measured since, on the development line: 199 MB of raw C for the three compiler units (137, 59 and 4 MB), 6.1 MB with <code>xz</code>. The raw C is larger than estimated; the packed size is at the top of the estimate.</li>
         <li>Physical MIR as JSON is bulky (191 KB for a 142-byte test program), so the printer must stream unit by unit and join once per function.</li>
       </ul>
       <p><strong>Recommended for the seed runtime:</strong> refuse a seed whose manifest names a different runtime ABI identifier than the tree. Freeze a runtime copy beside the seed, as Lean does, only if refreshes get too frequent.</p>
@@ -347,7 +370,7 @@
         <li>Widen family by family, each through one differential gate that compares both printers.</li>
         <li>Library and archive units.</li>
         <li>The whole compiler seed and the fixed point on Mac and Linux, recording size, build time and peak memory.</li>
-        <li>Switch the Makefile seed targets to <code>bootstrap/seed/</code> and add <code>make update-seed</code>.</li>
+        <li>Switch the Makefile seed targets to the committed seed directory (<code>seed/</code> on the development line) and add <code>make update-seed</code>.</li>
         <li>Delete the stage-0 path, the old seed bundle, <code>stdlib/HeyC.hey</code> and the stage-0-only gates.</li>
       </ol>
       <p>Steps 1&ndash;4 need only small programs, so they can run alongside step 0.</p>
@@ -366,7 +389,7 @@
       </ul>
     </details>
 
-    <h2>Sources</h2>
+    <h2 id="sources" data-doc-purpose="Find the records and references behind the page.">Sources</h2>
     <ul>
       <li>Calling conventions:
         <a href="https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst">Procedure Call Standard for the Arm 64-bit Architecture (AAPCS64)</a>;
@@ -390,7 +413,7 @@
   </main>
 
   <footer>
-    <p>Sizes for other projects are as their repositories showed when measured; the Hey seed size is an estimate until the seed is generated.</p>
+    <p>Sizes for other projects are as their repositories showed when measured; the Hey seed estimate was made before a seed existed, and the measured size is from the development line at 90e3833f0. Hey line counts are from the same tree unless 0.99.605a is named.</p>
   </footer>
 </body>
 </html>
