@@ -141,7 +141,7 @@ function a call reaches. <code>hey doc --reserved</code> prints the full list, s
 <rect x="20" y="20" width="860" height="62" rx="10" class="vio"/>
 <text x="40" y="46" class="b">Packages</text><text x="40" y="68" class="sm">import 'pkg:hey_web@0.3.9/…' · fetched, locked and hash-checked per project (Guide 2) · hey_web, hey_sqlite3, hey_cli …</text>
 <rect x="20" y="98" width="860" height="62" rx="10" class="acc"/>
-<text x="40" y="124" class="b">Standard library modules (this page)</text><text x="40" y="146" class="sm">import 'stdlib:Text' · written in Hey, shipped with the toolchain, precompiled into the stdlib archive</text>
+<text x="40" y="124" class="b">Standard library modules (this page)</text><text x="40" y="146" class="sm">import 'stdlib:Text' · written in Hey, shipped as source, compiled into each program that reaches it</text>
 <rect x="20" y="176" width="860" height="62" rx="10" class="good"/>
 <text x="40" y="202" class="b">Builtins</text><text x="40" y="224" class="sm">len, split, put, net_listen … · no import · implemented in the runtime (C) · bound to the runtime inside the toolchain</text>
 <path d="M450 82 V98" class="ln"/><path d="M450 160 V176" class="ln"/>
@@ -149,6 +149,8 @@ function a call reaches. <code>hey doc --reserved</code> prints the full list, s
 <figcaption id="layers-cap">Figure 1. Most stdlib functions are thin Hey wrappers over a builtin (<code>Files.temp_dir</code> calls <code>path_temp_dir</code>). Packages build on both.</figcaption>
 </figure>
 <p>Hey's built-in functions are bound to the runtime inside the toolchain; your code calls them like any other Hey function: <code>len(xs)</code> is just <code>len(xs)</code>. The mechanism is in the <a href="2026-10-25-hey-compiler-from-source-to-native.html">compiler article</a>.</p>
+<p><strong>How a program gets its stdlib code (0.99.606a).</strong> An ordinary <code>hey</code> or <code>hey build</code> compiles the stdlib modules your program reaches, from their Hey source, together with your code, and links the result into your program. Nothing compiled is shared between programs: a second program that imports the same modules compiles them again. A rerun of the <em>same</em> program reuses that program's own cached compile, and the C runtime object is cached once for all programs, but that is runtime C, not stdlib code. The toolchain also builds a stdlib archive, <code>libhey_stdlib.a</code>, but ordinary builds do not link it. Measured on a busy Mac (November 12, development tree of 0.99.606a): with four large imports (Markdown, Json, Collections, Text), about 5.2 to 6.0 seconds of a 10.8 to 14.1 second compile went on stdlib code, and a second, different program with the same imports reused none of it.<sup><a href="#n6">6</a></sup></p>
+<p><strong>Where <code>stdlib:</code> comes from.</strong> Since 0.99.606a a <code>stdlib:</code> import resolves from the toolchain's own stdlib folder (<code>HEY_STDLIB_PATH</code> if set, otherwise <code>HEY_ROOT/stdlib</code>; the <code>hey</code> command sets both), never from a <code>stdlib/</code> folder in the directory you run from. Before, a <code>stdlib/Text.hey</code> in the current folder silently replaced the real one. Import names are also case-exact: <code>import 'stdlib:reflection'</code> is refused with <code>import_casing_mismatch</code> instead of quietly opening <code>Reflection.hey</code> on a case-insensitive disk.</p>
 
 <h2 id="map" data-doc-purpose="Choose a library area by the work you need to do.">The map</h2>
 <figure class="fig" aria-labelledby="map-cap">
@@ -303,6 +305,7 @@ true
 false
 </code></pre></div>
 <p><code>Ehy</code> renders a template by writing a temporary <code>.hey</code> file under <code>build/</code> and compiling it with the <code>heyc</code> found relative to the current folder. So it renders only when the program runs from inside a Hey source checkout; anywhere else it fails, as here. hey_web views use Ehy, so this matters for deployed servers (<a href="2026-10-25-hey-guide-web-server.html">Web server guide</a>). This is a known defect, not a design choice.</p>
+<p><strong>Changed in 0.99.606a.</strong> The run below was recorded on a pre-release build. In 0.99.606a, templates are compiled into the program instead: <code>Ehy.result_with</code> and <code>Ehy.render_file_with</code> render through the compiled template, and <code>Ehy.src</code> and <code>Ehy.src_with</code> now fail with a message pointing at the developer command <code>hey ehy src FILE</code>, because a shipped program carries no compiler. Two template fixes also landed: a template name that resolves only to an outer exposure is a local, and template locals may share a name with a prelude function. This sample has not been re-run on the release build.</p>
 <div class="run"><div class="fname">ehy.hey</div><pre data-example="runnable" data-file="ehy.hey" class="src"><code>import &#39;stdlib:Ehy&#39;
 
 program
@@ -855,12 +858,13 @@ true
 <li id="n3"><code>Crypto.constant_time_equal?</code> compares Strings by their bytes and refuses other kinds: 875985, 5496c4.</li>
 <li id="n4">Built-ins live in namespaces: ledger rows L-LAN-56 and L-LAN-61.</li>
 <li id="n5">One spelling per built-in: ledger rows L-LAN-58, L-LAN-59 and L-LAN-60.</li>
+<li id="n6">How stdlib code is compiled and cached: the stdlib compile-caching report of November 12, 2026, which read the 0.99.606a development tree and timed single <code>hey-selfc</code> compiles with fresh caches on a loaded 12-core Mac (load 6 to 7.5). The parser cache is never written on the ordinary route, and the per-program compiler cache is keyed on the whole program. The <code>stdlib:</code> root fix is 24716b5ac and the case check 50c430d08, both in 0.99.606a.</li>
 </ol>
 </section>
 <footer>
 <ul>
 <li>The name lists come from the toolchain's own catalog of public names, which is what the compiler accepts.</li>
-<li>Every <em>Works today</em> sample is run by the documentation test (on an unreleased 0.99.606a candidate build) with <code>hey FILE.hey</code>.</li>
+<li>Every <em>Works today</em> sample is run by the documentation test (last run on a pre-release 0.99.606a build, not yet re-run on the November 13 release) with <code>hey FILE.hey</code>.</li>
 </ul>
 <h3>Read next</h3>
 <ul>
