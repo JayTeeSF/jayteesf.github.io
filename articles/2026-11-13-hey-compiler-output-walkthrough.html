@@ -12,13 +12,13 @@
 <nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav><main class="wrap">
 <p class="eyebrow"><a href="index.html">← Articles</a> · Compiler 2 · Captured output</p><h1>What the captured Hey compiler output says</h1>
 <p><span class="tag bad">Imports and exports: partly works</span> <span class="tag">General compiler: partly works</span></p>
-<p class="lede">An import can parse, appear to resolve, and still fail when HIR reads the imported declaration. This walkthrough follows captured output so you can see what passed, where it stopped, and which fixes have to come first.</p><p class="note warn"><strong>Current boundary:</strong> 13 tested programs reach semantic SSA MIR. Physical planning and LLVM emission are not implemented. The opening import audit records earlier failures and has not been repeated with this binary.</p>
+<p class="lede">An import can parse, appear to resolve, and still fail when HIR reads the imported declaration. This walkthrough follows captured output so you can see what passed, where it stopped, and which fixes have to come first.</p><p class="note warn"><strong>Current boundary:</strong> the latest native capture passed 16/16 source-to-HIR cases and 16/16 semantic SSA MIR cases. Physical planning and LLVM emission remain unavailable. The opening import audit is older and has not been repeated.</p>
 
 
 
 
 <section id="imports" aria-labelledby="imports-h"><h2 id="imports-h" data-doc-purpose="See the import/export boundary before following ordinary code.">Start with imports: syntax works, the full system doesn't</h2>
-<p>This frozen build2 import audit is separate from the post-cutover HIR/SSA follow-up below. It is not a pipeline7 import recheck. A 13-case, two-file audit parsed every example with canonical parser SHA-256 <code>9a913f4f005cbec811a51195f827d273e2833c900c3551d3d23461e53345015e</code>. All 13 source-resolution cases and every resolution-pass HIR case were rerun with pipeline-inference-2, SHA-256 <code>9c1f81a8377dba99ada9d9900465f98f972f89ea532d9cbb4df153d6cc46d039</code>.</p>
+<p>This is an older, measured build2 import audit. The latest native capture below does not rerun these two-file cases. A 13-case, two-file audit parsed every example with canonical parser SHA-256 <code>9a913f4f005cbec811a51195f827d273e2833c900c3551d3d23461e53345015e</code>. All 13 source-resolution cases and every resolution-pass HIR case were rerun with pipeline-inference-2, SHA-256 <code>9c1f81a8377dba99ada9d9900465f98f972f89ea532d9cbb4df153d6cc46d039</code>.</p>
 <figure class="fig"><svg viewBox="0 0 320 290" role="img" aria-labelledby="impt imd"><title id="impt">Import programs stop at different compiler phases</title><desc id="imd">All thirteen examples parse. Namespace, selector, alias and wildcard calls reach HIR but fail. Facade re-export fails at resolution. Private and omitted imports are refused.</desc><rect class="box" x="8" y="8" width="304" height="45" rx="7"/><text x="20" y="28" font-weight="700">Partly works · 13 / 13 parse</text><text class="small" x="20" y="47">syntax recognized</text><path d="M160 53v14" stroke="currentColor"/><rect class="box" x="8" y="69" width="304" height="52" rx="7"/><text x="20" y="91" font-weight="700">resolve-source</text><text class="small" x="20" y="111">facade re-export refused</text><path d="M160 121v14" stroke="currentColor"/><rect class="err" x="8" y="137" width="304" height="68" rx="7"/><text x="20" y="160" font-weight="700">emit-hir · imported calls stop</text><text class="small" x="20" y="182">namespace / explicit / alias / wildcard</text><text class="small" x="20" y="199">none reaches MIR in this capture</text><rect class="ok" x="8" y="220" width="304" height="54" rx="7"/><text x="20" y="243" font-weight="700">Visibility checks partly work</text><text class="small" x="20" y="263">private and omitted names refused</text></svg><figcaption>Measured cases only; not full parser conformance.</figcaption></figure>
 <div class="scroll"><table><caption>What happened after parsing</caption><thead><tr><th>Form</th><th>Captured outcome</th></tr></thead><tbody>
 <tr><td>Namespace, rooted path, explicit selector</td><td>Resolution passed; HIR failed: <code>active declaration has unsupported role or contradicts its structural numeric owner</code>.</td></tr><tr><td>Module alias</td><td>Resolution passed; HIR says a qualified call selected a value instead of a namespace.</td></tr><tr><td>Wildcard</td><td>Resolution reports wildcard status without a concrete callable identity; HIR says <code>static call has no resolved call fact</code>.</td></tr><tr><td>Facade re-export</td><td>Resolution refused the provider declaration. Facade <code>exposes *</code> is documented as <span class="tag">Decided and coming</span>, not implemented here.</td></tr><tr><td>Selector rename</td><td>Snapshot accepted <code>visible as current</code>, although selector renaming is <span class="tag">Decided and coming</span>: it is refused by design. HIR then failed for an unrelated owner mismatch.</td></tr><tr><td>Private/omitted names; bare call through dotted-only import</td><td>Resolution refused them as required.</td></tr></tbody></table></div>
@@ -70,144 +70,25 @@
                   └─ export_label#15 name=&quot;visible&quot;
 </code></pre></details>
 <p>The <a href="2026-11-13-hey-compiler-output-walkthrough-data/import-results.json">compact import receipt</a> records all 13 phase outcomes. “The parser accepts imports” is not “imports work.” Allowed namespace and explicit forms don't enter HIR. Wildcard status doesn't identify the selected function. Visibility checks work for these negative examples, while re-export and selector-renaming behavior remain missing in this capture.</p>
-<h3>Fix the boundary in dependency order</h3><ol><li><strong>Build the numeric module surface:</strong> local exports, explicit and wildcard imports, facade re-exports, privacy and selector-rename policy.</li><li><strong>Attach namespace spellings to provider identities:</strong> aliases and plain namespaces must name the same verified unit.</li><li><strong>Project imported declarations into HIR:</strong> preserve declaration identity and provider bodies.</li><li><strong>Carry cross-unit targets through MIR and LLVM:</strong> agree on call ABI, then link and execute legal two-file cases while retaining privacy failures.</li></ol><p class="note warn"><strong>Status:</strong> proposed order from measured failures. Newer working-tree edits are not proved by this frozen binary.</p></section><section id="stages" aria-labelledby="stages-h"><h2 id="stages-h" data-doc-purpose="Follow the implemented phases and the missing LLVM boundary.">Source becomes AST, HIR, then SSA MIR</h2>
-<p>The abstract syntax tree (AST) records the program's structure. High-level intermediate representation (HIR) records resolved identities and inferred types. Mid-level intermediate representation (MIR) records single-assignment values and explicit control flow.</p>
-<ol class="flow" aria-label="Current compiler path"><li><b>Source</b>parse declarations and expressions</li><li><b>AST</b>resolve names and scopes</li><li><b>HIR</b>propagate type facts</li><li><b>SSA MIR</b>values, blocks and edge arguments</li><li><b>LLVM</b>not implemented: representation and ownership planning come first</li></ol>
-<p>The worklist revisits only computations whose input type facts changed. Sealed-block SSA gives each computed value one definition and connects branches and loops through block parameters. Source locals do not require artificial memory slots.</p></section>
-  <section id="ssa-follow-up" aria-labelledby="ssa-follow-up-h">
-    <h2 id="ssa-follow-up-h" data-doc-purpose="See the later source HIR and semantic SSA capture, including its LLVM boundary.">One compiler reaches semantic SSA</h2>
-    <p>This later capture follows the frozen build2 import audit above and precedes the frozen build2 phase walk below. Source admission, AST, HIR, semantic MIR, and the explicit LLVM refusal were captured with the same pipeline-ssa-7 binary, SHA-256 <code>cbcdb7f720e42fe6d1d2e3ddd13ceea7c101232bc9b1cd1f7c0dd050df6256d6</code>, against schema <code>ac661c16351f35ae63a4389a907d2e88a958557983e00d85b4a1d8d30ddf54b5</code>.</p>
-    <p>All 13 selected source HIR cases and all 13 semantic SSA MIR cases passed. The full receipts and exact schema are linked below. This follow-up does not rerun the separate build2 import/export audit. LLVM emission stopped explicitly and no native program was run.</p>
-    <div class="note"><strong>One small function, all the way to SSA:</strong> the Hey source has no type annotations. Its captured HIR infers <code>Int</code> for the function result and local bindings. The pipeline7 MIR has four values in one block, zero block parameters, and zero stack slots. It records arithmetic as value definitions instead of local memory traffic.</div>
-    <pre><code>fn answer()
-    let x = 2
-    let y = x * 3
-    return y + x
-end</code></pre>
-    <p>Captured artifacts: <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/local_chain.source.hey">source</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/local_chain.ast.json">exact admitted root AST JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/local_chain.hir.json">exact HIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/local_chain.mir.json">exact pipeline7 MIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/ssa-readable.txt">schema-derived views for all five examples</a>.</p>
-    <details><summary>Schema-derived AST tree from the pipeline7 admission record</summary><pre><code>syntax_tree#0
-└─ forms[0]
-   └─ function_decl#1 name=&quot;answer&quot;, visibility=&quot;public&quot;
-      ├─ binder
-      │  └─ binding_decl#2 name=&quot;answer&quot;
-      ├─ body[0]
-      │  └─ let_stmt#3 name=&quot;x&quot;
-      │     ├─ binder
-      │     │  └─ binding_decl#4 name=&quot;x&quot;
-      │     └─ value
-      │        └─ literal_expr#5 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;2&quot;, decoded_value=2
-      ├─ body[1]
-      │  └─ let_stmt#6 name=&quot;y&quot;
-      │     ├─ binder
-      │     │  └─ binding_decl#7 name=&quot;y&quot;
-      │     └─ value
-      │        └─ infix_expr#8 operator=&quot;*&quot;
-      │           ├─ left
-      │           │  └─ name_expr#9 name=&quot;x&quot;
-      │           └─ right
-      │              └─ literal_expr#10 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;3&quot;, decoded_value=3
-      └─ body[2]
-         └─ return_stmt#11
-            └─ value
-               └─ infix_expr#12 operator=&quot;+&quot;
-                  ├─ left
-                  │  └─ name_expr#13 name=&quot;y&quot;
-                  └─ right
-                     └─ name_expr#14 name=&quot;x&quot;
-</code></pre></details>
-    <details><summary>Readable SSA MIR for <code>answer</code></summary><pre><code>Function 0: result Int; parameters 0; values 4; blocks 1; stack slots 0
-  v0: Int, representation=unplanned, owner=none, borrow-region=none
-  v1: Int, representation=unplanned, owner=none, borrow-region=none
-  v2: Int, representation=unplanned, owner=none, borrow-region=none
-  v3: Int, representation=unplanned, owner=none, borrow-region=none
-  B0 parameters: (none)
-    v0 = const &quot;2&quot;
-    v1 = const &quot;3&quot;
-    v2 = v0 multiply v1
-    v3 = v2 add v0
-    return v3
-
-</code></pre></details>
-    <details><summary>Exact captured MIR JSON bytes for <code>answer</code></summary><pre><code>[4106,5,&quot;ac661c16351f35ae63a4389a907d2e88a958557983e00d85b4a1d8d30ddf54b5&quot;,[11,&quot;fc4ee5d453dd589e8de6a831c96843a1cddec734bc072f9069d1a7214b62c4f1&quot;,&quot;bea664e396d30f4b8498063748830cdaca534187b6ffe76cabbdf8bb3ada86eb&quot;,&quot;b80b2fd3a3ed1d4e9505f4047f6b126d591eab81912743d31e5e7431108f183d&quot;,&quot;4e1f5b0961da2fad22f03f5d97d37b4dc3d15fdfa8e7b16c4aa6e4aa1d831b7b&quot;,1],[[29,[8,0,0],[22,&quot;2&quot;]],[29,[8,0,1],[22,&quot;3&quot;]]],[[4104,[4,0,0],[],4,[4102,0,[],0,0,[]],[],[[4101,[4096,0],4,0,[1,0,5],[10,0,2,11,2,12],null,null],[4101,[4096,1],4,0,[1,0,10],[10,0,3,15,3,16],null,null],[4101,[4096,2],4,0,[1,0,8],[10,0,3,11,3,16],null,null],[4101,[4096,3],4,0,[1,0,12],[10,0,4,10,4,15],null,null]],[[4105,[4097,0],[],[[4200,[4108,[1,0,5],[4096,0],[]],[8,0,0]],[4200,[4108,[1,0,10],[4096,1],[]],[8,0,1]],[4206,[4108,[1,0,8],[4096,2],[[4096,0],[4096,1]]],3],[4206,[4108,[1,0,12],[4096,3],[[4096,2],[4096,0]]],1]],[4302,[1,0,11],[4096,3],0]]],[],[],[4097,0]]],[],[],[[4110,[4,0,0],[4102,0,[],0,0,[]],&quot;hey_fn_u0_f0&quot;,1]],null]</code></pre></details>
-    <details><summary>Schema-derived loop MIR: two loop-header merge parameters</summary><pre><code>Function 0: result Int; parameters 0; values 10; blocks 4; stack slots 0
-  v0: Int, representation=unplanned, owner=none, borrow-region=none
-  v1: Int, representation=unplanned, owner=none, borrow-region=none
-  v2: Int, representation=unplanned, owner=none, borrow-region=none
-  v3: Int, representation=unplanned, owner=none, borrow-region=none
-  v4: Bool, representation=unplanned, owner=none, borrow-region=none
-  v5: Bool, representation=unplanned, owner=none, borrow-region=none
-  v6: Int, representation=unplanned, owner=none, borrow-region=none
-  v7: Int, representation=unplanned, owner=none, borrow-region=none
-  v8: Int, representation=unplanned, owner=none, borrow-region=none
-  v9: Int, representation=unplanned, owner=none, borrow-region=none
-  B0 parameters: (none)
-    v0 = const &quot;0&quot;
-    v1 = const &quot;0&quot;
-    branch B1(v1, v0)
-  B1 parameters: v2, v6
-    v3 = const &quot;5&quot;
-    v4 = v2 less v3
-    v5 = truthy(v4)
-    branch v5 ? B2 : B3
-  B2 parameters: (none)
-    v7 = v6 add v2
-    v8 = const &quot;1&quot;
-    v9 = v2 add v8
-    branch B1(v9, v7)
-  B3 parameters: (none)
-    return v6
-
-</code></pre><p><a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/while_sum.mir.json">Download the exact captured loop MIR JSON</a>.</p></details>
-    <details><summary>Schema-derived branch MIR: one joined return value</summary><pre><code>Function 0: result Int; parameters 0; values 8; blocks 4; stack slots 0
-  v0: Int, representation=unplanned, owner=none, borrow-region=none
-  v1: Int, representation=unplanned, owner=none, borrow-region=none
-  v2: Int, representation=unplanned, owner=none, borrow-region=none
-  v3: Bool, representation=unplanned, owner=none, borrow-region=none
-  v4: Bool, representation=unplanned, owner=none, borrow-region=none
-  v5: Int, representation=unplanned, owner=none, borrow-region=none
-  v6: Int, representation=unplanned, owner=none, borrow-region=none
-  v7: Int, representation=unplanned, owner=none, borrow-region=none
-  B0 parameters: (none)
-    v0 = const &quot;1&quot;
-    v1 = const &quot;3&quot;
-    v2 = const &quot;4&quot;
-    v3 = v1 less v2
-    v4 = truthy(v3)
-    branch v4 ? B1 : B2
-  B1 parameters: (none)
-    v5 = const &quot;7&quot;
-    branch B3(v5)
-  B2 parameters: (none)
-    v6 = const &quot;9&quot;
-    branch B3(v6)
-  B3 parameters: v7
-    return v7
-
-</code></pre><p><a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/branch_merge.mir.json">Download the exact captured branch MIR JSON</a>.</p></details>
-
-    <h3>Control flow has explicit blocks and merge values</h3>
-    <p>The pipeline7 output represents merges as block parameters. The loop carries both the running total and counter through the loop header; the branch example merges its two return paths into one value. Early returns do not add a fake merge.</p>
-    <div class="scroll"><table><caption>Counts read from the captured MIR records and result receipt</caption><thead><tr><th>Program</th><th>Values</th><th>Blocks</th><th>Block parameters (SSA merges)</th><th>Stack slots</th></tr></thead><tbody>
-    <tr><td><code>local_chain</code></td><td>4</td><td>1</td><td>0</td><td>0</td></tr>
-    <tr><td><code>branch_merge</code></td><td>8</td><td>4</td><td>1</td><td>0</td></tr>
-    <tr><td><code>while_sum</code></td><td>10</td><td>4</td><td>2</td><td>0</td></tr>
-    <tr><td><code>branch_early_return</code></td><td>7</td><td>4</td><td>0</td><td>0</td></tr>
-    <tr><td><code>short_circuit</code></td><td>9</td><td>3</td><td>1</td><td>0</td></tr>
-    </tbody></table></div>
-    <p>Read the exact <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/while_sum.source.hey">loop source</a>, <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/while_sum.hir.json">HIR</a>, <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/while_sum.mir.json">MIR</a>, and <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/branch_merge.mir.json">branch-merge MIR</a>.</p>
-
-    <h3>Physical lowering remains the next boundary</h3>
-    <p>The emitted MIR values still say <code>representation=unplanned</code>; their owner and borrow-region fields are empty. The current values establish semantic SSA identities and control-flow edges. They do not describe machine representations, ownership, or an LLVM-ready calling convention. The pipeline7 run tried <code>emit-llvm</code> and received exit 70, no output file, and the diagnostic “LLVM emission is unavailable: physical representation and ownership planning are not implemented.” See the exact <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/llvm-boundary.json">captured refusal receipt</a>.</p>
-    <p>The next compiler step is to plan physical representations and ownership for these SSA values, then teach the LLVM path to consume that planned MIR and capture its output. The deleted backend is available in repository history; this page follows the retained path.</p>
-    <div class="scroll"><table><caption>Source owners at the HIR and SSA captures</caption><thead><tr><th>Phase</th><th>Capture-time source entry points</th></tr></thead><tbody>
-<tr><td>Source → AST</td><td><code>resolve_program_units</code> in <code>stdlib/HeyProgramResolution.hey:1225</code>; <code>HeySyntaxTree.parse_unit_lexical_admission</code> in <code>stdlib/HeySyntaxTree.hey:3421</code>.</td></tr><tr><td>AST → HIR</td><td><code>HeyHir.from_admitted</code> in <code>stdlib/HeyHir.hey:507</code> projects verified bindings, scopes and functions into HIR.</td></tr><tr><td>HIR type facts</td><td><code>HeyHirStatements.lower_function</code> (<code>stdlib/HeyHirStatements.hey:668</code>, inference call at :749) invokes <code>HeyHirInference.analyze</code> (<code>stdlib/HeyHirInference.hey:195</code>); file helpers <code>hi_body</code> (:49) and <code>hi_transfer</code> (:145) follow reaching definitions and propagate type facts.</td></tr>
-<tr><td>HIR to MIR</td><td>The current <code>HeyMir.lower_module</code> wrapper is <code>stdlib/HeyMir.hey:7–11</code>. In the capture-time implementation, <code>sml_expression in HeyMirLowering.hey</code> (:114) and <code>sml_body</code> (:156) lower nodes; <code>HeyMirLowering.lower_module</code> (:231) owned module construction.</td></tr>
-<tr><td>SSA graph</td><td>Capture-time <code>HeyMirSsa.merge</code> (:132), <code>read</code> (:167), <code>seal</code> (:217), and <code>finish</code> (:252) form block parameters, resolve local reads, close blocks, and publish canonical value references.</td></tr>
-</tbody></table></div>
-
-    <p>A text-only Chrome CDP layout check set a 360×1000 CSS viewport. Chrome measured <code>innerWidth</code>, <code>clientWidth</code>, body scroll width and document scroll width all at 360px. Wider table/code contents remain inside the page’s horizontal scroll regions; the document itself does not overflow. <a href="2026-11-13-hey-compiler-output-walkthrough-data/phone-layout-360.json">Read the compact layout metrics</a>.</p>
-    <p>All source file names and line numbers in this table refer to the capture-time working tree for the stated source snapshot; they are diagnostic pointers, while the binary hashes, receipts and linked records define the actual captures.</p>
-    <p>Additional exact records: <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/hir-receipt.json">all 13 HIR results</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/mir-receipt.json">all 13 SSA/MIR results</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/real-ir-schema.json">phase schema snapshot</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/manifest.json">post-cutover evidence hashes</a>.</p>
+<h3>Fix the boundary in dependency order</h3><ol><li><strong>Build the numeric module surface:</strong> local exports, explicit and wildcard imports, facade re-exports, privacy and selector-rename policy.</li><li><strong>Attach namespace spellings to provider identities:</strong> aliases and plain namespaces must name the same verified unit.</li><li><strong>Project imported declarations into HIR:</strong> preserve declaration identity and provider bodies.</li><li><strong>Carry cross-unit targets through MIR and LLVM:</strong> agree on call ABI, then link and execute legal two-file cases while retaining privacy failures.</li></ol><p class="note warn"><strong>Status:</strong> proposed order based on this older audit; the latest local-program capture does not recheck imports.</p></section><section id="stages" aria-labelledby="stages-h"><h2 id="stages-h" data-doc-purpose="Follow the compiler path and see where LLVM IR is still unavailable.">Source becomes typed SSA, then stops before LLVM</h2>
+<p>The abstract syntax tree (AST) records program structure. High-level intermediate representation (HIR) records resolved identities and inferred types. Mid-level intermediate representation (MIR) records typed values and control flow in static single assignment (SSA) form: each value has one definition.</p>
+<ol class="flow" aria-label="Current compiler path"><li><b>Source</b>Hey program</li><li><b>AST</b>syntax tree</li><li><b>Typed HIR</b>resolved and inferred</li><li><b>MIR in SSA form</b>typed graph</li><li><b>LLVM IR in SSA form</b>unavailable: physical planning is missing</li></ol>
+<p>Sealed-block SSA connects branches and loops through block parameters. The current records below come directly from the Hey compiler.</p>
+</section>
+    <section id="native-ir" aria-labelledby="native-ir-h">
+    <h2 id="native-ir-h" data-doc-purpose="Read the latest native Hey SSA graph and its LLVM boundary.">Latest capture: the Hey compiler emits typed SSA records</h2>
+    <p class="note"><strong>Current capture:</strong> the compiler is implemented in Hey. <code>HeyIr.hey</code> defines generic Hey records for operations, results, operands, edges and attributes; <code>HeyMirSsa.hey</code> builds sealed-block SSA, and <code>HeyMirLowering.hey</code> emits typed graphs with indexed definitions and uses. The same binary (SHA-256 <code>d23760ed06c0659bfcfa2f4dcbcd080767818d443a26efe3e6c7bbdbe6655d8d</code>) passed 16/16 source-to-HIR and 16/16 semantic SSA MIR cases. MLIR is a reference architecture only; there is no MLIR dependency or integration. HIR still uses the older generated record machinery; replacing that dependency remains unfinished.</p>
+    <p><strong>Readable view of the captured MIR, not Hey source:</strong></p>
+    <pre><code>function (unit 0, function 0), result Int
+block 0:
+  v0:Int = const 2
+  v1:Int = const 3
+  v2:Int = mul v0, v1
+  v3:Int = add v2, v0
+  return v3</code></pre>
+    <p>The compiler functions along this step are <code>HeyMirLowering.lower_module</code>, <code>HeyMirSsa.read</code>/<code>seal</code>/<code>finish</code>, and <code>HeyIr.index</code>. The <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/core-results.json">separate native SSA-core suite</a> passed 15 cases; that is construction evidence, not source-to-LLVM evidence.</p>
+    <p>In this <code>local_chain</code> capture, four values carry the inferred <code>Int</code> type. Read the <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/local_chain.source.hey">source</a>, the <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/local_chain.parse-artifact.json">parse artifact extracted from the fresh admission receipt</a>, <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/local_chain.hir.json">typed HIR</a>, and <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/local_chain.mir.json">exact native graph JSON</a>.</p>
+    <p>LLVM IR has not been emitted: the captured attempt exits 70 without output because physical representation and ownership planning are not implemented. See the <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/llvm-boundary.json">refusal receipt</a>. Full results: <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/hir-results.json">HIR</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/native-ir/mir-results.json">MIR</a>.</p>
   </section>
 
 
