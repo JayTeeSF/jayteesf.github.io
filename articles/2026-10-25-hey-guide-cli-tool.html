@@ -112,7 +112,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <li><strong><code>hey wordfreq.hey</code> runs your tool like a script.</strong> The first run compiles it to native code and caches it; later runs start the cached program in a few milliseconds.</li>
 <li><strong><code>hey build wordfreq.hey -o build/wordfreq</code> makes one small executable</strong> that needs only the system C library.</li>
 <li><strong><code>stdlib:Cli</code> gives you flags, typed values and a help screen</strong>; <code>Files</code>, <code>Process</code> and <code>Text</code> do the rest.</li>
-<li><strong>Two gaps, both shown below:</strong> Hey has no statement that sets an exit status yet, and flag values need <code>--top=5</code>, not <code>--top 5</code>.</li>
+<li><strong><code>Process.exit(status)</code> sets your exit code directly</strong> (0 for success, 1 for a missing folder, 64 for bad flags). <strong>One gap, shown below:</strong> flag values with <code>Cli.parse</code>/<code>Cli.validate</code> need <code>--top=5</code>, not <code>--top 5</code>.</li>
 </ul>
 </section>
 
@@ -241,10 +241,13 @@ fn schema()
   ])
 end
 
-# Hey has no statement that sets an exit status yet, so hand the text
-# to /bin/sh, which prints it and exits with the status we choose.
-fn finish(text, status)
-  Process.exec_env_argv({}, [&#39;/bin/sh&#39;, &#39;-c&#39;, &#39;printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;&#39;, &#39;wordfreq&#39;, text, status.to_s])
+fn finish(message, status)
+  if status == 0
+    says message
+  else
+    warn message
+  end
+  Process.exit(status)
 end
 
 fn files_from_git(folder, ext)
@@ -265,15 +268,15 @@ program
   let parsed = Cli.current()
   let checked = Cli.validate(parsed, schema())
   if !checked.ok
-    finish(checked.error + &quot;\n&quot; + Cli.help(schema()) + &quot;\n&quot;, Cli.exit_status(checked))
+    finish(checked.error + &quot;\n&quot; + Cli.help(schema()), Cli.exit_status(checked))
   end
   if Cli.typed_flag(checked, &#39;help&#39;, false)
-    finish(Cli.help(schema()) + &quot;\n&quot;, 0)
+    finish(Cli.help(schema()), 0)
   end
 
   let folder = Cli.parsed_positionals(parsed).first(&#39;.&#39;)
   if !Files.directory?(folder)
-    finish(&#39;wordfreq: no such folder: &#39; + folder + &quot;\n&quot;, 1)
+    finish(&#39;wordfreq: no such folder: &#39; + folder, 1)
   end
 
   let ext = Cli.typed_flag(checked, &#39;ext&#39;, &#39;.txt&#39;)
@@ -412,11 +415,16 @@ checking...
 hey error: the config file is missing
 exit status: 70</code></pre>
 
-<h3>The gap: choosing your own exit code <span class="tag t-warn">Partly works</span></h3>
-<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 for "you typed it wrong". <strong>Hey has no statement that sets the process exit status yet.</strong> A program that ends normally exits 0; <code>fail</code> exits 70.</p>
-<p><code>Cli</code> can already work out the right number for you: <code>Cli.exit_status(checked)</code> gives 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag. Nothing applies that number to the process, though. The working pattern is to build the whole output as one String and hand it to <code>/bin/sh</code>, which prints it and exits with the code you pick. <code>Process.exec_env_argv</code> replaces the Hey process, so nothing printed earlier can be lost:</p>
-<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>fn finish(text, status)
-  Process.exec_env_argv({}, ['/bin/sh', '-c', 'printf &quot;%s&quot; &quot;$1&quot;; exit &quot;$2&quot;', 'wordfreq', text, status.to_s])
+<h3>Choosing your own exit code with <code>Process.exit</code> <span class="tag t-good">Works today</span></h3>
+<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 for "you typed it wrong". A program that ends normally exits 0; <code>fail</code> exits 70; <code>Process.exit(status)</code> flushes standard output and standard error and exits immediately with any <code>Int</code> from 0 to 255.</p>
+<p><code>Cli.exit_status(checked)</code> already works out 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag. <code>wordfreq</code> sends help text to standard output on 0, error messages to standard error via <code>warn</code> otherwise, and exits with the chosen status:</p>
+<pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>fn finish(message, status)
+  if status == 0
+    says message
+  else
+    warn message
+  end
+  Process.exit(status)
 end</code></pre>
 <p><code>wordfreq</code> passes <code>Cli.exit_status(checked)</code> to <code>finish</code> for a bad flag, and 1 for a missing folder:</p>
 <pre data-example="runnable"><code>$ hey wordfreq.hey --top=many sample; echo "exit status: $?"
@@ -427,7 +435,6 @@ exit status: 64
 $ hey wordfreq.hey no-such-folder; echo "exit status: $?"
 wordfreq: no such folder: no-such-folder
 exit status: 1</code></pre>
-<p>It works, but it costs a <code>/bin/sh</code> start and needs a POSIX shell on the host. Treat it as a stopgap.</p>
 
 <h2 id="tests" data-doc-purpose="Test the tool’s behavior.">6. Test it</h2>
 <p>Hey has two kinds of test, and a tool usually wants both.</p>
@@ -536,7 +543,7 @@ $ ./build/wordfreq --top=3 sample
 <tr><td>Script run with native cache; <code>#!</code> scripts</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-guide-first-steps.html#cache">Guide 1</a></td></tr>
 <tr><td>One-file native binary (<code>hey build</code>)</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-guide-build-and-deploy.html">Guide 6</a></td></tr>
 <tr><td>Package commands</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-guide-packages.html#commands">Guide 2</a></td></tr>
-<tr><td>Setting your own exit status</td><td><span class="tag t-warn">Partly works</span></td><td>No statement yet; the <code>/bin/sh</code> stopgap above</td></tr>
+<tr><td>Setting your own exit status (<code>Process.exit</code>)</td><td><span class="tag t-good">Works today</span></td><td><a href="2026-10-25-hey-standard-library.html#process-exit">Standard library</a></td></tr>
 <tr><td><code>--flag value</code> with <code>Cli.parse</code>/<code>validate</code></td><td><span class="tag t-warn">Partly works</span></td><td>Write <code>--flag=value</code></td></tr>
 </tbody>
 </table>
