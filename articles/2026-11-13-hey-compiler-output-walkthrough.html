@@ -12,7 +12,7 @@
 <nav class="hey-docs-nav" aria-label="Hey documentation"><a href="2026-10-25-hey-index.html">← Hey docs index</a></nav><main class="wrap">
 <p class="eyebrow"><a href="index.html">← Articles</a> · Compiler 2 · Captured output</p><h1>What the captured Hey compiler output says</h1>
 <p><span class="tag bad">Imports and exports: partly works</span> <span class="tag">General compiler: partly works</span></p>
-<p class="lede">An import can parse, appear to resolve, and still fail when HIR reads the imported declaration. This walkthrough follows captured output so you can see what passed, where it stopped, and which fixes have to come first.</p><p class="note warn"><strong>Capture labels.</strong> The original phase walk and opening import/export audit are frozen build2 evidence. The later HIR/SSA follow-up has its own binary hashes and records. Source paths and line numbers are capture-time pointers. Read each section’s evidence label before comparing phases.</p>
+<p class="lede">An import can parse, appear to resolve, and still fail when HIR reads the imported declaration. This walkthrough follows captured output so you can see what passed, where it stopped, and which fixes have to come first.</p><p class="note warn"><strong>Current boundary:</strong> 13 tested programs reach semantic SSA MIR. Physical planning and LLVM emission are not implemented. The opening import audit records earlier failures and has not been repeated with this binary.</p>
 
 
 
@@ -70,8 +70,12 @@
                   └─ export_label#15 name=&quot;visible&quot;
 </code></pre></details>
 <p>The <a href="2026-11-13-hey-compiler-output-walkthrough-data/import-results.json">compact import receipt</a> records all 13 phase outcomes. “The parser accepts imports” is not “imports work.” Allowed namespace and explicit forms don't enter HIR. Wildcard status doesn't identify the selected function. Visibility checks work for these negative examples, while re-export and selector-renaming behavior remain missing in this capture.</p>
-<h3>Fix the boundary in dependency order</h3><ol><li><strong>Build the numeric module surface:</strong> local exports, explicit and wildcard imports, facade re-exports, privacy and selector-rename policy.</li><li><strong>Attach namespace spellings to provider identities:</strong> aliases and plain namespaces must name the same verified unit.</li><li><strong>Project imported declarations into HIR:</strong> preserve declaration identity and provider bodies.</li><li><strong>Carry cross-unit targets through MIR and LLVM:</strong> agree on call ABI, then link and execute legal two-file cases while retaining privacy failures.</li></ol><p class="note warn"><strong>Status:</strong> proposed order from measured failures. Newer working-tree edits are not proved by this frozen binary.</p></section>  <section id="ssa-follow-up" aria-labelledby="ssa-follow-up-h">
-    <h2 id="ssa-follow-up-h" data-doc-purpose="See the later source HIR and semantic SSA capture, including its LLVM boundary.">Follow-up capture: one binary reaches semantic SSA</h2>
+<h3>Fix the boundary in dependency order</h3><ol><li><strong>Build the numeric module surface:</strong> local exports, explicit and wildcard imports, facade re-exports, privacy and selector-rename policy.</li><li><strong>Attach namespace spellings to provider identities:</strong> aliases and plain namespaces must name the same verified unit.</li><li><strong>Project imported declarations into HIR:</strong> preserve declaration identity and provider bodies.</li><li><strong>Carry cross-unit targets through MIR and LLVM:</strong> agree on call ABI, then link and execute legal two-file cases while retaining privacy failures.</li></ol><p class="note warn"><strong>Status:</strong> proposed order from measured failures. Newer working-tree edits are not proved by this frozen binary.</p></section><section id="stages" aria-labelledby="stages-h"><h2 id="stages-h" data-doc-purpose="Follow the implemented phases and the missing LLVM boundary.">Source becomes AST, HIR, then SSA MIR</h2>
+<p>The abstract syntax tree (AST) records the program's structure. High-level intermediate representation (HIR) records resolved identities and inferred types. Mid-level intermediate representation (MIR) records single-assignment values and explicit control flow.</p>
+<ol class="flow" aria-label="Current compiler path"><li><b>Source</b>parse declarations and expressions</li><li><b>AST</b>resolve names and scopes</li><li><b>HIR</b>propagate type facts</li><li><b>SSA MIR</b>values, blocks and edge arguments</li><li><b>LLVM</b>not implemented: representation and ownership planning come first</li></ol>
+<p>The worklist revisits only computations whose input type facts changed. Sealed-block SSA gives each computed value one definition and connects branches and loops through block parameters. Source locals do not require artificial memory slots.</p></section>
+  <section id="ssa-follow-up" aria-labelledby="ssa-follow-up-h">
+    <h2 id="ssa-follow-up-h" data-doc-purpose="See the later source HIR and semantic SSA capture, including its LLVM boundary.">One compiler reaches semantic SSA</h2>
     <p>This later capture follows the frozen build2 import audit above and precedes the frozen build2 phase walk below. Source admission, AST, HIR, semantic MIR, and the explicit LLVM refusal were captured with the same pipeline-ssa-7 binary, SHA-256 <code>cbcdb7f720e42fe6d1d2e3ddd13ceea7c101232bc9b1cd1f7c0dd050df6256d6</code>, against schema <code>ac661c16351f35ae63a4389a907d2e88a958557983e00d85b4a1d8d30ddf54b5</code>.</p>
     <p>All 13 selected source HIR cases and all 13 semantic SSA MIR cases passed. The full receipts and exact schema are linked below. This follow-up does not rerun the separate build2 import/export audit. LLVM emission stopped explicitly and no native program was run.</p>
     <div class="note"><strong>One small function, all the way to SSA:</strong> the Hey source has no type annotations. Its captured HIR infers <code>Int</code> for the function result and local bindings. The pipeline7 MIR has four values in one block, zero block parameters, and zero stack slots. It records arithmetic as value definitions instead of local memory traffic.</div>
@@ -194,177 +198,18 @@ end</code></pre>
 
     <h3>Physical lowering remains the next boundary</h3>
     <p>The emitted MIR values still say <code>representation=unplanned</code>; their owner and borrow-region fields are empty. The current values establish semantic SSA identities and control-flow edges. They do not describe machine representations, ownership, or an LLVM-ready calling convention. The pipeline7 run tried <code>emit-llvm</code> and received exit 70, no output file, and the diagnostic “LLVM emission is unavailable: physical representation and ownership planning are not implemented.” See the exact <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/llvm-boundary.json">captured refusal receipt</a>.</p>
-    <p>The next compiler step is to plan physical representations and ownership for these SSA values, then teach the LLVM path to consume that planned MIR and capture its output. The earlier LLVM listings on this page belong only to build2 and are not evidence for this later HIR/MIR pair.</p>
+    <p>The next compiler step is to plan physical representations and ownership for these SSA values, then teach the LLVM path to consume that planned MIR and capture its output. The deleted backend is available in repository history; this page follows the retained path.</p>
     <div class="scroll"><table><caption>Source owners at the HIR and SSA captures</caption><thead><tr><th>Phase</th><th>Capture-time source entry points</th></tr></thead><tbody>
-<tr><td>HIR type facts</td><td><code>HeyHirStatements.lower_function</code> (<code>stdlib/HeyHirStatements.hey:668</code>, inference call at :749) invokes <code>HeyHirInference.analyze</code> (<code>stdlib/HeyHirInference.hey:195</code>); file helpers <code>hi_body</code> (:49) and <code>hi_transfer</code> (:145) follow reaching definitions and propagate type facts.</td></tr>
-<tr><td>HIR to MIR</td><td>The current <code>HeyMir.lower_module</code> wrapper is <code>stdlib/HeyMir.hey:7–11</code>. In the capture-time implementation, <code>HeyMirLowering.sml_expression</code> (:114) and <code>sml_body</code> (:156) lower nodes; <code>HeyMirLowering.lower_module</code> (:231) owned module construction.</td></tr>
+<tr><td>Source → AST</td><td><code>resolve_program_units</code> in <code>stdlib/HeyProgramResolution.hey:1225</code>; <code>HeySyntaxTree.parse_unit_lexical_admission</code> in <code>stdlib/HeySyntaxTree.hey:3421</code>.</td></tr><tr><td>AST → HIR</td><td><code>HeyHir.from_admitted</code> in <code>stdlib/HeyHir.hey:507</code> projects verified bindings, scopes and functions into HIR.</td></tr><tr><td>HIR type facts</td><td><code>HeyHirStatements.lower_function</code> (<code>stdlib/HeyHirStatements.hey:668</code>, inference call at :749) invokes <code>HeyHirInference.analyze</code> (<code>stdlib/HeyHirInference.hey:195</code>); file helpers <code>hi_body</code> (:49) and <code>hi_transfer</code> (:145) follow reaching definitions and propagate type facts.</td></tr>
+<tr><td>HIR to MIR</td><td>The current <code>HeyMir.lower_module</code> wrapper is <code>stdlib/HeyMir.hey:7–11</code>. In the capture-time implementation, <code>sml_expression in HeyMirLowering.hey</code> (:114) and <code>sml_body</code> (:156) lower nodes; <code>HeyMirLowering.lower_module</code> (:231) owned module construction.</td></tr>
 <tr><td>SSA graph</td><td>Capture-time <code>HeyMirSsa.merge</code> (:132), <code>read</code> (:167), <code>seal</code> (:217), and <code>finish</code> (:252) form block parameters, resolve local reads, close blocks, and publish canonical value references.</td></tr>
 </tbody></table></div>
 
-    <p>A text-only Chrome CDP layout check set a 360×1000 CSS viewport. Chrome measured <code>innerWidth</code>, <code>clientWidth</code>, body scroll width and document scroll width all at 360px. Wider table/code contents remain inside the page’s horizontal scroll regions; the document itself does not overflow. <a href="2026-11-13-hey-compiler-output-walkthrough-data/phone-layout-360.json">Read the compact layout metrics</a>.</p>\n    <p>All source file names and line numbers in this table refer to the capture-time working tree for the stated source snapshot; they are diagnostic pointers, while the binary hashes, receipts and linked records define the actual captures.</p>
+    <p>A text-only Chrome CDP layout check set a 360×1000 CSS viewport. Chrome measured <code>innerWidth</code>, <code>clientWidth</code>, body scroll width and document scroll width all at 360px. Wider table/code contents remain inside the page’s horizontal scroll regions; the document itself does not overflow. <a href="2026-11-13-hey-compiler-output-walkthrough-data/phone-layout-360.json">Read the compact layout metrics</a>.</p>
+    <p>All source file names and line numbers in this table refer to the capture-time working tree for the stated source snapshot; they are diagnostic pointers, while the binary hashes, receipts and linked records define the actual captures.</p>
     <p>Additional exact records: <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/hir-receipt.json">all 13 HIR results</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/mir-receipt.json">all 13 SSA/MIR results</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/real-ir-schema.json">phase schema snapshot</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/ssa-current/manifest.json">post-cutover evidence hashes</a>.</p>
   </section>
 
 
-<nav class="toc" aria-label="Contents"><strong>Contents</strong><ol><li><a href="#stages">The compiler stages</a></li><li><a href="#arithmetic">An expression reaches native</a></li><li><a href="#local">Historical build2 local becomes boxed</a></li><li><a href="#parameter">A parameter reaches native</a></li><li><a href="#array">A typed array stops at MIR</a></li><li><a href="#evidence">Hashes and limits</a></li></ol></nav>
-<section id="stages" aria-labelledby="stages-h"><h2 id="stages-h" data-doc-purpose="See what each compiler stage consumes and produces.">Four stages, four jobs</h2><p>AST means abstract syntax tree. HIR is the high-level intermediate representation with structure and semantic facts. MIR is the mid-level intermediate representation with values, storage and calls. LLVM is the compiler toolkit's intermediate language.</p><ol class="flow" aria-label="Compiler phases"><li><b>Source</b><code>resolve-source</code><br>admitted AST</li><li><b>AST</b><code>emit-hir</code><br>semantic HIR</li><li><b>HIR</b><code>lower-mir</code><br>execution MIR</li><li><b>MIR</b><code>emit-llvm</code><br>LLVM text</li><li><b>LLVM</b>link and native run are separate</li></ol><p>An error ends the path. No later output exists unless its command ran.</p>
-<div class="note"><strong>Why the local stays Int in HIR:</strong> the <code>hi_body</code> helper in <code>HeyHirInference.hey</code> records which definition reaches each read in statement order. <code>analyze</code> builds dependencies and reverse users, then queues only nodes whose inputs changed. <code>hi_transfer</code> applies the type rule. <code>HeyHirStatements.lower_function</code> calls this pass. That is the new inference technique behind the captured local facts; MIR representation and ownership remain separate decisions.</div>
-<div class="scroll"><table><caption>Source functions behind this path</caption><thead><tr><th>Phase</th><th>Capture-time source hooks and line numbers</th></tr></thead><tbody>
-<tr><td>Source → AST and resolution</td><td><code>stdlib/HeyProgramResolution.hey</code> <code>resolve_program_units</code> (1225); <code>stdlib/HeySyntaxTree.hey</code> <code>parse_unit_lexical_admission</code> (3421).</td></tr>
-<tr><td>Import/export facts</td><td><code>stdlib/HeyNames.hey</code> <code>hey_names_import_selector_step_value</code> (210), <code>hey_names_resolution_status_value</code> (877), <code>hey_names_require_exported_targets_value</code> (4868); <code>stdlib/HeyResolutionAttachment.hey</code> <code>hey_resolution_qualified_selection</code> (546), <code>hey_resolution_attach_unit</code> (806).</td></tr>
-<tr><td>AST → HIR structure</td><td><code>stdlib/HeyHirExpressions.hey</code> <code>lower_expressions</code> (1161); <code>stdlib/HeyHirStatements.hey</code> <code>hhs_project_list</code> (323), <code>lower_function</code> (668); <code>stdlib/HeyHirModules.hey</code> <code>assemble_module</code> (999).</td></tr>
-<tr><td>HIR inference</td><td><code>stdlib/HeyHirInference.hey</code> <code>hi_body</code> (49), <code>hi_transfer</code> (145), <code>HeyHirInference.analyze</code> (195).</td></tr>
-<tr><td>HIR → MIR</td><td><code>stdlib/HeyMir.hey</code> <code>hms_emit</code> (648), <code>hms_lower_body</code> (1716), <code>hms_plan_representations</code> (2948); module entry <code>HeyMir.lower_module</code> (3030).</td></tr>
-<tr><td>MIR → LLVM</td><td><code>stdlib/HeyLlvm.hey</code> <code>hls_operation</code> (180), module entry <code>HeyLlvm.emit</code> (463).</td></tr></tbody></table></div></section>
-<section id="arithmetic" aria-labelledby="arith-h"><h2 id="arith-h" data-doc-purpose="Follow actual AST, HIR, MIR, LLVM and native output for arithmetic.">This expression reaches a native result</h2><pre><code>fn arithmetic()
-  return 1 + 2 * 3
-end</code></pre><details><summary>Arithmetic: actual admitted AST tree and node IDs</summary><p>Rendered from the captured root-unit tree using the generated Final Syntax schema (<a href="2026-11-13-hey-compiler-output-walkthrough-data/final_syntax_schema.json">schema file</a>). <a href="2026-11-13-hey-compiler-output-walkthrough-data/arithmetic.ast.json">Download the exact root AST JSON</a>.</p><pre><code>syntax_tree#0
-   └─ forms[0]
-      └─ function_decl#1 name=&quot;arithmetic&quot;, visibility=&quot;public&quot;
-         ├─ binder
-         │  └─ binding_decl#2 name=&quot;arithmetic&quot;
-         └─ body[0]
-            └─ return_stmt#3
-               └─ value
-                  └─ infix_expr#4 operator=&quot;+&quot;
-                     ├─ left
-                     │  └─ literal_expr#5 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;1&quot;, decoded_value=1
-                     └─ right
-                        └─ infix_expr#6 operator=&quot;*&quot;
-                           ├─ left
-                           │  └─ literal_expr#7 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;2&quot;, decoded_value=2
-                           └─ right
-                              └─ literal_expr#8 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;3&quot;, decoded_value=3
-</code></pre></details><p> HIR node headers carry semantic type ID <code>4</code>, named <code>Int</code> by the paired schema. MIR retains both numeric operations. LLVM emits <code>mul</code> then <code>add</code>; a linked native test host prints <code>7</code>. LLVM says runtime is not required in this capture.</p>
-<figure class="fig"><svg viewBox="0 0 320 286" role="img" aria-labelledby="at ad"><title id="at">Captured arithmetic from AST to native</title><desc id="ad">Addition and multiplication remain in HIR and MIR. LLVM contains machine multiply and add. The native test host prints seven.</desc><rect class="box" x="8" y="8" width="304" height="43" rx="7"/><text x="20" y="27" font-weight="700">Works today · AST</text><text x="20" y="45">Add(1, Multiply(2, 3))</text><path d="M160 51v14" stroke="currentColor"/><rect class="box" x="8" y="67" width="304" height="43" rx="7"/><text x="20" y="86" font-weight="700">HIR · Int facts</text><text x="20" y="104">two operations retained</text><path d="M160 110v14" stroke="currentColor"/><rect class="box" x="8" y="126" width="304" height="43" rx="7"/><text x="20" y="145" font-weight="700">MIR · multiply then add</text><text x="20" y="163">numeric operation records</text><path d="M160 169v14" stroke="currentColor"/><rect class="box" x="8" y="185" width="304" height="43" rx="7"/><text x="20" y="204" font-weight="700">LLVM · mul i64, add i64</text><text x="20" y="222">runtime not required</text><path d="M160 228v14" stroke="currentColor"/><rect class="ok" x="8" y="244" width="304" height="34" rx="7"/><text x="20" y="267" font-weight="700">Works today · native prints 7</text></svg><figcaption>One successful fixture; not general coverage.</figcaption></figure>
-<details><summary>Raw numeric HIR, MIR and LLVM output</summary><p>Download: <a href="2026-11-13-hey-compiler-output-walkthrough-data/arithmetic.hir.json">HIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/arithmetic.mir.json">MIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/arithmetic.ll">LLVM</a>.</p><p>Captured schema-coded records; digest <code>91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72</code>.</p><h3>HIR JSON</h3><pre><code>[303,2,"91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72",[11,"be0c923338db234b1f706cc6165dde1f5c46b57d632b1f97ad7b78615c6e6750","5c5ed440190137224f8d4b0f5334000ba717d0176204fccfdc5b7e1b677720d8","b80b2fd3a3ed1d4e9505f4047f6b126d591eab81912743d31e5e7431108f183d","4e1f5b0961da2fad22f03f5d97d37b4dc3d15fdfa8e7b16c4aa6e4aa1d831b7b",1],[[301,[2,0,0],[3,0,0],[1,0,2],12,false,""]],[],[[29,[8,0,0],[22,"1"]],[29,[8,0,1],[22,"2"]],[29,[8,0,2],[22,"3"]]],[[100,[12,[7,0,0],[1,0,5],-1,0,0,[10,0,2,10,2,11],4,0],[8,0,0]],[100,[12,[7,0,1],[1,0,7],-1,0,0,[10,0,2,14,2,15],4,0],[8,0,1]],[100,[12,[7,0,2],[1,0,8],-1,0,0,[10,0,2,18,2,19],4,0],[8,0,2]],[107,[12,[7,0,3],[1,0,6],-1,0,0,[10,0,2,14,2,19],4,0],3,[7,0,1],[7,0,2]],[107,[12,[7,0,4],[1,0,4],-1,0,0,[10,0,2,10,2,19],4,0],1,[7,0,0],[7,0,3]]],[[208,[12,[7,0,5],[1,0,3],-1,0,0,[10,0,2,3,2,19],4,0],[7,0,4]]],[[300,[4,0,0],[3,0,1],[],4,[[7,0,5]]]],[],[],[[309,[4,0,0],[1,0,1],[308,[4,0,0],[],null,4,0],""]]]</code></pre><h3>MIR JSON</h3><pre><code>[4106,5,"91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72",[11,"be0c923338db234b1f706cc6165dde1f5c46b57d632b1f97ad7b78615c6e6750","5c5ed440190137224f8d4b0f5334000ba717d0176204fccfdc5b7e1b677720d8","b80b2fd3a3ed1d4e9505f4047f6b126d591eab81912743d31e5e7431108f183d","4e1f5b0961da2fad22f03f5d97d37b4dc3d15fdfa8e7b16c4aa6e4aa1d831b7b",1],[[29,[8,0,0],[22,"1"]],[29,[8,0,1],[22,"2"]],[29,[8,0,2],[22,"3"]]],[[4104,[4,0,0],[],4,[4102,4,[],3,0,[]],[],[[4101,[4096,0],4,3,[1,0,5],[10,0,2,10,2,11],null,null],[4101,[4096,1],4,3,[1,0,7],[10,0,2,14,2,15],null,null],[4101,[4096,2],4,3,[1,0,8],[10,0,2,18,2,19],null,null],[4101,[4096,3],4,3,[1,0,6],[10,0,2,14,2,19],null,null],[4101,[4096,4],4,3,[1,0,4],[10,0,2,10,2,19],null,null]],[[4105,[4097,0],[],[[4200,[4108,[1,0,5],[4096,0],[]],[8,0,0]],[4200,[4108,[1,0,7],[4096,1],[]],[8,0,1]],[4200,[4108,[1,0,8],[4096,2],[]],[8,0,2]],[4206,[4108,[1,0,6],[4096,3],[[4096,1],[4096,2]]],3],[4206,[4108,[1,0,4],[4096,4],[[4096,0],[4096,3]]],1]],[4302,[1,0,3],[4096,4],6]]],[],[],[4097,0]]],[],[],[[4110,[4,0,0],[4102,4,[],3,0,[]],"hey_fn_u0_f0",1]],null]</code></pre><h3>LLVM</h3><pre><code>; hey-mir-schema: 91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72
-; hey-runtime-required: false
-define i64 @hey_fn_u0_f0() {
-entry:
-  br label %b0
-b0:
-  %v3 = mul i64 2, 3
-  %v4 = add i64 1, %v3
-  ret i64 %v4
-}
-</code></pre></details></section>
-<section id="local" aria-labelledby="local-h"><h2 id="local-h" data-doc-purpose="Compare inferred local facts with boxed MIR and LLVM representation.">Build2 baseline: HIR inferred Int, then MIR boxed the local</h2><p><span class="tag">Historical build2 comparison</span> This boxed-slot MIR and LLVM belong to the older pipeline-inference-2 capture; the pipeline7 semantic SSA readout above is the current tested boundary.</p><pre><code>fn answer()
-  let x = 2
-  let y = x * 3
-  return y + x
-end</code></pre><details><summary>Local chain: actual admitted AST tree and node IDs</summary><p>Rendered from the captured root-unit tree using the generated Final Syntax schema (<a href="2026-11-13-hey-compiler-output-walkthrough-data/final_syntax_schema.json">schema file</a>). <a href="2026-11-13-hey-compiler-output-walkthrough-data/local_chain.ast.json">Download the exact root AST JSON</a>.</p><pre><code>syntax_tree#0
-   └─ forms[0]
-      └─ function_decl#1 name=&quot;answer&quot;, visibility=&quot;public&quot;
-         ├─ binder
-         │  └─ binding_decl#2 name=&quot;answer&quot;
-         ├─ body[0]
-         │  └─ let_stmt#3 name=&quot;x&quot;
-         │     ├─ binder
-         │     │  └─ binding_decl#4 name=&quot;x&quot;
-         │     └─ value
-         │        └─ literal_expr#5 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;2&quot;, decoded_value=2
-         ├─ body[1]
-         │  └─ let_stmt#6 name=&quot;y&quot;
-         │     ├─ binder
-         │     │  └─ binding_decl#7 name=&quot;y&quot;
-         │     └─ value
-         │        └─ infix_expr#8 operator=&quot;*&quot;
-         │           ├─ left
-         │           │  └─ name_expr#9 name=&quot;x&quot;
-         │           └─ right
-         │              └─ literal_expr#10 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;3&quot;, decoded_value=3
-         └─ body[2]
-            └─ return_stmt#11
-               └─ value
-                  └─ infix_expr#12 operator=&quot;+&quot;
-                     ├─ left
-                     │  └─ name_expr#13 name=&quot;y&quot;
-                     └─ right
-                        └─ name_expr#14 name=&quot;x&quot;
-</code></pre></details><p>HIR gives Int facts to the local definitions and reads. MIR allocates two boxed slots, loads and clones values, calls runtime multiply/add helpers, then releases owners. LLVM reflects that plan. “HIR inferred Int” and “MIR chose i64” are different claims.</p><details><summary>Captured local-chain MIR and LLVM</summary><p>Download: <a href="2026-11-13-hey-compiler-output-walkthrough-data/local_chain.hir.json">HIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/local_chain.mir.json">MIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/local_chain.ll">LLVM</a>.</p><pre><code>[4106,5,"91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72",[11,"fc4ee5d453dd589e8de6a831c96843a1cddec734bc072f9069d1a7214b62c4f1","bea664e396d30f4b8498063748830cdaca534187b6ffe76cabbdf8bb3ada86eb","b80b2fd3a3ed1d4e9505f4047f6b126d591eab81912743d31e5e7431108f183d","4e1f5b0961da2fad22f03f5d97d37b4dc3d15fdfa8e7b16c4aa6e4aa1d831b7b",1],[[29,[8,0,0],[22,"2"]],[29,[8,0,1],[22,"3"]]],[[4104,[4,0,0],[],4,[4102,1,[],2,0,[]],[[2,0,1],[2,0,2]],[[4101,[4096,0],4,2,[1,0,5],[10,0,2,11,2,12],[4098,0],null],[4101,[4096,1],4,2,[1,0,9],[10,0,3,11,3,12],[4098,1],null],[4101,[4096,2],4,2,[1,0,10],[10,0,3,15,3,16],[4098,2],null],[4101,[4096,3],4,2,[1,0,8],[10,0,3,11,3,16],[4098,3],null],[4101,[4096,4],4,2,[1,0,13],[10,0,4,10,4,11],[4098,4],null],[4101,[4096,5],4,2,[1,0,14],[10,0,4,14,4,15],[4098,5],null],[4101,[4096,6],4,2,[1,0,12],[10,0,4,10,4,15],[4098,6],null]],[[4105,[4097,0],[],[[4200,[4108,[1,0,5],[4096,0],[]],[8,0,0]],[4229,[4108,[1,0,3],null,[[4096,0]]],[4100,0]],[4228,[4108,[1,0,9],[4096,1],[]],[4100,0]],[4200,[4108,[1,0,10],[4096,2],[]],[8,0,1]],[4206,[4108,[1,0,8],[4096,3],[[4096,1],[4096,2]]],3],[4223,[4108,[1,0,8],null,[[4096,1]]],[4098,1]],[4223,[4108,[1,0,8],null,[[4096,2]]],[4098,2]],[4229,[4108,[1,0,6],null,[[4096,3]]],[4100,1]],[4228,[4108,[1,0,13],[4096,4],[]],[4100,1]],[4228,[4108,[1,0,14],[4096,5],[]],[4100,0]],[4206,[4108,[1,0,12],[4096,6],[[4096,4],[4096,5]]],1],[4223,[4108,[1,0,12],null,[[4096,4]]],[4098,4]],[4223,[4108,[1,0,12],null,[[4096,5]]],[4098,5]],[4231,[4108,[1,0,11],null,[]],[4100,1]],[4231,[4108,[1,0,11],null,[]],[4100,0]]],[4302,[1,0,11],[4096,6],2]]],[[4103,[4100,0],[2,0,1],2,0],[4103,[4100,1],[2,0,2],2,0]],[],[4097,0]]],[],[],[[4110,[4,0,0],[4102,1,[],2,0,[]],"hey_fn_u0_f0",1]],null]</code></pre><pre><code>; hey-mir-schema: 91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72
-; hey-runtime-required: true
-declare ptr @hey_llvm_int_literal_range_value(ptr, i64)
-declare ptr @hey_llvm_value_clone_ptr(ptr)
-declare ptr @hey_llvm_mul_value(ptr, ptr)
-declare void @hey_llvm_release_value_ptr(ptr)
-declare ptr @hey_llvm_add_value(ptr, ptr)
-@hey_ir_const_u0_c0 = private constant [2 x i8] c"\32\00"
-@hey_ir_const_u0_c1 = private constant [2 x i8] c"\33\00"
-define ptr @hey_fn_u0_f0() {
-entry:
-  %s0 = alloca ptr
-  %s1 = alloca ptr
-  br label %b0
-b0:
-  %v0 = call ptr @hey_llvm_int_literal_range_value(ptr @hey_ir_const_u0_c0, i64 1)
-  store ptr %v0, ptr %s0
-  %borrow_1 = load ptr, ptr %s0
-  %v1 = call ptr @hey_llvm_value_clone_ptr(ptr %borrow_1)
-  %v2 = call ptr @hey_llvm_int_literal_range_value(ptr @hey_ir_const_u0_c1, i64 1)
-  %v3 = call ptr @hey_llvm_mul_value(ptr %v1, ptr %v2)
-  call void @hey_llvm_release_value_ptr(ptr %v1)
-  call void @hey_llvm_release_value_ptr(ptr %v2)
-  store ptr %v3, ptr %s1
-  %borrow_4 = load ptr, ptr %s1
-  %v4 = call ptr @hey_llvm_value_clone_ptr(ptr %borrow_4)
-  %borrow_5 = load ptr, ptr %s0
-  %v5 = call ptr @hey_llvm_value_clone_ptr(ptr %borrow_5)
-  %v6 = call ptr @hey_llvm_add_value(ptr %v4, ptr %v5)
-  call void @hey_llvm_release_value_ptr(ptr %v4)
-  call void @hey_llvm_release_value_ptr(ptr %v5)
-  %slot_drop_13 = load ptr, ptr %s1
-  call void @hey_llvm_release_value_ptr(ptr %slot_drop_13)
-  store ptr null, ptr %s1
-  %slot_drop_14 = load ptr, ptr %s0
-  call void @hey_llvm_release_value_ptr(ptr %slot_drop_14)
-  store ptr null, ptr %s0
-  ret ptr %v6
-}
-</code></pre></details></section>
-<section id="parameter" aria-labelledby="param-h"><h2 id="param-h" data-doc-purpose="Follow an annotation-free parameter from AST through native execution.">This parameter now reaches a native result</h2><pre><code>fn identity(value)
-  return value
-end</code></pre><details><summary>Identity: actual admitted AST tree and node IDs</summary><p>Rendered from the captured root-unit tree using the generated Final Syntax schema (<a href="2026-11-13-hey-compiler-output-walkthrough-data/final_syntax_schema.json">schema file</a>). <a href="2026-11-13-hey-compiler-output-walkthrough-data/identity.ast.json">Download the exact root AST JSON</a>.</p><pre><code>syntax_tree#0
-   └─ forms[0]
-      └─ function_decl#1 name=&quot;identity&quot;, visibility=&quot;public&quot;
-         ├─ binder
-         │  └─ binding_decl#2 name=&quot;identity&quot;
-         ├─ parameters[0]
-         │  └─ parameter#3 name=&quot;value&quot;
-         └─ body[0]
-            └─ return_stmt#4
-               └─ value
-                  └─ name_expr#5 name=&quot;value&quot;
-</code></pre></details><p>The newer captured pipeline passes this annotation-free function through AST, HIR, MIR, LLVM, link and native execution. A test host passes <code>7</code>; the native program returns <code>7</code>. This is a measured success for this closed call, not proof about every parameter or public call boundary.</p><details><summary>Captured parameter MIR and LLVM</summary><p>Download: <a href="2026-11-13-hey-compiler-output-walkthrough-data/identity.hir.json">HIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/identity.mir.json">MIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/identity.ll">LLVM</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/identity.native.stdout">native output</a>.</p><pre><code>[4106,5,"91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72",[11,"4a32b33349a613fb08b1e5fbc6558aa5fb35bcf6477b70424fc5aa39fbc9db76","8a4ebeadb950fd54218b4281b6d17ae664f5a4ce837ad11d72865a884f06a6ec","b80b2fd3a3ed1d4e9505f4047f6b126d591eab81912743d31e5e7431108f183d","4e1f5b0961da2fad22f03f5d97d37b4dc3d15fdfa8e7b16c4aa6e4aa1d831b7b",1],[],[[4104,[4,0,0],[[4096,0]],17,[4102,1,[2],2,0,[1]],[[2,0,1]],[[4101,[4096,0],17,2,[1,0,3],[10,0,2,3,2,15],null,null],[4101,[4096,1],17,2,[1,0,5],[10,0,2,10,2,15],[4098,1],null]],[[4105,[4097,0],[],[[4201,[4108,[1,0,5],[4096,1],[]],[2,0,1]]],[4302,[1,0,4],[4096,1],2]]],[],[[2,0,1]],[4097,0]]],[],[],[[4110,[4,0,0],[4102,1,[2],2,0,[1]],"hey_fn_u0_f0",1]],null]</code></pre><pre><code>; hey-mir-schema: 91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72
-; hey-runtime-required: true
-declare ptr @hey_llvm_value_clone_ptr(ptr)
-define ptr @hey_fn_u0_f0(ptr %v0) {
-entry:
-  br label %b0
-b0:
-  %v1 = call ptr @hey_llvm_value_clone_ptr(ptr %v0)
-  ret ptr %v1
-}
-</code></pre></details></section>
-<section id="array" aria-labelledby="array-h"><h2 id="array-h" data-doc-purpose="Show the exact MIR stop for a semantically typed array access.">This array access reaches HIR, then stops at MIR</h2><pre><code>fn first()
-  return [7][0]
-end</code></pre><details><summary>Array access: actual admitted AST tree and node IDs</summary><p>Rendered from the captured root-unit tree using the generated Final Syntax schema (<a href="2026-11-13-hey-compiler-output-walkthrough-data/final_syntax_schema.json">schema file</a>). <a href="2026-11-13-hey-compiler-output-walkthrough-data/array.ast.json">Download the exact root AST JSON</a>.</p><pre><code>syntax_tree#0
-   └─ forms[0]
-      └─ function_decl#1 name=&quot;first&quot;, visibility=&quot;public&quot;
-         ├─ binder
-         │  └─ binding_decl#2 name=&quot;first&quot;
-         └─ body[0]
-            └─ return_stmt#3
-               └─ value
-                  └─ index_expr#4
-                     ├─ receiver
-                     │  └─ array_expr#5
-                     │     └─ elements
-                     │        └─ literal_expr#6 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;7&quot;, decoded_value=7
-                     └─ index
-                        └─ literal_expr#7 literal_kind=&quot;INTEGER&quot;, literal_text=&quot;0&quot;, decoded_value=0
-</code></pre></details><p>In the same pipeline snapshot, AST and HIR pass. HIR labels the value with the compiler's IntArray semantic witness; MIR refuses it with <code>array requires the declared Array semantic result</code>. This is the array-result boundary in frozen pipeline-inference-2. A later array fix is under separate test and is not represented by this capture. The separate <a href="2026-11-13-hey-compiler-output-walkthrough-data/string-index-runtime.hey">String-index probe</a> compiles and then reports the language rule: <code>a String has no position index</code>. <a href="2026-11-13-hey-compiler-output-walkthrough-data/string-index-runtime.stderr">Captured diagnostic</a> suggests iterating characters or indexing bytes.</p><details><summary>Exact MIR diagnostic</summary><p>Download: <a href="2026-11-13-hey-compiler-output-walkthrough-data/array.hir.json">HIR JSON</a> · <a href="2026-11-13-hey-compiler-output-walkthrough-data/array.mir.stderr">MIR diagnostic</a>.</p><pre><code>hey error: "array requires the declared Array semantic result"
-</code></pre></details></section>
-
-<section id="evidence" aria-labelledby="ev-h"><h2 id="ev-h" data-doc-purpose="Check the binary identity and practical limits of captured results.">Evidence and limits</h2><p>Captured pipeline-inference-2 SHA-256 <code>9c1f81a8377dba99ada9d9900465f98f972f89ea532d9cbb4df153d6cc46d039</code>. Canonical parser SHA-256 <code>9a913f4f005cbec811a51195f827d273e2833c900c3551d3d23461e53345015e</code>. Schema digest: <code>91bc59c5c4faf4ed6fd7aa78d3a3736f52cd0eac87b7273224dcc90736689f72</code>.</p><ul><li>Arithmetic passed all four phases and a native test host printed <code>7</code>.</li><li>Local chain reached LLVM using boxed slots and runtime calls; no native host ran for it.</li><li>Identity passed through native execution and returned 7.</li><li>Array access passed AST/HIR then stopped at MIR with an explicit Array-result refusal; no LLVM was produced.</li><li>All 13 cases parsed and were resolved again with pipeline-inference-2. Six programs (namespace, alias, rooted path, explicit selector, wildcard, and selector rename) reached HIR and failed there. Seven were refused at resolution, including the required-but-missing facade re-export and the expected private/omitted cases.</li></ul><p>These captures do not establish full source coverage, arbitrary-precision safety, every import form or self-hosting. Package imports and lock hashes, cycles and reopened modules, operator overrides and collisions, and the complete matrix of visibility combinations are outside this focused audit. The <a href="2026-11-13-hey-compiler-output-walkthrough-data/capture-results.json">capture summary</a> and compact <a href="2026-11-13-hey-compiler-output-walkthrough-data/manifest.json">public evidence bundle and checksums</a> contain captured sources, root ASTs, HIR, MIR, LLVM and receipts. Root AST files contain only the program unit, not the megabyte-sized Prelude admission snapshot.</p></section>
-<footer><p>Companion: <a href="2026-10-25-hey-compiler-from-source-to-native.html">The compiler: source to native</a> describes the proposed general correction. This separate article follows hash-scoped output.</p></footer>
+<footer><p>Companion: <a href="2026-10-25-hey-compiler-from-source-to-native.html">The compiler: source to native</a> explains the architecture and remaining work. The records here show the current tested boundary.</p></footer>
 </main></body></html>
