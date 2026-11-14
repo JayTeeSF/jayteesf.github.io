@@ -125,7 +125,7 @@ Package-facing C APIs never receive Hey's internal <code>HeyValue</code>. Each c
 time, estimated 40 to 90 instructions, after the String calling-convention migration is qualified. The way to C for your code is native packages,
 and that is ruled.</div>
 
-<p class="aside"><strong>Implementation update (written October 31, released November 13):</strong> in 0.99.606a the runtime stores the 16-byte String. That change was not in 0.99.605a. It does not complete native ABI v2 or qualify every compiled call. The costs below describe the earlier measured path, not a new performance result. See <a href="2026-10-25-hey-values-memory-and-strings.html#string-update">the storage update</a>.</p>
+<p class="aside"><strong>Implementation update (written October 31, released November 13):</strong> in 0.99.606a the runtime stores the 16-byte String. That change was not in release 605a. It does not complete native ABI v2 or qualify every compiled call. The costs below describe the earlier measured path, not a new performance result. See <a href="2026-10-25-hey-values-memory-and-strings.html#string-update">the storage update</a>.</p>
 
 <p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test (last run on a pre-release 0.99.606a build; 0.99.606a was released on November 13, 2026, and the samples have not been re-run on the release build). <span class="badge b-decided">Decided, coming</span> ruled, not in a released build yet. <span class="badge b-proposed">Proposed</span> not ruled.</p>
 
@@ -141,7 +141,7 @@ and that is ruled.</div>
 </ol></nav>
 
 <h2 id="why" data-doc-purpose="Understand the purpose and ownership boundary of native packages.">1. Why native packages exist, and the one rule</h2>
-<p>In 0.99.606a the runtime's <code>HeyValue</code> layout contains the 16-byte String; in 0.99.605a it held a String as a pointer. Exposing that internal layout could break native packages when the representation changes. <strong>Package-facing C APIs never receive <code>HeyValue</code>.</strong> The runtime itself is written in C and does use that type internally. A package sees only booleans, fixed-size integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec fails the build if the package-facing header mentions <code>HeyValue</code>.
+<p>In 0.99.606a the runtime's <code>HeyValue</code> layout contains the 16-byte String; in release 605a it held a String as a pointer. Exposing that internal layout could break native packages when the representation changes. <strong>Package-facing C APIs never receive <code>HeyValue</code>.</strong> The runtime itself is written in C and does use that type internally. A package sees only booleans, fixed-size integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec fails the build if the package-facing header mentions <code>HeyValue</code>.
 <span class="badge b-works">Works today</span></p>
 
 <h2 id="today" data-doc-purpose="Read the existing native-call workflow.">2. Calling C today</h2>
@@ -193,26 +193,19 @@ int64_t native_math_scale_i64(int64_t value, int64_t factor) { return value * fa
 <p>Generate the shim. The <em>descriptor symbol</em> is the name of one exported C table that lists the package's
 functions and their types; Hey looks it up once when it opens the library. <code>hey native</code> writes the versioned C header, a deterministic wrapper, and a lock file<sup><a href="#n1">1</a></sup>
 recording the ABI version, target, manifest hash, sources, headers, libraries and the descriptor symbol.</p>
-<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey native --manifest &quot;$PWD/hey.native.json&quot; --out &quot;$PWD/generated&quot; --target host &amp;&amp; ls generated
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey native --manifest hey.native.json --out generated --target host &amp;&amp; ls generated
 native_package=native_math
 native_abi_version=2
 manifest_sha256=0238394214c30afb9deba1e1164bc77ed3f0e0f1273017dee6dc2577dc7cff3f
-generated_header=.../generated/native_math_ffi.h
-generated_source=.../generated/native_math_ffi.c
-generated_lock=.../generated/hey.native.lock.json
+generated_header=generated/native_math_ffi.h
+generated_source=generated/native_math_ffi.c
+generated_lock=generated/hey.native.lock.json
 hey_native_abi.h
 hey.native.lock.json
 native_math_ffi.c
 native_math_ffi.h
 $ echo $?
 0</code></pre>
-<div class="note warn"><p><strong>Use absolute paths, as above.</strong> With relative paths the same command fails, because the generator reads the manifest relative to the toolchain, not your folder. That's a known defect:</p>
-<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out failed"><code>$ hey native --manifest hey.native.json --out generated --target host
-hey error: could not open read file
-...
-$ echo $?
-70</code></pre>
-</div>
 <p>Compile the library (on Linux use <code>cc -shared</code> and <code>.so</code>):</p>
 <p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ cc -dynamiclib -fPIC -std=c11 -Wall -Wextra -Werror -Igenerated -I. generated/native_math_ffi.c native_math.c -o libnative_math.dylib &amp;&amp; ls libnative_math.dylib
 libnative_math.dylib

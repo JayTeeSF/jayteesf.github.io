@@ -545,7 +545,7 @@ check <code>ok</code>. Anyone proposing a catch form must first write the full c
 <div class="note warn"><strong>The rule does not change for deep recursion.</strong> Jobs and actors exit without taking down any other Job, actor or the process. Running out of stack is a runtime failure like any other, so it ends only its unit of work.<sup><a href="#n3">3</a></sup></div>
 <div class="scroll"><table>
 <thead><tr><th>Where the recursion runs out of stack</th><th>What stops</th><th>What you see</th><th>Status</th></tr></thead><tbody>
-<tr><td>Main program</td><td>the process (main is its own unit)</td><td><code>hey: stack overflow (recursion too deep): the stack is exhausted</code>, exit status 70</td><td><span class="badge b-decided">Decided, coming</span> 0.99.605a does not print this message. The change that adds it came after that release and is in 0.99.606a's runtime; this page's test has not checked it on the release.</td></tr>
+<tr><td>Main program</td><td>the process (main is its own unit)</td><td><code>hey: stack overflow (recursion too deep): the stack is exhausted</code>, exit status 70</td><td><span class="badge b-decided">Decided, coming</span> Release 605a did not print this message. The change that adds it came after that release and is in 0.99.606a's runtime; this page's test has not checked it on the release.</td></tr>
 <tr><td>Actor turn</td><td>that actor only; siblings keep answering, the process continues</td><td>exit reason <code>error: stack overflow</code> to its links, monitors and supervisor</td><td><span class="badge b-decided">Decided, coming</span> Today it still ends the whole process.</td></tr>
 <tr><td>Job attempt</td><td>that attempt only; retries, then a dead letter</td><td>the failure in the Job result, like any <code>runtime_error</code></td><td><span class="badge b-decided">Decided, coming</span> Today it still ends the whole process.</td></tr>
 </tbody></table></div>
@@ -581,15 +581,15 @@ Fragile got bad input
 hey error: cannot handle bad input
 hey: actor Fragile (pid 1) stopped by a runtime error
 Steady got still here
-error: cannot handle bad input
+user: cannot handle bad input
 main finished
 $ echo $?
 0</code></pre>
 <div class="note good"><p><strong>What happened.</strong> <code>Fragile</code> ended with reason
-<code>error: cannot handle bad input</code>; the runtime reported it on standard error (<code>hey error:</code> and
+<code>user: cannot handle bad input</code>; the runtime reported it on standard error (<code>hey error:</code> and
 <code>hey: actor Fragile (pid 1) stopped by a runtime error</code>). <code>Steady</code> kept working, the program
 finished, and the exit status is 0, because the failure stayed inside its unit. This containment
-(siblings, supervisors, restart intensity and Jobs) is in the 0.99.605a release.</p></div>
+(siblings, supervisors, restart intensity and Jobs) shipped in release 605a and continues in 0.99.606a.</p></div>
 
 
 <h3>Messages sent before the failure still arrive</h3>
@@ -622,7 +622,7 @@ end</code></pre>
 hey error: gave up on job
 hey: actor quitter (pid 2) stopped by a runtime error
 collected before job
-error: gave up on job
+user: gave up on job
 $ echo $?
 0</code></pre>
 <p><code>collected before job</code> printed: the message sent before the <code>fail</code> was delivered. This
@@ -651,9 +651,9 @@ program
   says monitor_info(watch).reason
 end</code></pre>
 <p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey linked.hey
+true
 hey error: doomed on go
 hey: actor Doomed (pid 2) stopped by a runtime error
-true
 exited
 linked_exit
 $ echo $?
@@ -682,37 +682,35 @@ program
 end</code></pre>
 <p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey runtime_error_in_actor.hey
 parsed 0
-hey error: / by zero
+hey error: arithmetic: / by zero
 hey: actor Parser (pid 1) stopped by a runtime error
 exit
-error: / by zero
+arithmetic: / by zero
 main still running
 $ echo $?
 0</code></pre>
-<p>Not every mistake is a runtime error. Reading past the end of a list gives <code>nil</code>, not a failure:</p>
+<p>Reading past the end of a list is also a runtime error (with category <code>index:</code>), stopping the unit immediately:</p>
 <p class="runlabel">index_past_end.hey</p><pre data-example="runnable" data-file="index_past_end.hey"><code>program
   let items = [1, 2, 3]
   says items[7]
   says &#39;still running&#39;
 end</code></pre>
-<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey index_past_end.hey
-nil
-still running
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out failed"><code>$ hey index_past_end.hey
+hey error: index: index 7 is past the end of a List of 3
 $ echo $?
-0</code></pre>
+70</code></pre>
 
 
 <h3>The main program is the outermost unit</h3>
-<p>The error line comes out first because the runtime writes errors to standard error, which is not buffered, while
-<code>says</code> goes to standard output, which is buffered when it goes to a file or pipe, as it did here. The program's order is still "about to fail", then the failure.</p>
+<p><code>says</code> flushes standard output on each line, so lines printed before <code>fail</code> appear in program order, and nothing after <code>fail</code> runs.</p>
 <p class="runlabel">exit70.hey</p><pre data-example="runnable" data-file="exit70.hey"><code>program
   says &#39;about to fail&#39;
   fail &#39;boom&#39;
   says &#39;never printed&#39;
 end</code></pre>
 <p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out failed"><code>$ hey exit70.hey
-hey error: boom
 about to fail
+hey error: boom
 $ echo $?
 70</code></pre>
 

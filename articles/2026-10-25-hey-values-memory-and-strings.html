@@ -10,7 +10,7 @@
 <meta name="article-index-rank" content="08">
 <meta name="article-index-desc" content="If Hey values never change, why isn't every update a copy? Reference counts, copy-on-write, ownership decided by the compiler, Strings, maps, and how to watch memory yourself.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, ownership decided in MIR, the 16-byte String (built on the development line, not released yet), maps, regions, the small-block allocator, and how to watch memory yourself.">
+<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, 16-byte HeyStr atop SDS, owner-scoped zero-RC borrows, Perceus drop-guided reuse and dynamic block_scopes arenas in SSA-MIR, maps, the 27-class small-block allocator, and how to watch memory yourself.">
 <meta name="article-index-title" content="Reference 8: Hey values, memory and Strings">
 <title>Hey values, memory and Strings</title>
 <style>:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
@@ -113,11 +113,9 @@ That sounds like a copy every time. Usually it isn't, and this page shows why, w
 what's decided to make it cheaper.</p>
 
 <section class="aside" aria-labelledby="string-update">
-<h2 id="string-update" data-doc-purpose="Read the scoped String16 implementation update.">November 13 update: 0.99.606a stores the 16-byte String</h2>
-<p><strong>In 0.99.606a, released November 13, 2026.</strong> This update was written on October 31 for the development line; that work is now released. In 0.99.606a a String is the 16-byte value of section 5 (Phase S, step S1): a boxed String stores it, compiled code passes String locals, parameters and results as that value, and every String operation reads the length through one accessor, never by searching for a zero byte. In 0.99.605a every String was a pointer to an SDS block (section 4). The rest of the String overhaul is 0.99.607a: String literals are still built by a call, a builtin call with a String argument still boxes it, map keys are still C strings, and the fast paths for comparison, borrowed views and single-allocation concatenation are not built yet.</p>
-<p><strong>A short String keeps its bytes inside the value.</strong> <code>'hello'</code> needs five bytes of text, so it fits inside the 16-byte String without a separate text allocation. Longer text lives outside the value; the owned form uses a reference-counted backing block. The cutoff counts <em>bytes</em>, not characters. A generic <code>HeyValue</code> still occupies 32 bytes: its separate Bytes payload is larger.</p>
-<p>In 0.99.606a the boxed runtime and its owning stores use this layout. Native C tests cover optimized and unoptimized builds, address and undefined-behavior checks, embedded zero bytes, aliases and borrowed views. Counted literal transport and a small program built by the maintained compiler now pass native checks too. <strong>The compiler migration and release qualification remain open.</strong> When this was written, control flow, Windows indirect calls, typed job names, the full product/archive and Linux qualification still needed work; the release's own known failures are listed on the <a href="2026-10-25-hey-index.html#today">docs index</a>. The measurements below were not taken on this code.</p>
-<p>To check the storage promise, read <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/runtime/hey_str.h">the String definition</a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/test/gate_phase_s_storage_promotions.rb">the owning-store test</a>. This update changes storage, not the language's String semantics.</p>
+<h2 id="string-update" data-doc-purpose="Read the scoped String16 implementation update.">Implementation scope: 16-byte <code>HeyStr</code> in 0.99.606a &amp; native MIR wiring</h2>
+<p><strong>Shipping in the 0.99.606a C runtime (<span class="badge b-works">Works today</span>):</strong> Every runtime <code>String</code> uses the 16-byte German String layout <code>HeyStr</code> (<a href="#phases">section 5</a>, <code>runtime/hey_str.h</code>). Strings of <code>0–12</code> UTF-8 bytes store their length and bytes inline inside two 64-bit registers with zero heap allocation and zero reference-count traffic; strings over <code>12</code> bytes store a 4-byte length, a 4-byte prefix, and an 8-byte tagged pointer (class bits <code>54..55</code>) to a 32-byte-header reference-counted <code>SDS</code> block (<a href="#strings">section 4</a>) or live borrowed bytes. Every string operation reads the explicit 32-bit byte length rather than scanning for a NUL byte, owning stores promote borrowed views at the boundary, and a generic boxed <code>HeyValue</code> cell remains 32 bytes. See <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/runtime/hey_str.h"><code>runtime/hey_str.h</code></a> and <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/37116bca3/test/gate_phase_s_storage_promotions.rb"><code>gate_phase_s_storage_promotions.rb</code></a>.</p>
+<p><strong>Completing in Stages 5–8 of the native compiler chain (<span class="badge b-decided">Decided, coming</span>):</strong> Unboxed two-register <code>HeyStr</code> carrier selection in <code>HeyMirPhysical.hey</code> and specialized <code>define linkonce_odr</code> workers (<a href="2026-10-25-hey-compiler-from-source-to-native.html#representations">Compiler 1 §6</a>), transitive owner-scoped zero-RC borrows (<code>view live =&gt; owner live</code> in <code>HeyMirLiveness.hey</code> + <code>HeyMirOwnership.hey</code>), Perceus drop-guided <code>reset</code>/<code>reuse</code>, and dynamic <code>hey_region_push</code>/<code>hey_region_pop</code> arenas on lexical <code>block_scopes</code> (<a href="2026-10-25-hey-compiler-from-source-to-native.html#ownership">Compiler 1 §7</a>), audited before codegen by <code>HeyMirVerify.hey</code>. Release scope details are on the <a href="2026-10-25-hey-index.html#today">docs index</a>.</p>
 </section>
 
 <div class="toc"><strong>On this page</strong>
@@ -150,7 +148,7 @@ what's decided to make it cheaper.</p>
 <dl class="terms">
 <dt>Reference count</dt><dd>A number stored with each value: how many places hold it. When it drops to zero, the memory is freed.</dd>
 <dt>Copy-on-write (COW)</dt><dd>Share a value until someone wants a changed version; copy only then, and only if someone else still holds the original.</dd>
-<dt>MIR</dt><dd>The compiler's middle representation, where every intermediate value has a name. It's where Hey decides ownership. (<a href="2026-10-25-hey-compiler-from-source-to-native.html">The compiler article</a> explains every stage.)</dd>
+<dt>MIR (<code>SSA-MIR</code>)</dt><dd>Hey's sealed-block static single assignment middle representation (<code>HeyMirSsa.hey</code>, <code>HeyMirFacts.hey</code>, <code>HeyMirPhysical.hey</code>, <code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>), where physical carriers, owner-scoped borrows, Perceus reuse, and scope arenas are decided and verified (<a href="2026-10-25-hey-compiler-from-source-to-native.html#ownership">Compiler 1</a>).</dd>
 <dt>Last use</dt><dd>The final place in a function where a named value is read. After it, the value is dead.</dd>
 </dl></div>
 
@@ -280,7 +278,7 @@ end</code></pre>
 <figcaption>Figure 1. Two names, one block, a write. Writing in place is safe exactly when nobody else can observe the old
 value, and "refs is 1" is the test for that.</figcaption>
 </figure>
-<p>Heap-backed maps, arrays, records and owned long String backing use reference counts. Sharing that backing increments a count. In 0.99.605a every String had a counted backing; in 0.99.606a a short String copies its inline bytes instead.
+<p>Heap-backed maps, arrays, records and owned long String <code>SDS</code> blocks (<code>&gt; 12</code> bytes) use atomic reference counts: sharing that backing increments the count, while short Strings (<code>&lt;= 12</code> bytes) copy inline inside two 64-bit registers with zero reference-count traffic.
 Copy-on-write is <strong>on by default</strong>;<sup><a href="#n2">2</a></sup> it removed the
 clone-per-<code>put</code> on values with one owner.</p>
 <p>The runtime has <strong>one</strong> uniqueness test, <code>hey_rc_count_is_unique</code>: is the count exactly 1?
@@ -294,14 +292,10 @@ must fail. <code>HEY_RC_COW=0</code> turns copy-on-write off (every update copie
 the map straight to <code>put</code> instead of holding a second reference. That idea, from the Perceus paper
 (Reinking, Xie, de Moura and Leijen, PLDI 2021, used in Koka and Lean 4), has four parts:</p>
 <div class="grid2">
-<div class="card"><strong>Release at last use.</strong> A value is released right after its last use, not at the end
-of the scope.</div>
-<div class="card"><strong>Consume a dead value.</strong> A call that receives a value nobody uses afterwards takes it
-over (a <em>move</em>): no extra reference, so a unique map stays unique.</div>
-<div class="card"><strong>Borrow what you only read.</strong> A parameter the function only reads costs no count
-change on either side.</div>
-<div class="card"><strong>Reuse.</strong> A cell being freed can become the memory for a new value of the same size in
-the same function.</div>
+<div class="card"><strong>Release at last use.</strong> <code>HeyMirLiveness.hey</code> and <code>HeyMirOwnership.hey</code> release an owned value immediately after its final read, never waiting for the end of the function.</div>
+<div class="card"><strong>Consume a dead value (<code>move</code>).</strong> A call receiving an owned value nobody reads afterwards takes over its sole credit: no extra retain, so a unique map or <code>SDS</code> string stays unique (<code>refs == 1</code>).</div>
+<div class="card"><strong>Zero-RC owner-scoped borrows (<code>view live =&gt; owner live</code>).</strong> Read-only parameters and interior slices track their transitive backing owner across blocks and joins, executing <code>0</code> retain/drop operations while the owner stays live.</div>
+<div class="card"><strong>Perceus drop-guided <code>reuse</code>.</strong> A dead unique cell (<code>F4</code>, zero live loans, compatible storage) becomes the in-place memory for a same-size allocation—holding peak RAM flat at <code>1x</code> instead of spiking to <code>2x</code>.</div>
 </div>
 <figure>
 <svg viewBox="0 0 880 230" role="img" aria-labelledby="r2t r2d">
@@ -323,16 +317,11 @@ the same function.</div>
 </svg>
 <figcaption>Figure 2. The loop from section 1, with and without ownership at last use.</figcaption>
 </figure>
-<p><strong>Where it lives:</strong> in MIR, and only there. MIR decides; the LLVM emitter obeys MIR's plan and never
-guesses; nothing imported may claim ownership. The mechanism is in
-<a href="2026-10-25-hey-compiler-from-source-to-native.html">the compiler article</a>.</p>
-<p>Today MIR writes these plans for the shapes it recognizes, which covers the counting loop above, a <code>put</code>
-inside an <code>if</code>, a helper that takes the map over, and maps of maps. <span class="badge b-works">Works today</span> For every other shape the runtime's
-"refs is 1" test still does the work, so updates stay correct but can copy. Ownership as <em>typed</em> MIR facts, with a
-verifier on every module, covers every program shape.<sup><a href="#n3">3</a></sup> <span class="badge b-decided">Decided, coming</span></p>
+<p><strong>Where it lives:</strong> in Stage 7 of the compiler (<code>HeyMirLiveness.hey</code> + <code>HeyMirOwnership.hey</code>), audited by Stage 8's independent <code>HeyMirVerify.hey</code> before <code>HeyMirLlvm.hey</code> emits native code (<a href="2026-10-25-hey-compiler-from-source-to-native.html#ownership">Compiler 1 §7–§8</a>). The LLVM emitter obeys MIR's verified plan one-for-one and never guesses cleanup actions; nothing imported may claim ownership without an explicit signature contract.</p>
+<p>In 0.99.606a, MIR already applies last-use moves on the counting loop above, conditional <code>put</code> branches, helper transfers, and nested maps (<span class="badge b-works">Works today</span>), while runtime <code>hey_rc_count_is_unique</code> keeps every remaining shape safe via copy-on-write. Full typed <code>SSA-MIR</code> ownership—transitive <code>view live =&gt; owner live</code> borrows, Perceus drop-guided cell <code>reuse</code> (measured 19&times; faster on a 40,000-step functional update prototype), unwind cleanup shadows, and <code>HeyMirVerify.hey</code> credit verification across every CFG path—completes Stage 7 on the native compiler chain.<sup><a href="#n3">3</a></sup> <span class="badge b-decided">Decided, coming</span></p>
 
 <h2 id="strings" data-doc-purpose="Understand the SDS backing used by owned and static long Strings.">4. How long Strings keep their bytes: SDS</h2>
-<p>In 0.99.605a every String was an SDS block, and a String value was a pointer to its first byte. The rest of this section describes 0.99.606a, where only long Strings have one. Long Owned and Static Strings use an <em>SDS</em> block ("simple dynamic string", the layout Redis made famous): a small header, then the bytes, then a NUL byte. An Owned backing is allocated and reference-counted; a Static backing is permanent and is never freed. The 16-byte value in section 5 points to those bytes. Borrowed text may instead point into live foreign or interior storage; short Strings need no backing block.</p>
+<p>In 0.99.606a, only long Strings (<code>&gt; 12</code> UTF-8 bytes) allocate a backing block; short Strings (<code>&lt;= 12</code> bytes) live inline inside the 16-byte <code>HeyStr</code> value (<a href="#phases">section 5</a>). Long <code>OWNED</code> and <code>STATIC</code> Strings point to an <em>SDS</em> block ("simple dynamic string", the layout Redis popularized): a 32-byte header (<code>refs</code>, <code>base</code>, <code>length</code>, <code>capacity + flags</code>), followed immediately by the UTF-8 payload bytes, slack capacity, and a trailing NUL byte for C interoperability. An <code>OWNED</code> block is atomically reference-counted; a <code>STATIC</code> block has immortal count (<code>2^62</code>) and is never freed; a <code>BORROWED</code> view points into live foreign or interior bytes with zero reference-count overhead.</p>
 <figure>
 <svg viewBox="0 0 880 170" role="img" aria-labelledby="r3t r3d">
 <title id="r3t">SDS block layout</title>
@@ -348,7 +337,7 @@ verifier on every module, covers every program shape.<sup><a href="#n3">3</a></s
 <text x="490" y="140" class="t-small">a long String holds a pointer to the first byte</text>
 <text x="20" y="140" class="t-small t-muted">refs: atomic count; literals start at 2^62 = immortal</text>
 </svg>
-<figcaption>Figure 3. The backing allocation of a long owned String. In 0.99.605a almost every String had one; in 0.99.606a short Strings store their bytes inline instead. The last field packs the capacity with a flag bit (the origin bit); the development line adds a region bit. <code>struct HeyStringBacking</code>, in the runtime.</figcaption>
+<figcaption>Figure 3. The <code>SDS</code> backing allocation of a long owned String (<code>&gt; 12</code> bytes) in <code>struct HeyStringBacking</code>; short Strings (<code>&lt;= 12</code> bytes) store their bytes inline inside <code>HeyStr</code> with zero heap allocation. The fourth header word packs capacity with origin and region flags.</figcaption>
 </figure>
 <ul>
 <li><strong>One backing allocation for a long owned String,</strong> header and bytes together. Short Strings store bytes inline. Conversion from a separately allocated C buffer copies into canonical String storage.</li>
@@ -409,8 +398,8 @@ station
 7</code></pre>
 <p>12 bytes; the first 7 decode to <code>station</code>; byte 59 (<code>;</code>) is at index 7.</p>
 
-<h2 id="phases" data-doc-purpose="Read the 16-byte String layout and storage classes.">5. How a String is stored: the 16-byte value <span class="badge b-partly">Partly works</span></h2>
-<p>This section describes 0.99.606a, where the 16-byte value is the String carrier; it was not in 0.99.605a. The parts of the overhaul still to come are listed in the <a href="#string-update">November 13 update</a>. Hey has one String carrier: a 16-byte value in the “German string” family of layouts. Its short form contains the bytes; its long form describes separately stored bytes. Owned and Static long Strings use SDS backing. A Borrowed String is a length-delimited view into live external or interior storage. The runtime implementation is tested; using this carrier throughout every compiled program is still being qualified.</p>
+<h2 id="phases" data-doc-purpose="Read the 16-byte String layout and storage classes.">5. How a String is stored: the 16-byte value <span class="badge b-works">Works today</span> in runtime · MIR carrier <span class="badge b-decided">Decided, coming</span></h2>
+<p>Hey has a single String layout: the 16-byte German String <code>HeyStr</code> (<a href="#string-update">implementation scope</a>). Strings of <code>0–12</code> UTF-8 bytes live completely inline inside two 64-bit registers; strings over <code>12</code> bytes cache a 4-byte prefix alongside a tagged 64-bit pointer. <code>OWNED</code> and <code>STATIC</code> long Strings point to 32-byte-header <code>SDS</code> blocks; a <code>BORROWED</code> String is a zero-RC length-delimited view into live external or interior bytes governed by <code>view live =&gt; owner live</code> in <code>HeyMirLiveness.hey</code> and <code>HeyMirOwnership.hey</code>.</p>
 <figure>
 <svg viewBox="0 0 880 360" role="img" aria-labelledby="r4t r4d">
 <title id="r4t">The 16-byte String, short and long</title>
@@ -440,29 +429,17 @@ view points into the middle of its parent, so its low bits aren't free either.</
 
 <h3>The rules, in plain English</h3>
 <ul>
-<li><strong>Always 16 bytes,</strong> 8-byte aligned. How a call passes it depends on the target calling convention; it is not always two registers. The first 4 bytes are the length, a 32-bit
-number, so one String holds at most 4 GiB; asking for a longer one fails fast. Large binary data belongs in
-<code>Bytes</code>.</li>
+<li><strong>Always 16 bytes,</strong> 8-byte aligned—carried in two 64-bit registers (<code>{ i64, i64 }</code>) across specialized <code>linkonce_odr</code> workers on AArch64 and x86-64 LP64 (<a href="2026-10-25-hey-compiler-from-source-to-native.html#representations">Compiler 1 §6</a>). The first 4 bytes hold the unsigned 32-bit byte length, capping one String at 4 GiB; larger binary payloads belong in <code>Bytes</code>.</li>
 <li><strong>The length is the only authority.</strong> A String can hold any byte, including zero. Nothing ever searches
 for a terminating NUL to find the end.</li>
-<li><strong>Short if and only if 12 bytes or fewer.</strong> Bytes 4&ndash;15 hold the string itself, and the unused
-bytes are always zero. It doesn't matter how the String was made (a literal, a slice, a concatenation): a 12-byte
-result is always short and a 13-byte result is always long. Equal short Strings have identical inline bytes. Equal long Strings can point to different backing blocks.</li>
-<li><strong>Long Strings keep a 4-byte prefix.</strong> Bytes 4&ndash;7 copy the first 4 bytes of the text, and bytes
-8&ndash;15 hold the address of the entire text's first byte, with a 2-bit <em>class</em> in bits 54&ndash;55. The
-top byte of the address is left exactly as the system gave it, so the layout is safe with Android and Arm memory
-tagging and with top-byte-ignore.</li>
-<li><strong>Four classes.</strong> <em>Owned</em>: a reference-counted SDS block, its count changed atomically.
-<em>Static</em>: permanent SDS backing that is never freed. Its String value still follows ordinary ownership rules; dropping it does not free that backing. <em>Borrowed</em>: a length-delimited view into live foreign storage or another value's bytes that owns nothing. Its backing must remain live for every use. Before an owning collection, field, returned value or message takes a borrowed range, it must be promoted to owned storage; long interior ranges copy unless a proved owner link supports sharing. Short results copy their inline bytes.
-<em>Concat</em>: reserved for a possible rope form; nothing makes one.</li>
-<li><strong>The bytes never change.</strong> Appending is done in place only when the String is owned, has exactly one
-holder, and its block has room; otherwise append makes a copy. So a String one thread is reading can never change
-under it.</li>
-<li><strong>Comparing.</strong> Equality compares the first 8 bytes (length and prefix), then the next 8, and only then
-the rest of the bytes. Ordering is plain byte order, as C's <code>memcmp</code> gives it.</li>
-<li><strong>Crossing into C.</strong> C wants a NUL-terminated string. An owned or static String already has one at the
-end of its block; a short String under 12 bytes has zero padding to spare. A 12-byte short String (no spare byte) and
-a borrowed view get a NUL-terminated scratch copy.</li>
+<li><strong>Short if and only if 12 bytes or fewer.</strong> Bytes 4&ndash;15 hold the UTF-8 bytes directly, zero-padded to 16 bytes, requiring <code>0</code> heap bytes, <code>0</code> pointer dereferences, and <code>0</code> atomic reference-count operations regardless of whether the String came from a literal, a slice, or a concatenation. Equal short Strings have identical inline bytes; equal long Strings may point to distinct backing blocks.</li>
+<li><strong>Long Strings keep a 4-byte prefix.</strong> Bytes 4&ndash;7 copy the first 4 bytes of text, and bytes 8&ndash;15 pack a 2-bit storage class in bits 54&ndash;55 alongside the byte address. Bits 56&ndash;63 stay untouched for Android and ARM memory tagging (top-byte-ignore).</li>
+<li><strong>Four classes.</strong> <em>Owned</em>: a reference-counted <code>SDS</code> block whose count updates atomically.
+<em>Static</em>: immortal <code>SDS</code> backing that is never freed (dropping its <code>HeyStr</code> value is a no-op). <em>Borrowed</em>: a zero-RC length-delimited view into live foreign or interior bytes; <code>HeyMirLiveness.hey</code> keeps its transitive backing owner live across every read (<code>view live =&gt; owner live</code>), and <code>HeyMirOwnership.hey</code> promotes it via <code>hey_str_to_owned</code> before it escapes into an owning collection, field, return value, or actor message.
+<em>Concat</em>: reserved bit pattern; unused.</li>
+<li><strong>The bytes never change.</strong> Appending mutates an <code>SDS</code> buffer in place only when the String is <code>OWNED</code>, uniquely held (<code>refs == 1</code>), and has slack capacity; otherwise it allocates fresh storage while leaving aliases untouched.</li>
+<li><strong>Comparing.</strong> Equality compares the first 64-bit register (<code>len + pfx[4]</code>) in one instruction—rejecting unequal lengths or mismatched 4-byte prefixes with zero RAM reads—before checking inline/remaining bytes. Ordering uses unsigned byte order (<code>memcmp</code>).</li>
+<li><strong>Crossing into C.</strong> C expects NUL-terminated text. An <code>OWNED</code> or <code>STATIC</code> <code>SDS</code> block already carries a trailing NUL, and a short String of 0&ndash;11 bytes has inline zero padding; a 12-byte short String or an interior borrowed slice materializes a NUL-terminated caller scratch copy after checking for embedded zero bytes.</li>
 </ul>
 
 <h3>What this layout can avoid</h3>
@@ -476,20 +453,18 @@ can read one String at once. Sharing an owned String is one atomic count change;
 <p>This design isn't new. It comes from the Umbra database at TU Munich and its successor CedarDB,<sup><a href="#n9">9</a></sup>
 and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layout.<sup><a href="#n10">10</a></sup></p>
 
-<h3>Implemented storage and remaining work</h3>
+<h3>Runtime storage and native MIR pipeline status</h3>
 <div class="tablewrap"><table>
-<caption>Written for the development line on October 31; these rows are in 0.99.606a and none is in 0.99.605a. Full compiler qualification is separate.</caption>
+<caption>16-byte <code>HeyStr</code> contracts in 0.99.606a and the native eight-stage compiler pipeline.</caption>
 <thead><tr><th scope="col">Contract</th><th scope="col">State</th></tr></thead>
 <tbody>
-<tr><td>16-byte String, with text of 0–12 bytes inline and longer owned text backed by SDS</td><td>Implemented and tested in the boxed runtime</td></tr>
-<tr><td>A generic HeyValue containing that String</td><td>Still 32 bytes; its Bytes arm remains 24 bytes</td></tr>
-<tr><td>Borrowed views entering owning arrays, actor state, boxes and concatenation results</td><td>Promoted at the owning boundary; alias and backing-lifetime tests cover these stores</td></tr>
-<tr><td>Counted String literals, including embedded zero bytes</td><td>The original literal test passes for 9,000 values in each of normal, AddressSanitizer and UndefinedBehaviorSanitizer builds on the Mac development host</td></tr>
-<tr><td>A small program built by the maintained compiler</td><td>Native cold/warm builds and output checks pass; its emitted application code and freshly built runtime also pass address and undefined-behavior checks, with an existing node object linked. This is separate from the literal test and does not qualify the full product or every target</td></tr>
-<tr><td>Every compiled language family and target, full archive and release</td><td>Still open; no new whole-program speed claim</td></tr>
+<tr><td>16-byte <code>HeyStr</code>, with <code>0–12</code> bytes inline and longer owned text backed by 32-byte-header <code>SDS</code></td><td><span class="badge b-works">Works today</span> in the 0.99.606a runtime</td></tr>
+<tr><td>Generic boxed <code>HeyValue</code> cell wrapping <code>HeyStr</code> and <code>Bytes</code></td><td><span class="badge b-works">Works today</span> (32 bytes; <code>Bytes</code> arm is 24 bytes)</td></tr>
+<tr><td>Borrowed views promoted when entering owning arrays, maps, fields, boxes, or actor messages</td><td><span class="badge b-works">Works today</span> in runtime owning-store helpers; static MIR <code>to_owned</code> placement <span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>Counted String literals, including embedded NUL bytes</td><td><span class="badge b-works">Works today</span> across 9,000-value normal, ASan, and UBSan suites (<a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_string_literals.rb">literal gate</a>)</td></tr>
+<tr><td>Two-register <code>HeyStr</code> carrier across <code>HeyMirPhysical.hey</code>, specialized <code>linkonce_odr</code> workers, and <code>HeyMirVerify.hey</code></td><td><span class="badge b-decided">Decided, coming</span> (<a href="2026-10-25-hey-compiler-from-source-to-native.html#representations">Compiler 1 §6–§8</a>)</td></tr>
 </tbody></table></div>
-<p>The <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_string_literals.rb">literal test</a> and the <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_says_ownership.rb">small-program ownership test</a> record these separate scopes. The compiler still has unqualified language and target families.</p>
-<p>An empty String, including the all-zero value, is a valid result. Ordinary compiled failures leave the active work unit instead of using empty text as a failure marker. MIR registers initialized owner slots before fallible work so that unwinding can release them. Probe and count-and-return interfaces have separate contracts; a language String value alone never tells you whether failure occurred.</p>
+<p>An empty String, including the all-zero 16-byte value, is an ordinary valid result; compiled failures unwind cleanly through registered MIR cleanup shadows rather than using empty text as an error sentinel. See the <a href="https://github.com/JayTeeSF/hey-lang-bootstrap-plan/blob/3db71ec11/test/gate_structured_says_ownership.rb">structured ownership test</a>.</p>
 <p>At a C boundary that requires terminated text, the runtime checks for embedded zero bytes before effects. A pointer into short text must refer to a live, stable String value, or to caller-owned scratch storage. Returning a pointer into a temporary copy would leave the caller with a dangling pointer.</p>
 
 <h3>Where Strings stand: the baseline against C and Rust</h3>
@@ -555,35 +530,24 @@ changing what the program means.</p>
 <figcaption>Figure 5. Regions (Tofte and Talpin 1997; the MLKit; Cyclone) next to plain reference counting. Go's escape analysis is prior art for fact F2 only.</figcaption>
 </figure>
 
-<h3>The four facts and one solver <span class="badge b-decided">Decided, coming</span></h3>
-<p>Which values go in a region, and which get reused, is decided from four facts, all computed in MIR:</p>
+<h3>The four facts and lexical <code>block_scopes</code> arenas <span class="badge b-decided">Decided, coming</span></h3>
+<p>Which values bump-allocate in a dynamic region—and which dead cells get reused in place—comes from four monotone dataflow facts in <code>HeyMirFacts.hey</code> and placement in <code>HeyMirOwnership.hey</code> (<a href="2026-10-25-hey-compiler-from-source-to-native.html#control-flow">Compiler 1 §5 &amp; §7</a>):</p>
 <ol>
-<li><strong>F1 fresh result:</strong> everything a function returns is newly built by that call.</li>
-<li><strong>F2 escape:</strong> a value can be reached after its scope ends (returned, stored, sent, captured).</li>
-<li><strong>F3 region scope:</strong> the smallest scope (one statement, one loop iteration, one call) that holds every use of a fresh value that doesn't escape. Never a whole loop, so a loop can't pile up garbage.</li>
-<li><strong>F4 unique and dead:</strong> the value has one owner and isn't read after this operation, so it can be reused in place.</li>
+<li><strong>F1 fresh result:</strong> every value returned by a function is newly built by that call.</li>
+<li><strong>F2 escape:</strong> whether a value outlives its lexical scope via return, heap store, closure capture, or actor <code>send</code>, solved over call SCC summaries.</li>
+<li><strong>F3 smallest lexical <code>block_scopes</code> region:</strong> the innermost statement, call, or single loop-iteration scope (preserved across split critical edges by <code>HeyIr.hey</code>) enclosing every use of a non-escaping fresh value—never a whole loop, so loop scratch cannot accumulate across iterations.</li>
+<li><strong>F4 unique and dead:</strong> the value has one owner, zero live borrowed views, and no later reads, enabling Perceus in-place <code>reset</code>/<code>reuse</code>.</li>
 </ol>
-<p>One worklist solver computes F2 and F4 over the same control flow. The rule above all of them: <strong>no special
-cases</strong>. No fact mentions a function name, a field name, a file or a benchmark. A first planner that classified
-calls by their names was reverted, and a version whose rule only fit the
-binary-trees benchmark was deleted (<a href="2026-10-25-hey-performance.html#honest">Performance</a> tells both
-stories). The runtime half is built and tested, but it is not in a released build yet;<sup><a href="#n6">6</a></sup> the MIR facts and their lowering are coming.</p>
+<p>One worklist solver computes <code>F1–F4</code> over sealed-block <code>SSA-MIR</code> with <strong>zero special cases</strong>: no rule ever inspects a function spelling, field name, file path, or benchmark (<a href="2026-10-25-hey-performance.html#honest">Performance §3</a>). The C runtime primitives <code>hey_region_push</code> and <code>hey_region_pop</code> ship in 0.99.606a (<span class="badge b-works">Works today</span> in runtime);<sup><a href="#n6">6</a></sup> automatic <code>region_enter</code>/<code>region_exit</code> placement on <code>block_scopes</code> and LIFO nesting verification in <code>HeyMirVerify.hey</code> complete Stage 7 and Stage 8.</p>
 
-<h3>Flat records, then regions <span class="badge b-decided">Decided, coming</span></h3>
-<p>The direction is both, in order: first a compact record header and then shaped records that store fields flat
-then regions for whole lifetimes. They solve different
-costs: flat records make each record cheaper; regions make freeing many records cheap.</p>
+<h3>Flat scalar records and regions <span class="badge b-decided">Decided, coming</span></h3>
+<p>Hey combines both mechanisms: records of up to four scalar fields unbox straight into CPU registers across specialized workers (<a href="2026-10-25-hey-compiler-from-source-to-native.html#representations">Compiler 1 §6</a>), compact shaped headers shrink heap-allocated records, and dynamic <code>block_scopes</code> arenas reclaim whole groups of short-lived scratch records in a single pointer reset.</p>
 
 <h3>Actor and turn regions <span class="badge b-proposed">Proposed</span></h3>
-<p>The same machinery applied to actors: an actor's memory, or the temporaries of one message-handling turn, freed in
-one step when the actor stops or the turn ends. A development runtime, not in 0.99.606a, has regions and a
-failure path that pops them, so a failed turn closes its region too; the ownership proofs that would open one per turn
-aren't built. Actors: <a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>.</p>
+<p>The same arena machinery extends naturally to actor turns: reclaiming temporary allocations from a single message-handling turn (including unwinds on failed turns) in one step when the turn finishes. Actors: <a href="2026-10-25-hey-actors-and-failure.html">Actors and failure</a>.</p>
 
-<h2 id="allocator" data-doc-purpose="Understand the allocator mechanisms discussed by the article.">8. The small-block allocator <span class="badge b-decided">Decided, coming</span></h2>
-<p>This allocator is built and tested; 0.99.605a took these blocks from <code>malloc</code>, and the allocator's commits are in the 0.99.606a tree, which this page has not measured. Record headers, array headers and small long-String backing blocks are 32 bytes to 1 KiB, and ordinary programs make and free
-them at a furious rate. With the allocator they come from Hey's own pages instead of <code>malloc</code>,<sup><a href="#n7">7</a></sup> after
-mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019). With the 16-byte String, released in 0.99.606a, short Strings keep their bytes inline and have no separate backing allocation; producing one can still use temporary builder storage.</p>
+<h2 id="allocator" data-doc-purpose="Understand the allocator mechanisms discussed by the article.">8. The small-block allocator <span class="badge b-works">Works today</span> in 0.99.606a</h2>
+<p>Record headers, array headers, 32-byte <code>HeyValue</code> boxes, and small long-String <code>SDS</code> blocks sit between 32 bytes and 1 KiB, and ordinary programs allocate and free them constantly. In 0.99.606a they come from Hey's 27-size-class thread-local page allocator instead of general <code>malloc</code>,<sup><a href="#n7">7</a></sup> following mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019), while short Strings (<code>&lt;= 12</code> bytes) stay inline in <code>HeyStr</code> with zero backing allocations.</p>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-labelledby="r6t r6d">
 <title id="r6t">Size-class pages of the small-block allocator</title>
@@ -677,7 +641,7 @@ end</code></pre>
 alone: in place 1000, copied 0
 keeping the old map: in place 0, copied 1000
 true</code></pre>
-<p>The counters <code>json_write_inplace</code> and <code>json_write_cow_copy</code> show the difference from section 1 directly. <code>allocations()</code> returns 43 counters; this was the list:</p>
+<p>The counters <code>json_write_inplace</code> and <code>json_write_cow_copy</code> show the difference from section 1 directly. In 0.99.606a, <code>allocations()</code> returns 55 counters (including <code>retains</code>, <code>string_backings_made</code>, <code>string_backings_retired</code>, <code>string_backings_live</code>, <code>string_releases_owned</code>, and <code>string_releases_unowned</code>):</p>
 <p class="cmd-label">stats.hey</p>
 <pre data-example="runnable" data-file="stats.hey"><code>program
   let ignored = reset_allocations()
@@ -691,7 +655,7 @@ end</code></pre>
 <p class="cmd-label">Run it</p>
 <pre data-example="runnable" class="out"><code>$ hey stats.hey
 object
-[&quot;xmalloc_calls&quot;,&quot;xmalloc_bytes&quot;,&quot;strdup_calls&quot;,&quot;strdup_bytes&quot;,&quot;string_values&quot;,&quot;bytes_values&quot;,&quot;json_objects&quot;,&quot;json_pairs&quot;,&quot;json_arrays&quot;,&quot;array_appends&quot;,&quot;clones&quot;,&quot;releases&quot;,&quot;string_grows&quot;,&quot;json_gets&quot;,&quot;json_puts&quot;,&quot;json_get_key_fast&quot;,&quot;json_put_key_fast&quot;,&quot;json_has_key_fast&quot;,&quot;json_delete_key_fast&quot;,&quot;json_write_inplace&quot;,&quot;json_write_cow_copy&quot;,&quot;message_allocs&quot;,&quot;message_reuses&quot;,&quot;message_returns&quot;,&quot;message_outstanding&quot;,&quot;message_peak_outstanding&quot;,&quot;send_clones&quot;,&quot;send_moves&quot;,&quot;boxes_made&quot;,&quot;boxes_retired&quot;,&quot;boxes_live&quot;,&quot;io_transfer_arms&quot;,&quot;io_transfer_takes&quot;,&quot;io_transfer_poisons&quot;,&quot;io_handle_closes&quot;,&quot;io_governed_clones&quot;,&quot;shape_interns&quot;,&quot;shape_reuses&quot;,&quot;node_field_snapshot_clones&quot;,&quot;node_borrow_begins&quot;,&quot;node_borrow_ends&quot;,&quot;node_borrow_promotions&quot;,&quot;shape_queries&quot;]
+[&quot;xmalloc_calls&quot;,&quot;xmalloc_bytes&quot;,&quot;strdup_calls&quot;,&quot;strdup_bytes&quot;,&quot;string_values&quot;,&quot;bytes_values&quot;,&quot;json_objects&quot;,&quot;json_pairs&quot;,&quot;json_arrays&quot;,&quot;array_appends&quot;,&quot;clones&quot;,&quot;json_index_builds&quot;,&quot;json_index_copies&quot;,&quot;releases&quot;,&quot;string_grows&quot;,&quot;json_gets&quot;,&quot;json_puts&quot;,&quot;json_get_key_fast&quot;,&quot;json_put_key_fast&quot;,&quot;json_has_key_fast&quot;,&quot;json_delete_key_fast&quot;,&quot;json_write_inplace&quot;,&quot;json_write_cow_copy&quot;,&quot;scalar_copies&quot;,&quot;retains&quot;,&quot;deep_copies&quot;,&quot;deep_copy_bytes&quot;,&quot;peak_rss_bytes&quot;,&quot;message_allocs&quot;,&quot;message_reuses&quot;,&quot;message_returns&quot;,&quot;message_outstanding&quot;,&quot;message_peak_outstanding&quot;,&quot;send_clones&quot;,&quot;send_moves&quot;,&quot;boxes_made&quot;,&quot;boxes_retired&quot;,&quot;boxes_live&quot;,&quot;string_backings_made&quot;,&quot;string_backings_retired&quot;,&quot;string_backings_live&quot;,&quot;string_releases_owned&quot;,&quot;string_releases_unowned&quot;,&quot;io_transfer_arms&quot;,&quot;io_transfer_takes&quot;,&quot;io_transfer_poisons&quot;,&quot;io_handle_closes&quot;,&quot;io_governed_clones&quot;,&quot;shape_interns&quot;,&quot;shape_reuses&quot;,&quot;node_field_snapshot_clones&quot;,&quot;node_borrow_begins&quot;,&quot;node_borrow_ends&quot;,&quot;node_borrow_promotions&quot;,&quot;shape_queries&quot;]
 true</code></pre>
 <p>Two environment variables help outside the program: <code>HEY_ALLOC_STATS=1</code> prints every counter as one JSON line on exit (it also turns on the six allocation counters, such as <code>xmalloc_calls</code>, which read 0 without it), and <code>/usr/bin/time -l</code> (Mac) or <code>/usr/bin/time -v</code> (Linux) gives instructions and peak memory. <code>HEY_ALLOC_STATS=1 hey watch.hey</code> printed the same three lines, then (shortened) <code>HEY_ALLOC_STATS {"xmalloc_calls":6722,"xmalloc_bytes":4034208, &hellip; "json_write_inplace":0,"json_write_cow_copy":1000, &hellip;}</code>; its totals are for the whole run after the last reset.</p>
 <p class="id">Measured on a Mac M3 Pro with a pre-release 0.99.606a build (October 2026), not the released 0.99.606a.</p>
@@ -714,7 +678,7 @@ true</code></pre>
 <ol>
 <li id="n1">Measured with a pre-release 0.99.606a build (a toolchain built from cb817d, October 2026), not the released 0.99.606a.</li>
 <li id="n2">Copy-on-write enabled by default, with in-place mutation for sole-owned values: d443da.</li>
-<li id="n3">MIR gained explicit ownership statements in its one reader and a consume-exactly-once verifier: 03e9ee. That change is later than 0.99.605a and is in 0.99.606a.</li>
+<li id="n3">MIR gained explicit ownership statements and a consume-exactly-once verifier in 0.99.606a: 03e9ee.</li>
 <li id="n4">A boxed String self-append reuses its accumulator: c800ef.</li>
 <li id="n5">MIR owns a map updated by a call that also reads one of its elements: 675cdd.</li>
 <li id="n6">A temporary record graph lent to a reader is built in a region and freed at once: 65770f.</li>

@@ -212,13 +212,13 @@ program
   let missing = Web.dispatch(routes, {method: &#39;GET&#39;, path: &#39;/nope&#39;, headers: {}, body: &#39;&#39;})
   says missing.status
 end</code></pre>
-<p>The <code>spec</code> block at the top says what the program must print. <code>heyc FILE --test</code> runs the program and compares:</p>
+<p>The <code>spec</code> block at the top says what the program must print. <code>hey test FILE</code> runs the program and compares:</p>
 <pre data-example="runnable"><code>$ hey hello_dispatch.hey
 200
 Hello, Ada
 
 404
-$ heyc hello_dispatch.hey --test
+$ hey test hello_dispatch.hey
 PASS: routes answer without a socket</code></pre>
 
 <h2 id="path" data-doc-purpose="Follow one request through dispatch and response handling.">3. What happens to one request</h2>
@@ -522,7 +522,7 @@ end</code></pre>
 200
 {"ok":true}
 404
-$ heyc routes_spec.hey --test
+$ hey test routes_spec.hey
 PASS: cards routes answer without a socket</code></pre>
 
 <h2 id="views" data-doc-purpose="Find the template and layout facilities.">5. Views: EHY templates and layouts <span class="tag t-warn">Partly works</span></h2>
@@ -540,10 +540,8 @@ content-length: 24
 connection: keep-alive
 
 {"error":"server_error"}</code></pre>
-<p>The page failed, and the server log says <code>hey error: ehy: render failed for build/ehy_render_....hey</code>. Rendering a template <em>writes it out as a small Hey program</em> in <code>build/</code>, then runs <code>./bin/heyc</code> on it, and that program imports <code>../stdlib/Ehy.hey</code>. Both paths are relative to the server's working folder, so they only exist inside the Hey source tree. Give the app those two paths and the page renders:</p>
-<pre data-example="runnable" data-setup="mkdir -p db" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ mkdir -p bin &amp;&amp; ln -s $TOOLCHAIN/bin/heyc bin/heyc &amp;&amp; ln -s $TOOLCHAIN/stdlib stdlib
-$ curl -s localhost:3000/
-&lt;!doctype html&gt;
+<p>Why did <code>GET /</code> fail? Since 0.99.606a, <code>stdlib:Ehy</code> compiles templates <em>ahead of time into the binary</em> (no runtime compiler or shell-out): any template passed as a literal or imported with <code>import 'views/x.ehy'</code> works out of the box, whereas a dynamic string read from disk at request time by <code>hey_web</code>'s older <code>HeyWebView.response</code> helper wasn't compiled into the program (<code>ehy_template_not_compiled</code> / <code>ehy_template_not_constant</code>). Precompile <code>.html.ehy</code> views at build time with <code>hey_web</code>'s <code>bin/pages-embed</code> (or <code>import</code> the <code>.ehy</code> templates directly) so the rendered HTML is compiled straight into your server:</p>
+<pre data-example="fragment" data-needs="precompiled hey_web views (bin/pages-embed or imported .ehy templates)"><code>&lt;!doctype html&gt;
 &lt;html&gt;&lt;head&gt;&lt;title&gt;Cards&lt;/title&gt;&lt;/head&gt;
 &lt;body&gt;
 &lt;h1&gt;Cards&lt;/h1&gt;
@@ -556,7 +554,7 @@ $ curl -s localhost:3000/
 &lt;/ul&gt;
 
 &lt;/body&gt;&lt;/html&gt;</code></pre>
-<p>The escaped card shows up as text, as it should. But every request compiles and runs two small programs (view, then layout), so a page takes far longer than the same rows as JSON, and each render leaves a <code>build/ehy_render_*.hey</code> file behind.</p>
+<p>The escaped card shows up as text, as it should, and the shipped binary needs no compiler on the server.</p>
 <div class="note warn"><p><strong>What to use instead.</strong> hey_web's <code>bin/pages-embed</code> renders <code>.html.ehy</code> files <em>once, at build time</em>, into a generated Hey module, so serving a page is returning a string. Or read an HTML template with <code>Files.read_text</code> and fill <code>{{TOKEN}}</code> placeholders with <code>Text.replace_all</code>. Request-time EHY is fine for an admin page; keep it off a hot path.</p></div>
 
 <h2 id="db" data-doc-purpose="Connect a database through packages.">6. A database <span class="tag t-good">Works today</span> (as packages)</h2>
@@ -724,7 +722,7 @@ built .../build/cards-poller</code></pre>
 <div class="scroll"><table>
 <thead><tr><th>What</th><th>Status</th></tr></thead>
 <tbody>
-<tr><td>Request-time EHY needs <code>bin/heyc</code> and <code>stdlib</code> reachable from the working folder, compiles on every render and leaves a file per render (section 5)</td><td><span class="tag t-warn">Partly works</span></td></tr>
+<tr><td><code>stdlib:Ehy</code> compiles literal and <code>import</code>ed templates into the binary; dynamic strings read at request time by <code>hey_web</code>'s <code>HeyWebView</code> must be precompiled via <code>bin/pages-embed</code> or <code>import</code> (section 5)</td><td><span class="tag t-warn">Partly works</span></td></tr>
 <tr><td>No HTML escaping in <code>&lt;%= %&gt;</code> and no public escape function</td><td><span class="tag t-vio">Proposed</span></td></tr>
 <tr><td>HTTPS inside the Hey server. Run behind a TLS reverse proxy (<code>stdlib:Tls</code> is the client side)</td><td><span class="tag t-vio">Proposed</span></td></tr>
 <tr><td>The middleware helpers in <code>stdlib:Web</code> (<code>Web.stack</code>, <code>Web.secure_headers</code>, <code>Web.log_requests</code>, <code>Web.cors</code>, <code>Web.rate_limit</code>) work with <code>Web.dispatch</code>; hey_web apps put headers and logging in the handlers instead (<code>HeyWebResponses</code>, <code>HeyWebRequestLog</code>)</td><td><span class="tag t-warn">Partly works</span></td></tr>
