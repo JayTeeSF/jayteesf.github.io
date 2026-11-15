@@ -13,7 +13,7 @@ class HeyDocsIndex
     'decisions' => ['Decision ledger', 'Find the reasoning and recorded status behind a language or compiler decision.'],
     'history' => ['Earlier essays · version-scoped', 'Read these as design and implementation history. Their measurements and status belong to their original versions.']
   }.freeze
-  INDEX = '2026-10-25-hey-index.html'
+  INDEX = 'hey-docs-index.html'
   START = '<!-- HEY_DOCS_CATALOGUE_START -->'
   FINISH = '<!-- HEY_DOCS_CATALOGUE_END -->'
 
@@ -69,8 +69,19 @@ class HeyDocsIndex
         sections = page[:sections].map do |section|
           %Q{<li><a href="#{escape(page[:file])}##{escape(section[:id])}">#{escape(section[:title])}</a><p>#{escape(section[:purpose])}</p></li>}
         end.join("\n")
-        badge = group == 'history' ? '<span class="page-kind">Earlier essay</span>' :
-          page[:file].start_with?('hey-') ? '<span class="page-kind">Current companion</span>' : ''
+        badge = if page[:file] == 'hey-guide-start-here-first-steps-1.html'
+                  '<span class="page-kind">Start here · Guide 1 of 7</span>'
+                elsif (m = page[:file].match(/\Ahey-guide-.*-(\d+)\.html\z/))
+                  %(<span class="page-kind">Guide #{m[1]} of 7</span>)
+                elsif (m = page[:file].match(/\Ahey-reference-.*-(\d+)\.html\z/))
+                  %(<span class="page-kind">Reference #{m[1]} of 11</span>)
+                elsif (m = page[:file].match(/\Ahey-compiler-.*-(\d+)\.html\z/))
+                  %(<span class="page-kind">Compiler #{m[1]} of 5</span>)
+                elsif group == 'history'
+                  '<span class="page-kind">Earlier essay</span>'
+                else
+                  ''
+                end
         <<~HTML
           <article class="doc-card" data-doc-page="#{escape(page[:file])}">
           #{badge}<h3><a href="#{escape(page[:file])}">#{escape(page[:title])}</a></h3>

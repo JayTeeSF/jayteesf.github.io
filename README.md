@@ -6,9 +6,10 @@ about JayTeeSF
 Hey documentation catalogue
 ---------------------------
 
-The topic catalogue is `articles/2026-10-25-hey-index.html`. Each Hey page owns
-its `hey-docs-group`, `hey-docs-title`, `hey-docs-purpose` and `hey-docs-rank`
-metadata. Each H2 owns a stable `id` and a short `data-doc-purpose`; keep the ID
+The topic catalogue is `articles/hey-docs-index.html`, and the starting guide for
+learning Hey is `articles/hey-guide-start-here-first-steps-1.html`. Each Hey page owns
+its `article-date` (`YYYY-MM`), `hey-docs-group`, `hey-docs-title`, `hey-docs-purpose`
+and `hey-docs-rank` metadata (dates belong inside articles, never in article URLs). Each H2 owns a stable `id` and a short `data-doc-purpose`; keep the ID
 when changing a heading so existing links continue to work. There is no separate
 list of section headings to synchronize.
 

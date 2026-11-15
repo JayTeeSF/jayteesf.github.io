@@ -4,8 +4,9 @@ require 'pathname'
 
 root = Pathname(__dir__).parent
 articles = root.join('articles')
-index_name = '2026-10-25-hey-index.html'
+index_name = 'hey-docs-index.html'
 pages = articles.glob('*hey*.html').reject { |p| p.basename.to_s.start_with?('DRAFT-') }.sort
+dated_urls = articles.children.select { |p| p.basename.to_s.match?(/\A\d{4}-/) }
 index = articles.join(index_name).read
 failures = []
 assert = ->(ok, message) { failures << message unless ok }
@@ -32,8 +33,14 @@ pages.each do |path|
     section_count += 1
   end
 end
-assert.call(index.include?('hey-guide-functions.html'), 'current Functions tutorial missing')
-assert.call(index.include?('hey-functions.html'), 'current Functions reference missing')
+assert.call(dated_urls.empty?, 'no Hey article or data directory URL may carry a date prefix: ' + dated_urls.map(&:basename).join(', '))
+assert.call(index.include?('hey-guide-start-here-first-steps-1.html'), 'Start-here First steps tutorial missing')
+assert.call(index.include?('hey-guide-functions-2.html'), 'current Functions tutorial missing')
+assert.call(index.include?('hey-reference-functions-2.html'), 'current Functions reference missing')
+pages.each do |path|
+  html = path.read
+  assert.call(html.match?(/<meta\s+name="article-date"\s+content="\d{4}-\d{2}"\s*>/), path.basename.to_s + ': missing article-date YYYY-MM metadata')
+end
 assert.call(index.include?('0–12 bytes') && index.include?('32 bytes'), 'String/HeyValue size caveats missing')
 if failures.any?
   warn failures.first(12).join("\n")
