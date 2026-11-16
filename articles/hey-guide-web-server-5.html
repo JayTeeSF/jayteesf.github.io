@@ -100,7 +100,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
   </defs>
 </svg>
 <div class="wrap">
-<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 6 of 7 · October 2026 · Updated November 2026</p>
+<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 5 of 7</p>
 <h1>A web server in Hey</h1>
 <p class="lede">You'll start with a three-line route, test it without opening a socket, then grow it into a small hey_web app with controllers, views, a SQLite database and background Jobs. Then you'll break a handler on purpose, build the server into one native binary, and choose between the two ways Hey can carry connections.</p>
 
@@ -144,8 +144,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <p><strong>Status badges</strong> used on every page in this series:
 <span class="tag t-good">Works today</span> <span class="tag t-warn">Partly works</span> <span class="tag t-acc">Decided, coming</span> <span class="tag t-vio">Proposed</span>.
-<strong>Every command on this page is run by Hey's documentation test</strong>, against a real server, and its output must match. When a step says to start a server, start it in a second terminal and leave it running.</p>
-<p>The test last ran on a pre-release 0.99.606a build. 0.99.606a was released on November 13, 2026; the test has not been re-run on the release build, so output there can differ in places.</p>
+<strong>Every command on this page is run by Hey's documentation test on 0.99.607a</strong>, against a real server, and its output must match. When a step says to start a server, start it in a second terminal and leave it running.</p>
 
 <h2 id="hello" data-doc-purpose="Define a route that returns a response.">1. Your first route <span class="tag t-good">Works today</span></h2>
 <p>A <strong>route</strong> is a pair: an HTTP method and path, and the function that answers it. A <strong>handler</strong> is that function. It gets one argument, the request, and returns a response. No classes, no decorators.</p>
@@ -515,7 +514,10 @@ program
   let missing = HeyWeb.dispatch(app, {method: &#39;GET&#39;, path: &#39;/nope&#39;, headers: {}, body: &#39;&#39;})
   says missing.status
 end</code></pre>
-<pre data-example="runnable"><code>$ hey routes_spec.hey
+<pre data-example="runnable"><code>$ hey check app/models/card_store.hey
+$ hey check app/controllers/cards_controller.hey
+$ hey check config/routes.hey
+$ hey routes_spec.hey
 200
 {"ok":true}
 404
@@ -537,7 +539,7 @@ content-length: 24
 connection: keep-alive
 
 {"error":"server_error"}</code></pre>
-<p>Why did <code>GET /</code> fail? Since 0.99.606a, <code>stdlib:Ehy</code> compiles templates <em>ahead of time into the binary</em> (no runtime compiler or shell-out): any template passed as a literal or imported with <code>import 'views/x.ehy'</code> works out of the box, whereas a dynamic string read from disk at request time by <code>hey_web</code>'s older <code>HeyWebView.response</code> helper wasn't compiled into the program (<code>ehy_template_not_compiled</code> / <code>ehy_template_not_constant</code>). Precompile <code>.html.ehy</code> views at build time with <code>hey_web</code>'s <code>bin/pages-embed</code> (or <code>import</code> the <code>.ehy</code> templates directly) so the rendered HTML is compiled straight into your server:</p>
+<p>Why did <code>GET /</code> fail? <code>stdlib:Ehy</code> compiles templates <em>ahead of time into the binary</em> (no runtime compiler or shell-out): any template passed as a literal or imported with <code>import 'views/x.ehy'</code> works out of the box, whereas a dynamic string read from disk at request time by <code>hey_web</code>'s older <code>HeyWebView.response</code> helper wasn't compiled into the program (<code>ehy_template_not_compiled</code> / <code>ehy_template_not_constant</code>). Precompile <code>.html.ehy</code> views at build time with <code>hey_web</code>'s <code>bin/pages-embed</code> (or <code>import</code> the <code>.ehy</code> templates directly) so the rendered HTML is compiled straight into your server:</p>
 <pre data-example="fragment" data-needs="precompiled hey_web views (bin/pages-embed or imported .ehy templates)"><code>&lt;!doctype html&gt;
 &lt;html&gt;&lt;head&gt;&lt;title&gt;Cards&lt;/title&gt;&lt;/head&gt;
 &lt;body&gt;
@@ -610,14 +612,14 @@ $ curl -s localhost:3000/health
 <h2 id="binary" data-doc-purpose="Build the server’s native executable.">9. Build it: the binary you ship <span class="tag t-good">Works today</span></h2>
 <p><code>hey server.hey</code> is for development: the first run compiles and caches, later runs reuse the cache. To ship, build one executable. It's called exactly what you pass to <code>-o</code>:</p>
 <pre data-example="runnable"><code>$ hey build server.hey -o build/cards
-...
-built .../build/cards
 $ ls -lh build/cards
--rwxr-xr-x  1 ... 447K ... build/cards
+-rwxr-xr-x  1 ... ...K ... build/cards
 $ otool -L build/cards
 build/cards:
+	...libssl.3.dylib (...)
+	...libcrypto.3.dylib (...)
 	/usr/lib/libSystem.B.dylib (...)</code></pre>
-<p>Under half a megabyte, linking only the system C library. Hey's runtime, the standard library parts you use and the hey_web modules are all inside it. The SQLite library isn't linked in: the app loads it at run time from the path in <code>HEY_SQLITE3_LIBRARY</code>.</p>
+<p>Under half a megabyte, linking only OpenSSL 3 and the system C library. Hey's runtime, the standard library parts you use and the hey_web modules are all inside it. The SQLite library isn't linked in: the app loads it at run time from the path in <code>HEY_SQLITE3_LIBRARY</code>.</p>
 <p><strong>Run it</strong> from the app folder (it reads <code>config/hey_web.json</code> and <code>db/</code> from there), on any port you like:</p>
 <pre data-example="fragment" data-needs="a second terminal; the next block runs it for you"><code>$ HEY_SQLITE3_LIBRARY="$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib" ./build/cards --port 3001</code></pre>
 <p><strong>Point a client at it:</strong></p>
@@ -702,9 +704,7 @@ end</code></pre>
 native_target=...
 native_library=...
 poller_backend=...
-$ hey build server_poller.hey -o build/cards-poller
-...
-built .../build/cards-poller</code></pre>
+$ hey build server_poller.hey -o build/cards-poller</code></pre>
 <pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; ./build/cards-poller" data-wait="curl -s -f localhost:3000/health"><code>$ curl -s localhost:3000/health
 {"ok":true}</code></pre>
 <ul>

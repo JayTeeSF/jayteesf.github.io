@@ -220,7 +220,7 @@ class ArticlesIndex
       '  New to Hey? Begin with <a href="hey-guide-start-here-first-steps-1.html">Start here: First steps (Guide 1)</a>,',
       '  or use the <a href="hey-docs-index.html">Hey docs index</a> for topics and section links.',
       '  Earlier essays retain their original version context.',
-      '  The published release is 0.99.606a (November 13, 2026).</p>',
+      '  The published release is 0.99.607a.</p>',
       *sections,
       "</main>",
       "</body>",

@@ -103,7 +103,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
   </defs>
 </svg>
 <div class="wrap">
-<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 5 of 7 · October 2026 · Updated November 2026</p>
+<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Hey guide 4 of 7</p>
 <h1>Build a real command-line tool in Hey</h1>
 <p class="lede">You'll write <code>wordfreq</code>, a small tool that finds the most common words in a folder of text files. Along the way you'll read flags, walk files, count with a map, run another program, report errors with the right exit code, test it, and turn it into one native binary you can copy anywhere.</p>
 
@@ -118,8 +118,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 </section>
 
 <p><span class="tag t-acc">You are here</span> Guide 1 installed Hey and ran hello. Guide 3 added packages. This guide builds a tool. Guide 5 builds a web server, guide 6 builds apps, guide 7 ships them.</p>
-<p><strong>Every command here is run by Hey's documentation test</strong>, and its output must match what you see. A line with <code>...</code> stands for text left out.</p>
-<p>The test last ran on a pre-release 0.99.606a build. 0.99.606a was released on November 13, 2026; the test has not been re-run on the release build, so output there can differ in places.</p>
+<p><strong>Every command here is run by Hey's documentation test</strong> on <code>0.99.607a</code>, and its output must match what you see. A line with <code>...</code> stands for text left out.</p>
 
 <nav class="toc" aria-label="Contents"><strong>Contents</strong>
 <ol>
@@ -401,7 +400,7 @@ $ hey wordfreq.hey --git --top=3 sample
 <p>Hey separates two kinds of failure, and the difference matters for a tool.</p>
 <div class="cols">
 <div class="note good"><p><strong>Expected failures are values.</strong> A missing folder or a bad flag is something a user will do. Return a <code>Result</code> (<code>Result.ok(v)</code> or <code>Result.error_with(code, message)</code>), check <code>.ok</code>, and print something helpful. <code>Cli.validate</code> already does this for flags.</p></div>
-<div class="note bad"><p><strong>Bugs stop the program.</strong> <code>fail 'message'</code>, or any runtime error, stops the unit of work at once: in a server that's one request, in a tool it's the whole process. It prints the message and exits with status <strong>70</strong>. There's no <code>try/catch</code>; that's a <a href="hey-decisions.html">ruled design choice</a> (fail fast, Erlang style).</p></div>
+<div class="note bad"><p><strong>Bugs stop the program.</strong> <code>fail 'message'</code>, or any runtime error, stops the unit of work at once: in a server that's one request, in a tool it's the whole process. It prints the message and exits with status <strong>1</strong> (while command-line usage or compile-time errors exit <strong>2</strong>, and <strong>70</strong> is reserved for internal compiler bugs). There's no <code>try/catch</code>; that's a <a href="hey-decisions.html">ruled design choice</a> (fail fast, Erlang style).</p></div>
 </div>
 <pre data-example="runnable" data-file="fail_demo.hey"><code>program
   says 'checking...'
@@ -410,10 +409,10 @@ end</code></pre>
 <pre data-example="runnable"><code>$ hey fail_demo.hey; echo "exit status: $?"
 checking...
 hey error: the config file is missing
-exit status: 70</code></pre>
+exit status: 1</code></pre>
 
 <h3>Choosing your own exit code with <code>Process.exit</code> <span class="tag t-good">Works today</span></h3>
-<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 for "you typed it wrong". A program that ends normally exits 0; <code>fail</code> exits 70; <code>Process.exit(status)</code> flushes standard output and standard error and exits immediately with any <code>Int</code> from 0 to 255.</p>
+<p>Shell scripts and CI care about exit codes: 0 for success, 1 for "found a problem", 64 for "you typed it wrong". A program that ends normally exits 0; uncaught <code>fail</code> exits 1; <code>Process.exit(status)</code> flushes standard output and standard error and exits immediately with any <code>Int</code> from 0 to 255.</p>
 <p><code>Cli.exit_status(checked)</code> already works out 0 for success and 64 (the usual "bad usage" code) for a missing or malformed flag. <code>wordfreq</code> sends help text to standard output on 0, error messages to standard error via <code>warn</code> otherwise, and exits with the chosen status:</p>
 <pre data-example="fragment" data-needs="an excerpt of wordfreq.hey (section 1)"><code>fn finish(message, status)
   if status == 0
@@ -464,7 +463,7 @@ end</code></pre>
 WordCount: 5 passed, 0 failed
 $ hey test count_spec.hey
 PASS: WordCount cleans, counts and ranks words</code></pre>
-<p>A Minispec suite is a plain value: each assertion returns a new suite with one more result in it. <code>Minispec.report</code> prints the totals, and the <code>spec</code> block checks that line. For a CI job without the golden harness, <code>Minispec.finish(s)</code> prints the report and exits 70 if anything failed.</p>
+<p>A Minispec suite is a plain value: each assertion returns a new suite with one more result in it. <code>Minispec.report</code> prints the totals, and the <code>spec</code> block checks that line. For a CI job without the golden harness, <code>Minispec.finish(s)</code> prints the report and exits 1 if anything failed.</p>
 
 <h2 id="ship" data-doc-purpose="Choose between running source and shipping a binary.">7. Script or binary?</h2>
 <p>You've been running <code>hey wordfreq.hey</code>. That's the <em>script</em> path: Hey compiles the program to native code the first time and keeps the result in a cache keyed by the source and everything it imports. Change any imported file and the next run recompiles. Nothing goes stale.</p>
@@ -477,8 +476,6 @@ $ ./wordfreq.hey --top=3 sample
      3  a</code></pre>
 <p>Or build one binary to copy to another machine, a container, or a <code>bin/</code> folder:</p>
 <pre data-example="runnable"><code>$ hey build wordfreq.hey -o build/wordfreq
-...
-built .../build/wordfreq
 $ ./build/wordfreq --top=3 sample
 2 files, 13 different words
      4  dog

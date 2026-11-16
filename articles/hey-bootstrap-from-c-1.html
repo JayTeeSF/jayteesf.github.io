@@ -97,19 +97,19 @@
 <body>
 <nav class="hey-docs-nav" aria-label="Hey documentation"><a href="hey-docs-index.html">← Hey docs index</a><span aria-hidden="true">·</span><a href="hey-guide-start-here-first-steps-1.html">Start here: First steps (Guide 1)</a></nav>
   <header>
-    <p class="muted"><a href="index.html">Articles</a> &middot; Bootstrap 1 of 2 &middot; November 2026</p>
+    <p class="muted"><a href="index.html">Articles</a> &middot; Bootstrap 1 of 2</p>
     <h1>Building Hey's Compiler from C</h1>
     <p class="lede">
       Hey's compiler is written in Hey, so a fresh machine needs a Hey compiler before it can build one. That first
-      compiler will come from C printed from the same records the normal compiler already uses. This page shows how
+      compiler comes from C printed from the compiler's own intermediate representation. This page shows how
       that works, how the result is checked, and what it does and doesn't cost.
     </p>
   </header>
 
   <main>
-<aside class="qa" aria-label="Compiler correction status">
-<p><strong>Partly works · November 13 correction scope.</strong> The release and seed measurements below describe their recorded historical builds. They don't prove that the replacement numeric compiler now infers ordinary locals, converts calls coherently or compiles itself. Its recorded build3 native checks cover five closed functions; a large Int literal still fails at MIR.</p>
-<p>The required inference, control-flow, representation and ownership algorithms are explained in <a href="hey-compiler-from-source-to-native-1.html#short">Compiler 1</a>. That general correction is proposed and unfinished. A C seed can start a build; proving corrected self-hosting requires successive compilers built from the corrected source.</p>
+<aside class="qa" aria-label="Bootstrap scope">
+<p><strong>Scope in 0.99.607a.</strong> Release <code>0.99.607a</code> ships the unified eight-stage native compiler pipeline (<code>tools/hey_selfc_pipeline.hey</code>, <a href="hey-compiler-from-source-to-native-1.html#short">Compiler 1</a>) through <code>HeyMirVerify.hey -&gt; HeyMirLlvm.hey</code> with a verified <code>stage2 == stage3</code> self-hosting fixed point<sup><a href="#n3">3</a></sup>, bootstrapped from the committed C seed with zero stage-0 compiler or interpreter participation.</p>
+<p>The seed-size and refresh timings below record the initial three-unit C-seed bring-up<sup><a href="#n1">1</a>, <a href="#n2">2</a></sup>; the zero-bridge <code>MIR -&gt; C</code> backend over the unified Physical/Owned MIR contract is the next bootstrap step.</p>
 </aside>
 
     <section class="tldr">
@@ -121,41 +121,37 @@
         <li><strong>Decided: a compressed seed (the compiler printed as C) is committed,</strong> estimated at 2&ndash;6&nbsp;MB and written only by
           an automatic update job.</li>
         <li><strong>Your programs don't change.</strong> LLVM still builds every user program and the final compiler.</li>
-        <li><strong>Status on November 13, 2026: released in 0.99.606a.</strong> The C seed is the only bootstrap: no stage-0
-          compiler and no interpreter takes part in building the compiler. The seed for the release (three compiler units:
-          the pipeline, the resolver and the driver) reached its fixed point on the Mac on November 12: generations B and C
-          were byte-identical (commit 4c5b6574e). As committed it is 6.4&nbsp;MB of compressed archives and expands to about
-          209&nbsp;MB of C. The stage-0 source (<code>heyc.c</code>) is still in the tree, outside <code>make all</code> and
-          <code>make test</code>; it is to be deleted later. Release 605a bootstrapped through <code>heyc stage0-build</code>.</li>
+        <li><strong>Active in 0.99.607a:</strong> The committed C seed is the sole bootstrap: no stage-0
+          compiler and no interpreter takes part in building the compiler. In the initial three-unit seed bring-up (pipeline, resolver and driver), generations B and C
+          reached byte-identical fixed point<sup><a href="#n1">1</a></sup> at 6.4&nbsp;MB of compressed archives (about
+          209&nbsp;MB of C). Legacy stage-0 source sits outside <code>make all</code> and
+          <code>make test</code> pending final removal; release 605a bootstrapped through <code>heyc stage0-build</code>.</li>
       </ul>
     </section>
 
     <h2 id="today-the-first-compiler-comes-from-a-second-compiler" data-doc-purpose="Understand how a source build got its first compiler in release 605a.">Up to release 605a, the first compiler came from a second compiler</h2>
     <p>
-      A source build first runs <code>heyc stage0-build</code>, a separate compiler
-      written in C in <code>runtime/heyc.c</code>. It ignores the <strong>ownership decisions</strong> the real compiler
-      makes: when a String is copied, when a value is freed, when a map may be updated in place. So a bug can live in
+      A source build first ran <code>heyc stage0-build</code>, a separate compiler
+      written in C in <code>runtime/heyc.c</code>. It ignored the <strong>ownership decisions</strong> the real compiler
+      makes: when a String is copied, when a value is freed, when a map may be updated in place. So a bug could live in
       one compiler and not the other. The fix: print the first compiler from the real
-      compiler's output. That is what 0.99.606a does.
+      compiler's output. That is what 0.99.607a does.
     </p>
     <p>
-      <strong>What a seed refresh costs (measured).</strong> On the Mac build host (Apple silicon, one build slot), one
-      seed generation took 33 to 42 minutes in the runs of November 11 and 12, and one run under load from other jobs took
-      50 minutes. About 80% of that is the pipeline unit, whose C-encoding step alone takes 12 to 15 minutes. Building a
+      <strong>What a seed refresh cost in initial bring-up (measured).</strong> On the Mac build host (Apple silicon, one build slot), one
+      seed generation took 33 to 42 minutes in the initial bring-up runs, and one run under load from other jobs took
+      50 minutes. About 80% of that was the pipeline unit, whose C-encoding step alone took 12 to 15 minutes. Building a
       compiler from a seed takes about 1.5 to 2 minutes. A full refresh to an accepted seed (A, then B, then C, with a
-      compiler built between each) is about 1 hour 50 minutes of build-slot time, plus about 40 minutes when a new runtime
-      function needs an extra generation first. The largest single step peaked at 1.5 to 2.2&nbsp;GB, and a whole run at
-      3.3 to 3.9&nbsp;GB. These are measured times from the seed run log, not estimates; waiting for the build slot is
-      usually the longer delay.
+      compiler built between each) took about 1 hour 50 minutes of build-slot time, plus about 40 minutes when a new runtime
+      function needed an extra generation first. The largest single step peaked at 1.5 to 2.2&nbsp;GB, and a whole run at
+      3.3 to 3.9&nbsp;GB. (Subsequent pass linearizations and dynamic receiver copy-on-write fusion in <code>0.99.607a</code> cut self-compile allocation overhead sharply<sup><a href="#n3">3</a></sup>.)
     </p>
 
     <h2 id="one-set-of-records-two-printers" data-doc-purpose="See how one set of MIR records feeds both the LLVM and the C printer.">One set of records, two printers</h2>
     <p>
-      <dfn>MIR</dfn> is the compiler's middle layer, where ownership is decided. Its last step, <dfn>physical MIR</dfn>,
-      spells every decision out as an explicit operation, such as "copy this String" or "release that one". It's a
-      closed list of 40 record kinds.
-      Anything else is refused, so a printer never guesses. <code>stdlib/HeyLlvm.hey</code> prints
-      all of it as LLVM IR (the input of LLVM, the toolkit that makes machine code) in about 1,000 lines on the development line. (In release 605a the same file was the older emitter, about 24,000 lines.) A C printer should be about the same size and share the code that walks the records.
+      <dfn>MIR</dfn> is the compiler's middle layer, where physical carriers and ownership are decided. After <code>HeyMirPhysical.hey</code>, <code>HeyMirOwnership.hey</code>, and <code>HeyMirVerify.hey</code>, every decision is an explicit verified operation, such as "copy this String" or "release that one".
+      Anything unverified is refused, so a printer never guesses. <code>stdlib/HeyMirLlvm.hey</code> prints
+      verified MIR as LLVM IR (the input of LLVM, the toolkit that makes machine code). (In release 605a <code>stdlib/HeyLlvm.hey</code> was the older 24,000-line emitter.) A zero-bridge C printer walks the exact same verified MIR records.
     </p>
 
     <figure>
@@ -413,14 +409,23 @@
         <a href="https://go.dev/blog/rebuild">Perfectly Reproducible, Verified Go Toolchains</a></li>
       <li>Reinking, Xie, de Moura and Leijen, "Perceus: Garbage Free Reference Counting with Reuse", PLDI 2021;
         <a href="https://github.com/koka-lang/koka">Koka</a>; <a href="https://github.com/roc-lang/roc">Roc</a></li>
-      <li>Hey: <code>stdlib/HeyMir.hey</code>, <code>stdlib/HeyLlvm.hey</code>, <code>runtime/hey_str.h</code>,
+      <li>Hey: <code>stdlib/HeyMirPhysical.hey</code>, <code>stdlib/HeyMirOwnership.hey</code>, <code>stdlib/HeyMirVerify.hey</code>, <code>stdlib/HeyMirLlvm.hey</code>, <code>runtime/hey_str.h</code>,
         <code>runtime/hey_runtime.c</code> and the Makefile seed targets. Companion page:
         <a href="hey-compiler-from-source-to-native-1.html">Compiler 1: how the Hey compiler turns source into native code</a></li>
     </ul>
+
+    <section id="notes" aria-labelledby="notes-h">
+      <h2 id="notes-h" data-doc-purpose="Follow the commit notes attached to this page.">Notes</h2>
+      <ol>
+        <li id="n1">Initial three-unit C bootstrap seed reaching byte-identical fixed point between generations B and C: 4c5b65.</li>
+        <li id="n2">Development-line seed size and runtime line-count baseline: 90e383.</li>
+        <li id="n3">Unified eight-stage native pipeline (<code>tools/hey_selfc_pipeline.hey</code>), linear pass updates, dynamic receiver COW fusion, and verified <code>stage2 == stage3</code> self-hosting in <code>0.99.607a</code>: 835943.</li>
+      </ol>
+    </section>
   </main>
 
   <footer>
-    <p>Sizes for other projects are as their repositories showed when measured; the Hey seed estimate was made before a seed existed, and the measured size is from the development line at 90e3833f0. Hey line counts are from the same tree unless release 605a is named.</p>
+    <p>Sizes for other projects are as their repositories showed when measured; the Hey seed estimate was made before a seed existed, and the initial measured seed size comes from the bring-up baseline (<a href="#n2">Note 2</a>).</p>
   </footer>
 </body>
 </html>

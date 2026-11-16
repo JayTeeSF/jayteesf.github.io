@@ -132,9 +132,9 @@ a:focus-visible,summary:focus-visible{outline:3px solid var(--link);outline-offs
 <body>
 <nav class="hey-docs-nav" aria-label="Hey documentation"><a href="hey-docs-index.html">← Hey docs index</a><span aria-hidden="true">·</span><a href="hey-guide-start-here-first-steps-1.html">Start here: First steps (Guide 1)</a></nav>
 <div class="wrap">
-<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Compiler 1 of 5: From source to native · October 2026 · Updated November 2026</p>
+<p class="eyebrow"><a href="index.html">&larr; Articles</a> · Compiler 1 of 5: From source to native</p>
 <h1>How the Hey compiler turns source into native code</h1>
-<p><span class="chip chip-ok">Stages 1, 3, 4 &amp; scalar Stage 6: works today</span> <span class="chip chip-next">Stages 2, 5, 7, 8 &amp; full HeyStr: decided, coming</span></p>
+<p><span class="chip chip-ok">Stages 1–8 unified native pipeline: works today</span> <span class="chip chip-next">&lt;=4-scalar record unbox: decided, coming</span></p>
 <p class="lede">Hey is written without type annotations, lifetime markers, or borrow syntax, yet compiles through a single eight-stage pipeline written in Hey into native machine code. This page states what each stage owns, how its internal representations and passes work, and what CPU, instruction-cache, memory, and safety benefits each architectural choice gives Hey programs.</p>
 
 <div class="code-block">
@@ -168,10 +168,10 @@ end</code></pre>
 </ul>
 </section>
 
-<section class="note warn" aria-labelledby="implementation-scope">
-<h2 id="implementation-scope" data-doc-purpose="Separate tested native compiler passes from the remaining consolidation work.">Implementation scope: what runs today vs what is landing</h2>
-<p><strong>Shipping in the native Hey compiler chain today (<span class="chip chip-ok">works today</span>):</strong> Lossless lexing and concrete parsing (<code>HeyTokens.hey -&gt; HeySyntaxTree.hey</code>, passing all 10 source-to-AST precedence/binder assertions and 97/97 valid documentation snippets), direct Hey record High-level Intermediate Representation (<code>HeyHir.hey</code> + <code>HeyHirInference.hey</code>, 19/19 source-to-HIR cases), Braun sealed-block <code>SSA-MIR</code> with lexical <code>block_scopes</code> and monotone <code>[lo..hi]</code> integer range widening (<code>HeyMirLowering.hey</code>, <code>HeyMirSsa.hey</code>, <code>HeyMirFacts.hey</code>, 19/19 source cases and 18/18 synthetic graph cases), scalar physical planning (<code>HeyMirPhysical.hey</code>, 24/24 planning cases), backward liveness (<code>HeyMirLiveness.hey</code>), and the C runtime's 16-byte <code>HeyStr</code>, 32-byte-header <code>SDS</code>, 27-class small-block allocator, and <code>hey_region_push</code>/<code>pop</code> arenas. Read the <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">captured HIR/MIR receipts</a> and <a href="hey-compiler-output-walkthrough-2.html#imports">13-case module import audit</a>.</p>
-<p><strong>Actively landing on the same seam (<span class="chip chip-next">decided, coming</span>):</strong> Full post-parse Core AST cutover for every surface form, HIR call-instance typing + SSA-MIR carrier/borrow worker specialization, 16-byte <code>HeyStr</code> carrier wiring inside <code>HeyMirPhysical.hey</code>, Perceus ownership and region placement (<code>HeyMirOwnership.hey</code>), independent executable-plan verification (<code>HeyMirVerify.hey</code>), terminal native <code>LLVM</code> emission (<code>HeyMirLlvm.hey</code>), cross-module imports, and the <code>stage2 == stage3</code> self-hosting fixed point. The released <code>0.99.606a</code> toolchain continues to run user programs while these passes complete in order (<a href="#implementation-plan">Section 9</a>).</p>
+<section class="note good" aria-labelledby="implementation-scope">
+<h2 id="implementation-scope" data-doc-purpose="Separate tested native compiler passes from the remaining consolidation work.">Implementation scope: what runs in 0.99.607a vs what comes next</h2>
+<p><strong>Shipping in the unified <code>0.99.607a</code> native compiler pipeline (<span class="chip chip-ok">works today</span>):</strong> All eight stages run end-to-end as structured Hey passes in <code>tools/hey_selfc_pipeline.hey</code> (<code>resolve-source -&gt; emit-hir -&gt; lower-mir -&gt; analyze-mir -&gt; plan-mir -&gt; own-mir -&gt; verify-mir -&gt; emit-llvm</code>): lossless lexing and single-pass parsing (<code>HeyTokens.hey -&gt; HeySyntaxTree.hey</code>), post-parse subtree normalization and numeric <code>(unit_id, node_id)</code> resolution across modules and all 13 import/refusal cases (<code>HeyFinalSyntaxNodes.hey</code>, <code>HeyNames.hey</code>, <code>HeyProgramResolution.hey</code>), Tree <code>HIR</code> with monotone worklists and Layer 1 <code>#TypeTuple</code> call-instance typing (<code>HeyHir.hey</code>, <code>HeyHirInference.hey</code>), Braun sealed-block <code>SSA-MIR</code> with split-edge <code>block_scopes</code>, <code>[lo..hi]</code> integer ranges, and <code>F1–F4</code> escape/uniqueness facts (<code>HeyMirLowering.hey</code>, <code>HeyMirSsa.hey</code>, <code>HeyMirFacts.hey</code>), Layer 2 carrier/borrow worker specialization and two-register 16-byte <code>HeyStr</code> physical planning (<code>HeyMirPhysical.hey</code>), linear transitive <code>view &lt;= owner</code> liveness, zero-<code>RC</code> borrows, Perceus <code>reuse</code>, dynamic receiver copy-on-write fusion (<code>own_fuse_cow_take_receivers</code>), and <code>hey_region_push</code>/<code>pop</code> arenas (<code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>), mandatory 8-invariant verification (<code>HeyMirVerify.hey</code>), native <code>LLVM</code> emission (<code>HeyMirLlvm.hey</code>), and a verified <code>stage2 == stage3</code> self-hosting fixed point. Read the <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">stage output walkthrough</a> for concrete IR artifacts.</p>
+<p><strong>Planned extensions on the same seam (<span class="chip chip-next">decided, coming</span>):</strong> Unboxed register passing for flat user records of up to 4 scalar fields (countable <code>Range</code> and 16-byte <code>HeyStr</code> already pass unboxed in registers while user records share the <code>HeyValue*</code> pointer carrier), geometric <code>SDS</code> slack growth on unique string appends, and the zero-bridge <code>MIR -&gt; C</code> bootstrap backend (<a href="hey-bootstrap-from-c-1.html">Bootstrap 1</a>).</p>
 </section>
 
 <nav class="toc" aria-label="Contents"><strong>Contents</strong>
@@ -197,8 +197,8 @@ end</code></pre>
   <div class="dual-svg">
     <svg role="img" viewBox="0 0 368 518" aria-labelledby="svg1a-title svg1a-desc">
       <title id="svg1a-title">Stages 1 to 4 of the Hey compiler pipeline from tokens to SSA-MIR facts</title>
-      <desc id="svg1a-desc">Vertical pipeline with typed structured IR on every arrow: Stage 1 HeyTokens to HeySyntaxTree (works today) emits Surface AST with spans; Stage 2 FinalSyntaxNodes plus HeyNames (decided, coming) desugars surface forms into a 67-kind Resolved Core AST; Stage 3 HeyHir plus HeyHirInference (works today, instance typing decided) emits Typed Tree HIR; Stage 4 HeyMirLowering plus HeyMirSsa plus HeyMirFacts proves fits_i64 ranges and borrow/escape facts.</desc>
-      <rect x="4" y="4" width="360" height="510" rx="12" fill="var(--surface-alt)" stroke="var(--border-strong)" stroke-width="1.5"/>
+      <desc id="svg1a-desc">Vertical pipeline with typed structured IR on every arrow: Stage 1 HeyTokens to HeySyntaxTree emits Surface AST with spans; Stage 2 FinalSyntaxNodes plus HeyNames and HeyProgramResolution desugars surface forms into a 67-kind Resolved Core AST; Stage 3 HeyHir plus HeyHirInference emits Typed Tree HIR with Layer 1 call-instance summaries; Stage 4 HeyMirLowering plus HeyMirSsa plus HeyMirFacts proves fits_i64 ranges and F1-F4 borrow/escape facts.</desc>
+      <rect x="4" y="4" width="360" height="510" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.5"/>
       <text x="18" y="28" fill="var(--ink)" font-size="14" font-weight="700">Stages 1–4: Source to SSA Facts</text>
       <text x="18" y="48" fill="var(--ink-muted)" font-size="12.5">Structured nodes &amp; graphs; zero text IR</text>
 
@@ -213,10 +213,10 @@ end</code></pre>
       <polygon points="179,163 189,163 184,168" fill="var(--border-strong)"/>
       <text x="194" y="159" fill="var(--ink-muted)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">Surface AST + spans</text>
 
-      <rect x="18" y="168" width="332" height="86" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <rect x="18" y="168" width="332" height="86" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="190" fill="var(--ink)" font-size="13" font-weight="700">2. Post-Parse Desugar</text>
-      <rect x="208" y="174" width="132" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="274" y="189" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="174" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="287" y="189" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
       <text x="28" y="213" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">FinalSyntaxNodes + HeyNames</text>
       <text x="28" y="235" fill="var(--ink-muted)" font-size="12.5">for/update/says -&gt; 67-kind Core AST</text>
 
@@ -227,9 +227,9 @@ end</code></pre>
       <rect x="18" y="282" width="332" height="82" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="304" fill="var(--ink)" font-size="13" font-weight="700">3. HIR + Inference</text>
       <rect x="234" y="288" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
-      <text x="287" y="303" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
+      <text x="287" y="303" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
       <text x="28" y="327" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyHir + HeyHirInference</text>
-      <text x="28" y="348" fill="var(--ink-muted)" font-size="12.5">Tree scope_id + *Julia call instances</text>
+      <text x="28" y="348" fill="var(--ink-muted)" font-size="12.5">Tree scope_id + Layer 1 call instances</text>
 
       <line x1="184" y1="364" x2="184" y2="392" stroke="var(--border-strong)" stroke-width="1.8"/>
       <polygon points="179,387 189,387 184,392" fill="var(--border-strong)"/>
@@ -238,25 +238,25 @@ end</code></pre>
       <rect x="18" y="392" width="332" height="108" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="414" fill="var(--ink)" font-size="13" font-weight="700">4. SSA-MIR + Facts</text>
       <rect x="234" y="398" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
-      <text x="287" y="413" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
+      <text x="287" y="413" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
       <text x="28" y="437" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyMirSsa + HeyMirFacts</text>
       <text x="28" y="459" fill="var(--ink)" font-size="12.5">Braun SSA + [lo..hi] fits_i64? + scope</text>
-      <text x="28" y="481" fill="var(--next-ink)" font-size="12.5">*Borrow &amp; F1–F4 escape facts coming</text>
+      <text x="28" y="481" fill="var(--ok-ink)" font-size="12.5">F1–F4 freshness, escape &amp; unique facts</text>
     </svg>
 
     <svg role="img" viewBox="0 0 368 518" aria-labelledby="svg1b-title svg1b-desc">
       <title id="svg1b-title">Stages 5 to 8 of the Hey compiler pipeline from specialization to LLVM native code</title>
-      <desc id="svg1b-desc">Vertical continuation: Stage 5 Demand-Driven Worker Specialization sits right between HeyMirFacts and HeyMirPhysical; Stage 6 HeyMirPhysical commits values to i64, f64, i1, 16-byte HeyStr atop SDS, unboxed small structs, or HeyValue*; Stage 7 runs HeyMirLiveness, Perceus HeyMirOwnership, and scope Arenas; Stage 8 runs HeyMirVerify and emits linkonce_odr LLVM IR.</desc>
-      <rect x="4" y="4" width="360" height="510" rx="12" fill="var(--surface-alt)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <desc id="svg1b-desc">Vertical continuation: Stage 5 Demand-Driven Worker Specialization sits right between HeyMirFacts and HeyMirPhysical; Stage 6 HeyMirPhysical commits values to i64, f64, i1, 16-byte HeyStr atop SDS, countable range_i64, or HeyValue*; Stage 7 runs HeyMirLiveness, Perceus HeyMirOwnership, dynamic receiver COW fusion, and scope Arenas; Stage 8 runs HeyMirVerify and emits linkonce_odr LLVM IR.</desc>
+      <rect x="4" y="4" width="360" height="510" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="18" y="28" fill="var(--ink)" font-size="14" font-weight="700">Stages 5–8: Carriers, Memory &amp; LLVM</text>
       <text x="18" y="48" fill="var(--ink-muted)" font-size="12.5">Exact seam for carrier specialization</text>
 
-      <rect x="18" y="60" width="332" height="86" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.8"/>
+      <rect x="18" y="60" width="332" height="86" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.8"/>
       <text x="28" y="82" fill="var(--ink)" font-size="13" font-weight="700">5. Worker Specialize</text>
-      <rect x="208" y="66" width="132" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="274" y="81" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="66" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="287" y="81" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
       <text x="28" y="105" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">Facts -&gt; Worker Instances</text>
-      <text x="28" y="127" fill="var(--ink-muted)" font-size="12.5">Has i64 &amp; borrow facts pre-boxing</text>
+      <text x="28" y="127" fill="var(--ink-muted)" font-size="12.5">i64/f64/i1/HeyStr/ptr · *&lt;=4-rec next</text>
 
       <line x1="184" y1="146" x2="184" y2="174" stroke="var(--border-strong)" stroke-width="1.8"/>
       <polygon points="179,169 189,169 184,174" fill="var(--border-strong)"/>
@@ -265,35 +265,35 @@ end</code></pre>
       <rect x="18" y="174" width="332" height="86" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="196" fill="var(--ink)" font-size="13" font-weight="700">6. Physical MIR</text>
       <rect x="234" y="180" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
-      <text x="287" y="195" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
-      <text x="28" y="219" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyMirPhysical (5 carriers)</text>
-      <text x="28" y="241" fill="var(--ink-muted)" font-size="12.5">i64 · f64 · i1 · *HeyStr(16B)/SDS · ptr</text>
+      <text x="287" y="195" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
+      <text x="28" y="219" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyMirPhysical (carriers)</text>
+      <text x="28" y="241" fill="var(--ink-muted)" font-size="12.5">i64 · f64 · i1 · HeyStr(16B)/SDS · ptr</text>
 
       <line x1="184" y1="260" x2="184" y2="288" stroke="var(--border-strong)" stroke-width="1.8"/>
       <polygon points="179,283 189,283 184,288" fill="var(--border-strong)"/>
       <text x="194" y="279" fill="var(--ink-muted)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">Register/HeyStr SSA</text>
 
-      <rect x="18" y="288" width="332" height="102" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <rect x="18" y="288" width="332" height="102" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="310" fill="var(--ink)" font-size="13" font-weight="700">7. Lifetime Trio</text>
-      <rect x="208" y="294" width="132" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="274" y="309" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="294" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="287" y="309" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
       <text x="28" y="333" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">Liveness + Ownership + Arenas</text>
-      <text x="28" y="355" fill="var(--ink)" font-size="12.5">0-RC borrows · Perceus reset/reuse</text>
+      <text x="28" y="355" fill="var(--ink)" font-size="12.5">0-RC borrows · Perceus · COW fusion</text>
       <text x="28" y="376" fill="var(--ink-muted)" font-size="12.5">hey_region_push/pop on block_scopes</text>
 
       <line x1="184" y1="390" x2="184" y2="418" stroke="var(--border-strong)" stroke-width="1.8"/>
       <polygon points="179,413 189,413 184,418" fill="var(--border-strong)"/>
       <text x="194" y="409" fill="var(--ink-muted)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">RC + Arena SSA</text>
 
-      <rect x="18" y="418" width="332" height="82" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <rect x="18" y="418" width="332" height="82" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="440" fill="var(--ink)" font-size="13" font-weight="700">8. Verify -&gt; LLVM</text>
-      <rect x="208" y="424" width="132" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="274" y="439" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="424" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="287" y="439" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
       <text x="28" y="463" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyMirVerify -&gt; HeyMirLlvm</text>
       <text x="28" y="484" fill="var(--ink-muted)" font-size="12.5">linkonce_odr · inlining · regalloc</text>
     </svg>
   </div>
-  <figcaption><strong>Figure 1 · The eight-stage Hey compiler pipeline:</strong> Green marks passes already running natively on structured Hey records; blue marks passes actively completing on the same structured seam.</figcaption>
+  <figcaption><strong>Figure 1 · The eight-stage Hey compiler pipeline:</strong> All eight stages run natively on structured Hey records and <code>HeyIr.hey</code> SSA graphs; flat user-record register unboxing is marked with <code>*</code> as the next worker-key extension.</figcaption>
 </figure>
 
 <table class="glance-table" aria-label="Responsibilities, representations, and concrete benefits of all eight compiler stages">
@@ -319,49 +319,49 @@ end</code></pre>
       <td data-label="Compiler Modules"><code>HeyFinalSyntaxNodes.hey</code>, <code>HeyNames.hey</code>, <code>HeyProgramResolution.hey</code></td>
       <td data-label="IR & Core Fact">67-kind Koka-style Core <code>AST</code> + numeric <code>(unit_id, node_id)</code></td>
       <td data-label="Concrete Runtime & Build Benefit">Zero operator-grouping or double-eval bugs; shrinks downstream compiler</td>
-      <td data-label="Status"><span class="chip chip-next">decided, coming</span></td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span></td>
     </tr>
     <tr>
       <td data-label="Stage"><strong>3. Tree HIR &amp; Call Typing</strong></td>
       <td data-label="Compiler Modules"><code>HeyHir.hey</code>, <code>HeyHirInference.hey</code></td>
       <td data-label="IR & Core Fact">Lexical <code>scope_id</code> tree + Layer 1 <code>@t&lt;u&gt;.&lt;fn&gt;#&lt;Types&gt;</code></td>
       <td data-label="Concrete Runtime & Build Benefit">Resolves overloaded operators &amp; fields with zero user type annotations</td>
-      <td data-label="Status"><span class="chip chip-ok">works today</span> / instances <span class="chip chip-next">decided, coming</span></td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span></td>
     </tr>
     <tr>
       <td data-label="Stage"><strong>4. SSA-MIR &amp; Dataflow Facts</strong></td>
       <td data-label="Compiler Modules"><code>HeyMirLowering.hey</code>, <code>HeyMirSsa.hey</code>, <code>HeyMirFacts.hey</code></td>
       <td data-label="IR & Core Fact">Braun <code>SSA</code> blocks + <code>[lo..hi]</code> <code>fits_i64?</code> + <code>F1–F4</code> escape</td>
       <td data-label="Concrete Runtime & Build Benefit">1-cycle <code>i64</code> math when proven safe; exact <code>BigInt</code> promotion on overflow</td>
-      <td data-label="Status"><span class="chip chip-ok">works today</span> / escape <span class="chip chip-next">decided, coming</span></td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span></td>
     </tr>
     <tr class="rec-row">
       <td data-label="Stage"><strong>5. Worker Specialization</strong></td>
-      <td data-label="Compiler Modules"><code>Facts -&gt; Physical</code> worker planner</td>
-      <td data-label="IR & Core Fact">Layer 2 key: <code>(Carrier + fit64 + Borrow + &lt;=4-Scalar)</code></td>
+      <td data-label="Compiler Modules"><code>HeyMirPhysical.hey</code> worker planner</td>
+      <td data-label="IR & Core Fact">Layer 2 key: <code>(Carrier + fit64 + Borrow)</code> (+ <code>&lt;=4-Scalar</code> next)</td>
       <td data-label="Concrete Runtime & Build Benefit"><code>~6</code> ops/call, <code>0B</code> call heap, hot <code>L1-I</code> via 1 shared ptr worker, <code>0</code> unused boxes</td>
-      <td data-label="Status"><span class="chip chip-next">decided, coming</span></td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span> / <code>&lt;=4-rec</code> <span class="chip chip-next">decided, coming</span></td>
     </tr>
     <tr>
       <td data-label="Stage"><strong>6. Physical MIR</strong></td>
       <td data-label="Compiler Modules"><code>HeyMirPhysical.hey</code></td>
-      <td data-label="IR & Core Fact"><code>i64</code>, <code>f64</code>, <code>i1</code>, 16B <code>HeyStr</code>/<code>SDS</code>, flat struct, <code>HeyValue*</code></td>
+      <td data-label="IR & Core Fact"><code>i64</code>, <code>f64</code>, <code>i1</code>, 16B <code>HeyStr</code>/<code>SDS</code>, <code>range_i64</code>, <code>HeyValue*</code></td>
       <td data-label="Concrete Runtime & Build Benefit"><code>&lt;=12B</code> strings inline in 2 regs; 1-reg 4B prefix rejection; <code>O(1)</code> SDS append</td>
-      <td data-label="Status">scalars <span class="chip chip-ok">works today</span> / <code>HeyStr</code> <span class="chip chip-next">decided, coming</span></td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span></td>
     </tr>
     <tr>
       <td data-label="Stage"><strong>7. Lifetime Trio</strong></td>
       <td data-label="Compiler Modules"><code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code></td>
-      <td data-label="IR & Core Fact">Owner-scoped borrows, Perceus <code>reuse</code>, <code>block_scopes</code> arenas</td>
-      <td data-label="Concrete Runtime & Build Benefit"><code>0</code>-RC reads, in-place functional updates (<code>1x</code> flat RAM), 1-op loop scratch pop</td>
-      <td data-label="Status">liveness <span class="chip chip-ok">works today</span> / RC+arenas <span class="chip chip-next">decided, coming</span></td>
+      <td data-label="IR & Core Fact">Owner-scoped borrows, Perceus <code>reuse</code>, COW fusion, <code>block_scopes</code> arenas</td>
+      <td data-label="Concrete Runtime & Build Benefit"><code>0</code>-RC reads, <code>O(1)</code> unique updates (<code>1x</code> flat RAM), 1-op loop scratch pop</td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span></td>
     </tr>
     <tr>
       <td data-label="Stage"><strong>8. Verify &amp; LLVM</strong></td>
       <td data-label="Compiler Modules"><code>HeyMirVerify.hey</code>, <code>HeyMirLlvm.hey</code></td>
       <td data-label="IR & Core Fact">Checked SSA/borrow/credit/region plan -&gt; <code>LLVM</code> SSA</td>
       <td data-label="Concrete Runtime & Build Benefit">Catches bad lowering pre-codegen; unlocks LLVM inlining, <code>musttail</code> &amp; regalloc</td>
-      <td data-label="Status"><span class="chip chip-next">decided, coming</span></td>
+      <td data-label="Status"><span class="chip chip-ok">works today</span></td>
     </tr>
   </tbody>
 </table>
@@ -370,7 +370,7 @@ end</code></pre>
 <section id="desugar" aria-labelledby="h-desugar">
 <h2 id="h-desugar" data-doc-purpose="Understand lossless parsing, post-parse Core AST desugaring and numeric declaration resolution.">2 · Stages 1 &amp; 2: Parse once, desugar post-parse, resolve numeric IDs</h2>
 <p>Hey separates concrete syntax from core compiler semantics at an explicit boundary right after parsing. In <strong>Stage 1</strong> (<span class="chip chip-ok">works today</span>), <code>HeyTokens.hey</code> lexes UTF-8 source once and <code>HeySyntaxTree.hey</code> builds a lossless Surface <code>AST</code>. Grammar rules never desugar expressions on the fly and never re-scan source strings.</p>
-<p>In <strong>Stage 2</strong> (parser normalization <span class="chip chip-ok">works today</span>; full construct cutover <span class="chip chip-next">decided, coming</span>), <code>HeyFinalSyntaxNodes.hey</code> and <code>HeySelectorNormalize.hey</code> rewrite surface shorthand—<code>elsif</code> chains, <code>case</code>/<code>when</code> arms, <code>for</code> loops, trailing blocks, <code>says</code>, collection receiver sugar, and functional record <code>update</code>—into a compact <strong>67-kind Koka-style Core <code>AST</code></strong>, carrying synthetic-node origin pointers back to Stage 1's exact spans. <code>HeyNames.hey</code> and <code>HeyProgramResolution.hey</code> then resolve every identifier, module import, and static receiver call to a sealed numeric pair <code>(unit_id, node_id)</code>.</p>
+<p>In <strong>Stage 2</strong> (<span class="chip chip-ok">works today</span>), <code>HeyFinalSyntaxNodes.hey</code> and <code>HeySelectorNormalize.hey</code> rewrite surface shorthand—<code>elsif</code> chains, <code>case</code>/<code>when</code> arms, <code>for</code> loops, trailing blocks, <code>says</code>, collection receiver sugar, and functional record <code>update</code>—into a compact <strong>67-kind Koka-style Core <code>AST</code></strong>, carrying synthetic-node origin pointers back to Stage 1's exact spans. <code>HeyNames.hey</code> and <code>HeyProgramResolution.hey</code> then resolve every identifier, module import, and static receiver call to a sealed numeric pair <code>(unit_id, node_id)</code>.</p>
 <ul>
 <li><strong>Why desugar <em>after</em> parsing instead of inside the lexer or grammar:</strong> Consider <code>case subj</code> with an arm <code>when false or true</code>. Splicing <code>==</code> tokens before parsing misgroups the arm as <code>(subj == false) or true</code> and evaluates an effectful <code>subj</code> once per arm. Parsing the full arm subtree first produces <code>Or(false, true)</code>, binds <code>let $s = subj</code> once, and lowers the arm to <code>Equal($s, Or(false, true))</code>—preserving both operator precedence and single evaluation.</li>
 <li><strong>Why shrink to 67 Core <code>AST</code> kinds with numeric identities:</strong> Every downstream pass (<code>HIR</code>, <code>SSA-MIR</code>, range analysis, specialization, ownership) handles one small set of canonical constructs and keys facts by integer <code>(unit_id, node_id)</code> rather than string names—eliminating duplicate lowering paths and driving Hey's 60% faster self-compile target.</li>
@@ -424,25 +424,25 @@ end</code></pre>
   <li><strong>Seed definitions once:</strong> Literals, constructors, and verified builtin declarations seed known language types (<code>Int</code>, <code>Float</code>, <code>Bool</code>, <code>String</code>, shaped records) onto their SSA/HIR definitions.</li>
   <li><strong>Separate <code>bottom</code> from <code>dynamic</code>:</strong> An unvisited edge starts at <code>bottom</code> ("no path has contributed yet"), so joining <code>bottom</code> with <code>Int</code> yields <code>Int</code>. A genuinely unrestricted runtime input carries <code>dynamic</code> (<code>Value</code>), so joining <code>dynamic</code> with <code>Int</code> widens safely to <code>Value</code> without miscompiling polymorphic programs.</li>
   <li><strong>Wake only affected consumers:</strong> When an operation's output type changes, a monotone worklist queues only direct def-use readers—eliminating whole-function map cloning and solving mutually recursive strongly connected components (<code>SCC</code>s) to a fixed point.</li>
-  <li><strong>Layer 1 demand-driven call-instance typing (<span class="chip chip-next">decided, coming</span>):</strong> When a call site supplies concrete argument types—such as <code>add(1, 2)</code>, <code>add(0.5, 1.5)</code>, or <code>add(1, 0.5)</code>—<code>HeyHirInference.hey</code> records a typed call instance <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> (<code>add#Int,Int</code>, <code>add#Float,Float</code>, <code>add#Int,Float</code>) without cloning <code>AST</code> or <code>HIR</code> trees.</li>
+  <li><strong>Layer 1 demand-driven call-instance typing (<span class="chip chip-ok">works today</span>):</strong> When a call site supplies concrete argument types—such as <code>add(1, 2)</code>, <code>add(0.5, 1.5)</code>, or <code>add(1, 0.5)</code>—<code>HeyHirInference.hey</code> records a typed call instance <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> (<code>add#Int,Int</code>, <code>add#Float,Float</code>, <code>add#Int,Float</code>) without cloning <code>AST</code> or <code>HIR</code> trees.</li>
 </ol>
 <p><strong>Architectural benefit:</strong> Layer 1 resolves overloaded operators (<code>i64 + i64</code> vs <code>double + double</code> vs mixed <code>Int + Float</code> widening to <code>double</code>) and static record field offsets per observed call tuple while keeping Hey 100% annotation-free. Unused parameters are excluded from the instance tuple so calls differing only in an ignored argument share a single instance.</p>
 </section>
 
 <section id="control-flow" aria-labelledby="h-control-flow">
 <h2 id="h-control-flow" data-doc-purpose="Understand Braun sealed-block SSA construction, lexical block scopes, and monotone integer range widening.">5 · Stage 4: Sealed-block SSA-MIR &amp; interval/escape facts</h2>
-<p>Tree <code>HIR</code> preserves structured control flow; <strong>Stage 4</strong> (<span class="chip chip-ok">works today</span> for SSA and integer ranges; <span class="chip chip-next">decided, coming</span> for borrow/escape facts) turns that tree into an explicit control-flow graph of basic blocks in <code>HeyIr.hey</code> so path-sensitive value, numeric, and lifetime facts can be proven:</p>
+<p>Tree <code>HIR</code> preserves structured control flow; <strong>Stage 4</strong> (<span class="chip chip-ok">works today</span>) turns that tree into an explicit control-flow graph of basic blocks in <code>HeyIr.hey</code> so path-sensitive value, numeric, and lifetime facts can be proven:</p>
 
 <figure>
   <div class="dual-svg">
     <svg role="img" viewBox="0 0 368 446" aria-labelledby="svg-desugar-title svg-desugar-desc">
       <title id="svg-desugar-title">Stage 2 post-parse subtree normalization and numeric identity resolution</title>
       <desc id="svg-desugar-desc">Three vertical steps: 1 Parse full arm subtree first so when false or true builds Or(F, T) with exact byte spans; 2 Bind effectful case subject once in the 67-kind Core AST; 3 Resolve every call and binding to numeric (unit_id, node_id) in HeyNames and HeyProgramResolution.</desc>
-      <rect x="4" y="4" width="360" height="438" rx="12" fill="var(--surface-alt)" stroke="var(--border-strong)" stroke-width="1.5"/>
+      <rect x="4" y="4" width="360" height="438" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.5"/>
       <text x="18" y="27" fill="var(--ink)" font-size="14" font-weight="700">Stage 2: Post-Parse Desugar</text>
       <text x="18" y="49" fill="var(--ink-muted)" font-size="12.5">Subtree-first rewrite</text>
       <rect x="234" y="34" width="116" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
-      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
+      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
 
       <rect x="18" y="66" width="332" height="100" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="88" fill="var(--ink)" font-size="13" font-weight="700">1. Parse Full Arm Subtree First</text>
@@ -454,11 +454,11 @@ end</code></pre>
       <polygon points="179,189 189,189 184,194" fill="var(--border-strong)"/>
       <text x="194" y="185" fill="var(--ink-muted)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyFinalSyntaxNodes</text>
 
-      <rect x="18" y="194" width="332" height="104" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <rect x="18" y="194" width="332" height="104" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="216" fill="var(--ink)" font-size="13" font-weight="700">2. Bind Subject Once in Core AST</text>
       <text x="28" y="240" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">let $s = subj; Equal($s, Or(F,T))</text>
       <text x="28" y="263" fill="var(--ink-muted)" font-size="12.5">Effectful subject runs 1x, never Nx</text>
-      <text x="28" y="284" fill="var(--next-ink)" font-size="12.5" font-weight="700">*Full 67-kind Core AST cutover</text>
+      <text x="28" y="284" fill="var(--ok-ink)" font-size="12.5" font-weight="700">67-kind Core AST normalization</text>
 
       <line x1="184" y1="298" x2="184" y2="326" stroke="var(--border-strong)" stroke-width="1.8"/>
       <polygon points="179,321 189,321 184,326" fill="var(--border-strong)"/>
@@ -473,12 +473,12 @@ end</code></pre>
 
     <svg role="img" viewBox="0 0 368 446" aria-labelledby="svg-ssa-title svg-ssa-desc">
       <title id="svg-ssa-title">Stage 4 Braun sealed-block SSA construction and interval range analysis</title>
-      <desc id="svg-ssa-desc">Three vertical steps in HeyMirSsa and HeyMirFacts: 1 Local definitions and incomplete loop-header block parameters break cyclic lookups in one pass; 2 Sealing blocks drops trivial joins, eliminates stack slots for locals, and keeps block_scopes across split edges; 3 Interval widening proves signed 64-bit fits_i64 bounds while promoting overflowing intermediates to BigInt.</desc>
+      <desc id="svg-ssa-desc">Three vertical steps in HeyMirSsa and HeyMirFacts: 1 Local definitions and incomplete loop-header block parameters break cyclic lookups in one pass; 2 Sealing blocks drops trivial joins, eliminates stack slots for locals, and keeps block_scopes across split edges; 3 Interval widening proves signed 64-bit fits_i64 bounds while computing F1-F4 escape and uniqueness facts.</desc>
       <rect x="4" y="4" width="360" height="438" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="18" y="27" fill="var(--ink)" font-size="14" font-weight="700">Stage 4: Sealed-Block SSA</text>
       <text x="18" y="49" fill="var(--ink-muted)" font-size="12.5">Braun et al. + interval facts</text>
       <rect x="234" y="34" width="116" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
-      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
+      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
 
       <rect x="18" y="66" width="332" height="100" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="88" fill="var(--ink)" font-size="13" font-weight="700">1. Local Defs &amp; Incomplete Joins</text>
@@ -500,20 +500,20 @@ end</code></pre>
       <polygon points="179,321 189,321 184,326" fill="var(--border-strong)"/>
       <text x="194" y="317" fill="var(--ink-muted)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyMirFacts [lo..hi]</text>
 
-      <rect x="18" y="326" width="332" height="102" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <rect x="18" y="326" width="332" height="102" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="28" y="348" fill="var(--ink)" font-size="13" font-weight="700">3. Range Widening &amp; Escape Facts</text>
       <text x="28" y="372" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">x in [2..4] -&gt; x*3 in [6..12] i64</text>
       <text x="28" y="395" fill="var(--ink-muted)" font-size="12.5">Overflowing step promotes to BigInt</text>
-      <text x="28" y="416" fill="var(--next-ink)" font-size="12.5" font-weight="700">*F1–F4 borrow &amp; arena escape facts</text>
+      <text x="28" y="416" fill="var(--ok-ink)" font-size="12.5" font-weight="700">F1–F4 borrow &amp; arena escape facts</text>
     </svg>
   </div>
-  <figcaption><strong>Figure 2 · Structural guarantees before physical lowering:</strong> Left: post-parse normalization preserves subtree grouping and single evaluation. Right: Braun sealed-block <code>SSA</code> eliminates stack slots for locals while preserving nested lexical <code>block_scopes</code> and proving exact 64-bit integer intervals.</figcaption>
+  <figcaption><strong>Figure 2 · Structural guarantees before physical lowering:</strong> Left: post-parse normalization preserves subtree grouping and single evaluation. Right: Braun sealed-block <code>SSA</code> eliminates stack slots for locals while preserving nested lexical <code>block_scopes</code> and proving exact 64-bit integer intervals and <code>F1–F4</code> escape facts.</figcaption>
 </figure>
 
 <ul>
 <li><strong>Braun sealed-block <code>SSA</code> without dominance frontiers:</strong> <code>HeyMirLowering.hey</code> and <code>HeyMirSsa.hey</code> implement <a href="https://pp.ipd.kit.edu/uploads/publikationen/braun13cc.pdf">Braun et al.'s algorithm</a> directly over basic-block parameters and edge arguments. Unsealed loop headers install an incomplete join parameter to break cycles immediately, then seal once every predecessor edge is wired, folding trivial single-value joins in place. Whenever critical-edge splitting inserts a synthetic block, <code>HeyIr.hey</code> propagates the enclosing <code>block_scopes</code> chain so Stage 7's scope arenas never lose a lexical boundary.</li>
 <li><strong>Arbitrary-precision <code>Int</code> semantics at 64-bit hardware speed:</strong> Knowing a variable has language type <code>Int</code> does not by itself make <code>9223372036854775807 + 1</code> legal as an unchecked 64-bit add—Hey integers are exact at arbitrary precision. <code>HeyMirFacts.hey</code> and <code>HeyIntRanges.hey</code> propagate exact <code>[lo..hi]</code> bounds with monotone cyclic widening. Every operation whose inputs and result fit signed 64 bits (<code>fits_i64?</code>, such as <code>clamp(..., 0, 1000)</code> in <code>score_line</code>) compiles to plain 1-cycle <code>i64</code> registers; an overflowing intermediate (<code>9223372036854775808</code>) promotes cleanly to managed <code>BigInt</code> even when a later subtraction brings the final answer back into 64-bit range (<a href="hey-compiler-output-walkthrough-2.html#native-ir">walkthrough receipt</a>).</li>
-<li><strong>Unified borrow and escape facts (<code>F1–F4</code>, <span class="chip chip-next">decided, coming</span>):</strong> On the same <code>SSA-MIR</code> graph, <code>HeyMirFacts.hey</code> computes fresh return results (<code>F1</code>), whether a value escapes its lexical scope via return, heap store, closure capture, or actor <code>send</code> (<code>F2</code>), the innermost non-escaping statement/iteration/call region (<code>F3</code>), and dead-after-use uniqueness for in-place reuse (<code>F4</code>).</li>
+<li><strong>Unified borrow and escape facts (<code>F1–F4</code>, <span class="chip chip-ok">works today</span>):</strong> On the same <code>SSA-MIR</code> graph, <code>HeyMirFacts.hey</code> computes fresh return results (<code>F1</code>), whether a value escapes its lexical scope via return, heap store, closure capture, or actor <code>send</code> (<code>F2</code>), the innermost non-escaping statement/iteration/call region (<code>F3</code>), and dead-after-use uniqueness for in-place reuse (<code>F4</code>).</li>
 </ul>
 </section>
 
@@ -574,11 +574,11 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
     <svg role="img" viewBox="0 0 368 486" aria-labelledby="svg3b-title svg3b-desc">
       <title id="svg3b-title">Two-layer register worker ABI and conditional generic entry on score_line</title>
       <desc id="svg3b-desc">Top shows two caller lanes: Dynamic or cap-hit callers use the optional generic HeyValue* entry (omitted if unused), while static typed callers jump straight to linkonce_odr worker score_line$str_str_i64 passing x0:x1 = line (16B HeyStr borrow), x2:x3 = prefix (16B inline HeyStr), x4 = weights.base (unboxed i64), returning x0 = i64 with 0B heap and 0 retain/drop.</desc>
-      <rect x="4" y="4" width="360" height="478" rx="12" fill="var(--surface-alt)" stroke="var(--next-border)" stroke-width="1.8"/>
+      <rect x="4" y="4" width="360" height="478" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.8"/>
       <text x="18" y="27" fill="var(--ink)" font-size="14" font-weight="700">Worker ABI on score_line</text>
       <text x="18" y="49" fill="var(--ink-muted)" font-size="12.5">Registers + optional entry</text>
-      <rect x="214" y="34" width="136" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="282" y="49" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="34" width="116" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
 
       <rect x="18" y="64" width="158" height="90" rx="9" fill="var(--surface)" stroke="var(--border-strong)" stroke-dasharray="4 3"/>
       <text x="28" y="86" fill="var(--ink)" font-size="12.5" font-weight="700">Dynamic / Cap Hit</text>
@@ -618,7 +618,7 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <h3>How the bounded worker key keeps <code>L1-I</code> hot and compile time linear</h3>
 <p>Between <code>HeyMirFacts.hey</code> and <code>HeyMirPhysical.hey</code>, Stage 5 maps each observed call instance onto a canonical physical worker key:</p>
 <ul>
-<li><strong>1-to-1 register workers for scalars, strings, and small scalar structs:</strong> Proven <code>i64</code> integers, <code>f64</code> floats, <code>i1</code> booleans, two-register 16-byte <code>HeyStr</code> values (distinguishing zero-<code>RC</code> <code>borrow</code> from <code>consume</code>), and flat records of up to 4 scalar fields pass straight in CPU registers.</li>
+<li><strong>1-to-1 register workers for scalars, strings, and small scalar structs:</strong> Proven <code>i64</code> integers, <code>f64</code> floats, <code>i1</code> booleans, countable <code>range_i64</code> triples, and two-register 16-byte <code>HeyStr</code> values (distinguishing zero-<code>RC</code> <code>borrow</code> from <code>consume</code>) pass straight in CPU registers (<span class="chip chip-ok">works today</span>); unboxed register passing for flat user records of up to 4 scalar fields is <span class="chip chip-next">decided, coming</span>.</li>
 <li><strong>N-to-1 pointer sharing for heap aggregates (Go GC-shape principle):</strong> Every <code>List</code>, <code>Map</code>, large or nested record, <code>BigInt</code>, and callable travels as a pointer to a <code>HeyValue</code> cell. Stage 5 collapses all heap pointer shapes with the same ownership mode into <strong>one shared <code>(borrow HeyValue*)</code> or <code>(own HeyValue*)</code> worker</strong>—so 50 record types share one compiled machine body instead of bloating binary size and evicting <code>L1-I</code> cache lines.</li>
 <li><strong>Hard caps and zero-overhead static calls:</strong> Each function caps specialization at <strong><code>&lt;= 8</code> workers</strong> and recursive specialization depth at <strong><code>&lt;= 4</code></strong> (recording a <code>specialisation_fallback</code> diagnostic counter if exceeded), deduplicates identical workers across compilation units with <code>define linkonce_odr</code>, and emits <strong>zero boxed <code>HeyValue*</code> entry wrappers</strong> whenever all callers are statically typed.</li>
 </ul>
@@ -627,47 +627,47 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
   <div class="dual-svg">
     <svg role="img" viewBox="0 0 368 456" aria-labelledby="svg4a-title svg4a-desc">
       <title id="svg4a-title">Composable two-step seam between base physical MIR passes and worker instances</title>
-      <desc id="svg4a-desc">Top card shows Step 1 Base MIR Passes (decided, coming) wiring HeyStr 16B, Borrow-Reads, Arenas, Perceus Reuse, Verify, and LLVM on the HeyValue* contract, which remains the permanent dynamic fallback wrapper. Bottom card shows Step 2 Worker Instances (decided, coming) enabling Layer 1 HIR call instances plus Layer 2 MIR carrier/borrow workers on the exact same MIR seam with zero discarded code.</desc>
-      <rect x="4" y="4" width="360" height="448" rx="12" fill="var(--surface-alt)" stroke="var(--border-strong)" stroke-width="1.5"/>
+      <desc id="svg4a-desc">Top card shows Step 1 Base MIR Passes wiring HeyStr 16B, Borrow-Reads, Arenas, Perceus Reuse, Verify, and LLVM on the HeyValue* contract, which remains the permanent dynamic fallback wrapper. Bottom card shows Step 2 Worker Instances enabling Layer 1 HIR call instances plus Layer 2 MIR carrier/borrow workers on the exact same MIR seam with zero discarded code.</desc>
+      <rect x="4" y="4" width="360" height="448" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.5"/>
       <text x="18" y="28" fill="var(--ink)" font-size="14" font-weight="700">Composable Two-Step Seam</text>
-      <text x="18" y="48" fill="var(--ink-muted)" font-size="12.5">Every base reset pass stays permanent</text>
+      <text x="18" y="48" fill="var(--ink-muted)" font-size="12.5">Every base pass stays permanent</text>
 
-      <rect x="18" y="62" width="332" height="160" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.8"/>
+      <rect x="18" y="62" width="332" height="160" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.8"/>
       <text x="28" y="84" fill="var(--ink)" font-size="13" font-weight="700">1. Base MIR Passes</text>
-      <rect x="208" y="68" width="132" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="274" y="83" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="68" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="287" y="83" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
       <rect x="28" y="98" width="312" height="32" rx="6" fill="var(--surface-alt)" stroke="var(--border)"/>
       <text x="38" y="119" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">HeyStr(16B) + Borrows + Arenas</text>
       <rect x="28" y="138" width="312" height="32" rx="6" fill="var(--surface-alt)" stroke="var(--border)"/>
-      <text x="38" y="159" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">Perceus Reuse + Verify + LLVM</text>
-      <text x="28" y="190" fill="var(--next-ink)" font-size="12.5" font-weight="700">HeyValue* body = dynamic fallback!</text>
+      <text x="38" y="159" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">Perceus + COW + Verify + LLVM</text>
+      <text x="28" y="190" fill="var(--ok-ink)" font-size="12.5" font-weight="700">HeyValue* body = dynamic fallback!</text>
       <text x="28" y="210" fill="var(--ink-muted)" font-size="12.5">0 lines discarded when workers run</text>
 
-      <line x1="184" y1="222" x2="184" y2="250" stroke="var(--next-border)" stroke-width="1.8"/>
-      <polygon points="179,245 189,245 184,250" fill="var(--next-border)"/>
+      <line x1="184" y1="222" x2="184" y2="250" stroke="var(--ok-border)" stroke-width="1.8"/>
+      <polygon points="179,245 189,245 184,250" fill="var(--ok-border)"/>
       <text x="194" y="241" fill="var(--ink-muted)" font-size="12.5">same MIR seam</text>
 
-      <rect x="18" y="250" width="332" height="190" rx="9" fill="var(--surface)" stroke="var(--next-border)" stroke-width="1.8"/>
+      <rect x="18" y="250" width="332" height="190" rx="9" fill="var(--surface)" stroke="var(--ok-border)" stroke-width="1.8"/>
       <text x="28" y="272" fill="var(--ink)" font-size="13" font-weight="700">2. Worker Instances</text>
-      <rect x="208" y="256" width="132" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="274" y="271" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
-      <rect x="28" y="288" width="312" height="58" rx="6" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="38" y="309" fill="var(--next-ink)" font-size="12.5" font-weight="700">Layer 1: HIR Instances + linkonce_odr</text>
-      <text x="38" y="331" fill="var(--next-ink)" font-size="12.5">#Int,Float typing · &lt;=8 cap · depth &lt;=4</text>
+      <rect x="234" y="256" width="106" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="287" y="271" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
+      <rect x="28" y="288" width="312" height="58" rx="6" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="38" y="309" fill="var(--ok-ink)" font-size="12.5" font-weight="700">Layer 1: HIR Instances + linkonce_odr</text>
+      <text x="38" y="331" fill="var(--ok-ink)" font-size="12.5">#Int,Float typing · &lt;=8 cap · depth &lt;=4</text>
       <rect x="28" y="354" width="312" height="58" rx="6" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
       <text x="38" y="375" fill="var(--ok-ink)" font-size="12.5" font-weight="700">Layer 2: MIR Carrier + Borrow Key</text>
-      <text x="38" y="397" fill="var(--ok-ink)" font-size="12.5">fit64 · 0-RC HeyStr · &lt;=4-reg struct</text>
+      <text x="38" y="397" fill="var(--ok-ink)" font-size="12.5">fit64 · 0-RC HeyStr · *&lt;=4-reg next</text>
       <text x="28" y="430" fill="var(--ink-muted)" font-size="12.5">Emits 0 boxed copy if all callers typed</text>
     </svg>
 
     <svg role="img" viewBox="0 0 368 456" aria-labelledby="svg4b-title svg4b-desc">
       <title id="svg4b-title">Bounded physical worker key funnel protecting L1 instruction cache and build speed</title>
-      <desc id="svg4b-desc">Funnel diagram: Scalars and small scalar records map 1-to-1 to register workers (i64/f64/i1, 2-reg HeyStr, flat &lt;=4 scalar regs, with unused params ignored). All heap aggregates (every List, Map, large Record, BigInt, Callable) collapse N-to-1 into 1 shared borrow/own HeyValue* pointer worker. Capped at &lt;=8 instances and depth &lt;=4 with linkonce_odr deduplication.</desc>
-      <rect x="4" y="4" width="360" height="448" rx="12" fill="var(--surface-alt)" stroke="var(--next-border)" stroke-width="1.8"/>
+      <desc id="svg4b-desc">Funnel diagram: Scalars and strings map 1-to-1 to register workers (i64/f64/i1, 2-reg HeyStr, countable range_i64, with flat &lt;=4 scalar regs planned next and unused params ignored). All heap aggregates (every List, Map, large Record, BigInt, Callable) collapse N-to-1 into 1 shared borrow/own HeyValue* pointer worker. Capped at &lt;=8 instances and depth &lt;=4 with linkonce_odr deduplication.</desc>
+      <rect x="4" y="4" width="360" height="448" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.8"/>
       <text x="18" y="27" fill="var(--ink)" font-size="14" font-weight="700">Bounded Worker Key Funnel</text>
       <text x="18" y="49" fill="var(--ink-muted)" font-size="12.5">Keeps L1-I cache hot</text>
-      <rect x="214" y="34" width="136" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="282" y="49" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="34" width="116" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
 
       <rect x="18" y="64" width="158" height="94" rx="9" fill="var(--surface)" stroke="var(--border)"/>
       <text x="28" y="85" fill="var(--ink)" font-size="12.5" font-weight="700">Scalars + Structs</text>
@@ -716,28 +716,28 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
   <figcaption><strong>Figure 4 · Zero-throwaway seam and worker funnel:</strong> Every base carrier and lifetime pass feeds directly into worker instances; collapsing heap pointers N-to-1 prevents template bloat.</figcaption>
 </figure>
 
-<h3>Stage 6: Five physical carriers &amp; 16-byte <code>HeyStr</code> atop <code>SDS</code></h3>
-<p><code>HeyMirPhysical.hey</code> (scalars <span class="chip chip-ok">works today</span>; <code>HeyStr</code> carrier wiring <span class="chip chip-next">decided, coming</span>) assigns every SSA value, block parameter, and call operand to one of Hey's physical carriers and inserts explicit boundary conversions where a value enters a dynamic <code>HeyValue*</code> slot. For strings, Hey pairs an Umbra-style <strong>16-byte German String (<code>HeyStr</code>)</strong> in registers with a <strong>32-byte-header reference-counted <code>SDS</code> buffer</strong> for long owned text (<a href="hey-reference-values-memory-and-strings-9.html#phases">Values, memory and Strings</a>):</p>
+<h3>Stage 6: Physical carriers &amp; 16-byte <code>HeyStr</code> atop <code>SDS</code></h3>
+<p><code>HeyMirPhysical.hey</code> (<span class="chip chip-ok">works today</span>) assigns every SSA value, block parameter, and call operand to one of Hey's physical carriers (<code>i64</code>, <code>f64</code>, <code>i1</code>, countable <code>range_i64</code>, two-register <code>string16</code>, or <code>HeyValue*</code>) and inserts explicit boundary conversions where a value enters a dynamic <code>HeyValue*</code> slot. For strings, Hey pairs an Umbra-style <strong>16-byte German String (<code>HeyStr</code>)</strong> in registers with a <strong>32-byte-header reference-counted <code>SDS</code> buffer</strong> for long owned text (<a href="hey-reference-values-memory-and-strings-9.html#phases">Values, memory and Strings</a>):</p>
 <ul>
 <li><strong>Short strings (<code>0–12</code> UTF-8 bytes) stay 100% inline in two 64-bit registers:</strong> A 4-byte length plus 12 zero-padded bytes need <strong><code>0</code> heap bytes, <code>0</code> pointer dereferences, and <code>0</code> atomic <code>RC</code> operations</strong>—so loop tags like <code>"ERR:"</code> never touch the allocator.</li>
-<li><strong>Long strings (<code>&gt; 12</code> bytes) cache a 4-byte prefix + tagged <code>SDS</code> word:</strong> Bytes <code>4..7</code> copy the first 4 bytes of text; bytes <code>8..15</code> pack the storage class (<code>OWNED</code>, <code>STATIC</code>, <code>BORROWED</code>) into bits <code>54..55</code>—leaving bits <code>56..63</code> untouched for ARM memory tagging—pointing to an <code>SDS</code> block whose slack capacity supports <code>O(1)</code> in-place unique append. Comparing <code>len + pfx[4]</code> rejects unequal strings or checks a 4-byte prefix in <strong>one 64-bit register compare with zero RAM reads</strong>.</li>
+<li><strong>Long strings (<code>&gt; 12</code> bytes) cache a 4-byte prefix + tagged <code>SDS</code> word:</strong> Bytes <code>4..7</code> copy the first 4 bytes of text; bytes <code>8..15</code> pack the storage class (<code>OWNED</code>, <code>STATIC</code>, <code>BORROWED</code>) into bits <code>54..55</code>—leaving bits <code>56..63</code> untouched for ARM memory tagging—pointing to an <code>SDS</code> block whose slack capacity supports in-place unique append (with geometric slack growth <span class="chip chip-next">decided, coming</span>). Comparing <code>len + pfx[4]</code> rejects unequal strings or checks a 4-byte prefix in <strong>one 64-bit register compare with zero RAM reads</strong>.</li>
 </ul>
 </section>
 
 <section id="ownership" aria-labelledby="h-own">
 <h2 id="h-own" data-doc-purpose="Understand how owner-scoped borrows, Perceus reuse and dynamic scope arenas govern memory lifetimes.">7 · Stage 7: The lifetime trio—borrows, Perceus reuse &amp; scope arenas</h2>
-<p>With physical carriers fixed, Stage 7 (<code>HeyMirLiveness.hey</code> <span class="chip chip-ok">works today</span>; <code>HeyMirOwnership.hey</code> &amp; region placement <span class="chip chip-next">decided, coming</span>) computes exact backward liveness across every branch, loop edge, early return, and failure exit to eliminate unnecessary reference-count and allocator work:</p>
+<p>With physical carriers fixed, Stage 7 (<code>HeyMirLiveness.hey</code> and <code>HeyMirOwnership.hey</code>, <span class="chip chip-ok">works today</span>) computes exact linear backward liveness across every branch, loop edge, early return, and failure exit to eliminate unnecessary reference-count and allocator work:</p>
 
 <figure>
   <div class="dual-svg">
     <svg role="img" viewBox="0 0 368 476" aria-labelledby="svg2a-title svg2a-desc">
       <title id="svg2a-title">16-byte German String HeyStr memory layout atop refcounted SDS buffers</title>
-      <desc id="svg2a-desc">Byte-level layout of HeyStr in runtime/hey_str.h: short strings up to 12 bytes pack a 4-byte length plus 12 inline UTF-8 bytes in two 64-bit registers with 0 heap bytes and 0 RC ops. Long strings over 12 bytes pack a 4-byte length, 4-byte inline prefix, and 8-byte tagged word (bits 54-55 class OWNED/STATIC/BORROWED) pointing to a 32-byte SDS header plus slack buffer, enabling 1-register prefix rejection and O(1) unique append.</desc>
+      <desc id="svg2a-desc">Byte-level layout of HeyStr in runtime/hey_str.h: short strings up to 12 bytes pack a 4-byte length plus 12 inline UTF-8 bytes in two 64-bit registers with 0 heap bytes and 0 RC ops. Long strings over 12 bytes pack a 4-byte length, 4-byte inline prefix, and 8-byte tagged word (bits 54-55 class OWNED/STATIC/BORROWED) pointing to a 32-byte SDS header plus slack buffer, enabling 1-register prefix rejection and unique append.</desc>
       <rect x="4" y="4" width="360" height="468" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="18" y="27" fill="var(--ink)" font-size="14" font-weight="700">16B HeyStr Atop SDS</text>
       <text x="18" y="49" fill="var(--ink-muted)" font-size="12.5">2 CPU regs · hey_str.h</text>
       <rect x="234" y="34" width="116" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
-      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today*</text>
+      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
 
       <rect x="18" y="64" width="332" height="122" rx="9" fill="var(--surface)" stroke="var(--ok-border)"/>
       <text x="28" y="86" fill="var(--ink)" font-size="13" font-weight="700">Short (&lt;= 12B): 100% Inline in Regs</text>
@@ -767,21 +767,21 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
       <text x="260" y="323" text-anchor="middle" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="12.5">bytes + slack + 0</text>
 
       <text x="28" y="359" fill="var(--ok-ink)" font-size="12.5" font-weight="700">1-reg cmp on len+pfx[4] -&gt; 0 RAM read</text>
-      <text x="28" y="381" fill="var(--ink-muted)" font-size="12.5">Unique SDS slack -&gt; O(1) in-place append</text>
+      <text x="28" y="381" fill="var(--ink-muted)" font-size="12.5">Unique SDS slack -&gt; in-place append</text>
 
-      <rect x="18" y="406" width="332" height="54" rx="8" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="184" y="427" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">*C runtime works today; MIR carrier</text>
-      <text x="184" y="447" text-anchor="middle" fill="var(--next-ink)" font-size="12.5">wiring is decided, coming in reset</text>
+      <rect x="18" y="406" width="332" height="54" rx="8" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="184" y="427" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">C runtime + HeyMirPhysical string16</text>
+      <text x="184" y="447" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5">2-register [2 x i64] carrier active</text>
     </svg>
 
     <svg role="img" viewBox="0 0 368 476" aria-labelledby="svg2b-title svg2b-desc">
       <title id="svg2b-title">How Borrow-Reads, Perceus Reuse, and Scope Arenas cut CPU ops and peak RAM</title>
-      <desc id="svg2b-desc">Three side-by-side before-and-after cards: 1 Borrow-Reads cut +2 retain/drop ops down to 0 RC ops and 0B clone; 2 Perceus In-Place Reuse cuts ~45 malloc+free ops down to ~2 store ops while keeping peak RAM flat at 1x instead of spiking to 2x; 3 Scope Arenas replace K malloc and K free calls with pointer bumps plus 1 pointer reset at scope exit.</desc>
-      <rect x="4" y="4" width="360" height="468" rx="12" fill="var(--surface-alt)" stroke="var(--next-border)" stroke-width="1.6"/>
+      <desc id="svg2b-desc">Three side-by-side before-and-after cards: 1 Borrow-Reads cut +2 retain/drop ops down to 0 RC ops and 0B clone; 2 Perceus In-Place Reuse and dynamic receiver COW fusion cut malloc+free and quadratic copies down to O(1) updates while keeping peak RAM flat at 1x; 3 Scope Arenas replace K malloc and K free calls with pointer bumps plus 1 pointer reset at scope exit.</desc>
+      <rect x="4" y="4" width="360" height="468" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.6"/>
       <text x="18" y="27" fill="var(--ink)" font-size="14" font-weight="700">Lifetime Trio: Ops &amp; Peak RAM</text>
       <text x="18" y="49" fill="var(--ink-muted)" font-size="12.5">SSA-MIR lifetime passes</text>
-      <rect x="214" y="34" width="136" height="22" rx="11" fill="var(--next-bg)" stroke="var(--next-border)"/>
-      <text x="282" y="49" text-anchor="middle" fill="var(--next-ink)" font-size="12.5" font-weight="700">decided, coming</text>
+      <rect x="234" y="34" width="116" height="22" rx="11" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="292" y="49" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">works today</text>
 
       <rect x="18" y="64" width="332" height="118" rx="9" fill="var(--surface)" stroke="var(--border)"/>
       <text x="28" y="86" fill="var(--ink)" font-size="13" font-weight="700">1. Borrow-Reads (view &lt;= owner)</text>
@@ -792,13 +792,13 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
       <text x="28" y="161" fill="var(--ink-muted)" font-size="12.5">line, prefix, weights read with 0 RC</text>
 
       <rect x="18" y="194" width="332" height="132" rx="9" fill="var(--surface)" stroke="var(--border)"/>
-      <text x="28" y="216" fill="var(--ink)" font-size="13" font-weight="700">2. Perceus Reuse (unique cell)</text>
+      <text x="28" y="216" fill="var(--ink)" font-size="13" font-weight="700">2. Perceus Reuse &amp; COW Fusion</text>
       <rect x="28" y="228" width="148" height="38" rx="6" fill="var(--bad-bg)" stroke="var(--bad-border)"/>
       <text x="102" y="252" text-anchor="middle" fill="var(--bad-ink)" font-size="12.5">Alloc+free ~45 ops</text>
       <rect x="192" y="228" width="148" height="38" rx="6" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
       <text x="266" y="252" text-anchor="middle" fill="var(--ok-ink)" font-size="12.5" font-weight="700">Store ~2 ops · 1x</text>
       <text x="28" y="290" fill="var(--ink)" font-size="12.5">Peak RAM stays 1x flat (no 2x spike)</text>
-      <text x="28" y="311" fill="var(--ink-muted)" font-size="12.5">19x faster on 40k loop in prototype</text>
+      <text x="28" y="311" fill="var(--ink-muted)" font-size="12.5">_take_receiver keeps accumulators O(1)</text>
 
       <rect x="18" y="338" width="332" height="122" rx="9" fill="var(--surface)" stroke="var(--border)"/>
       <text x="28" y="360" fill="var(--ink)" font-size="13" font-weight="700">3. Scope Arenas (block_scopes)</text>
@@ -809,35 +809,35 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
       <text x="28" y="434" fill="var(--ink)" font-size="12.5">Caps peak RAM to 1 iteration's scratch</text>
     </svg>
   </div>
-  <figcaption><strong>Figure 5 · Physical carriers and the Lifetime Trio:</strong> 16-byte <code>HeyStr</code> atop <code>SDS</code> eliminates short-string heap allocations and byte-scan prefix misses; owner-scoped borrows, Perceus reuse, and scope arenas eliminate redundant atomic counts and per-iteration allocator churn.</figcaption>
+  <figcaption><strong>Figure 5 · Physical carriers and the Lifetime Trio:</strong> 16-byte <code>HeyStr</code> atop <code>SDS</code> eliminates short-string heap allocations and byte-scan prefix misses; owner-scoped borrows, Perceus reuse, dynamic receiver COW fusion, and scope arenas eliminate redundant reference counts and per-iteration allocator churn.</figcaption>
 </figure>
 
 <ol class="fact-path">
-  <li><strong>Zero-<code>RC</code> owner-scoped borrows (<code>view &lt;= owner</code>):</strong> Every borrowed view or read-only parameter names its transitive backing owner as an explicit SSA dependency, including across branch joins. As long as the owner stays live across the read—as with <code>line</code>, <code>prefix</code>, and <code>weights</code> in <code>score_line</code>—the call executes <code>0</code> <code>retain</code> ops, <code>0</code> <code>drop</code> ops, and <code>0</code> bytes of cloning. If a view escapes into a return value, owning collection, or actor message, Stage 7 inserts an explicit promotion copy before the owner can end.</li>
-  <li><strong>Perceus last-use <code>move</code> and in-place <code>reset</code>/<code>reuse</code>:</strong> Following <a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2021/06/perceus-pldi21.pdf">Reinking et al. (PLDI 2021)</a>, an owned value's final consuming use transfers its ownership credit directly (a <code>move</code>, keeping <code>refs == 1</code> for copy-on-write maps and strings), while a dead unique record or node paired with a same-size allocation reuses the cell in place (<code>~2</code> field stores instead of <code>~45</code> allocator instructions), holding peak RAM flat at <code>1x</code>.</li>
-  <li><strong>Dynamic scope arenas on <code>block_scopes</code>:</strong> Fresh values proven by <code>F1–F3</code> not to escape a statement, loop iteration, or call bump-allocate inside a dynamic region (<code>hey_region_push</code> / <code>hey_region_pop</code>) and reclaim in <strong>one pointer reset</strong> once the scope exits and live holds hit zero—capping <code>score_batch</code>'s scratch memory to a single loop turn even on both normal and failure unwinds.</li>
+  <li><strong>Zero-<code>RC</code> owner-scoped borrows (<code>view &lt;= owner</code>):</strong> Every borrowed view or read-only parameter names its transitive backing owner as an explicit SSA dependency, propagated linearly across branch joins by <code>HeyMirLiveness.hey</code>. As long as the owner stays live across the read—as with <code>line</code>, <code>prefix</code>, and <code>weights</code> in <code>score_line</code>—the call executes <code>0</code> <code>retain</code> ops, <code>0</code> <code>drop</code> ops, and <code>0</code> bytes of cloning. If a view escapes into a return value, owning collection, or actor message, Stage 7 inserts an explicit <code>to_owned</code> promotion before the owner can end.</li>
+  <li><strong>Perceus last-use <code>move</code>, in-place <code>reuse</code> &amp; dynamic receiver COW fusion:</strong> Following <a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2021/06/perceus-pldi21.pdf">Reinking et al. (PLDI 2021)</a>, an owned value's final consuming use transfers its ownership credit directly (a <code>move</code>). Dead unique records paired with same-size constructors reuse the cell in place (<code>~2</code> field stores instead of <code>~45</code> allocator instructions, holding peak RAM flat at <code>1x</code>). For dynamic <code>HeyValue*</code> map and array accumulators (<code>set m = put(m, k, v)</code> or <code>set a = push(a, v)</code>), <code>own_fuse_cow_take_receivers</code> fuses last-use receiver ownership into <code>hey_llvm_json_put_value_take_receiver</code> and <code>hey_llvm_json_push_value_take_receiver</code> so <code>box_refs == 0 &amp;&amp; backing-&gt;refs == 1</code> holds and updates run in <code>O(1)</code> instead of cloning on every step (<a href="#n5">Note 5</a>).</li>
+  <li><strong>Dynamic scope arenas on <code>block_scopes</code>:</strong> Fresh values proven by <code>F1–F3</code> not to escape a statement, loop iteration, or call bump-allocate inside a dynamic region (<code>hey_region_push</code> / <code>hey_region_pop</code>) and reclaim in <strong>one pointer reset</strong> once the scope exits and live holds hit zero—capping <code>score_batch</code>'s scratch memory to a single loop turn on both normal and failure unwinds.</li>
 </ol>
 </section>
 
 <section id="verify-llvm" aria-labelledby="h-verify-llvm">
 <h2 id="h-verify-llvm" data-doc-purpose="See how HeyMirVerify audits invariants before HeyMirLlvm emits native code.">8 · Stage 8: Independent MIR verifier &amp; terminal LLVM backend</h2>
-<p>Before a single line of <code>LLVM</code> IR is emitted, <code>HeyMirVerify.hey</code> (<span class="chip chip-next">decided, coming</span>) audits the completed physical plan as an independent gate that cannot be switched off:</p>
+<p>Before a single line of <code>LLVM</code> IR is emitted, <code>HeyMirVerify.hey</code> (<span class="chip chip-ok">works today</span>) audits the completed physical plan as a mandatory entry gate to <code>HeyMirLlvm.emit_module</code> that cannot be switched off:</p>
 <ul>
 <li><strong>SSA &amp; carrier agreement:</strong> Every operand is dominated by its definition, every branch edge supplies block arguments matching the target block's physical carriers, and every caller/callee signature pair agrees on registers and conversion ops.</li>
-<li><strong>Borrow, Perceus credit &amp; arena balance:</strong> No borrowed view outlives its transitive owner or escapes a closing region; every owned value is consumed or dropped exactly once on every normal and failure path; every <code>hey_region_push</code> has a balanced <code>hey_region_pop</code> after loans end. Negative-control tests deliberately corrupt plans to confirm <code>HeyMirVerify.hey</code> rejects them.</li>
+<li><strong>Borrow, Perceus credit &amp; arena balance:</strong> Eight independent invariant checks verify that no borrowed view outlives its transitive owner or escapes a closing region, every owned value is consumed or dropped exactly once on every normal and failure path, and every <code>hey_region_push</code> has a balanced <code>hey_region_pop</code> after loans end. Eight negative-control mutation tests deliberately corrupt plans to confirm <code>HeyMirVerify.hey</code> rejects every class.</li>
 <li><strong>Mechanical <code>HeyMirLlvm.hey</code> translation:</strong> The terminal encoder translates verified operations one-for-one into SSA <code>LLVM</code> IR—emitting <code>define linkonce_odr</code> workers, <code>musttail</code> self-recursive integer loops (<a href="hey-reference-performance-10.html#mechanisms">Performance §6</a>), and exact checked-overflow promotion paths—without ever guessing source types, re-scanning names, or inventing cleanup actions.</li>
 </ul>
 </section>
 
 <section id="implementation-plan" aria-labelledby="h-implementation-plan">
-<h2 id="h-implementation-plan" data-doc-purpose="Follow the ordered Hey-native implementation plan and its self-hosting proof gate.">9 · Phased delivery &amp; self-hosting proof</h2>
-<p><span class="chip chip-next">decided, coming</span> Because every stage feeds structured Hey records into the next, the remaining consolidation passes land in strict dependency order with zero throwaway code (Figure 4, left):</p>
+<h2 id="h-implementation-plan" data-doc-purpose="Follow the ordered Hey-native implementation plan and its self-hosting proof gate.">9 · Composable seam &amp; self-hosting proof</h2>
+<p><span class="chip chip-ok">works today</span> Because every stage feeds structured Hey records into the next, the compiler assembles its passes in dependency order with zero throwaway code and verifies its own fixed point (Figure 4, left):</p>
 <ol class="fact-path">
-  <li><strong>1 · Complete post-parse Core AST admission &amp; module surfaces:</strong> Route every surface construct and multi-file <code>import</code>/<code>exposes</code> boundary through <code>HeySyntaxTree.hey -&gt; HeyFinalSyntaxNodes.hey -&gt; HeyProgramResolution.hey -&gt; HeyHir.hey</code>.</li>
-  <li><strong>2 · Wire 16-byte <code>HeyStr</code> &amp; owner-scoped borrows in Physical MIR:</strong> Extend <code>HeyMirPhysical.hey</code> and <code>HeyMirOwnership.hey</code> so borrowed reads carry transitive owner operands and escaping interior views promote cleanly.</li>
-  <li><strong>3 · Enable <code>F1–F4</code> escape arenas &amp; Perceus <code>reset</code>/<code>reuse</code>:</strong> Connect <code>HeyMirFacts.hey</code> escape/uniqueness sets to <code>hey_region_push</code>/<code>pop</code> on <code>block_scopes</code> and in-place cell reuse.</li>
-  <li><strong>4 · Turn on <code>HeyMirVerify.hey</code> &amp; <code>HeyMirLlvm.hey</code>:</strong> Enforce negative-control plan verification and emit native executables end-to-end on the base contract (which remains the permanent dynamic fallback entry).</li>
-  <li><strong>5 · Activate Layer 1 + Layer 2 worker specialization &amp; prove <code>stage2 == stage3</code>:</strong> Enable <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> instance typing plus <code>SSA-MIR</code> carrier/borrow workers, retire legacy compiler support files, build the full Hey compiler from stage 1 to stage 2 and stage 2 to stage 3, and verify byte-identical stage-2/stage-3 artifacts across the language, application, and benchmark suites.</li>
+  <li><strong>1 · Unified Core AST admission &amp; module surfaces:</strong> Every surface construct and multi-file <code>import</code>/<code>exposes</code> boundary (all 13 positive and refusal module cases) routes through <code>HeySyntaxTree.hey -&gt; HeyFinalSyntaxNodes.hey -&gt; HeyProgramResolution.hey -&gt; HeyHir.hey</code>.</li>
+  <li><strong>2 · Two-register <code>HeyStr</code> &amp; owner-scoped borrows in Physical MIR:</strong> <code>HeyMirPhysical.hey</code> and <code>HeyMirOwnership.hey</code> pass 16-byte strings in <code>[2 x i64]</code> registers, keep borrowed reads at zero <code>RC</code> via transitive owner operands, and promote escaping interior views explicitly.</li>
+  <li><strong>3 · <code>F1–F4</code> escape arenas, Perceus <code>reuse</code> &amp; receiver COW fusion:</strong> <code>HeyMirFacts.hey</code> escape/uniqueness sets drive <code>hey_region_push</code>/<code>pop</code> on <code>block_scopes</code>, in-place unique cell reuse, and <code>_take_receiver</code> accumulator updates.</li>
+  <li><strong>4 · Mandatory <code>HeyMirVerify.hey</code> gate &amp; <code>HeyMirLlvm.hey</code>:</strong> Negative-control plan verification guards terminal <code>LLVM</code> emission on both the permanent <code>HeyValue*</code> dynamic fallback entry and specialized register workers.</li>
+  <li><strong>5 · Layer 1 + Layer 2 worker specialization &amp; <code>stage2 == stage3</code> fixed point:</strong> <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> instance typing plus <code>SSA-MIR</code> carrier/borrow workers compile <code>tools/hey_selfc_pipeline.hey</code> from stage 1 to stage 2 and stage 2 to stage 3 with byte-identical stage-2 and stage-3 outputs (<a href="#n5">Note 5</a>).</li>
 </ol>
 </section>
 
@@ -853,7 +853,7 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 
 <section id="rulings" aria-labelledby="h-rul">
 <h2 id="h-rul" data-doc-purpose="Trace the decisions, glossary definitions and primary evidence behind the compiler.">11 · Architectural rulings, glossary &amp; primary evidence</h2>
-<p>Every design choice on this page is backed by an explicit Maintainer ruling in the <a href="hey-decisions.html">decision ledger</a>: lossless single-parse <code>HeySyntaxTree</code>, post-parse Core <code>AST</code> desugaring of <code>elsif</code> and <code>case</code>/<code>when</code>, internal-only typed <code>extern</code> declarations for runtime builtins, two-layer HIR + SSA-MIR worker specialization (confirmed November 14, 2026), 16-byte <code>HeyStr</code> atop <code>SDS</code>, typed Perceus + scope-arena lifetimes in <code>MIR</code>, and a single native Hey <code>LLVM</code> backend.</p>
+<p>Every design choice on this page is backed by an explicit Maintainer ruling in the <a href="hey-decisions.html">decision ledger</a>: lossless single-parse <code>HeySyntaxTree</code>, post-parse Core <code>AST</code> desugaring of <code>elsif</code> and <code>case</code>/<code>when</code>, internal-only typed <code>extern</code> declarations for runtime builtins, two-layer HIR + SSA-MIR worker specialization, 16-byte <code>HeyStr</code> atop <code>SDS</code>, typed Perceus + scope-arena lifetimes in <code>MIR</code>, and a single native Hey <code>LLVM</code> backend.</p>
 
 <details id="glossary">
 <summary>Glossary of compiler terms</summary>
@@ -861,9 +861,9 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <dt>Surface AST &amp; Core AST</dt><dd><code>HeySyntaxTree.hey</code> builds the lossless Surface AST with exact source spans; Stage 2 normalizes surface sugar into the 67-kind Core AST before <code>HIR</code>.</dd>
 <dt><code>(unit_id, node_id)</code></dt><dd>The numeric declaration identity assigned by resolution; every later pass keys facts by this pair, never by identifier spelling.</dd>
 <dt>Tree HIR &amp; SSA-MIR</dt><dd><code>HIR</code> is Hey's high-level tree representation for lexical scopes and type inference; <code>SSA-MIR</code> is Hey's basic-block graph where every intermediate value has one definition and explicit control-flow, range, carrier, and lifetime facts.</dd>
-<dt>Layer 1 &amp; Layer 2 specialization</dt><dd>Layer 1 (<code>HeyHirInference.hey</code>) types static call tuples (<code>#Int,Float</code>) to resolve operators and fields; Layer 2 (between <code>HeyMirFacts.hey</code> and <code>HeyMirPhysical.hey</code>) deduplicates <code>linkonce_odr</code> machine workers by physical carrier, <code>fits_i64?</code>, borrow/consume mode, and <code>&lt;= 4</code>-scalar structs while sharing 1 pointer worker across heap aggregates.</dd>
+<dt>Layer 1 &amp; Layer 2 specialization</dt><dd>Layer 1 (<code>HeyHirInference.hey</code>) types static call tuples (<code>#Int,Float</code>) to resolve operators and fields; Layer 2 (<code>HeyMirPhysical.hey</code>) deduplicates <code>linkonce_odr</code> machine workers by physical carrier, <code>fits_i64?</code>, and borrow/consume mode while sharing 1 pointer worker across heap aggregates.</dd>
 <dt><code>HeyStr</code> &amp; <code>SDS</code></dt><dd>Hey's 16-byte German String carrier (<code>0–12</code> bytes inline in two 64-bit registers; <code>&gt; 12</code> bytes storing a 4-byte length, 4-byte prefix, and tagged pointer to a 32-byte-header reference-counted Simple Dynamic String buffer with slack capacity).</dd>
-<dt>Perceus, borrow &amp; scope arena</dt><dd>Precise compiler-placed memory management: zero-<code>RC</code> owner-scoped reads (<code>borrow</code>), last-use ownership transfer (<code>move</code>) plus unique-cell in-place <code>reset</code>/<code>reuse</code> (Perceus), and bulk pointer-bump scratch regions (<code>hey_region_push</code>/<code>pop</code>) tied to lexical <code>block_scopes</code>.</dd>
+<dt>Perceus, borrow &amp; scope arena</dt><dd>Precise compiler-placed memory management: zero-<code>RC</code> owner-scoped reads (<code>borrow</code>), last-use ownership transfer (<code>move</code>) plus unique-cell in-place <code>reuse</code> and <code>_take_receiver</code> accumulator fusion, and bulk pointer-bump scratch regions (<code>hey_region_push</code>/<code>pop</code>) tied to lexical <code>block_scopes</code>.</dd>
 <dt><code>bottom</code> vs <code>dynamic</code> (<code>Value</code>)</dt><dd><code>bottom</code> means dataflow has not visited an edge yet; <code>dynamic</code> means the runtime value is genuinely unrestricted and travels in a 32-byte <code>HeyValue</code> cell.</dd>
 <dt>Negative control</dt><dd>A verification test that deliberately injects a broken invariant (such as an escaping borrow or mismatched carrier) and asserts that <code>HeyMirVerify.hey</code> refuses the plan.</dd>
 </dl>
@@ -872,8 +872,8 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <div id="correction-evidence">
 <h3 id="h-correction-evidence">Measured snapshots &amp; primary literature</h3>
 <ul>
-<li><strong>Native compiler &amp; parser receipts:</strong> Direct Hey HIR/MIR/physical-planning check suite (commit <code>1ec3b38ba</code>, binary SHA-256 <code>9ee5d6a5239...cfa6b</code>: 19/19 HIR, 19/19 MIR with scope checks, 19/19 source facts, 18/18 synthetic facts, 24/24 physical-planning cases; <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">walkthrough receipts</a>); parser verification (SHA-256 <code>07b8d27f2c2...1f53e6</code>: 10/10 precedence and header assertions, 97/97 valid doc snippets parsed and 5/5 invalid syntax examples rejected).</li>
-<li><strong>Runtime &amp; memory measurements:</strong> <code>runtime/hey_str.h</code> (16-byte <code>HeyStr</code> atop 32-byte <code>SDS</code> header), <code>runtime/hey_runtime.h</code> (32-byte <code>HeyValue</code>, 27-class small-block allocator, <code>hey_region_push</code>/<code>pop</code>), and the 19x Perceus in-place reuse benchmark prototype (<code>0.219 s</code> vs <code>4.239 s</code> across 40,000 functional updates).</li>
+<li><strong>Native compiler &amp; parser receipts:</strong> Unified eight-stage <code>0.99.607a</code> pipeline (<code>tools/hey_selfc_pipeline.hey</code>, <a href="#n5">Note 5</a>) verified across all 8 negative-control mutations in <code>HeyMirVerify.hey</code>, all 13 module/import resolution cases, and byte-identical <code>stage2 == stage3</code> self-hosting; direct HIR/MIR/physical-planning check suite (<a href="#n6">Note 6</a>: 19/19 HIR, 19/19 MIR with scope checks, 19/19 source facts, 18/18 synthetic facts, 24/24 physical-planning cases; <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">walkthrough receipts</a>); parser verification (10/10 precedence and header assertions, 97/97 valid doc snippets parsed and 5/5 invalid syntax examples rejected).</li>
+<li><strong>Runtime &amp; memory measurements:</strong> <code>runtime/hey_str.h</code> (16-byte <code>HeyStr</code> atop 32-byte <code>SDS</code> header), <code>runtime/hey_runtime.h</code> (32-byte <code>HeyValue</code>, 27-class small-block allocator, <code>hey_region_push</code>/<code>pop</code>), dynamic <code>_take_receiver</code> accumulator fusion eliminating quadratic copy-on-write cloning on self-compile workloads (<a href="#n5">Note 5</a>), and the 19x Perceus in-place reuse benchmark prototype (<code>0.219 s</code> vs <code>4.239 s</code> across 40,000 functional updates).</li>
 <li><strong>Reference literature:</strong> Braun et al., <a href="https://pp.ipd.kit.edu/uploads/publikationen/braun13cc.pdf"><em>Simple and Efficient Construction of Static Single Assignment Form</em></a> (CC 2013); Reinking et al., <a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2021/06/perceus-pldi21.pdf"><em>Perceus: Garbage Free Reference Counting with Reuse</em></a> (PLDI 2021); Neumann &amp; Freitag, <em>Umbra: A Disk-Based System with In-Memory Performance</em> (CIDR 2020, 16-byte German Strings); Bezanson et al., <em>Julia: A Fresh Approach to Numerical Computing</em> (SIAM Review 2017, call-tuple specialization and method caps); <a href="https://github.com/golang/proposal/blob/master/design/generics-implementation-gcshape.md">Go GC-shape stenciling</a>; <a href="https://rustc-dev-guide.rust-lang.org/backend/monomorph.html">Rust <code>linkonce_odr</code> monomorphization &amp; intrinsic checks</a>; Tofte &amp; Talpin, <em>Region-Based Memory Management</em> (1997).</li>
 </ul>
 </div>
@@ -883,9 +883,11 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <h2 id="notes-h" data-doc-purpose="Follow the commit notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">Consolidation retirement ledger and construct inventory establishing the single-pipeline cutover: <code>bb419e</code>, <code>a366c0</code>.</li>
-<li id="n2">Split-edge <code>block_scopes</code> preservation in <code>HeyIr.hey</code> and retirement of legacy runtime constructor TSV tables: <code>6a6576e76</code>.</li>
+<li id="n2">Split-edge <code>block_scopes</code> preservation in <code>HeyIr.hey</code> and retirement of legacy runtime constructor TSV tables: <code>6a6576</code>.</li>
 <li id="n3">Internal-only <code>extern</code> declarations reserved for Hey's built-in library and refused in user/package/REPL source at admission, paired with resolved runtime provider identities: <code>4dd3d5</code>, <code>d877d3</code>.</li>
 <li id="n4">Post-parse structural lowering of <code>if</code>/<code>elsif</code>, <code>case</code>/<code>when</code>, and digit-separated <code>Int</code> literals: <code>dfb7f9</code>, <code>2c3614</code>, <code>f5f96d</code>.</li>
+<li id="n5">Unified eight-stage native pipeline (<code>tools/hey_selfc_pipeline.hey</code>), Contender B two-layer specialization, Perceus + dynamic <code>_take_receiver</code> COW fusion + <code>hey_region_push</code>/<code>pop</code> arenas, 8-invariant <code>HeyMirVerify.hey</code>, <code>HeyMirLlvm.hey</code>, and verified <code>stage2 == stage3</code> self-hosting in <code>0.99.607a</code>: <code>835943</code>.</li>
+<li id="n6">Captured HIR/MIR/physical-planning check suite snapshot: <code>1ec3b3</code>.</li>
 </ol>
 </section>
 
