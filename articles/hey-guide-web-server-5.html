@@ -439,18 +439,55 @@ module CardStore
   end
 end</code></pre>
 <p class="label">app/jobs/welcome_job.hey: background work, explained in section 7</p>
-<pre data-example="runnable" data-file="app/jobs/welcome_job.hey"><code>import &#39;stdlib:Jobs&#39;
+<pre data-example="runnable" data-file="app/jobs/welcome_job.hey"><code>import &#39;stdlib:Actor&#39;
+import &#39;stdlib:Jobs&#39;
 
 # A worker is a plain function that runs on the Job&#39;s own threads.
 worker SendWelcome(message)
   return &#39;welcome sent to &#39; + message.email
 end
 
+# Jobs.define starts a live pool and claims &#39;CardsWelcomes&#39; process-wide,
+# so hold that single handle inside an owner actor started once at boot.
+actor WelcomePoolOwner
+  state pool = nil
+  receive msg
+  if pool == nil
+    set pool = Jobs.define(&#39;CardsWelcomes&#39;, SendWelcome, count: 2, capacity: 64, result_capacity: 64)
+  end
+  if msg.kind == &#39;actor_call&#39; and msg.body == &#39;pool&#39;
+    _ = Actor.reply(msg.reply_id, pool)
+  end
+end
+
+fn find_welcome_owner()
+  for info in actors()
+    if info.name == &#39;WelcomePoolOwner&#39;
+      return actor_by_pid(info.pid)
+    end
+  end
+  return nil
+end
+
 module WelcomeJob
-  # Jobs.define names the pool. Defining the same name again hands back
-  # the pool that already exists, so a handler can call this every time.
+  fn start()
+    let existing = find_welcome_owner()
+    if existing != nil
+      return existing
+    end
+    return spawn WelcomePoolOwner
+  end
+
   fn pool()
-    return Jobs.define(&#39;CardsWelcomes&#39;, SendWelcome, count: 2, capacity: 64, result_capacity: 64)
+    let owner = find_welcome_owner()
+    if owner == nil
+      fail &#39;WelcomeJob.start() must run once at server startup&#39;
+    end
+    let reply = Actor.call(owner, &#39;pool&#39;, 1000)
+    if !reply.ok
+      fail &#39;WelcomeJob pool unavailable: &#39; + reply.error
+    end
+    return reply.value
   end
 end</code></pre>
 <div class="cols">
@@ -475,9 +512,11 @@ import &#39;pkg:hey_web@0.3.9/config&#39;
 import &#39;pkg:hey_web@0.3.9/server&#39;
 import &#39;config/routes.hey&#39;
 import &#39;app/models/card_store.hey&#39;
+import &#39;app/jobs/welcome_job.hey&#39;
 
 program
   let ready = CardStore.setup()
+  let welcomes = WelcomeJob.start()
   let config = HeyWebServer.options(Cli.args(), HeyWebConfig.load_or_default(&#39;config/hey_web.json&#39;))
   let app = HeyWeb.application(&#39;cards&#39;, Routes.all(), config)
   says HeyWebServer.banner(app)
@@ -573,8 +612,8 @@ $ curl -s 'localhost:3000/search?q=cats'
 <p><span class="tag t-acc">Decided, coming</span> Each call into the C library goes through a general-purpose bridge that looks the function up by name at run time. The ruled replacement reads the package's <code>hey.native.json</code> at build time and emits a direct, typed call: <a href="hey-reference-native-code-and-c-8.html">Native code and C</a>.</p>
 
 <h2 id="jobs" data-doc-purpose="Move background work into Jobs.">7. Background work with Jobs <span class="tag t-good">Works today</span></h2>
-<p>A <strong>Job</strong> is a named pool of worker threads with a bounded queue. You hand it a message, you get a <strong>receipt</strong> back right away, and a worker runs the function later. Retries, dead letters and how to choose between Jobs, workers and actors are in <a href="hey-reference-workers-jobs-streams-5.html">Workers, Jobs and streams</a>; here's the web part.</p>
-<p><code>WelcomeJob.pool()</code> in <code>app/jobs/welcome_job.hey</code> calls <code>Jobs.define</code> with a fixed name; defining the same name again hands back the pool that already exists, so a handler can call it every time. The controller's <code>signup</code> calls <code>HeyWebJobs.accepted(WelcomeJob.pool(), {email: body.email})</code>. That enqueues the work and answers <code>202 Accepted</code> with the receipt, so the client can ask about it later (<code>HeyWebJobs.await(job, receipt, timeout_ms)</code> waits for the result). If the queue is full the client gets a <code>500</code> with <code>job_queue_full</code> instead of the request hanging.</p>
+<p>A <strong>Job</strong> is a named pool of worker threads with a bounded queue. You hand it a message, you get a <strong>receipt</strong> back right away, and a worker runs the function later. Retries, dead letters, standing vs per-batch pool patterns, and how to choose between Jobs, workers and actors are in <a href="hey-reference-workers-jobs-streams-5.html#jobs-howto">Workers, Jobs and streams</a>; here's the web part.</p>
+<p><code>Jobs.define('CardsWelcomes', …)</code> creates a <em>new</em> worker pool and claims <code>'CardsWelcomes'</code> process-wide until stopped—it is a constructor, not a lookup. So <code>server.hey</code> starts <code>WelcomeJob.start()</code> <strong>once</strong> at boot, and <code>WelcomeJob.pool()</code> fetches that single standing pool via <code>Actor.call</code> on <code>WelcomePoolOwner</code>. The controller's <code>signup</code> calls <code>HeyWebJobs.accepted(WelcomeJob.pool(), {email: body.email})</code>, which checks <code>receipt.accepted</code>, enqueues the work, and answers <code>202 Accepted</code> with the receipt (<code>HeyWebJobs.await(job, receipt, timeout_ms)</code> waits for the result). If the bounded queue is full, the client gets a clean refusal (<code>job_queue_full</code>) instead of stalling request threads.</p>
 <pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ curl -si -X POST localhost:3000/signup -d '{"email":"ada@example.com"}'
 HTTP/1.1 202 Accepted
 content-type: application/json
@@ -582,7 +621,8 @@ content-length: 51
 connection: keep-alive
 
 {"accepted":true,"job":"CardsWelcomes","receipt":1}</code></pre>
-<div class="note warn"><p><strong>Why not the shorter <code>job Welcomes ... end</code> form?</strong> That declaration only works in the file that holds <code>program</code>; put it in <code>app/jobs/</code> and import it, and the compiler refuses: <code>job declarations are application-entry declarations and cannot be imported</code>. A handler also can't see values the program made at startup (handlers are looked up by name and capture nothing). So the pattern is a function that calls <code>Jobs.define</code> with a fixed name, as here.</p></div>
+<!-- tracked-pitfall: [000.99] -->
+<div class="note warn"><p><strong>Two <code>0.99.608a</code> pitfalls to avoid (tracked for <code>release 609a</code>).</strong> (1) Never call <code>Jobs.define('CardsWelcomes', …)</code> directly inside a request handler: the first request succeeds, and the second fails with <code>Jobs.define name 'CardsWelcomes' is already defined by a running Job</code> (<code>Jobs.ensure</code> / <code>Jobs.lookup</code> is queued for <code>release 609a</code>). (2) In <code>0.99.608a</code>, the declarative <code>job Welcomes … end</code> shorthand works inside the entry file's <code>program</code> block, not inside imported module functions, and route handlers capture no startup locals—which is why <code>WelcomePoolOwner</code> + <code>Actor.call</code> is the standing-pool pattern today. Full recipes and per-batch fan-out rules: <a href="hey-reference-workers-jobs-streams-5.html#jobs-pitfalls">Reference 5 §4–§5</a>.</p></div>
 
 <h2 id="fail" data-doc-purpose="Understand what happens when a request handler fails.">8. When a handler fails <span class="tag t-good">Works today</span></h2>
 <figure class="fig">
@@ -692,9 +732,11 @@ import &#39;pkg:hey_web@0.3.9/server&#39;
 import &#39;pkg:hey_web@0.3.9/poller&#39;
 import &#39;config/routes.hey&#39;
 import &#39;app/models/card_store.hey&#39;
+import &#39;app/jobs/welcome_job.hey&#39;
 
 program
   let ready = CardStore.setup()
+  let welcomes = WelcomeJob.start()
   let config = HeyWebServer.options(Cli.args(), HeyWebConfig.load_or_default(&#39;config/hey_web.json&#39;))
   let app = HeyWeb.application(&#39;cards&#39;, Routes.all(), {...config, workers: 1})
   says &#39;cards on the readiness lane (one kqueue/epoll loop)&#39;
