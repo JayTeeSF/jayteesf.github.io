@@ -21,13 +21,13 @@ module PackagesIndex
   # --workers N, or PACKAGES_INDEX_WORKERS. Defaults to 4. The value is parsed and
   # validated, but rendering is serial on 0.99.601a (see render_page), so it does not
   # change the work done or the output.
-  private fn worker_count(args)
+  fn worker_count(args)
     # The flag wins, then the environment.
     let requested = ''
     let index = 0
 
-    while index < args.length
-      if args[index] == '--workers' and index + 1 < args.length
+    while index < args.len
+      if args[index] == '--workers' and index + 1 < args.len
         set requested = args[index + 1]
       end
       set index = index + 1
@@ -77,7 +77,7 @@ module PackagesIndex
   private fn digit_run(value, start)
     let finish = start
 
-    while finish < value.length and PackagesIndex.digit?(slice(value, finish, 1))
+    while finish < value.len and PackagesIndex.digit?(slice(value, finish, 1))
       set finish = finish + 1
     end
 
@@ -90,11 +90,11 @@ module PackagesIndex
   private fn trim_leading_zeroes(value)
     let index = 0
 
-    while index + 1 < value.length and slice(value, index, 1) == '0'
+    while index + 1 < value.len and slice(value, index, 1) == '0'
       set index = index + 1
     end
 
-    return slice(value, index, value.length - index)
+    return slice(value, index, value.len - index)
   end
 
   private fn compare_digit_runs(left, right)
@@ -102,8 +102,8 @@ module PackagesIndex
     let normalized_right = PackagesIndex.trim_leading_zeroes(right)
 
     let comparison = Collections.compare(
-      normalized_left.length,
-      normalized_right.length
+      normalized_left.len,
+      normalized_right.len
     )
     if comparison != 0
       return comparison
@@ -114,7 +114,7 @@ module PackagesIndex
       return comparison
     end
 
-    return Collections.compare(left.length, right.length)
+    return Collections.compare(left.len, right.len)
   end
 
   fn compare_paths(left, right)
@@ -123,7 +123,7 @@ module PackagesIndex
     let left_index = 0
     let right_index = 0
 
-    while left_index < folded_left.length and right_index < folded_right.length
+    while left_index < folded_left.len and right_index < folded_right.len
       let left_character = slice(folded_left, left_index, 1)
       let right_character = slice(folded_right, right_index, 1)
 
@@ -153,8 +153,8 @@ module PackagesIndex
     end
 
     let comparison = Collections.compare(
-      folded_left.length,
-      folded_right.length
+      folded_left.len,
+      folded_right.len
     )
     if comparison != 0
       return comparison
@@ -163,12 +163,56 @@ module PackagesIndex
     return Collections.compare(left, right)
   end
 
-  # On 2026-09-24 `.uniq`, `.sort(cmp)` and `.empty?` on an array returned the runtime's
-  # truthy `#<stop>` sentinel, and this function was replaced by a hand-written unique and
-  # insertion sort. They work on 0.99.601a, and the Ruby spelling is back: same output, byte
-  # for byte, and 6.5x faster on the 34-package tree.
+  private fn sub_array(items, start, count)
+    let out = []
+    let idx = 0
+    while idx < count
+      set out = push(out, items[start + idx])
+      set idx = idx + 1
+    end
+    return out
+  end
+
+  private fn sort_paths(items)
+    let n = len(items)
+    if n <= 1
+      return items
+    end
+    let mid = n / 2
+    let left = PackagesIndex.sort_paths(PackagesIndex.sub_array(items, 0, mid))
+    let right = PackagesIndex.sort_paths(PackagesIndex.sub_array(items, mid, n - mid))
+    let merged = []
+    let i = 0
+    let j = 0
+    while i < len(left) and j < len(right)
+      if PackagesIndex.compare_paths(left[i], right[j]) <= 0
+        set merged = push(merged, left[i])
+        set i = i + 1
+      else
+        set merged = push(merged, right[j])
+        set j = j + 1
+      end
+    end
+    while i < len(left)
+      set merged = push(merged, left[i])
+      set i = i + 1
+    end
+    while j < len(right)
+      set merged = push(merged, right[j])
+      set j = j + 1
+    end
+    return merged
+  end
+
   private fn sorted_unique(paths)
-    return paths.uniq.sort(PackagesIndex.compare_paths)
+    let sorted = PackagesIndex.sort_paths(paths)
+    let out = []
+    for p in sorted
+      if len(out) == 0 or out[len(out) - 1] != p
+        set out = push(out, p)
+      end
+    end
+    return out
   end
 
   private fn package_directories(index)
@@ -180,7 +224,7 @@ module PackagesIndex
       end
     end
 
-    return directories.sort(PackagesIndex.compare_paths)
+    return PackagesIndex.sort_paths(directories)
   end
 
   private fn package_files(package_dir)
@@ -563,7 +607,7 @@ program
 
   let positionals = []
   let index = 0
-  while index < args.length
+  while index < args.len
     if args[index] == '--workers'
       set index = index + 1
     else
@@ -572,12 +616,12 @@ program
     set index = index + 1
   end
 
-  if positionals.length > 1
+  if positionals.len > 1
     fail 'expected zero or one PACKAGES_DIR argument'
   end
 
   let packages_dir = './packages'
-  if positionals.length == 1
+  if positionals.len == 1
     set packages_dir = positionals[0]
   end
 
