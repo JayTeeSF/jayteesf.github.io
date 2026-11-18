@@ -120,21 +120,19 @@ retries and results, and a <strong>stream</strong> when your work is a chain of 
 <code>filter</code>.</p>
 
 <div class="summary"><strong>On one screen</strong>
-<code>worker</code>, <code>workers(...)</code>, <code>Jobs.define</code>, receipts, results, retries,
+<code>worker</code>, <code>workers(...)</code>, <code>job Name … end</code>, <code>Jobs.ensure</code>, <code>Jobs.lookup</code>, <code>Jobs.define</code>, receipts, results, retries,
 backoff, idempotency keys, dead letters, cancellation and parallel streams all <span class="badge b-works">Works today</span>.
 Every queue has a fixed size and says "no" when full instead of growing. A failure inside a Job attempt ends only that
 attempt. Section 1 helps you pick between an actor, a pool, a Job, a stream and a plain function, with measured costs;
-<a href="#jobs-howto">Section 4</a> shows the two production patterns for standing server-wide and per-batch Job pools, and
-<a href="#jobs-pitfalls">Section 5</a> lists three <code>0.99.608a</code> pitfalls to avoid.</div>
+<a href="#jobs-howto">Section 4</a> shows the three clean ways to define and reuse Job pools across modules, servers and batches.</div>
 
-<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test on 0.99.608a. <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet; the box shows what it will print. <span class="badge b-proposed">Proposed</span> not ruled.</p>
+<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test on 0.99.609a. <span class="badge b-decided">Decided, coming</span> ruled and part of the language, not in a released build yet; the box shows what it will print. <span class="badge b-proposed">Proposed</span> not ruled.</p>
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#choose">Actor, pool, Job, stream or function?</a></li>
 <li><a href="#workers">Worker pools</a></li>
 <li><a href="#jobs">Jobs</a></li>
-<li><a href="#jobs-howto">How-to: standing vs per-batch pools</a></li>
-<li><a href="#jobs-pitfalls">Current 0.99.608a Jobs pitfalls</a></li>
+<li><a href="#jobs-howto">How-to: the three ways to run Jobs</a></li>
 <li><a href="#reliability">Retries, backoff, idempotency, dead letters</a></li>
 <li><a href="#more">Cancel, partitions, adaptive scaling</a></li>
 <li><a href="#streams">Streams</a></li>
@@ -159,7 +157,7 @@ never race. It's the only tool here with state that lives between messages.</td>
 <tr><td>"I have lots of independent pieces of work and want them done in parallel, as fast as possible."</td>
 <td><code>worker</code> + <code>workers(...)</code></td><td>A pool runs many at once with a bounded waiting room. Nothing is
 remembered between messages, so nothing has to be kept in order.</td></tr>
-<tr><td>"I need to keep slow or unbounded I/O off request threads (<code>Web.serve</code> / <code>HeyWebPoller</code>) with a bounded queue, a receipt (<code>receipt.accepted</code>, <code>receipt.id</code>), <code>Jobs.result</code>, retries/backoff, <code>Jobs.cancel</code>, <code>Jobs.dead_letters</code>, or a durable journal."</td><td><code>job</code> / <code>Jobs.define</code></td><td>A Job is a named bounded pool plus bookkeeping: every
+<tr><td>"I need to keep slow or unbounded I/O off request threads (<code>Web.serve</code> / <code>HeyWebPoller</code>) with a bounded queue, a receipt (<code>receipt.accepted</code>, <code>receipt.id</code>), <code>Jobs.result</code>, retries/backoff, <code>Jobs.cancel</code>, <code>Jobs.dead_letters</code>, or a durable journal."</td><td><code>job</code> / <code>Jobs.ensure</code> / <code>Jobs.define</code></td><td>A Job is a named bounded pool plus bookkeeping: every
 item gets a receipt right away, backpressure refuses excess load cleanly when full, and failed attempts retry and record dead letters instead of vanishing.</td></tr>
 <tr><td>"I have a collection and want to <code>map</code> or <code>filter</code> it, in parallel, and get a list back."</td>
 <td><code>Streams</code></td><td>A stream is the shortest way to write it, and keeps results in input order unless you ask
@@ -170,7 +168,7 @@ otherwise. It's for collections, not for one item at a time.</td></tr>
 <p>An actor handles each sender's messages in the order that sender sent them. A worker pool and a Job do not: with
 <code>count: 8</code>, eight items run at once and finish in whatever order they finish. A stream runs out of order
 inside a stage but puts results back in input order before it hands them on (unless you call
-<code>.unordered()</code>, <a href="#streams">section 8</a>).</p>
+<code>.unordered()</code>, <a href="#streams">section 7</a>).</p>
 <p>So if you need speed more than order, use a pool or a Job. Don't try to make an actor faster by letting it start its
 next message while one is still waiting: Hey actors never do that. A handler runs to completion before the next
 message starts, and <code>sleep</code> inside a handler parks that actor, not the others.<sup><a href="#n4">4</a></sup>
@@ -184,7 +182,7 @@ is depends on the tool, and this is often what decides between them.</p>
 <tr><td><code>fn</code> called from <code>program</code></td><td>the whole program, exit status 1</td><td>nothing</td><td>the error message</td></tr>
 <tr><td><code>actor</code></td><td>that actor; its state is gone</td><td>every other actor, and the program</td><td>links, monitors and supervisors are told, with the reason; a supervisor can start a fresh one (<a href="hey-reference-actors-and-failure-4.html">Actors and failure</a>)</td></tr>
 <tr><td>worker pool</td><td>that one item</td><td>the pool and its other items</td><td>nothing comes back for that item; a bare pool drops results anyway</td></tr>
-<tr><td>Job</td><td>that one attempt</td><td>the Job, its other items, and the retries of this one</td><td>the result says <code>failed</code> with the error; after the last retry the item is a dead letter (<a href="#reliability">section 6</a>)</td></tr>
+<tr><td>Job</td><td>that one attempt</td><td>the Job, its other items, and the retries of this one</td><td>the result says <code>failed</code> with the error; after the last retry the item is a dead letter (<a href="#reliability">section 5</a>)</td></tr>
 <tr><td>stream</td><td>the whole program, at the first failing item</td><td>nothing</td><td>the error message. A stream has no per-item failure handling: if items can fail, send them <code>.through(job)</code> instead</td></tr>
 </tbody></table></div>
 
@@ -194,7 +192,7 @@ is depends on the tool, and this is often what decides between them.</p>
 waits 10 ms, the way a network call would. Parallel tools get one worker per core for CPU work and 64 for waiting
 work (a stream stage takes at most 16). Each number is the median of five runs; the range under it is the fastest and
 slowest run.</p>
-<p class="youarehere" id="tradeoffs-machine">Preliminary: measured on an Apple M3 Pro (12 cores) while other builds were running, so treat the numbers as rough; clean re-measurement on 0.99.608a is pending. Each is the median of five runs, with the fastest and slowest run in brackets. Rust, Go and C run the same workloads, each written the way that language is normally written.</p>
+<p class="youarehere" id="tradeoffs-machine">Preliminary: measured on an Apple M3 Pro (12 cores) while other builds were running, so treat the numbers as rough; clean re-measurement on 0.99.609a is pending. Each is the median of five runs, with the fastest and slowest run in brackets. Rust, Go and C run the same workloads, each written the way that language is normally written.</p>
 <div class="scroll"><table>
 <thead><tr><th>Hey tool</th><th>One item, sent and answered</th><th>Times a plain call</th><th>Parallel pays above</th><th>Rust</th><th>Go</th><th>C</th></tr></thead><tbody>
 <tr><td>plain <code>fn</code></td><td>63 ns (61 to 65)</td><td>1&times;</td><td>never: it's the work itself</td><td>under 1 ns (inlined)</td><td>2 ns</td><td>5 ns</td></tr>
@@ -464,7 +462,10 @@ $ echo $?
 <div class="scroll"><table>
 <caption>Every Job operation</caption>
 <thead><tr><th>Call</th><th>Returns</th></tr></thead><tbody>
-<tr><td><code>Jobs.define(name, Worker, …)</code> / <code>job Name … end</code></td><td>the Job</td></tr>
+<tr><td><code>job Name … end</code></td><td>declares a standing Job pool visible across <code>program</code>, top-level <code>fn</code>s, same-file <code>module</code> functions, and importing files</td></tr>
+<tr><td><code>Jobs.ensure(name, Worker, …)</code></td><td>thread-safe single-flight creation or lookup of a standing Job pool (verifying matching worker and options)</td></tr>
+<tr><td><code>Jobs.lookup(name)</code></td><td>the live Job handle for <code>name</code>, or <code>nil</code> when absent or stopped</td></tr>
+<tr><td><code>Jobs.define(name, Worker, …)</code></td><td>creates a new Job pool, failing fast if <code>name</code> is already running (<code>L-LAN-77</code>)</td></tr>
 <tr><td><code>Job.enqueue(msg)</code></td><td>a receipt: <code>accepted</code>, <code>id</code>, and <code>duplicate</code>, <code>partition</code> when those options are on</td></tr>
 <tr><td><code>Jobs.result(job, receipt, timeout_ms)</code></td><td><code>ok</code>, <code>status</code> (one of the six), <code>value</code>, <code>error</code>, <code>attempts</code></td></tr>
 <tr><td><code>Jobs.require(job, receipt, timeout_ms)</code></td><td>the value, or <code>fail</code>s with the error</td></tr>
@@ -475,115 +476,106 @@ $ echo $?
 <tr><td><code>Job.stop()</code></td><td>stops the Job like <code>pool.stop()</code> and releases its registered name</td></tr>
 </tbody></table></div>
 
-<h2 id="jobs-howto" data-doc-purpose="Apply the two production patterns for standing and per-batch Job pools.">4. How-to: standing server pools vs scoped per-batch pools</h2>
-<p><code>Jobs.define('PoolName', MyWorker, …)</code> is a <strong>constructor</strong>, not a lookup: it starts a live
-worker pool and registers <code>'PoolName'</code> across the whole process (ledger ruling <code>L-LAN-77</code>) until
-<code>pool.stop()</code> runs. That rule shapes the two safe ways to use <code>Jobs</code> in servers and multi-module
-programs. <span class="badge b-works">Works today</span></p>
+<h2 id="jobs-howto" data-doc-purpose="Choose between declarative job blocks, dynamic Jobs.ensure + Jobs.lookup, and strict Jobs.define.">4. How-to: the three ways to run Jobs</h2>
+<p>Every running Job claims its name across the process until <code>pool.stop()</code> runs (ledger ruling
+<code>L-LAN-77</code>). Pick one of three forms depending on whether your pool settings are static, loaded at run
+time, or scoped to one batch. <span class="badge b-works">Works today</span></p>
 
-<h3>Pattern A — Standing server-wide pool (start once, reuse on every request)</h3>
-<p>For ongoing background queues—sending mail, indexing uploads, running slow database or HTTP work off
-<code>Web.serve</code> / <code>HeyWebPoller</code> request threads—create the pool <strong>once</strong> at startup:</p>
-<ul>
-<li><strong>Direct parameter passing:</strong> When your functions accept a <code>pool</code> argument, create the pool once in <code>program</code> (<code>let Mail = Jobs.define('Mail', SendMail, count: 2, capacity: 32, result_capacity: 32)</code>) and pass <code>Mail</code> down.</li>
-<li><strong>Lightweight <code>actor PoolOwner</code> + <code>Actor.call</code>:</strong> Hey has no mutable global variables, and <code>Web.serve</code> / <code>HeyWeb</code> route handlers are plain module functions taking only <code>request</code>. Hold the single <code>Jobs.define</code> handle in a tiny owner actor's <code>state pool = nil</code>, spawn that actor once in <code>program</code>, and reach it from any stateless module function with <code>Actor.call</code>.</li>
-<li><strong>Always check <code>if !receipt.accepted</code>:</strong> A full bounded queue returns <code>accepted: false</code> immediately instead of blocking the request thread or growing memory without bound—turn that into HTTP <code>503</code> / <code>429</code> or an explicit <code>Result.error</code>.</li>
-</ul>
-<p class="runlabel">standing_pool_owner.hey</p><pre data-example="runnable" data-file="standing_pool_owner.hey"><code>import &#39;stdlib:Actor&#39;
-import &#39;stdlib:Jobs&#39;
+<h3>1. Declarative standing pool: <code>job WelcomeEmails … end</code></h3>
+<p>When worker count and queue capacity are fixed in source, declare a top-level <code>job Name … end</code> block.
+It works directly inside <code>program</code>, top-level <code>fn</code> bodies, same-file <code>module</code>
+functions, library modules checked with <code>hey check</code> without an entry block, and across files via
+<code>import</code>—all sharing one process-wide standing pool:</p>
+<p class="runlabel">welcome_job.hey</p><pre data-example="runnable" data-file="welcome_job.hey"><code>import &#39;stdlib:Jobs&#39;
 
-worker SendWelcome(message)
-  return &#39;welcome:&#39; + message.email
+worker SendWelcome(email)
+  return &#39;welcome:&#39; + email
 end
 
-actor PoolOwner
-  state pool = nil
-  receive msg
-  if pool == nil
-    set pool = Jobs.define(&#39;Welcomes&#39;, SendWelcome, count: 2, capacity: 32, result_capacity: 32)
-  end
-  if msg.kind == &#39;actor_call&#39;
-    if msg.body == &#39;pool&#39;
-      _ = Actor.reply(msg.reply_id, pool)
-    elsif msg.body == &#39;stop&#39;
-      let stopped = pool.stop()
-      _ = Actor.reply(msg.reply_id, stopped)
-      exit
-    end
-  end
+job WelcomeEmails
+  worker SendWelcome
+  count: 2
+  capacity: 32
+  result_capacity: 32
 end
 
-fn find_pool_owner()
-  for info in actors()
-    if info.name == &#39;PoolOwner&#39;
-      return actor_by_pid(info.pid)
-    end
-  end
-  return nil
-end
-
-module WelcomeQueue
-  fn start()
-    let existing = find_pool_owner()
-    if existing != nil
-      return existing
-    end
-    return spawn PoolOwner
-  end
-
-  fn enqueue(email)
-    let owner = find_pool_owner()
-    if owner == nil
-      return {ok: false, error: &#39;pool_not_started&#39;}
-    end
-    let reply = Actor.call(owner, &#39;pool&#39;, 1000)
-    if !reply.ok
-      return {ok: false, error: reply.error}
-    end
-    let pool = reply.value
-    let receipt = pool.enqueue({email: email})
+module WelcomeService
+  fn send(email)
+    let receipt = WelcomeEmails.enqueue(email)
     if !receipt.accepted
       return {ok: false, error: &#39;queue_full&#39;}
     end
-    return {ok: true, pool: pool, receipt: receipt}
+    return {ok: true, value: Jobs.require(WelcomeEmails, receipt, 1000)}
   end
-
-  fn stop()
-    let owner = find_pool_owner()
-    if owner == nil
-      return true
-    end
-    return Actor.call(owner, &#39;stop&#39;, 1000).ok
-  end
-end
+end</code></pre>
+<p class="runlabel">jobs_declarative_app.hey</p><pre data-example="runnable" data-file="jobs_declarative_app.hey"><code>import &#39;stdlib:Jobs&#39;
+import &#39;./welcome_job.hey&#39;
 
 program
-  let started = WelcomeQueue.start()
-  let first = WelcomeQueue.enqueue(&#39;ada@example.com&#39;)
-  let second = WelcomeQueue.enqueue(&#39;grace@example.com&#39;)
-  says first.ok and second.ok
-  says first.receipt.id
-  says second.receipt.id
-  says Jobs.result(first.pool, first.receipt, 1000).value
-  says Jobs.result(second.pool, second.receipt, 1000).value
-  says WelcomeQueue.stop()
+  says WelcomeService.send(&#39;ada@example.com&#39;).value
+  let direct = WelcomeEmails.enqueue(&#39;grace@example.com&#39;)
+  says Jobs.require(WelcomeEmails, direct, 1000)
+  _ = WelcomeEmails.stop()
 end</code></pre>
-<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey standing_pool_owner.hey
-true
-1
-2
+<p class="runlabel">Run it (exact commands and output)</p><pre data-example="runnable" class="out"><code>$ hey check welcome_job.hey
+$ hey jobs_declarative_app.hey
 welcome:ada@example.com
 welcome:grace@example.com
-true
 $ echo $?
 0</code></pre>
 
-<h3>Pattern B — Scoped per-batch fan-out pool (unique name + stop on every exit)</h3>
-<p>When a function wants to fan out across <code>N</code> items for one request or batch and wait for all of them with
-<code>Jobs.result</code>, follow two mandatory rules:</p>
+<h3>2. Dynamic idempotent standing pool: <code>Jobs.ensure</code> + <code>Jobs.lookup</code></h3>
+<p>When pool size or capacity comes from runtime configuration (such as <code>Env.int_default</code> or a JSON config
+file), or when stateless request handlers initialize a standing pool on demand, call
+<code>Jobs.ensure(name, Worker, count: …, capacity: …)</code>. Concurrent callers share a single-flight lock: the
+first creates the pool, later callers verify that <code>Worker</code> and the pool options match and receive the same
+handle, and <code>Jobs.lookup(name)</code> returns the live handle (or <code>nil</code> before creation and after
+<code>.stop()</code>)—with zero manual owner-actor boilerplate:</p>
+<p class="runlabel">jobs_ensure_lookup.hey</p><pre data-example="runnable" data-file="jobs_ensure_lookup.hey"><code>import &#39;stdlib:Jobs&#39;
+
+worker ScoreItem(x)
+  return x * 10
+end
+
+fn run_scored(workers, x)
+  let pool = Jobs.ensure(&#39;RuntimeScores&#39;, ScoreItem, count: workers, capacity: 32, result_capacity: 32)
+  let receipt = pool.enqueue(x)
+  if !receipt.accepted
+    fail &#39;queue_full&#39;
+  end
+  return Jobs.require(pool, receipt, 1000)
+end
+
+program
+  says Jobs.lookup(&#39;RuntimeScores&#39;) == nil
+  says run_scored(2, 4)
+  says run_scored(2, 7)
+  let live = Jobs.lookup(&#39;RuntimeScores&#39;)
+  says live != nil
+  says live.worker
+  _ = live.stop()
+  says Jobs.lookup(&#39;RuntimeScores&#39;) == nil
+end</code></pre>
+<p class="runlabel">Run it (exact command and output)</p><pre data-example="runnable" class="out"><code>$ hey jobs_ensure_lookup.hey
+true
+40
+70
+true
+ScoreItem
+true
+$ echo $?
+0</code></pre>
+<div class="note"><p><strong>Mismatch safety.</strong> If <code>'RuntimeScores'</code> is already running with a
+different worker or incompatible <code>count</code> / <code>capacity</code>, <code>Jobs.ensure</code> fails fast
+instead of silently ignoring the new configuration.</p></div>
+
+<h3>3. Strict <code>Jobs.define</code> + scoped <code>.stop()</code> for per-batch fan-out</h3>
+<p><code>Jobs.define(name, Worker, …)</code> is the strict constructor: it demands a fresh name and fails fast if
+<code>name</code> is already live (<code>L-LAN-77</code>). Use it when a function fans out over a single batch and
+tears the pool down before returning—following two rules:</p>
 <ol>
-<li><strong>Include a unique batch or request suffix in the name</strong> (<code>'CardPrep:' + batch_id</code>) so two concurrent requests never collide on <code>'CardPrep'</code>.</li>
-<li><strong>Call <code>pool.stop()</code> on every return path</strong>—backpressure refusal, item failure, and normal completion—so worker threads and the registered name are freed immediately instead of lingering until process exit.</li>
+<li><strong>Include a unique batch or request suffix in the name</strong> (<code>'CardPrep:' + batch_id</code>) so concurrent batches never collide.</li>
+<li><strong>Call <code>pool.stop()</code> on every return path</strong>—backpressure refusal, item failure, and normal completion—so worker threads and the registered name are freed immediately.</li>
 </ol>
 <p class="runlabel">scoped_batch_pool.hey</p><pre data-example="runnable" data-file="scoped_batch_pool.hey"><code>import &#39;stdlib:Jobs&#39;
 import &#39;stdlib:Result&#39;
@@ -639,25 +631,10 @@ empty_front
 true
 $ echo $?
 0</code></pre>
-
-<!-- tracked-pitfall: [000.99] start -->
-<h2 id="jobs-pitfalls" data-doc-purpose="Avoid the three 0.99.608a Jobs pitfalls tracked for release 609a.">5. Current 0.99.608a pitfalls (tracked for compiler/stdlib fix in release 609a) <span class="badge b-partly">Tracked for release 609a</span></h2>
-<p>Three sharp edges surfaced when building production apps on <code>0.99.608a</code>. Each has a clean workaround in
-<a href="#jobs-howto">Section 4</a> and is tracked for a compiler/stdlib fix in <code>release 609a</code>, at which point
-the corresponding pitfall note will be removed.</p>
-
-<!-- tracked-pitfall: [000.99] pitfall-1 -->
-<div class="note bad">
-<p><strong>Pitfall 1 — Calling <code>Jobs.define('FixedName', …)</code> inside a request handler.</strong>
-<code>Jobs.define</code> is <em>not</em> an idempotent lookup: it spawns a new worker pool and enforces unique live Job
-names across the process (<code>L-LAN-77</code>). If a route handler or helper calls
-<code>Jobs.define('FixedName', …)</code> on each call without stopping it, the <strong>first</strong> request succeeds
-and the <strong>second</strong> request fails at run time (and without <code>L-LAN-77</code>, calling
-<code>Jobs.define</code> per request would leak OS worker pools on every request). First-class idempotent lookup
-(<code>Jobs.ensure</code> / <code>Jobs.lookup</code>) is queued for <code>release 609a</code>; today, start the pool once
-with <a href="#jobs-howto">Pattern A</a>.</p>
-</div>
-<p class="runlabel">pitfall_fixed_name.hey</p><pre data-example="runnable" data-file="pitfall_fixed_name.hey"><code>worker Echo(x)
+<p>Calling <code>Jobs.define</code> twice with the same live name without stopping it first stops the unit of work
+with a clear error (reach for <code>job Name … end</code> or <code>Jobs.ensure</code> instead when you want one
+standing pool):</p>
+<p class="runlabel">duplicate_define.hey</p><pre data-example="runnable" data-file="duplicate_define.hey"><code>worker Echo(x)
   return x
 end
 
@@ -670,39 +647,13 @@ program
   says handle_request(1)
   says handle_request(2)
 end</code></pre>
-<p class="runlabel">Run it (second call fails with exit status 1)</p><pre data-example="runnable" class="out failed"><code>$ hey pitfall_fixed_name.hey
+<p class="runlabel">Run it (second call fails with exit status 1)</p><pre data-example="runnable" class="out failed"><code>$ hey duplicate_define.hey
 true
 hey error: Jobs.define name &#39;FixedName&#39; is already defined by a running Job; stop it first or choose another name
 $ echo $?
 1</code></pre>
 
-<!-- tracked-pitfall: [000.99] pitfall-2 -->
-<div class="note warn">
-<p><strong>Pitfall 2 — Top-level <code>job Name … end</code> visibility across imported <code>module</code> functions.</strong>
-In <code>0.99.608a</code>, the declarative <code>job Name … end</code> shorthand works when referenced directly inside
-the entry file's <code>program … end</code> block (as in <code>jobs_declaration.hey</code> above), because it lowers into
-entry-program initialization. Declaring <code>job Name … end</code> inside an imported module file and calling
-<code>Name.enqueue(…)</code> from an <code>fn</code> in that imported <code>module</code> currently fails compilation
-(exit status <code>2</code>) with:</p>
-<pre data-example="fragment" data-needs="illustrative 0.99.608a compile error when an imported module fn reads a top-level job declaration"><code>hey error: &quot;a reachable local read has no reaching definition&quot;</code></pre>
-<p><strong>Workaround in <code>0.99.608a</code>:</strong> Either start the pool in <code>program</code> and pass it as a
-parameter, or wrap it in the <code>actor PoolOwner</code> + <code>Actor.call</code> pattern shown in
-<a href="#jobs-howto">Pattern A</a> while cross-module <code>job</code> bindings are fixed for <code>release 609a</code>.</p>
-</div>
-
-<!-- tracked-pitfall: [000.99] pitfall-3 -->
-<div class="note warn">
-<p><strong>Pitfall 3 — Forgetting <code>pool.stop()</code> or using a static name on per-request batch pools.</strong>
-When a helper creates a short-lived batch pool to fan out over <code>N</code> items, omitting <code>pool.stop()</code> on
-<em>any</em> return branch (for example returning early on <code>!receipt.accepted</code> or <code>!outcome.ok</code>)
-leaves its worker threads alive until process shutdown and keeps its name registered—blocking later calls that use the
-same name. Likewise, naming a per-request batch pool <code>'CardPrep'</code> instead of
-<code>'CardPrep:' + batch_id</code> causes two overlapping requests to collide immediately. Follow
-<a href="#jobs-howto">Pattern B</a>.</p>
-</div>
-<!-- tracked-pitfall: [000.99] end -->
-
-<h2 id="reliability" data-doc-purpose="Read retry, backoff and idempotency rules.">6. Retries, backoff, idempotency keys, dead letters</h2>
+<h2 id="reliability" data-doc-purpose="Read retry, backoff and idempotency rules.">5. Retries, backoff, idempotency keys, dead letters</h2>
 <p>A <em>dead letter</em> is a message the Job gave up on after its last retry, kept (with its attempts and last
 error) so you can inspect it. A worker that returns <code>Result.error(…)</code> has failed this attempt. With <code>retries: 2</code> the Job tries
 again, up to three attempts in all, then records a dead letter.
@@ -826,7 +777,7 @@ $ echo $?
 <code>max_workers</code>, <code>target_queue_latency_ms</code>, <code>journal_path</code>,
 <code>journal_compact_after</code>.</p>
 
-<h2 id="more" data-doc-purpose="Find cancellation, partitioning and adaptive scaling policies.">7. Cancellation, partitions and adaptive scaling</h2>
+<h2 id="more" data-doc-purpose="Find cancellation, partitioning and adaptive scaling policies.">6. Cancellation, partitions and adaptive scaling</h2>
 <h3>Cancel a queued Job</h3>
 <p class="runlabel">job_cancel.hey</p><pre data-example="runnable" data-file="job_cancel.hey"><code>import &#39;stdlib:Jobs&#39;
 
@@ -954,7 +905,7 @@ $ echo $?
 0</code></pre>
 
 
-<h2 id="streams" data-doc-purpose="Understand ordered stream processing.">8. Streams: map and filter, in parallel, in order</h2>
+<h2 id="streams" data-doc-purpose="Understand ordered stream processing.">7. Streams: map and filter, in parallel, in order</h2>
 <figure class="fig">
 <svg viewBox="0 0 760 210" role="img" aria-labelledby="c3t">
 <title id="c3t">A stream stage with four workers: items 1 to 4 go in, finish in a different order, and a resequencer puts them back in input order before the next stage. Calling unordered skips the resequencer.</title>
@@ -1044,7 +995,7 @@ end</code></pre>
 $ echo $?
 0</code></pre>
 
-<h2 id="failure" data-doc-purpose="Understand a failed Job attempt and its cleanup.">9. When a Job attempt fails at run time</h2>
+<h2 id="failure" data-doc-purpose="Understand a failed Job attempt and its cleanup.">8. When a Job attempt fails at run time</h2>
 <p>Returning <code>Result.error</code> is the polite way to fail an attempt. A real runtime error or a <code>fail</code>
 inside the worker is the other way. Hey's fail-fast rule (see <a href="hey-reference-actors-and-failure-4.html#failfast">Actors and failure</a>)
 says it should end <em>that attempt</em>: the Job's retries run, then a dead letter of kind <code>runtime_error</code>.
@@ -1087,7 +1038,7 @@ attempt" on standard error, then the Job recorded <code>failed</code> with the e
 message completed, and the program exited 0.</p></div>
 
 
-<h2 id="durable" data-doc-purpose="Read the local-journal durability model.">10. Durability: a local journal</h2>
+<h2 id="durable" data-doc-purpose="Read the local-journal durability model.">9. Durability: a local journal</h2>
 <p>Give a Job a <code>journal_path</code> and it writes accepted work to a JSON-lines journal (compacted after
 <code>journal_compact_after</code> events). After a restart, a Job defined with the same journal replays what was accepted and not finished
 (its status counts it under <code>replayed</code>). The sample below shows the journal being written
@@ -1142,7 +1093,7 @@ who has authority, fencing, retention). <code>hey_durable_log</code> is the firs
 quorum of machines and fences old leaders. The modes, from cheapest to strongest: ephemeral messaging, recoverable
 local Jobs, quorum-backed Jobs, and "effectively once" business effects (which also need an idempotent or transactional
 sink in your application; no scheduler option can promise exactly once).</p></div>
-<h2 id="across" data-doc-purpose="Distinguish local work from cross-machine coordination.">11. Across machines</h2>
+<h2 id="across" data-doc-purpose="Distinguish local work from cross-machine coordination.">10. Across machines</h2>
 <p>A Job runs on one machine. <code>stdlib:JobsRemote</code> submits to a named Job on a configured peer, and what is delivered how many times across machines is part of the distributed delivery contract. Both are in <a href="hey-reference-distributed-and-clusters-6.html">Reference 6: Distributed Hey and clusters</a>.</p>
 
 <h2 id="sources" data-doc-purpose="Inspect the source references and background reading for this page.">Sources</h2>

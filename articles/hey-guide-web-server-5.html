@@ -144,7 +144,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 <p><strong>Status badges</strong> used on every page in this series:
 <span class="tag t-good">Works today</span> <span class="tag t-warn">Partly works</span> <span class="tag t-acc">Decided, coming</span> <span class="tag t-vio">Proposed</span>.
-<strong>Every command on this page is run by Hey's documentation test on 0.99.608a</strong>, against a real server, and its output must match. When a step says to start a server, start it in a second terminal and leave it running.</p>
+<strong>Every command on this page is run by Hey's documentation test on 0.99.609a</strong>, against a real server, and its output must match. When a step says to start a server, start it in a second terminal and leave it running.</p>
 
 <h2 id="hello" data-doc-purpose="Define a route that returns a response.">1. Your first route <span class="tag t-good">Works today</span></h2>
 <p>A <strong>route</strong> is a pair: an HTTP method and path, and the function that answers it. A <strong>handler</strong> is that function. It gets one argument, the request, and returns a response. No classes, no decorators.</p>
@@ -311,7 +311,7 @@ ensured hey_kqueue@0.1.4 from hey_poller
 ensured hey_poller@0.2.5 from hey_web
 ensured hey_web@0.3.11 from project
 updated ./hey.lock.json packages=7 edges=5</code></pre>
-<p>Commit <code>hey.lock.json</code>; don't commit <code>.hey/</code>. (Why the lock has hashes in it: <a href="hey-guide-packages-3.html">the packages guide</a>.)</p>
+<p>Commit <code>hey.lock.json</code>; don't commit <code>.hey/</code>. Because <code>hey.lock.json</code> pins each package's exact version and SHA-256 hashes (<a href="hey-guide-packages-3.html">the packages guide</a>), source files simply write <code>import 'pkg:hey_web/main'</code> without embedding version numbers in source code.</p>
 
 <h3>Step 2: the app's files</h3>
 <p class="label">config/hey_web.json: serve options only</p>
@@ -345,8 +345,8 @@ end</code></pre>
 <p class="label">app/controllers/cards_controller.hey</p>
 <pre data-example="runnable" data-file="app/controllers/cards_controller.hey"><code>import &#39;stdlib:Web&#39;
 import &#39;stdlib:Text&#39;
-import &#39;pkg:hey_web@0.3.11/views&#39;
-import &#39;pkg:hey_web@0.3.11/jobs&#39;
+import &#39;pkg:hey_web/views&#39;
+import &#39;pkg:hey_web/jobs&#39;
 import &#39;../models/card_store.hey&#39;
 import &#39;../jobs/welcome_job.hey&#39;
 
@@ -399,7 +399,7 @@ module CardsController
 end</code></pre>
 <p class="label">app/models/card_store.hey: the database code, explained in section 6</p>
 <pre data-example="runnable" data-file="app/models/card_store.hey"><code>import &#39;stdlib:Env&#39;
-import &#39;pkg:hey_sqlite3@0.5.3/adapter&#39;
+import &#39;pkg:hey_sqlite3/adapter&#39;
 
 # One place that opens the database. A connection is not shared
 # between threads, so each call opens its own and closes it.
@@ -438,55 +438,21 @@ module CardStore
   end
 end</code></pre>
 <p class="label">app/jobs/welcome_job.hey: background work, explained in section 7</p>
-<pre data-example="runnable" data-file="app/jobs/welcome_job.hey"><code>import &#39;stdlib:Actor&#39;
-import &#39;stdlib:Jobs&#39;
-
-# A worker is a plain function that runs on the Job&#39;s own threads.
+<pre data-example="runnable" data-file="app/jobs/welcome_job.hey"><code># A worker is a plain function that runs on the Job&#39;s own threads.
 worker SendWelcome(message)
   return &#39;welcome sent to &#39; + message.email
 end
 
-# Jobs.define starts a live pool and claims &#39;CardsWelcomes&#39; process-wide,
-# so hold that single handle inside an owner actor started once at boot.
-actor WelcomePoolOwner
-  state pool = nil
-  receive msg
-  if pool == nil
-    set pool = Jobs.define(&#39;CardsWelcomes&#39;, SendWelcome, count: 2, capacity: 64, result_capacity: 64)
-  end
-  if msg.kind == &#39;actor_call&#39; and msg.body == &#39;pool&#39;
-    _ = Actor.reply(msg.reply_id, pool)
-  end
-end
-
-fn find_welcome_owner()
-  for info in actors()
-    if info.name == &#39;WelcomePoolOwner&#39;
-      return actor_by_pid(info.pid)
-    end
-  end
-  return nil
+job CardsWelcomes
+  worker SendWelcome
+  count: 2
+  capacity: 64
+  result_capacity: 64
 end
 
 module WelcomeJob
-  fn start()
-    let existing = find_welcome_owner()
-    if existing != nil
-      return existing
-    end
-    return spawn WelcomePoolOwner
-  end
-
   fn pool()
-    let owner = find_welcome_owner()
-    if owner == nil
-      fail &#39;WelcomeJob.start() must run once at server startup&#39;
-    end
-    let reply = Actor.call(owner, &#39;pool&#39;, 1000)
-    if !reply.ok
-      fail &#39;WelcomeJob pool unavailable: &#39; + reply.error
-    end
-    return reply.value
+    return CardsWelcomes
   end
 end</code></pre>
 <div class="cols">
@@ -506,23 +472,21 @@ end</code></pre>
 </div>
 <p class="label">server.hey</p>
 <pre data-example="runnable" data-file="server.hey"><code>import &#39;stdlib:Cli&#39;
-import &#39;pkg:hey_web@0.3.11/main&#39;
-import &#39;pkg:hey_web@0.3.11/config&#39;
-import &#39;pkg:hey_web@0.3.11/server&#39;
+import &#39;pkg:hey_web/main&#39;
+import &#39;pkg:hey_web/config&#39;
+import &#39;pkg:hey_web/server&#39;
 import &#39;config/routes.hey&#39;
 import &#39;app/models/card_store.hey&#39;
-import &#39;app/jobs/welcome_job.hey&#39;
 
 program
   let ready = CardStore.setup()
-  let welcomes = WelcomeJob.start()
   let config = HeyWebServer.options(Cli.args(), HeyWebConfig.load_or_default(&#39;config/hey_web.json&#39;))
   let app = HeyWeb.application(&#39;cards&#39;, Routes.all(), config)
   says HeyWebServer.banner(app)
   let running = HeyWeb.serve(app)
 end</code></pre>
 <p><code>HeyWebServer.options</code> reads the JSON and then lets flags override it, so <code>--port 3001</code>, <code>--workers 8</code>, <code>--host</code>, <code>--request-timeout-ms</code> and <code>--max-body-bytes</code> all work. <code>workers: 0</code> means one per CPU core.</p>
-<div class="puzzle"><p><strong>Predict it.</strong> <code>server.hey</code> imports <code>pkg:hey_web@0.3.11/main</code>, and <code>main.hey</code> itself imports <code>config.hey</code>. So why does <code>server.hey</code> also import <code>.../config</code>?</p>
+<div class="puzzle"><p><strong>Predict it.</strong> <code>server.hey</code> imports <code>pkg:hey_web/main</code>, and <code>main.hey</code> itself imports <code>config.hey</code>. So why does <code>server.hey</code> also import <code>.../config</code>?</p>
 <details><summary>Answer</summary>
 <p>Imports in Hey are <strong>lexical</strong>: a file may call a module only if <em>that file</em> imports it. Importing <code>main</code> doesn't pass <code>HeyWebConfig</code> through to you. Leave the import out and the compiler stops with <code>HeyWebConfig.load_or_default requires a direct import in this source unit</code>. That's on purpose: you can read any file and see every module it can touch. <a href="hey-reference-modules-imports-exports-3.html">Modules, imports, exports</a> has the rules.</p></details></div>
 
@@ -539,9 +503,8 @@ native_library=.../.hey/native/hey_sqlite3/libhey_sqlite3...</code></pre>
   expect stdout &quot;200\n{\&quot;ok\&quot;:true}\n404\n&quot;
 end
 
-import &#39;stdlib:Web&#39;
-import &#39;pkg:hey_web@0.3.11/main&#39;
-import &#39;pkg:hey_web@0.3.11/config&#39;
+import &#39;pkg:hey_web/main&#39;
+import &#39;pkg:hey_web/config&#39;
 import &#39;config/routes.hey&#39;
 
 program
@@ -562,7 +525,7 @@ $ hey routes_spec.hey
 $ hey test routes_spec.hey
 PASS: cards routes answer without a socket</code></pre>
 
-<h2 id="views" data-doc-purpose="Find the template and layout facilities.">5. Views: EHY templates and layouts <span class="tag t-warn">Partly works</span></h2>
+<h2 id="views" data-doc-purpose="Find the template and layout facilities.">5. Views: EHY templates and layouts <span class="tag t-good">Works today</span></h2>
 <p><strong>EHY</strong> is Hey's version of ERB. <code>&lt;%= expr %&gt;</code> prints a value, <code>&lt;% code %&gt;</code> runs a statement (loops, ifs), <code>&lt;%# ... %&gt;</code> is a comment, and <code>-%&gt;</code> also eats the newline after the tag. The controller calls <code>HeyWebView.response(view, bindings, layout)</code>: the view renders first, and its output becomes <code>content</code> in the layout. Pass <code>''</code> as the layout for none.</p>
 <div class="note bad"><h3>Escaping is your job</h3><p><code>&lt;%= %&gt;</code> prints text exactly as it is. It does <strong>not</strong> turn <code>&lt;</code> into <code>&amp;lt;</code>, and the standard library has no public HTML-escape function. That's why the controller runs every user-typed field through its own small <code>h()</code> before handing it to the view. Without it, a card holding a <code>&lt;script&gt;</code> would run in your visitors' browsers.</p></div>
 <p>Start the server from the app folder, with the SQLite library, and add two cards:</p>
@@ -571,14 +534,12 @@ PASS: cards routes answer without a socket</code></pre>
 $ curl -s -X POST localhost:3000/cards -d '{"front":"&lt;b&gt;x&lt;/b&gt;","back":"tags &amp; such"}'
 {"front":"&lt;b&gt;x&lt;/b&gt;","back":"tags &amp; such"}
 $ curl -si localhost:3000/
-HTTP/1.1 500 Internal Server Error
-content-type: application/json
-content-length: 24
+HTTP/1.1 200 OK
+content-type: text/html
+content-length: 192
 connection: keep-alive
 
-{"error":"server_error"}</code></pre>
-<p>Why did <code>GET /</code> fail? <code>stdlib:Ehy</code> compiles templates <em>ahead of time into the binary</em> (no runtime compiler or shell-out): any template passed as a literal or imported with <code>import 'views/x.ehy'</code> works out of the box, whereas a dynamic string read from disk at request time by <code>hey_web</code>'s older <code>HeyWebView.response</code> helper wasn't compiled into the program (<code>ehy_template_not_compiled</code> / <code>ehy_template_not_constant</code>). Precompile <code>.html.ehy</code> views at build time with <code>hey_web</code>'s <code>bin/pages-embed</code> (or <code>import</code> the <code>.ehy</code> templates directly) so the rendered HTML is compiled straight into your server:</p>
-<pre data-example="fragment" data-needs="precompiled hey_web views (bin/pages-embed or imported .ehy templates)"><code>&lt;!doctype html&gt;
+&lt;!doctype html&gt;
 &lt;html&gt;&lt;head&gt;&lt;title&gt;Cards&lt;/title&gt;&lt;/head&gt;
 &lt;body&gt;
 &lt;h1&gt;Cards&lt;/h1&gt;
@@ -591,8 +552,8 @@ connection: keep-alive
 &lt;/ul&gt;
 
 &lt;/body&gt;&lt;/html&gt;</code></pre>
-<p>The escaped card shows up as text, as it should, and the shipped binary needs no compiler on the server.</p>
-<div class="note warn"><p><strong>What to use instead.</strong> hey_web's <code>bin/pages-embed</code> renders <code>.html.ehy</code> files <em>once, at build time</em>, into a generated Hey module, so serving a page is returning a string. Or read an HTML template with <code>Files.read_text</code> and fill <code>{{TOKEN}}</code> placeholders with <code>Text.replace_all</code>. Request-time EHY is fine for an admin page; keep it off a hot path.</p></div>
+<p>The escaped card shows up as text, as it should. <code>stdlib:Ehy</code> compiles known template paths (such as <code>HeyWebView.response('app/views/cards/index.ehy', ..., 'app/views/layouts/application.ehy')</code>, <code>Ehy.render_file_with</code>, or <code>import 'views/x.ehy'</code>) <em>ahead of time into the binary</em>, so the shipped executable needs no compiler on the server.</p>
+<div class="note warn"><p><strong>Dynamic templates.</strong> Only templates known at compile time are compiled by <code>stdlib:Ehy</code>. For purely static HTML pages you can also embed files via hey_web's <code>bin/pages-embed</code>, and for user-edited templates loaded from a database or runtime path, read the template text and fill <code>{{TOKEN}}</code> placeholders with <code>Text.replace_all</code>.</p></div>
 
 <h2 id="db" data-doc-purpose="Connect a database through packages.">6. A database <span class="tag t-good">Works today</span> (as packages)</h2>
 <p>Hey has no database built in. Drivers are packages, published in the same registry as hey_web: <code>hey_sqlite3</code> (SQLite: prepared statements, typed rows, rows as JSON built by SQLite itself), <code>hey_postgres</code>, <code>hey_mysql</code>, <code>hey_duckdb</code> (analytics queries), and <code>hey_record</code> (models on top of a driver, the Active Record role).</p>
@@ -611,8 +572,8 @@ $ curl -s 'localhost:3000/search?q=cats'
 <p><span class="tag t-acc">Decided, coming</span> Each call into the C library goes through a general-purpose bridge that looks the function up by name at run time. The ruled replacement reads the package's <code>hey.native.json</code> at build time and emits a direct, typed call: <a href="hey-reference-native-code-and-c-8.html">Native code and C</a>.</p>
 
 <h2 id="jobs" data-doc-purpose="Move background work into Jobs.">7. Background work with Jobs <span class="tag t-good">Works today</span></h2>
-<p>A <strong>Job</strong> is a named pool of worker threads with a bounded queue. You hand it a message, you get a <strong>receipt</strong> back right away, and a worker runs the function later. Retries, dead letters, standing vs per-batch pool patterns, and how to choose between Jobs, workers and actors are in <a href="hey-reference-workers-jobs-streams-5.html#jobs-howto">Workers, Jobs and streams</a>; here's the web part.</p>
-<p><code>Jobs.define('CardsWelcomes', …)</code> creates a <em>new</em> worker pool and claims <code>'CardsWelcomes'</code> process-wide until stopped—it is a constructor, not a lookup. So <code>server.hey</code> starts <code>WelcomeJob.start()</code> <strong>once</strong> at boot, and <code>WelcomeJob.pool()</code> fetches that single standing pool via <code>Actor.call</code> on <code>WelcomePoolOwner</code>. The controller's <code>signup</code> calls <code>HeyWebJobs.accepted(WelcomeJob.pool(), {email: body.email})</code>, which checks <code>receipt.accepted</code>, enqueues the work, and answers <code>202 Accepted</code> with the receipt (<code>HeyWebJobs.await(job, receipt, timeout_ms)</code> waits for the result). If the bounded queue is full, the client gets a clean refusal (<code>job_queue_full</code>) instead of stalling request threads.</p>
+<p>A <strong>Job</strong> is a named pool of worker threads with a bounded queue. You hand it a message, you get a <strong>receipt</strong> back right away, and a worker runs the function later. Retries, dead letters, and all three ways to define Job pools are in <a href="hey-reference-workers-jobs-streams-5.html#jobs-howto">Workers, Jobs and streams</a>; here's the web part.</p>
+<p><code>app/jobs/welcome_job.hey</code> declares a standing <code>job CardsWelcomes … end</code> pool directly at module scope—shared across <code>program</code>, <code>WelcomeJob.pool()</code>, and any importing controller. (When pool counts or capacities come from runtime config instead of constants, call <code>Jobs.ensure('CardsWelcomes', SendWelcome, count: n, capacity: 64)</code> or <code>Jobs.lookup('CardsWelcomes')</code>; reserve strict <code>Jobs.define</code> + <code>.stop()</code> for short-lived per-batch pools.) The controller's <code>signup</code> calls <code>HeyWebJobs.accepted(WelcomeJob.pool(), {email: body.email})</code>, which checks <code>receipt.accepted</code>, enqueues the work, and answers <code>202 Accepted</code> with the receipt (<code>HeyWebJobs.await(job, receipt, timeout_ms)</code> waits for the result). If the bounded queue is full, the client gets a clean refusal (<code>job_queue_full</code>) instead of stalling request threads.</p>
 <pre data-example="runnable" data-background="HEY_SQLITE3_LIBRARY=&quot;$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib&quot; hey server.hey" data-wait="curl -s -f localhost:3000/health"><code>$ curl -si -X POST localhost:3000/signup -d '{"email":"ada@example.com"}'
 HTTP/1.1 202 Accepted
 content-type: application/json
@@ -620,8 +581,6 @@ content-length: 51
 connection: keep-alive
 
 {"accepted":true,"job":"CardsWelcomes","receipt":1}</code></pre>
-<!-- tracked-pitfall: [000.99] -->
-<div class="note warn"><p><strong>Two <code>0.99.608a</code> pitfalls to avoid (tracked for <code>release 609a</code>).</strong> (1) Never call <code>Jobs.define('CardsWelcomes', …)</code> directly inside a request handler: the first request succeeds, and the second fails with <code>Jobs.define name 'CardsWelcomes' is already defined by a running Job</code> (<code>Jobs.ensure</code> / <code>Jobs.lookup</code> is queued for <code>release 609a</code>). (2) In <code>0.99.608a</code>, the declarative <code>job Welcomes … end</code> shorthand works inside the entry file's <code>program</code> block, not inside imported module functions, and route handlers capture no startup locals—which is why <code>WelcomePoolOwner</code> + <code>Actor.call</code> is the standing-pool pattern today. Full recipes and per-batch fan-out rules: <a href="hey-reference-workers-jobs-streams-5.html#jobs-pitfalls">Reference 5 §4–§5</a>.</p></div>
 
 <h2 id="fail" data-doc-purpose="Understand what happens when a request handler fails.">8. When a handler fails <span class="tag t-good">Works today</span></h2>
 <figure class="fig">
@@ -655,10 +614,8 @@ $ ls -lh build/cards
 -rwxr-xr-x  1 ... ...K ... build/cards
 $ otool -L build/cards
 build/cards:
-	...libssl.3.dylib (...)
-	...libcrypto.3.dylib (...)
 	/usr/lib/libSystem.B.dylib (...)</code></pre>
-<p>Under half a megabyte, linking only OpenSSL 3 and the system C library. Hey's runtime, the standard library parts you use and the hey_web modules are all inside it. The SQLite library isn't linked in: the app loads it at run time from the path in <code>HEY_SQLITE3_LIBRARY</code>.</p>
+<p>Under half a megabyte, linking only the system C library (OpenSSL 3 is linked on demand only when TLS or Crypto is used). Hey's runtime, the standard library parts you use and the hey_web modules are all inside it. The SQLite library isn't linked in: the app loads it at run time from the path in <code>HEY_SQLITE3_LIBRARY</code>.</p>
 <p><strong>Run it</strong> from the app folder (it reads <code>config/hey_web.json</code> and <code>db/</code> from there), on any port you like:</p>
 <pre data-example="fragment" data-needs="a second terminal; the next block runs it for you"><code>$ HEY_SQLITE3_LIBRARY="$PWD/.hey/native/hey_sqlite3/libhey_sqlite3.dylib" ./build/cards --port 3001</code></pre>
 <p><strong>Point a client at it:</strong></p>
@@ -722,20 +679,18 @@ $ curl -s http://localhost:3001/cards
 </div>
 <p><strong>The trade, as measured on a Mac.</strong> With a few dozen busy connections the default lane does more requests per second, because it spreads over several cores and one loop uses one. With thousands of connections the two are close in throughput, but the default lane reaches its connection limit (section 1) and starts answering <code>503</code> while holding a thread per connection; one poller loop refuses nothing and stays at one thread and a few megabytes. The like-for-like web numbers are in <a href="hey-reference-performance-10.html">Performance</a>.</p>
 <h3>How to turn the poller lane on</h3>
-<p>Three steps. hey_web already depends on <code>hey_poller</code>, so <code>hey package ensure</code> installed it. Then: (1) import <code>pkg:hey_web@0.3.11/poller</code>, (2) call <code>HeyWebPoller.serve_application(app)</code> instead of <code>HeyWeb.serve(app)</code>, (3) build the one native library your OS needs, once.</p>
+<p>Three steps. hey_web already depends on <code>hey_poller</code>, so <code>hey package ensure</code> installed it. Then: (1) import <code>pkg:hey_web/poller</code>, (2) call <code>HeyWebPoller.serve_application(app)</code> instead of <code>HeyWeb.serve(app)</code>, (3) build the one native library your OS needs, once.</p>
 <p class="label">server_poller.hey: the only change is the import and the last line</p>
 <pre data-example="runnable" data-file="server_poller.hey"><code>import &#39;stdlib:Cli&#39;
-import &#39;pkg:hey_web@0.3.11/main&#39;
-import &#39;pkg:hey_web@0.3.11/config&#39;
-import &#39;pkg:hey_web@0.3.11/server&#39;
-import &#39;pkg:hey_web@0.3.11/poller&#39;
+import &#39;pkg:hey_web/main&#39;
+import &#39;pkg:hey_web/config&#39;
+import &#39;pkg:hey_web/server&#39;
+import &#39;pkg:hey_web/poller&#39;
 import &#39;config/routes.hey&#39;
 import &#39;app/models/card_store.hey&#39;
-import &#39;app/jobs/welcome_job.hey&#39;
 
 program
   let ready = CardStore.setup()
-  let welcomes = WelcomeJob.start()
   let config = HeyWebServer.options(Cli.args(), HeyWebConfig.load_or_default(&#39;config/hey_web.json&#39;))
   let app = HeyWeb.application(&#39;cards&#39;, Routes.all(), {...config, workers: 1})
   says &#39;cards on the readiness lane (one kqueue/epoll loop)&#39;
@@ -769,9 +724,8 @@ $ hey build server_poller.hey -o build/cards-poller</code></pre>
 end
 
 import &#39;stdlib:Bytes&#39;
-import &#39;stdlib:Text&#39;
 import &#39;stdlib:Web&#39;
-import &#39;pkg:hey_web@0.3.11/poller_http&#39;
+import &#39;pkg:hey_web/poller_http&#39;
 
 fn upload_deck(request)
   return Web.json({body: request.body, bytes: len(request.body_bytes), hex: hex(request.body_bytes)})
@@ -854,7 +808,7 @@ $ HEY_POLLER_BACKEND=io_uring ./build/cards-poller</code></pre>
 <div class="scroll"><table>
 <thead><tr><th>What</th><th>Status</th></tr></thead>
 <tbody>
-<tr><td><code>stdlib:Ehy</code> compiles literal and <code>import</code>ed templates into the binary; dynamic strings read at request time by <code>hey_web</code>'s <code>HeyWebView</code> must be precompiled via <code>bin/pages-embed</code> or <code>import</code> (section 5)</td><td><span class="tag t-warn">Partly works</span></td></tr>
+<tr><td><code>stdlib:Ehy</code> compiles literal and statically known <code>HeyWebView</code> / <code>Ehy.render_file_with</code> template paths into the binary; runtime-computed template strings are not compiled at request time (section 5)</td><td><span class="tag t-warn">Partly works</span></td></tr>
 <tr><td>No HTML escaping in <code>&lt;%= %&gt;</code> and no public escape function</td><td><span class="tag t-vio">Proposed</span></td></tr>
 <tr><td>HTTPS inside the Hey server. Run behind a TLS reverse proxy (<code>stdlib:Tls</code> is the client side)</td><td><span class="tag t-vio">Proposed</span></td></tr>
 <tr><td>The middleware helpers in <code>stdlib:Web</code> (<code>Web.stack</code>, <code>Web.secure_headers</code>, <code>Web.log_requests</code>, <code>Web.cors</code>, <code>Web.rate_limit</code>) work with <code>Web.dispatch</code>; hey_web apps put headers and logging in the handlers instead (<code>HeyWebResponses</code>, <code>HeyWebRequestLog</code>)</td><td><span class="tag t-warn">Partly works</span></td></tr>
@@ -866,7 +820,7 @@ $ HEY_POLLER_BACKEND=io_uring ./build/cards-poller</code></pre>
 <tbody>
 <tr><td><code>stdlib:Web</code>: routes, <code>Web.dispatch</code>, <code>Web.serve</code> (thread per keep-alive connection, parsing in the runtime's C), response helpers, CORS, static files</td><td><span class="tag t-good">Works today</span></td></tr>
 <tr><td>A failing handler answers 500 for that request only</td><td><span class="tag t-good">Works today</span></td></tr>
-<tr><td>hey_web: config, router, controllers, EHY views, Jobs helpers, server, client, auth, request log, pages embed</td><td><span class="tag t-good">Works today</span>; request-time EHY <span class="tag t-warn">Partly works</span></td></tr>
+<tr><td>hey_web: config, router, controllers, ahead-of-time EHY views, Jobs helpers, server, client, auth, request log, pages embed</td><td><span class="tag t-good">Works today</span></td></tr>
 <tr><td>The readiness lane over hey_poller (kqueue / epoll, opt-in io_uring), including end-to-end binary <code>Bytes</code> uploads and <code>200</code> / <code>206</code> / <code>HEAD</code> media responses</td><td><span class="tag t-good">Works today</span></td></tr>
 <tr><td>Databases as packages: hey_sqlite3, hey_postgres, hey_mysql, hey_duckdb</td><td><span class="tag t-good">Works today</span>; direct C calls <span class="tag t-acc">Decided, coming</span></td></tr>
 </tbody></table></div>

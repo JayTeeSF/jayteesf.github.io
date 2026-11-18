@@ -121,7 +121,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <p class="eyebrow">Reference 11 of 11</p>
 <h1>Commands, tools and platforms</h1>
 <p class="lede">Two public commands cover everyday Hey work: <code>hey</code> runs, checks, tests and builds programs, and <code>hirb</code> starts the interactive REPL (in a source checkout, <code>hey-interp</code> is the reference interpreter and test oracle). This page lists every subcommand and flag, shows the help each one prints, and ends with where Hey runs and how versions work.</p>
-<div class="summary"><strong>The commands you'll use daily</strong><code>hey app.hey</code> compiles (once, then cached) and runs; <code>hey -e 'says 42'</code> runs inline code; <code>hey -- -dash.hey</code> runs a file whose name starts with <code>-</code>. <code>hey build app.hey -o build/app</code> makes a native executable to ship. <code>hey test app.hey</code> runs the spec blocks in the file. <code>hey check app.hey</code> checks the file without running it. <code>hirb</code> opens the interactive REPL.</div>
+<div class="summary"><strong>The commands you'll use daily</strong><code>hey app.hey</code> compiles once into a hardened <code>0700</code>/<code>0600</code> run cache and runs via the zero-shell native C11 launcher (<code>2&ndash;3 ms</code> warm across macOS, Linux, <code>*BSD</code>, and Windows); <code>hey -e 'says 42'</code> runs inline code; <code>hey -- -dash.hey</code> runs a file whose name starts with <code>-</code>. <code>hey build app.hey -o build/app</code> makes a native executable to ship. <code>hey check --warn-boxed app.hey</code> checks the file and reports any hot-loop boxed fallbacks. <code>hey test app.hey</code> runs the spec blocks in the file. <code>hirb</code> opens the interactive REPL.</div>
 
 <h2 id="map" data-doc-purpose="Choose a command category.">1. The command map</h2>
 <figure class="fig" aria-labelledby="cmap-cap">
@@ -150,13 +150,13 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <h2 id="table" data-doc-purpose="Look up commands and their roles.">2. Every command in one table</h2>
 <div class="scroll"><table>
 <tr><th>Command</th><th>What it does / produces</th><th>Status</th></tr>
-<tr><td><code>hey FILE.hey [args]</code></td><td>compile once into a native executable in the run cache, filed under a hash of its sources (content-addressed), then run it; later runs skip the compiler (<a href="hey-guide-start-here-first-steps-1.html">First steps</a>)</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>hey [--warn-boxed] FILE.hey [args]</code></td><td>zero-shell native C11 launcher: compiles once into a <code>0700</code>/<code>0600</code> <code>O_NOFOLLOW</code> content-addressed run cache (linking OpenSSL only when reached), then <code>exec</code>s the native binary in <code>2&ndash;3 ms</code> on warm runs across macOS, Linux, <code>*BSD</code>, and Windows (<a href="hey-guide-start-here-first-steps-1.html">First steps</a>)</td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td><code>hey -- FILE.hey [args]</code></td><td>run a script whose file name begins with <code>-</code> (or collides with a subcommand name); every argument after <code>FILE.hey</code> belongs to the program<sup><a href="#n2">2</a></sup></td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td><code>hey -e CODE [args]</code>, <code>hey --eval CODE [args]</code></td><td>compile/cache and run inline Hey code (multiple <code>-e</code> / <code>--eval=CODE</code> fragments are joined in order; pass <code>--</code> before program arguments that start with <code>-</code>)</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>hey -e CODE [args]</code>, <code>hey --eval CODE [args]</code></td><td>single-parse compile/cache and run inline Hey code (including relative/<code>pkg:</code> imports; multiple <code>-e</code> / <code>--eval=CODE</code> fragments are joined in order; pass <code>--</code> before program arguments that start with <code>-</code>)</td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td><code>hey -v</code>, <code>hey --version</code></td><td>print the Hey toolchain version</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td><code>hey build [--target TARGET] FILE.hey -o APP</code></td><td>build a native executable at <code>APP</code> for the host or a cross-compile target (<code>darwin-arm64</code>, <code>darwin-x64</code>, <code>linux-x64</code>, <code>linux-arm64</code>, <code>linux-musl-x64</code>, <code>windows-x64</code>; <a href="hey-guide-build-and-deploy-7.html">Build and deploy guide</a>)</td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>hey build [--warn-boxed] [--target TARGET] FILE.hey -o APP</code></td><td>build a native executable at <code>APP</code> (with optional <code>--warn-boxed</code>, <code>--deny CODE</code>, <code>--allow CODE</code>) for the host or a cross-compile target (<code>darwin-arm64</code>, <code>darwin-x64</code>, <code>linux-x64</code>, <code>linux-arm64</code>, <code>linux-musl-x64</code>, <code>windows-x64</code>; <a href="hey-guide-build-and-deploy-7.html">Build and deploy guide</a>)</td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td><code>hirb</code></td><td>start the interactive REPL (<code>hey repl</code> exits with status <code>2</code> and prints <code>hey: the REPL is its own command: hirb</code>)</td><td><span class="badge b-works">Works today</span></td></tr>
-<tr><td><code>hey check FILE.hey</code></td><td>validate source (parse, resolve and compile-time checks, with optional <code>--deny CODE</code> / <code>--allow CODE</code>); nothing runs; exits <code>0</code> when clean, <code>2</code> on syntax/compile error or bad CLI usage<sup><a href="#n2">2</a>, <a href="#n4">4</a></sup></td><td><span class="badge b-works">Works today</span></td></tr>
+<tr><td><code>hey check [--warn-boxed] FILE.hey</code></td><td>validate source (parse, resolve, HIR/MIR type &amp; ownership verification, with optional <code>--warn-boxed</code> to report hot-loop <code>warning[boxed_fallback]</code> tips and <code>--deny CODE</code> / <code>--allow CODE</code>; <a href="hey-reference-performance-10.html#day1-idioms">Performance</a>); nothing runs; exits <code>0</code> when clean, <code>2</code> on syntax/compile error, denied warning, or bad CLI usage<sup><a href="#n2">2</a>, <a href="#n4">4</a></sup></td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td><code>hey test FILE.hey</code></td><td>compile/cache and run the file's <code>spec</code> blocks</td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td><code>hey-interp --interpret FILE [args]</code>, <code>hey-interp --test FILE</code>, <code>hey-interp -e CODE</code></td><td>source-checkout bootstrap and behavioral test oracle (never a compiler or link path)</td><td><span class="badge b-works">Works today</span></td></tr>
 <tr><td><code>hey phase admit|hir|mir|llvm|build</code></td><td>replay one compiler stage to a file (<code>syntax</code> aliases <code>admit</code>; section 3)</td><td><span class="badge b-works">Works today</span></td></tr>
@@ -180,10 +180,12 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 
 Everyday use
   ./bin/hey FILE.hey [args...]              Compile/cache and run a Hey program
+  ./bin/hey --warn-boxed FILE.hey [args...] Report MIR boxed-fallback optimization tips
   ./bin/hey -- FILE.hey [args...]           Run a script whose name begins with -
   ./bin/hey -e CODE [args...]               Compile/cache and run inline Hey code (--eval)
   ./bin/hirb                                Start the interactive REPL
-  ./bin/hey build FILE.hey -o APP           Build a native application
+  ./bin/hey build [--warn-boxed] FILE.hey -o APP  Build a native application
+  ./bin/hey check [--warn-boxed] FILE.hey   Check and type/MIR-verify a Hey program
   ./bin/hey-interp --test FILE.hey          Run embedded specs in one source file
   ./bin/hey-interp --interpret FILE.hey     Run a Hey program on the interpreter
   ./bin/hey-interp -e CODE [args...]        Evaluate inline Hey code on the interpreter
@@ -227,10 +229,12 @@ bin/subcmds and tools; those paths are plumbing and are not a public CLI.
 
 Everyday use
   ./bin/hey FILE.hey [args...]              Compile/cache and run a Hey program
+  ./bin/hey --warn-boxed FILE.hey [args...] Report MIR boxed-fallback optimization tips
   ./bin/hey -- FILE.hey [args...]           Run a script whose name begins with -
   ./bin/hey -e CODE [args...]               Compile/cache and run inline Hey code (--eval)
   ./bin/hirb                                Start the interactive REPL
-  ./bin/hey build FILE.hey -o APP           Build a native application
+  ./bin/hey build [--warn-boxed] FILE.hey -o APP  Build a native application
+  ./bin/hey check [--warn-boxed] FILE.hey   Check and type/MIR-verify a Hey program
   ./bin/hey-interp --test FILE.hey          Run embedded specs in one source file
   ./bin/hey-interp --interpret FILE.hey     Run a Hey program on the interpreter
   ./bin/hey-interp -e CODE [args...]        Evaluate inline Hey code on the interpreter
@@ -335,7 +339,7 @@ end
 </code></pre></div>
 <div class="run"><div class="cmd"><span class="prompt">$</span> hey phase mir tiny.hey -o build/tiny.mir &amp;&amp; ls build/tiny.mir</div><pre data-example="runnable" class="out"><code>build/tiny.mir
 </code></pre></div>
-<div class="run"><div class="cmd"><span class="prompt">$</span> hey phase llvm build/tiny.mir -o build/tiny.ll &amp;&amp; grep -c . build/tiny.ll</div><pre data-example="runnable" class="out"><code>80
+<div class="run"><div class="cmd"><span class="prompt">$</span> hey phase llvm build/tiny.mir -o build/tiny.ll &amp;&amp; grep -c . build/tiny.ll</div><pre data-example="runnable" class="out"><code>98
 </code></pre></div>
 <div class="run"><div class="cmd"><span class="prompt">$</span> hey phase build build/tiny.mir -o build/tiny &amp;&amp; ./build/tiny</div><pre data-example="runnable" class="out"><code>49
 </code></pre></div>
@@ -468,7 +472,7 @@ end
 </code></pre></div>
 
 <h2 id="cache" data-doc-purpose="Understand cache and checkout maintenance commands.">6. Cache and checkout maintenance</h2>
-<p><code>hey FILE.hey</code> keys its cached executable by the absolute source path, every file in its import graph, the compiler inputs and the target. To find imports quickly, the key is computed by scanning only top-level <code>import</code> lines (no full parse), resolving them the same way the compiler does, and hashing each file once with SHA-256. Change one imported file and the next run recompiles; change nothing and it reuses the executable.<sup><a href="#n3">3</a></sup> Compiled HIR and MIR ("sidecars") are cached under the same key. You never need to clear a cache to see a change. <span class="badge b-works">Works today</span></p>
+<p><code>hey FILE.hey</code> runs as a zero-shell multi-call native C11 driver across macOS, Linux, <code>*BSD</code>, and Windows: it keys its cached executable by the absolute source path, every file in its import graph, the compiler inputs and the target, stores cache directories and artifacts with strict <code>0700</code>/<code>0600</code> modes and <code>O_NOFOLLOW</code> symlink protection, and dispatches warm runs in <code>2&ndash;3 ms</code> without spawning shell wrappers or linking OpenSSL unless TLS/Crypto is reached.<sup><a href="#n3">3</a></sup> Change one imported file and the next run recompiles; change nothing and it reuses the executable. Compiled HIR and MIR ("sidecars") are cached under the same key, and cross-platform OS primitives (<code>Env.pid()</code>, <code>Files.mkdir_mode(path, mode)</code>, <code>Files.chmod(path, mode)</code>) let user CLIs manage lock/cache files directly without shell-outs (<a href="hey-reference-standard-library-7.html#files">Standard library</a>). <span class="badge b-works">Works today</span></p>
 <div class="run"><div class="cmd"><span class="prompt">$</span> hey cache path</div><pre data-example="runnable" class="out"><code>cache_home=...
 parser_cache=.../parser
 run_cache=.../run
@@ -580,15 +584,13 @@ Examples:
   ./bin/hey vendor --repo ../elders_prayer_app --target darwin-arm64 --macos-trust local
   ./bin/hey vendor --repo ../elders_prayer_app --target darwin-arm64 --macos-sign-identity &quot;Developer ID Application: Name (TEAMID)&quot;
 </code></pre></div></details>
-<details><summary><code>hey native --help</code>, <code>hey package --help</code></summary><div class="run"><div class="cmd"><span class="prompt">$</span> hey native --help</div><pre data-example="runnable" class="out"><code>Hey native-extension shim generator
+<details><summary><code>hey native --help</code>, <code>hey package --help</code></summary><div class="run"><div class="cmd"><span class="prompt">$</span> hey native --help</div><pre data-example="runnable" class="out"><code>Hey native extension generator
 
 Usage:
-  ./bin/hey native --manifest PACKAGE/hey.native.json --out DIRECTORY
+  ./bin/hey native --manifest extension.native.json --out build/generated
 
-The command validates the typed native manifest and writes the ABI header,
-package shim header/source, and deterministic hey.native.lock.json. See
-`docs/developers/native-extensions.md` for supported types, ownership, blocking,
-thread-safety, lifecycle, and package build requirements.
+Reads a structured native-extension manifest, checks its hey_abi value and
+handle/callable shapes, and writes the C ABI header/glue and Hey module.
 </code></pre></div><div class="run"><div class="cmd"><span class="prompt">$</span> hey package --help</div><pre data-example="runnable" class="out"><code>Usage: hey package init NAME [--path DIR] | digest PATH | verify PATH | pack PATH --out DIR | install --release FILE [--archive FILE] [--root DIR] [--lock FILE] | verify-install PATH | ensure --project DIR (--update-lock|--locked) [--registry INDEX] | verify --project DIR | audit --project DIR | commands --project DIR | command-path NAME --project DIR | native-build-dir [--target TARGET]
 </code></pre></div></details>
 <details><summary><code>hey help windows</code>, <code>hey mobile --help</code>, <code>hey install --help</code></summary><div class="run"><div class="cmd"><span class="prompt">$</span> hey help windows</div><pre data-example="runnable" class="out"><code>Hey Windows maintainer commands
@@ -664,7 +666,7 @@ required C/LLVM/OpenSSL build packages when authorized, builds Hey, installs
 stable `hey`, `hey-interp`, and `hirb` commands, and configures centralized caches.
 </code></pre></div></details>
 <p><strong>Tooling modules.</strong> These standard library modules exist to power the commands above; you can import them like any other: <code>Docs</code> (the docs site generator behind <code>hey docs</code>), <code>Packages</code> (resolver, lock files, fetch and verify behind <code>hey package</code>), <code>Vendor</code> (behind <code>hey vendor</code>), <code>Minispec</code> (a test library, <a href="hey-reference-standard-library-7.html#tooling">Standard library</a>), <code>ScriptAudit</code> (scan shell or Hey text for the commands and dependencies it uses), <code>Dashboard</code> (render a status dashboard) and <code>BrowserLearning</code> (the learning portal catalog). <span class="badge b-works">Works today</span></p>
-<p><strong>Tools are Ruby or Hey, never Python.</strong> Hey's own helper scripts are written in Ruby or Hey (a standing rule). Porting the project coordination CLI from shell to Hey is filed but not started. <span class="badge b-proposed">Proposed</span></p>
+<p><strong>Tools are Hey (or Ruby), never Python.</strong> Hey's own helper tools—including the public docs index generator, HTML validator, documentation example verifier, and <code>hey-kamal</code> deployment CLI—are written in Hey (with legacy test harnesses in Ruby, never Python). <span class="badge b-works">Works today</span></p>
 
 <h2 id="platforms" data-doc-purpose="Read platform status in its recorded scope.">8. The platform matrix</h2>
 <figure class="fig" aria-labelledby="plat-cap">
@@ -694,7 +696,7 @@ stable `hey`, `hey-interp`, and `hirb` commands, and configures centralized cach
 <rect x="140" y="284" width="16" height="16" rx="3" class="warnb"/><text x="164" y="297" class="xs">partly / evidence only</text>
 <rect x="320" y="284" width="16" height="16" rx="3" class="box"/><text x="344" y="297" class="xs">not offered</text>
 </svg>
-<figcaption id="plat-cap">Figure 2. Host and cross-compile target matrix. In <code>0.99.608a</code>, <code>hey build --target TARGET</code> supports six desktop/server target profiles (<code>darwin-arm64</code>, <code>darwin-x64</code>, <code>linux-x64</code>, <code>linux-arm64</code>, <code>linux-musl-x64</code>, and <code>windows-x64</code><sup><a href="#n5">5</a></sup>). The browser column is the JavaScript Tour runtime, not compiled Hey; WebAssembly is proposed.</figcaption>
+<figcaption id="plat-cap">Figure 2. Host and cross-compile target matrix. In <code>0.99.609a</code>, <code>hey build --target TARGET</code> supports six desktop/server target profiles (<code>darwin-arm64</code>, <code>darwin-x64</code>, <code>linux-x64</code>, <code>linux-arm64</code>, <code>linux-musl-x64</code>, and <code>windows-x64</code><sup><a href="#n5">5</a></sup>). The browser column is the JavaScript Tour runtime, not compiled Hey; WebAssembly is proposed.</figcaption>
 </figure>
 <p><strong>Cross-compile target profiles (<code>hey build --target</code>).</strong> Pass <code>--target darwin-arm64</code>, <code>darwin-x64</code>, <code>linux-x64</code>, <code>linux-arm64</code>, <code>linux-musl-x64</code>, or <code>windows-x64</code> to select the target ABI family, LLVM triple, object format, and linker profile (<a href="hey-compiler-cross-compile-targets-3.html">Cross-compile targets</a>). <span class="badge b-works">Works today</span></p>
 <p><strong>Platform probes.</strong> The runtime has small probe programs for iOS, Android and Windows (<code>runtime/hey_ios_probe.c</code>, <code>hey_android_probe.c</code>, <code>hey_windows_*.c</code>) that a target build runs to record a native receipt: proof that the runtime really started and ran on that platform. <span class="badge b-works">Works today</span></p>
@@ -702,7 +704,7 @@ stable `hey`, `hey-interp`, and `hirb` commands, and configures centralized cach
 
 <h2 id="versions" data-doc-purpose="Understand version and release naming.">9. Versions and releases</h2>
 <p>Hey versions look like <code>0.99.NNNa</code>: the number after <code>0.99.</code> goes up by one on every landing, and the <code>a</code> marks the alpha series. <code>stdlib:Version</code> is the one place the version lives (<code>Version.current()</code>, <code>Version.next()</code>). Which release lands when is <a href="hey-decisions.html">Roadmap</a>. <span class="badge b-works">Works today</span></p>
-<p>The current release line is <code>0.99.608a</code>, tagged <code>v0.99.608a</code>, shipping the unified eight-stage native compiler pipeline, zero-bridge <code>HeyMirC</code> C bootstrap seed, six-target <code>--target</code> cross-compilation, self-contained compression/archive modules, and the Ruling B3 command-line exit-status contract<sup><a href="#n4">4</a>, <a href="#n5">5</a></sup>.</p>
+<p>The current release line is <code>0.99.609a</code>, tagged <code>v0.99.609a</code>, shipping the zero-shell native C11 <code>hey</code> CLI driver (<code>2&ndash;3 ms</code> warm cached dispatch), <code>--warn-boxed</code> optimization diagnostics and boundary narrowing, homogeneous unboxed <code>HeyJsonArray</code> storage and compile-time record <code>shape_id</code> slots, module-wide <code>job</code> visibility plus <code>Jobs.ensure</code>/<code>Jobs.lookup</code>, unversioned <code>pkg:</code> imports with compact <code>hey.lock.json</code>, and the unified eight-stage native compiler pipeline<sup><a href="#n4">4</a>, <a href="#n5">5</a></sup>.</p>
 <div class="run"><div class="fname">version.hey</div><pre data-example="runnable" data-file="version.hey" class="src"><code>program
   says Version.current()
   says Version.next()
@@ -741,7 +743,7 @@ v0.99...
 <dt>Conformance spec</dt><dd>A spec in <code>specs/</code> that pins one language rule.</dd>
 <dt>Gate</dt><dd>A check that must pass before a change lands.</dd>
 <dt>Landing</dt><dd>A change merged into the release line; every landing bumps the version.</dd>
-<dt>Runtime archive</dt><dd>The compiled native runtime linked into every Hey executable; in <code>0.99.608a</code> ordinary builds compile the stdlib modules each program reaches directly through the unified eight-stage pipeline.</dd>
+<dt>Runtime archive</dt><dd>The compiled native runtime linked into every Hey executable; in <code>0.99.609a</code> ordinary builds compile the stdlib modules each program reaches directly through the unified eight-stage pipeline.</dd>
 <dt>Built-in</dt><dd>A function implemented in the runtime and declared by the toolchain; it lives in a namespace such as <code>Path</code> or <code>Json</code>, and a small core set is visible with no prefix.</dd>
 <dt>Native package</dt><dd>A package that wraps a C library through a manifest (<a href="hey-reference-native-code-and-c-8.html">Native code and C</a>).</dd>
 <dt>Syntax tree, HIR, MIR, LLVM</dt><dd>The compiler's stages; defined in the <a href="hey-compiler-from-source-to-native-1.html">compiler article's terminology table</a>.</dd>
@@ -764,13 +766,13 @@ v0.99...
 <li id="n2">Driver modes go before the file; everything after it belongs to the program: ledger row L-CLI-21; 9071e3.</li>
 <li id="n3">One compiler authority is consumed by every cache layer, and the run cache derives its key from one compiler-input closure: bf7e6b, 49f790.</li>
 <li id="n4">Unified eight-stage <code>hey phase</code> driver and Ruling B3 exit-code contract (<code>0</code> success, <code>1</code> uncaught runtime failure, <code>2</code> usage/syntax/static error, <code>70</code> internal compiler invariant bug) in release 607a: 835943.</li>
-<li id="n5">Clang-free cross-compile target profiles (<code>--target darwin-arm64|darwin-x64|linux-x64|linux-arm64|linux-musl-x64|windows-x64</code>) and zero-bridge <code>HeyMirC</code> C bootstrap seed in <code>0.99.608a</code>: 2f12d0, 4d905b, c91089.</li>
+<li id="n5">Clang-free cross-compile target profiles (<code>--target darwin-arm64|darwin-x64|linux-x64|linux-arm64|linux-musl-x64|windows-x64</code>) and zero-bridge <code>HeyMirC</code> C bootstrap seed in release 608a: 2f12d0, 4d905b, c91089.</li>
 </ol>
 </section>
 <footer>
 <ul>
-<li>Hey source: <code>bin/hey</code>, <code>libexec/hey-command</code> (the dispatch table), <code>bin/hirb</code>, <code>bin/hey-interp</code>, <code>libexec/test</code>, <code>libexec/perf</code>, <code>bin/subcmds/*</code>, <code>bin/subcmds/hey-help</code>, <code>docs/developers/command-line.md</code>, <code>compiler-phases.md</code>, <code>04-browser-playground.md</code>, <code>scheduler-profiling.md</code>, <code>actor-scalability.md</code>, <code>import-graph-fingerprints.md</code>, <code>import-graph-sidecars.md</code>, <code>distributions.md</code>, <code>script-execution-and-compilation.md</code>, <code>stdlib/Version.hey</code>, <code>stdlib/Cache.hey</code>, <code>stdlib/HeyPhaseProfile.hey</code>.</li>
-<li>Every runnable help screen is checked against the <code>0.99.608a</code> toolchain.</li>
+<li>Hey source: <code>bin/hey</code>, <code>runtime/hey_cli_driver.c</code>, <code>runtime/hey_run_fast.c</code>, <code>bin/hirb</code>, <code>bin/hey-interp</code>, <code>libexec/test</code>, <code>libexec/perf</code>, <code>bin/subcmds/*</code>, <code>bin/subcmds/hey-help</code>, <code>docs/developers/command-line.md</code>, <code>compiler-phases.md</code>, <code>04-browser-playground.md</code>, <code>scheduler-profiling.md</code>, <code>actor-scalability.md</code>, <code>import-graph-fingerprints.md</code>, <code>import-graph-sidecars.md</code>, <code>distributions.md</code>, <code>script-execution-and-compilation.md</code>, <code>stdlib/Version.hey</code>, <code>stdlib/Cache.hey</code>, <code>stdlib/HeyPhaseProfile.hey</code>.</li>
+<li>Every runnable help screen is checked against the <code>0.99.609a</code> toolchain.</li>
 </ul>
 <h3>Read next</h3>
 <ul>

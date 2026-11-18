@@ -23,8 +23,8 @@ behave identically; only the transport differs.
 ## Use it
 
 ```hey
-import 'pkg:hey_web@0.3.7/main'
-import 'pkg:hey_web@0.3.7/poller'
+import 'pkg:hey_web/main'
+import 'pkg:hey_web/poller'
 
 program
   let app = HeyWeb.application('cards', routes, {...config, workers: 2})

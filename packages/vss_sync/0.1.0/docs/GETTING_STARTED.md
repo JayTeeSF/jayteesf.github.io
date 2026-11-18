@@ -4,7 +4,7 @@ Install and lock `vss_sync` as described in [README](README.md), then use the
 canonical protocol helpers.
 
 ```hey
-import 'pkg:vss_sync@0.1.0/main'
+import 'pkg:vss_sync/main'
 
 program
   says VssSync.protocol()

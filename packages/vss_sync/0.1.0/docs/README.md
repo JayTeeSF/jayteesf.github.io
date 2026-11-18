@@ -41,7 +41,7 @@ hey package install \
 Then import the pinned release:
 
 ```hey
-import 'pkg:vss_sync@0.1.0/main'
+import 'pkg:vss_sync/main'
 ```
 
 See [Getting started](GETTING_STARTED.md), [design](DESIGN.md), and the

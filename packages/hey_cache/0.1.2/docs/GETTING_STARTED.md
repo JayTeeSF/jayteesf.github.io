@@ -3,7 +3,7 @@
 ## A memory-only cache
 
 ```hey
-import 'pkg:hey_cache@0.1.0/main'
+import 'pkg:hey_cache/main'
 
 fn render(key)
   return expensive(key)

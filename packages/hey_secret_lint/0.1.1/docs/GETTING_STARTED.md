@@ -55,7 +55,7 @@ why on the line: `# secret-lint: ok <reason>`.
 ## As a library
 
 ```hey
-import 'pkg:hey_secret_lint@0.1.1/main'
+import 'pkg:hey_secret_lint/main'
 
 program
   for line in SecretLint.scan_text('Routes.hey', source)

@@ -31,7 +31,7 @@ The client delegates URL parsing, HTTP/HTTPS, redirects, TLS validation, bounded
 ## Puma-style application server
 
 ```hey
-import 'pkg:hey_web@0.1.2/main'
+import 'pkg:hey_web/main'
 import 'stdlib:web'
 import 'stdlib:cli'
 

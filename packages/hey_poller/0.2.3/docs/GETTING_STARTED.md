@@ -15,8 +15,8 @@
    In a Docker image, run it in the build stage of the image's own platform.
 3. Write the server against `Poller` (see the README and `examples/echo.hey`)
    and run it from the project root.
-4. Moving from hey_epoll: replace `import 'pkg:hey_epoll@0.1.2/epoll'` with
-   `import 'pkg:hey_poller@0.2.0/poller'` and `Epoll.` with `Poller.`.
+4. Moving from hey_epoll: replace `import 'pkg:hey_epoll/epoll'` with
+   `import 'pkg:hey_poller/poller'` and `Epoll.` with `Poller.`.
 5. io_uring on Linux, by name: build with `--backend io_uring` (needs
    `liburing-dev`; also builds hey_epoll, the fallback), then
    `Poller.open(host, port, {backend: 'io_uring'})` or

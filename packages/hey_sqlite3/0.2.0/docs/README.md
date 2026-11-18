@@ -29,7 +29,7 @@ Linux uses `.so`. Windows awaits Hey's native Windows extension-loader promotion
 ## Use it
 
 ```hey
-import 'pkg:hey_sqlite3@0.2.0/main'
+import 'pkg:hey_sqlite3/main'
 
 let opened = Sqlite3.connect('app.sqlite3', {})
 let database = opened.value

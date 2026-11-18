@@ -1,7 +1,7 @@
 # Getting started
 
 ```hey
-import 'pkg:hey_reports@0.1.0/main'
+import 'pkg:hey_reports/main'
 
 program
   let chart = Reports.chart(

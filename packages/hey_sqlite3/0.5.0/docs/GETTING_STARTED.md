@@ -21,9 +21,9 @@ unchanged:
 ```hey
 import 'stdlib:Env'
 import 'stdlib:Web'
-import 'pkg:hey_sqlite3@0.5.0/adapter'
-import 'pkg:hey_web@0.3.7/responses'
-import 'pkg:hey_web@0.3.7/request_support'
+import 'pkg:hey_sqlite3/adapter'
+import 'pkg:hey_web/responses'
+import 'pkg:hey_web/request_support'
 
 fn database()
   return Sqlite3.connect('app.sqlite3', {library_path: Env.get('HEY_SQLITE3_LIBRARY')}).value

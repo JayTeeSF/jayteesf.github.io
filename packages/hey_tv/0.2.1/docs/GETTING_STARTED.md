@@ -1,7 +1,7 @@
 # Getting started
 
 ```hey
-import 'pkg:hey_tv@0.2.0/television'
+import 'pkg:hey_tv/television'
 
 program
   let display = Television.public_display(

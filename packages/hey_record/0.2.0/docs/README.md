@@ -13,8 +13,8 @@ It contains no C code and no database driver. Applications choose `hey_sqlite3`,
 ## Use with SQLite
 
 ```hey
-import 'pkg:hey_record@0.2.0/main'
-import 'pkg:hey_sqlite3@0.2.0/main'
+import 'pkg:hey_record/main'
+import 'pkg:hey_sqlite3/main'
 
 let opened = Sqlite3.connect('app.sqlite3', {})
 let database = opened.value

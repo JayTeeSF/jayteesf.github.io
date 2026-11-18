@@ -3,7 +3,7 @@
 Build the native extension with `bin/build-native`; it prints the library path. Then:
 
 ```hey
-import 'pkg:hey_roaring@0.1.0/main'
+import 'pkg:hey_roaring/main'
 program
  let extension = Roaring.load(library_path).value
  let cards = Roaring.create(extension).value

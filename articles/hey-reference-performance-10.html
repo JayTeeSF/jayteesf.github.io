@@ -112,7 +112,7 @@ sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
 <p class="lede">The goal is C speed on every benchmark and every real app. Today Hey matches C on two
 workloads, is 1.3 to 2.6 times C on ten others, and is about 56 times C on the 1BRC data-processing benchmark.
 This page shows those numbers, how they're measured, and the compiler and runtime work closing the gap.</p>
-<p class="callout"><strong>Which toolchain.</strong> Every runnable session on this page is verified on <code>0.99.608a</code>. Timing tables preserve their recorded baseline provenance: the Linux scoreboard and panels record the release 605a Linux baseline on Intel i7-1165G7, while the Apple M3 Pro startup and self-compile baselines record the <code>cb817d</code> pre-consolidation build (<a href="#n4">Note 4</a>) prior to release 607a's eight-stage pipeline cutover and pass linearizations (<a href="#n6">Note 6</a>).</p>
+<p class="callout"><strong>Which toolchain.</strong> Every runnable session on this page is verified on <code>0.99.609a</code>. Timing tables preserve their recorded baseline provenance: the Linux scoreboard and panels record the release 605a Linux baseline on Intel i7-1165G7, while the Apple M3 Pro startup and self-compile baselines record the <code>cb817d</code> pre-consolidation build (<a href="#n4">Note 4</a>) prior to release 607a's eight-stage pipeline cutover and pass linearizations (<a href="#n6">Note 6</a>).</p>
 
 <div class="toc"><strong>On this page</strong>
 <ol>
@@ -122,6 +122,7 @@ This page shows those numbers, how they're measured, and the compiler and runtim
 <li><a href="#compile">Why compiles are slow, and the 60% plan</a></li>
 <li><a href="#plans">What closes the gap</a></li>
 <li><a href="#mechanisms">Mechanisms already working: tail calls, workers, messages</a></li>
+<li><a href="#day1-idioms">Day-1 idiomatic Hey performance &amp; <code>--warn-boxed</code></a></li>
 <li><a href="#tools">Run the benchmarks yourself</a></li>
 <li><a href="#proof">What would prove each claim</a></li>
 </ol></div>
@@ -141,7 +142,7 @@ This page shows those numbers, how they're measured, and the compiler and runtim
 <rect x="170" y="20" width="160" height="48" rx="8" class="f-acc"/><text x="250" y="49" text-anchor="middle">Today's numbers (2)</text>
 <rect x="340" y="20" width="160" height="48" rx="8" class="f-warn"/><text x="420" y="49" text-anchor="middle">Measuring honestly (3)</text>
 <rect x="510" y="20" width="200" height="48" rx="8" class="f-violet"/><text x="610" y="42" text-anchor="middle">Plans: compile (4),</text><text x="610" y="60" text-anchor="middle">runtime (5), working (6)</text>
-<rect x="720" y="20" width="150" height="48" rx="8" class="f-surface"/><text x="795" y="42" text-anchor="middle">Try it (7)</text><text x="795" y="60" text-anchor="middle">Proof (8)</text>
+<rect x="720" y="20" width="150" height="48" rx="8" class="f-surface"/><text x="795" y="42" text-anchor="middle">Idioms (7) · Try (8)</text><text x="795" y="60" text-anchor="middle">Proof (9)</text>
 </g>
 <text x="10" y="88" class="t-small t-muted">Where Hey must get to, where it is, how we know, and what closes the gap.</text>
 </svg>
@@ -298,7 +299,7 @@ ties C, and why "Hey is just slow at this" isn't an answer anyone gets to give.<
 <tr><td>Idle 1 second: peak memory</td><td class="num">1,696 KB</td><td class="num">4,780 KB</td><td>2.8&times;</td></tr>
 <tr><td>Parse 10,000 JSON documents: instructions</td><td class="num">482M</td><td class="num">915M</td><td>1.9&times;</td></tr>
 </table></div>
-<p>Web throughput and latency are watched release to release, because they have slipped before (by about 6% in throughput and 30% in 99th-percentile latency over three releases). Startup on the Mac, measured on the M3 Pro baseline (<a href="#n4">Note 4</a>): a trivial runtime-linked program costs 3.26 million more startup instructions and 101 KB more binary than C's hello world, down from 22.1 million and 1.14 MB once OpenSSL started loading only on first use and every link dropped unused code. Those startup reductions ship in <code>0.99.608a</code> (release 605a still paid the larger figures). Actor message passing has its own page (<a
+<p>Web throughput and latency are watched release to release, because they have slipped before (by about 6% in throughput and 30% in 99th-percentile latency over three releases). Startup on the Mac, measured on the M3 Pro baseline (<a href="#n4">Note 4</a>): a trivial runtime-linked program costs 3.26 million more startup instructions and 101 KB more binary than C's hello world, down from 22.1 million and 1.14 MB once demand-driven OpenSSL linking and dead-strip linking landed (release 605a still paid the larger figures), and in <code>0.99.609a</code> the zero-shell native C11 <code>hey</code> driver dispatches warm cached scripts in <code>2&ndash;3 ms</code>. Actor message passing has its own page (<a
 href="hey-reference-actors-and-failure-4.html">Reference 4: Actors and failure</a>).</p>
 
 <h3>The two numbers that look worst, explained</h3>
@@ -307,7 +308,7 @@ href="hey-reference-actors-and-failure-4.html">Reference 4: Actors and failure</
 <div class="card"><strong>With copy-on-write off, W9 takes 1,309.5G.</strong> That's 713 times the default.
 <code>HEY_RC_COW=0</code> switches off the runtime's "is anyone else holding this?" test, so only the
 compiler's own proof that a value is unshared can update it in place. On the release 605a baseline the compiler couldn't prove that
-yet for W9, W10 and 1BRC (which timed out at 300 s); how <code>0.99.608a</code>'s ownership passes attack it is in <a href="#plans">section 5</a>.</div>
+yet for W9, W10 and 1BRC (which timed out at 300 s); how <code>0.99.609a</code>'s ownership, array, and record-shape passes attack it is in <a href="#plans">section 5</a>.</div>
 </div>
 
 <h3>Self-compile: the compiler compiling itself <span class="badge b-works">Works today</span> (measured)</h3>
@@ -454,12 +455,12 @@ work by 2.5 to 3.4 times. Linear would be 2.</li>
 <p>These are the same costs ordinary programs pay. The compiler is a Hey program using the same runtime, so a fix to
 map copies speeds up compiles and apps at once.</p>
 
-<h3>What the eight-stage compiler architecture does about it in 0.99.608a <span class="badge b-works">Works today</span></h3>
+<h3>What the eight-stage compiler architecture does about it in 0.99.609a <span class="badge b-works">Works today</span></h3>
 <ul>
-<li><strong>Parse once, desugar post-parse, key by numeric IDs:</strong> <code>HeyTokens.hey -&gt; HeySyntaxTree.hey</code> parses every file once, <code>HeyFinalSyntaxNodes.hey</code> normalizes surface sugar into the 67-kind Core AST, and <code>HeyProgramResolution.hey</code> attaches numeric <code>(unit_id, node_id)</code> pairs—zero expression-text reparsing (<a href="hey-compiler-from-source-to-native-1.html#desugar">Compiler 1 §2</a>).</li>
-<li><strong>Linearized <code>O(V)</code> passes &amp; dynamic receiver COW fusion:</strong> <code>0.99.608a</code> eliminates five quadratic compiler map/list hotspots across <code>HeyHirInference.hey</code>, <code>HeyMirLowering.hey</code>, <code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>, and <code>HeyMirLlvm.hey</code>, and fuses last-use receiver updates via <code>own_fuse_cow_take_receivers</code>—cutting a 1,200-function compilation stress test from <code>699,159</code> copy-on-write clones (<code>10.01 GB</code> copied) down to <code>0</code> clones (<code>16 KB</code>)<sup><a href="#n6">6</a></sup>.</li>
-<li><strong>Structured in-memory IR &amp; bounded pointer workers:</strong> Stages pass typed Hey records and <code>HeyIr.hey</code> SSA graphs directly, while N-to-1 pointer worker sharing (<code>&lt;= 8</code> workers, depth <code>&lt;= 4</code>) prevents template bloat.</li>
-<li><strong>Independent single verifier + module caching:</strong> <code>HeyMirVerify.hey</code> checks completed physical plans once before <code>HeyMirLlvm.hey</code>, paired with content-addressed caching.</li>
+<li><strong>Parse once, desugar post-parse, key by numeric IDs:</strong> <code>HeyTokens.hey -&gt; HeySyntaxTree.hey</code> parses every file once (including structured <code>import_decl</code> decoding and single-parse <code>hey -e</code>), <code>HeyFinalSyntaxNodes.hey</code> normalizes surface sugar into the 67-kind Core AST, and <code>HeyProgramResolution.hey</code> attaches numeric <code>(unit_id, node_id)</code> pairs—zero expression-text reparsing (<a href="hey-compiler-from-source-to-native-1.html#desugar">Compiler 1 §2</a>).</li>
+<li><strong>Linearized <code>O(V)</code> passes &amp; dynamic receiver COW fusion:</strong> Five former quadratic compiler map/list hotspots across <code>HeyHirInference.hey</code>, <code>HeyMirLowering.hey</code>, <code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>, and <code>HeyMirLlvm.hey</code> run in linear <code>O(V)</code> time, and <code>own_fuse_cow_take_receivers</code> fuses last-use receiver updates—cutting a 1,200-function compilation stress test from <code>699,159</code> copy-on-write clones (<code>10.01 GB</code> copied) down to <code>0</code> clones (<code>16 KB</code>)<sup><a href="#n6">6</a></sup>.</li>
+<li><strong>Zero-shell native C11 driver &amp; structured in-memory IR:</strong> Stages pass typed Hey records and <code>HeyIr.hey</code> SSA graphs directly, while the native multi-call <code>hey</code> CLI driver eliminates shell-wrapper process spawns across macOS, Linux, <code>*BSD</code>, and Windows.</li>
+<li><strong>Independent single verifier + module caching:</strong> <code>HeyMirVerify.hey</code> checks completed physical plans once before <code>HeyMirLlvm.hey</code>, paired with <code>0700</code>/<code>0600</code> content-addressed caching.</li>
 </ul>
 
 <h3>See where your compile goes <span class="badge b-works">Works today</span></h3>
@@ -487,22 +488,23 @@ driver_build_total 2295 ms</code></pre>
 <p>Targets taken from the Linux baselines and mapped directly to Hey's eight-stage pipeline (<a href="hey-compiler-from-source-to-native-1.html#chain">Compiler 1</a>):</p>
 <div class="tablewrap"><table>
 <tr><th>Work</th><th>What it fixes</th><th>Measured target</th></tr>
-<tr><td><code>HeyMirFacts.hey</code> (<code>F1–F4</code>) + <code>HeyMirLiveness.hey</code> + <code>HeyMirOwnership.hey</code> (active in <code>0.99.608a</code>): zero-RC borrows (<code>view live =&gt; owner live</code>), last-use <code>move</code>, Perceus <code>reuse</code>, dynamic <code>_take_receiver</code> COW fusion, and <code>block_scopes</code> arenas (<code>hey_region_push</code>/<code>pop</code>)</td><td>Eliminates whole-value copies even with <code>HEY_RC_COW=0</code>, holds functional updates flat at <code>1x</code> RAM (19&times; faster on a 40k-step reuse prototype), and pops per-line 1BRC scratch in one pointer reset</td><td>W9 1,309.5G and W10 680.9G with COW off, against under 2G with it on; 1BRC per-line <code>Files.read_line</code> / <code>Text.split</code> churn</td></tr>
-<tr><td>Map and SwissTable hash redesign keyed on 16-byte <code>HeyStr</code> (<span class="badge b-proposed">Proposed</span>)</td><td>Map copy, growth and lookup</td><td>W6 27.97G vs C 10.96G; W11 12.75G vs C 4.85G</td></tr>
+<tr><td><code>HeyMirFacts.hey</code> (<code>F1–F4</code>) + <code>HeyMirLiveness.hey</code> + <code>HeyMirOwnership.hey</code> (active in <code>0.99.609a</code>): zero-RC borrows (<code>view live =&gt; owner live</code>), last-use <code>move</code>, Perceus <code>reuse</code>, dynamic <code>_take_receiver</code> COW fusion, and <code>block_scopes</code> arenas (<code>hey_region_push</code>/<code>pop</code>)</td><td>Eliminates whole-value copies even with <code>HEY_RC_COW=0</code>, holds functional updates flat at <code>1x</code> RAM (19&times; faster on a 40k-step reuse prototype), and pops per-line 1BRC scratch in one pointer reset</td><td>W9 1,309.5G and W10 680.9G with COW off, against under 2G with it on; 1BRC per-line <code>Files.read_line</code> / <code>Text.split</code> churn</td></tr>
+<tr><td>Homogeneous unboxed <code>I64</code>/<code>F64</code> <code>HeyJsonArray</code> storage + hoisted MIR loop guards, and compile-time record <code>shape_id</code> ("hidden classes") + 64-bit <code>unboxed_mask</code> (active in <code>0.99.609a</code>)</td><td>Eliminates per-element <code>HeyValue</code> boxes on numeric arrays and lowers static-key <code>obj.field</code> loads/updates to a 1-cycle shape guard + inline 64-bit slot load/store</td><td>W2 transform, W4 append, W5 histogram, W6 fannkuch, W11 binary trees</td></tr>
+<tr><td>Map and SwissTable hash redesign keyed on 16-byte <code>HeyStr</code> (<span class="badge b-proposed">Proposed</span>)</td><td>Dynamic-key map growth and lookup</td><td>W9 dict, W10 wordfreq, 1BRC station table</td></tr>
 <tr><td>Allocator follow-ups atop the 27-class small-block pages (<span class="badge b-proposed">Proposed</span>)</td><td>Page overhead in tiny programs and compile-time size-class selection</td><td>Idle peak memory 4.8 MB vs C 1.7 MB</td></tr>
 </table></div>
 
 <h3>Stage 6 &amp; C boundaries: 16-byte <code>HeyStr</code> carrier and Native ABI v2</h3>
 <ul>
-<li><strong>16-byte <code>HeyStr</code> over <code>SDS</code></strong> (<a href="hey-reference-values-memory-and-strings-9.html#phases">Values, memory and Strings</a>): the release 605a baseline found Hey's split 25.5&times; C, building strings 4.4&times; C and slicing 283&times; Rust (Rust borrows). Release <code>0.99.608a</code> ships both the 16-byte <code>HeyStr</code> C runtime and two-register <code>HeyStr</code> carriers + zero-RC borrowed slices in <code>HeyMirPhysical.hey</code> (<span class="badge b-works">Works today</span>), with geometric <code>SDS</code> slack growth on unique string appends <span class="badge b-decided">Decided, coming</span>.</li>
+<li><strong>16-byte <code>HeyStr</code> over <code>SDS</code></strong> (<a href="hey-reference-values-memory-and-strings-9.html#phases">Values, memory and Strings</a>): the release 605a baseline found Hey's split 25.5&times; C, building strings 4.4&times; C and slicing 283&times; Rust (Rust borrows). Release <code>0.99.609a</code> ships the 16-byte <code>HeyStr</code> C runtime, two-register <code>HeyStr</code> carriers + zero-RC borrowed slices in <code>HeyMirPhysical.hey</code>, and geometric <code>SDS</code> slack growth on unique string appends (<span class="badge b-works">Works today</span>).</li>
 <li><strong>Native ABI v2</strong> (<a href="hey-reference-native-code-and-c-8.html">Native code and C</a>): a native call cost about 5,374 instructions when measured; the static design models 40 to 90 instructions, with a measured release gate of at most 200.</li>
 </ul>
 
 <h3>Stages 3 &amp; 5: Zero-annotation two-layer specialization <span class="badge b-works">Works today</span></h3>
-<p>Hey has no user type annotations, so without specialization a polymorphic function like <code>fn add(a, b)</code> or <code>fn score_line(line, prefix, weights)</code> boxes arguments into 32-byte <code>HeyValue*</code> cells. In <code>0.99.608a</code>, Hey eliminates that cost across two coordinated layers: <strong>Layer 1</strong> (<code>HeyHirInference.hey</code>) types observed call tuples <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> (<code>#Int,Int</code>, <code>#Float,Float</code>, <code>#Int,Float</code>) without cloning AST/HIR trees (<a href="hey-compiler-from-source-to-native-1.html#types">Compiler 1 §4</a>), and <strong>Layer 2</strong> (<code>HeyMirPhysical.hey</code>) deduplicates <code>define linkonce_odr</code> machine workers by <code>(Carrier, fit64, Borrow/Consume)</code> (with flat <code>&lt;=4</code>-scalar user-record unboxing <span class="badge b-decided">Decided, coming</span>), capped at <code>&lt;= 8</code> workers and depth <code>&lt;= 4</code> (<a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6</a>). Heap-pointer aggregates share one pointer worker to keep <code>L1-I</code> hot, and unused boxed <code>HeyValue*</code> wrappers are omitted completely.</p>
+<p>Hey has no user type annotations, so without specialization a polymorphic function like <code>fn add(a, b)</code> or <code>fn score_line(line, prefix, weights)</code> boxes arguments into 32-byte <code>HeyValue*</code> cells. In <code>0.99.609a</code>, Hey eliminates that cost across two coordinated layers: <strong>Layer 1</strong> (<code>HeyHirInference.hey</code>) types observed call tuples <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> (<code>#Int,Int</code>, <code>#Float,Float</code>, <code>#Int,Float</code>) plus boundary narrowing (<code>.to_i</code>, <code>.to_f</code>, <code>is_int?</code>, <code>Text.parse_int != nil</code>) without cloning AST/HIR trees (<a href="hey-compiler-from-source-to-native-1.html#types">Compiler 1 §4</a>), and <strong>Layer 2</strong> (<code>HeyMirPhysical.hey</code>) deduplicates <code>define linkonce_odr</code> machine workers by <code>(Carrier, fit64, Borrow/Consume)</code> (capped at <code>&lt;= 8</code> workers and depth <code>&lt;= 4</code>; <a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6</a>). Heap-pointer aggregates share one pointer worker to keep <code>L1-I</code> hot, and unused boxed <code>HeyValue*</code> wrappers are omitted completely.</p>
 
 <h2 id="mechanisms" data-doc-purpose="Read the mechanisms described as implemented in the article’s scope.">6. Mechanisms already working</h2>
-<p>Several core pieces of the eight-stage pipeline and <code>0.99.608a</code> runtime are in force: monotone <code>[lo..hi]</code> <code>fits_i64?</code> range proofs in <code>HeyMirFacts.hey</code> keep tight integer loops in 64-bit hardware registers (tying C at <code>1.00&times;</code> on W1 and W3 while promoting overflowing intermediates cleanly to <code>BigInt</code>), copy-on-write uniqueness (<code>hey_rc_count_is_unique</code>) plus <code>_take_receiver</code> MIR fusion update sole-owned maps, arrays, and <code>SDS</code> strings in place, 27-class thread-local pages serve <code>32B..1024B</code> allocations, and lazy OpenSSL loading plus dead-strip linking cut Mac startup overhead by 85%.</p>
+<p>Several core pieces of the eight-stage pipeline and <code>0.99.609a</code> runtime are in force: monotone <code>[lo..hi]</code> <code>fits_i64?</code> range proofs in <code>HeyMirFacts.hey</code> keep tight integer loops in 64-bit hardware registers (tying C at <code>1.00&times;</code> on W1 and W3 while promoting overflowing intermediates cleanly to <code>BigInt</code>), homogeneous unboxed <code>Int</code>/<code>Float</code> <code>HeyJsonArray</code> backings and compile-time record <code>shape_id</code> slots avoid per-field/per-element boxing, copy-on-write uniqueness (<code>hey_rc_count_is_unique</code>) plus <code>_take_receiver</code> MIR fusion and geometric <code>SDS</code> slack update sole-owned maps, arrays, and strings in place, 27-class thread-local pages serve <code>32B..1024B</code> allocations, and demand-driven OpenSSL linking plus the zero-shell C11 launcher cut script dispatch to <code>2&ndash;3 ms</code>.</p>
 <h3>Self tail calls on specialized scalar workers <span class="badge b-decided">Decided, coming</span></h3>
 <p>When a direct self-recursive function like <code>sum_down(remaining, total)</code> lowers to an unboxed <code>(i64, i64) -&gt; i64</code> worker with no active cleanup frame, Stage 8 (<code>HeyMirLlvm.hey</code>) is designed to emit its recursive return as an LLVM <code>musttail</code> call that reuses the current stack frame instead of growing the call stack:</p>
 <p class="cmd-label">tail.hey</p>
@@ -524,7 +526,53 @@ end</code></pre>
 <h3>Workers and messages</h3>
 <p>What an actor, a worker pool, a Job and a stream each cost, measured on the same workloads, is in <a href="hey-reference-workers-jobs-streams-5.html#tradeoffs">Workers, Jobs and streams</a>. Actor message passing has its own measurements in <a href="hey-reference-actors-and-failure-4.html">Actors and failure</a>.</p>
 
-<h2 id="tools" data-doc-purpose="Find benchmark commands and their inputs.">7. Run the benchmarks yourself <span class="badge b-works">Works today</span></h2>
+<h2 id="day1-idioms" data-doc-purpose="Write idiomatic Hey that compiles to unboxed registers and in-place updates from day one.">7. Day-1 idiomatic Hey performance &amp; <code>--warn-boxed</code> <span class="badge b-works">Works today</span></h2>
+<p>You never write type annotations or manual unsafe blocks in Hey. Ordinary functional code runs in unboxed registers and mutates sole-owned buffers in place when you follow four everyday shapes:</p>
+<div class="grid2">
+<div class="card"><strong>1. Thread unique-owner accumulators.</strong> Rebinding an accumulator on each step—<code>set stats = add_reading(stats, x)</code>, <code>set counts = counts.put(k, v)</code>, or <code>set out = out + chunk</code>—lets <code>HeyMirOwnership</code> prove <code>rc == 1</code> and fuse Perceus reuse + geometric <code>SDS</code> string slack, updating in place in <code>O(1)</code> amortized time.</div>
+<div class="card"><strong>2. Append with <code>[...xs, item]</code> and keep numeric arrays homogeneous.</strong> Last-use spread appends (<code>set xs = [...xs, item]</code>) grow the existing buffer geometrically without copying, and homogeneous <code>Int</code> or <code>Float</code> arrays use contiguous unboxed <code>int64_t</code> / <code>double</code> storage with hoisted MIR loop guards.</div>
+<div class="card"><strong>3. Use static-key record literals.</strong> Records built with fixed field names (<code>{min: lo, max: hi, sum: s, count: n}</code>) receive a compile-time <code>shape_id</code> and 64-bit <code>unboxed_mask</code>, turning <code>stats.sum</code> and <code>{...stats, sum: stats.sum + x}</code> into a 1-cycle shape check and direct 64-bit slot load/store.</div>
+<div class="card"><strong>4. Narrow dynamic values once before a hot loop.</strong> Values crossing a dynamic boundary—JSON payloads, map lookups like <code>row['price']</code>, or unspecialized module entry points—become unboxed registers as soon as you narrow them once outside the loop with <code>.to_i</code>, <code>Int(x)</code>, <code>.to_f</code>, <code>Float(x)</code>, <code>if is_int?(x)</code>, or <code>Text.parse_int(s) != nil</code>.</div>
+</div>
+
+<h3>Audit hot loops with <code>--warn-boxed</code> and <code>--deny boxed_fallback</code></h3>
+<p>Ordinary <code>hey</code>, <code>hey check</code>, and <code>hey build</code> runs are silent by default. Pass <code>--warn-boxed</code> to ask <code>HeyMirPhysical</code> to report any loop operation in your files (never imported stdlib modules) that fell back to dynamic <code>HeyValue</code> dispatch, or pass <code>--deny boxed_fallback</code> in CI to refuse unintended boxing on performance-critical modules (<code>--allow boxed_fallback</code> silences it):</p>
+<p class="cmd-label">sum_dynamic.hey (dynamic parameter in an unspecialized library module)</p>
+<pre data-example="runnable" data-file="sum_dynamic.hey"><code>module RollingSum
+  fn up_to(n)
+    let acc = 0
+    let i = 0
+    while i &lt; n
+      set acc = acc + i
+      set i = i + 1
+    end
+    return acc
+  end
+end</code></pre>
+<p class="cmd-label">sum_narrowed.hey (narrowed once at the boundary)</p>
+<pre data-example="runnable" data-file="sum_narrowed.hey"><code>fn sum_to(n)
+  let limit = n.to_i
+  let acc = 0
+  let i = 0
+  while i &lt; limit
+    set acc = acc + i
+    set i = i + 1
+  end
+  return acc
+end
+
+program
+  says sum_to(&#39;10&#39;)
+end</code></pre>
+<p class="cmd-label">Check both with <code>--warn-boxed</code> and <code>--deny boxed_fallback</code></p>
+<pre data-example="runnable" class="out"><code>$ hey check --warn-boxed sum_dynamic.hey
+...sum_dynamic.hey:5:...: warning[boxed_fallback]: loop comparison &#39;&lt;&#39; fell back to boxed HeyValue dispatch because parameter &#39;n&#39; has an unknown dynamic type; tip: narrow once before the loop with &#39;let n = n.to_i&#39;...
+...
+$ hey check --deny boxed_fallback sum_narrowed.hey
+$ hey sum_narrowed.hey
+45</code></pre>
+
+<h2 id="tools" data-doc-purpose="Find benchmark commands and their inputs.">8. Run the benchmarks yourself <span class="badge b-works">Works today</span></h2>
 <p>In a Hey source checkout, every benchmark family is a <code>hey perf</code> (or <code>libexec/perf</code>) subcommand; <code>hey perf --help</code> lists them. The main ones:</p>
 <div class="tablewrap"><table><tr><th>Command</th><th>What it measures</th></tr>
 <tr><td><code>perf script-startup</code></td><td>Cold compile vs warm cached dispatch vs running the binary directly</td></tr>
@@ -541,16 +589,16 @@ w1_hey: 154721659   525,968,255 instructions   1,294,648 bytes peak   134,344-by
 <p>(Output condensed from <code>time -l</code>'s report; Apple clang 21.) Same answer, same instructions to within 0.3%: W1 is at C on the Mac too. And the startup benchmark:</p>
 <pre data-example="fragment" data-needs="a Hey source checkout"><code>$ ./libexec/perf script-startup --iterations 5 --out startup</code></pre>
 <pre data-example="fragment" data-needs="the output of the command above" class="out"><code>Script startup benchmark ok iterations=5 compiler_started_on_warm=false backend=llvm cold_ms=7321 warm_mean_ms=14 direct_mean_ms=2 receipt=startup/summary.tsv</code></pre>
-<p>A first run compiles (7.3 s here, on a busy machine); after that <code>hey script.hey</code> finds the cached native program in 14 ms, 12 ms of it dispatch, against 2 ms running the binary directly. Details: <a href="hey-guide-build-and-deploy-7.html">Build and deploy guide</a>.</p>
+<p>On the earlier shell-wrapped baseline above, a first run compiled (7.3 s on a busy machine) and a warm run took 14 ms (12 ms of shell dispatch). In <code>0.99.609a</code>, the zero-shell native C11 <code>hey</code> launcher (<code>runtime/hey_run_fast.c</code> + <code>runtime/hey_cli_driver.c</code>) validates the <code>0700</code>/<code>0600</code> <code>O_NOFOLLOW</code> run cache directly in C and <code>exec</code>s the cached native binary in <strong><code>2&ndash;3 ms</code></strong> across macOS, Linux, <code>*BSD</code>, and Windows—matching direct binary execution. Details: <a href="hey-guide-build-and-deploy-7.html">Build and deploy guide</a>.</p>
 <p class="id">Run on a Mac M3 Pro.</p>
 
-<h2 id="proof" data-doc-purpose="Identify the evidence needed to establish a performance claim.">8. What would prove each claim</h2>
+<h2 id="proof" data-doc-purpose="Identify the evidence needed to establish a performance claim.">9. What would prove each claim</h2>
 <div class="tablewrap"><table>
 <tr><th>Claim</th><th>The gate that proves it</th><th>Today</th></tr>
 <tr><td>C parity on W1&ndash;W12</td><td>Linux, quiet host, instructions and wall, each Hey/C &le; 1.0, output equal to C</td><td>2 of 12 at 1.0</td></tr>
 <tr><td>1BRC near C</td><td>Same, at 5M and 10M rows, 1,000 and 41,343 stations, plain program</td><td>about 56&times;</td></tr>
 <tr><td>In-place updates come from MIR facts, not luck</td><td>W9, W10 and 1BRC with <code>HEY_RC_COW=0</code> within noise of the default; falsification hooks make the ownership specs fail</td><td>W9 713&times; slower with COW off</td></tr>
-<tr><td>Compile 60% faster</td><td>Whole self-compile, quiet Mac, every stage plus the C compiler, peak memory not higher</td><td>&minus;5.4% on pre-consolidation <code>cb817d</code> vs 604a; <code>0.99.608a</code> full-compile rerun pending (<a href="#n6">Note 6</a>)</td></tr>
+<tr><td>Compile 60% faster</td><td>Whole self-compile, quiet Mac, every stage plus the C compiler, peak memory not higher</td><td>&minus;5.4% on pre-consolidation <code>cb817d</code> vs 604a; <code>0.99.609a</code> full-compile rerun pending (<a href="#n6">Note 6</a>)</td></tr>
 <tr><td>No stage is quadratic</td><td>Doubling-corpus profile: each stage's work at most about 2&times; per doubling</td><td>2.5&ndash;3.4&times;</td></tr>
 <tr><td>Web at C</td><td>web9, 64 connections, rps, p99 and requests per CPU-second against C</td><td>rps tie; CPU 1.64&times; C</td></tr>
 <tr><td>Real apps</td><td><code>hey_web</code> servers under load, phone and TV apps measured as first-class benchmarks</td><td>Not yet measured as benchmarks</td></tr>

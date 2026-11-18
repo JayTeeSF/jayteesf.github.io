@@ -3,7 +3,7 @@
 Install the published package with the standard package tooling, then build `bin/build-native` using a C17 compiler. Set `HEY_ROOT` if your compiler checkout is elsewhere. Native builds support Darwin arm64 and Linux x86-64. No third-party shared parser library is required: the pinned parser source is bundled with its MIT license.
 
 ```hey
-import 'pkg:hey_toml@0.1.1/main'
+import 'pkg:hey_toml/main'
 import 'stdlib:Native'
 
 program

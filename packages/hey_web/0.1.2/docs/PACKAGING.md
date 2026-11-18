@@ -8,7 +8,7 @@ The git repository contains editable package source under `src/`. A consuming ap
 <app>/.hey/packages/hey_web/0.1.0/
 ```
 
-The app then imports `pkg:hey_web@0.1.0/server` or another public module.
+The app then imports `pkg:hey_web/server` or another public module.
 
 ## Release artifact
 

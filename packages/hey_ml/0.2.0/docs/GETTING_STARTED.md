@@ -4,7 +4,7 @@ Create a policy over a fixed action set and feature count, choose an action,
 then report the observed reward:
 
 ```hey
-import 'pkg:hey_ml@0.2.0/policy'
+import 'pkg:hey_ml/policy'
 
 let policy = Policy.new(['retry', 'inspect'], 2, 0.02, 0.0001, 0.25)
 let decision = Policy.choose(policy, [3.0, 1.0])

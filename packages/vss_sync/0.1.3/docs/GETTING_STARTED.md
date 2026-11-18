@@ -14,7 +14,7 @@ bin/update_packages
 The package exposes one module, `main.hey` at the package root:
 
 ```hey
-import 'pkg:vss_sync@0.1.3/main'
+import 'pkg:vss_sync/main'
 ```
 
 From there you get the protocol identity, route construction, revision and

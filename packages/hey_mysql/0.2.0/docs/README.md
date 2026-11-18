@@ -31,7 +31,7 @@ export HEY_MYSQL_LIBRARY="$OUT/libhey_mysql.dylib"
 ## Use it
 
 ```hey
-import 'pkg:hey_mysql@0.2.0/main'
+import 'pkg:hey_mysql/main'
 
 let opened = Mysql.connect({
   host: '127.0.0.1',

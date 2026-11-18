@@ -2,7 +2,7 @@
 
 1. Install or vendor Hey 0.99.259a or newer.
 2. Install the immutable `hey_web` release through `hey package install`.
-3. Import `pkg:hey_web@0.1.2/main`.
+3. Import `pkg:hey_web/main`.
 4. Define controller modules and source routes.
 5. Load `config/hey_web.json`, build the application, and call `HeyWeb.serve`.
 

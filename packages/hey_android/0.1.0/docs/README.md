@@ -23,5 +23,5 @@ and captures receipts, Logcat, Activity state, and a screenshot.
 Package import after verified installation:
 
 ```hey
-import 'pkg:hey_android@0.1.0/main'
+import 'pkg:hey_android/main'
 ```

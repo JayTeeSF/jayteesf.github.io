@@ -26,8 +26,8 @@ end-to-end without UTF-8 re-encoding:
 ## Use it
 
 ```hey
-import 'pkg:hey_web@0.3.11/main'
-import 'pkg:hey_web@0.3.11/poller'
+import 'pkg:hey_web/main'
+import 'pkg:hey_web/poller'
 
 program
   let app = HeyWeb.application('cards', routes, {...config, workers: 2})
