@@ -13,15 +13,16 @@ and `hey-docs-rank` metadata (dates belong inside articles, never in article URL
 when changing a heading so existing links continue to work. There is no separate
 list of section headings to synchronize.
 
-After editing a Hey page, regenerate and check the catalogue, then regenerate
-the general articles listing:
+After editing a Hey page, regenerate and check the catalogue, validate the HTML,
+then regenerate the general articles listing:
 
-    ruby generate-hey-docs-index.rb
-    ruby generate-hey-docs-index.rb --check
-    ruby test/check-hey-docs-index.rb
-    ruby generate-articles-index.rb
+    hey generate-hey-docs-index.hey
+    hey generate-hey-docs-index.hey --check
+    hey test/check-hey-docs-index.hey
+    hey validate-html.hey index.html articles/*.html
+    hey generate-articles-index.hey
 
-These Ruby generators use only the standard library. The catalogue remains
+These Hey generators use only the Hey standard library. The catalogue remains
 usable without JavaScript; its small search enhancement runs entirely locally.
 The two Functions pages are current companions. Use the `history` group for
 earlier, version-scoped essays. The shared `articles/hey-docs-navigation.css`
@@ -76,13 +77,15 @@ These tools allow you to quickly search for images based on keywords and customi
 Hey scripts
 -----------
 
-Run the site's Hey scripts through `bin/hey-run`, from the repo root:
+Run the site's Hey scripts directly with `hey`, from the repo root:
 
-    bin/hey-run generate-articles-index            # rewrites articles/index.html
-    bin/hey-run generate-packages-index --workers 1  # rewrites packages/index.html
+    hey generate-hey-docs-index.hey             # rewrites articles/hey-docs-index.html
+    hey test/check-hey-docs-index.hey           # checks catalogue & section links
+    hey validate-html.hey index.html articles/*.html
+    hey generate-articles-index.hey             # rewrites articles/index.html
+    hey generate-packages-index.hey --workers 1 # rewrites packages/index.html
 
-The first run builds the script once with `heyc build` into `.hey-bin/` (gitignored,
-about a second); later runs start instantly from that binary. It rebuilds only when
-the script, one of its stdlib imports, or the pinned Hey's compiler changes. The Hey
-is pinned in `bin/hey-run` to `~/dev/hey-lang-bootstrap-plan` rather than whatever
-`hey` is on PATH; override with `SITE_HEY_ROOT=/path/to/hey`.
+`hey` compiles each script once into the content-addressed run cache and runs
+subsequent invocations directly as cached native binaries (`generate-articles-index.rb`
+and `generate-packages-index.rb` are retained alongside their `.hey` counterparts
+for the side-by-side scripting benchmark in `articles/hey-command-line-scripting.html`).

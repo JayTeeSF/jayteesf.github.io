@@ -1,0 +1,742 @@
+#!/usr/bin/env hey
+
+import 'stdlib:Binary'
+import 'stdlib:Bytes'
+import 'stdlib:Cli'
+import 'stdlib:Env'
+import 'stdlib:Files'
+import 'stdlib:Process'
+import 'stdlib:Text'
+
+module HeyDocsIndex
+  private fn index_name()
+    return 'hey-docs-index.html'
+  end
+
+  private fn start_marker()
+    return '<!-- HEY_DOCS_CATALOGUE_START -->'
+  end
+
+  private fn finish_marker()
+    return '<!-- HEY_DOCS_CATALOGUE_END -->'
+  end
+
+  private fn groups()
+    return [
+      {
+        key: 'start',
+        title: 'Start writing and building',
+        purpose: 'Pick the guide for your task. These are independent starting points, not prerequisites.',
+      },
+      {
+        key: 'reference',
+        title: 'Language and library reference',
+        purpose: 'Look up syntax, functions, modules and library operations.',
+      },
+      {
+        key: 'compiler',
+        title: 'Compiler, String storage and performance',
+        purpose: 'Understand the architecture, memory representation and evidence behind performance claims.',
+      },
+      {
+        key: 'concurrency',
+        title: 'Actors, parallel work and distribution',
+        purpose: 'Choose an ownership and execution model, then check its failure and delivery rules.',
+      },
+      {
+        key: 'build',
+        title: 'Build, native integration and tools',
+        purpose: 'Find deployment paths, C interfaces, commands and platform constraints.',
+      },
+      {
+        key: 'decisions',
+        title: 'Decision ledger',
+        purpose: 'Find the reasoning and recorded status behind a language or compiler decision.',
+      },
+      {
+        key: 'history',
+        title: 'Earlier essays · version-scoped',
+        purpose: 'Read these as design and implementation history. Their measurements and status belong to their original versions.',
+      },
+    ]
+  end
+
+  private fn known_group?(name)
+    for g in HeyDocsIndex.groups()
+      if g.key == name
+        return true
+      end
+    end
+    return false
+  end
+
+  private fn word_byte?(b)
+    return (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 95
+  end
+
+  private fn ascii_space_byte?(b)
+    return b == 32 or (b >= 9 and b <= 13)
+  end
+
+  private fn digit_byte?(b)
+    return b >= 48 and b <= 57
+  end
+
+  private fn hex_digit_value(b)
+    if b >= 48 and b <= 57
+      return b - 48
+    end
+    if b >= 65 and b <= 70
+      return b - 65 + 10
+    end
+    if b >= 97 and b <= 102
+      return b - 97 + 10
+    end
+    return -1
+  end
+
+  private fn codepoint_to_utf8(cp)
+    if cp < 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343)
+      return ''
+    end
+    if cp <= 127
+      return Bytes.decode(Binary.from_integers([cp]), 'utf-8')
+    end
+    if cp <= 2047
+      let b0 = 192 + (cp / 64)
+      let b1 = 128 + (cp % 64)
+      return Bytes.decode(Binary.from_integers([b0, b1]), 'utf-8')
+    end
+    if cp <= 65535
+      let b0 = 224 + (cp / 4096)
+      let b1 = 128 + ((cp / 64) % 64)
+      let b2 = 128 + (cp % 64)
+      return Bytes.decode(Binary.from_integers([b0, b1, b2]), 'utf-8')
+    end
+    let b0 = 240 + (cp / 262144)
+    let b1 = 128 + ((cp / 4096) % 64)
+    let b2 = 128 + ((cp / 64) % 64)
+    let b3 = 128 + (cp % 64)
+    return Bytes.decode(Binary.from_integers([b0, b1, b2, b3]), 'utf-8')
+  end
+
+  private fn decode_entity(token)
+    if token == 'amp'
+      return {ok: true, text: '&'}
+    end
+    if token == 'lt'
+      return {ok: true, text: '<'}
+    end
+    if token == 'gt'
+      return {ok: true, text: '>'}
+    end
+    if token == 'quot'
+      return {ok: true, text: '"'}
+    end
+    if token == 'apos'
+      return {ok: true, text: "'"}
+    end
+    if len(token) >= 2 and Text.byte_at(token, 0) == 35
+      let first = Text.byte_at(token, 1)
+      if first == 120 or first == 88
+        if len(token) < 3
+          return {ok: false, text: ''}
+        end
+        let cp = 0
+        let i = 2
+        while i < len(token)
+          let hv = HeyDocsIndex.hex_digit_value(Text.byte_at(token, i))
+          if hv < 0
+            return {ok: false, text: ''}
+          end
+          set cp = cp * 16 + hv
+          if cp > 1114111
+            return {ok: false, text: ''}
+          end
+          set i = i + 1
+        end
+        let encoded = HeyDocsIndex.codepoint_to_utf8(cp)
+        if encoded != ''
+          return {ok: true, text: encoded}
+        end
+        return {ok: false, text: ''}
+      else
+        let cp = 0
+        let i = 1
+        while i < len(token)
+          let b = Text.byte_at(token, i)
+          if !HeyDocsIndex.digit_byte?(b)
+            return {ok: false, text: ''}
+          end
+          set cp = cp * 10 + (b - 48)
+          if cp > 1114111
+            return {ok: false, text: ''}
+          end
+          set i = i + 1
+        end
+        let encoded = HeyDocsIndex.codepoint_to_utf8(cp)
+        if encoded != ''
+          return {ok: true, text: encoded}
+        end
+        return {ok: false, text: ''}
+      end
+    end
+    return {ok: false, text: ''}
+  end
+
+  fn unescape_html(value)
+    if Text.find(value, '&') < 0
+      return value
+    end
+    let n = len(value)
+    let parts = []
+    let seg_start = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(value, i) == 38
+        let semi = -1
+        let j = i + 1
+        let limit = i + 12
+        if limit > n
+          set limit = n
+        end
+        while j < limit and semi < 0
+          let jb = Text.byte_at(value, j)
+          if jb == 59
+            set semi = j
+          elsif jb == 38 or jb == 60 or HeyDocsIndex.ascii_space_byte?(jb)
+            set j = limit
+          else
+            set j = j + 1
+          end
+        end
+        if semi > i + 1
+          let entity_body = Text.slice(value, i + 1, semi - i - 1)
+          let decoded = HeyDocsIndex.decode_entity(entity_body)
+          if decoded.ok
+            if i > seg_start
+              set parts = push(parts, Text.slice(value, seg_start, i - seg_start))
+            end
+            set parts = push(parts, decoded.text)
+            set i = semi + 1
+            set seg_start = i
+          else
+            set i = i + 1
+          end
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+    if len(parts) == 0
+      return value
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(value, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  fn escape_html(value)
+    let escaped = Text.replace_all(value, '&', '&amp;')
+    set escaped = Text.replace_all(escaped, '"', '&quot;')
+    set escaped = Text.replace_all(escaped, "'", '&#39;')
+    set escaped = Text.replace_all(escaped, '<', '&lt;')
+    set escaped = Text.replace_all(escaped, '>', '&gt;')
+    return escaped
+  end
+
+  private fn find_from(haystack, needle, start_pos)
+    if start_pos >= len(haystack)
+      return -1
+    end
+    if start_pos == 0
+      return Text.find(haystack, needle)
+    end
+    let rest = Text.slice(haystack, start_pos, len(haystack) - start_pos)
+    let rel = Text.find(rest, needle)
+    if rel < 0
+      return -1
+    end
+    return start_pos + rel
+  end
+
+  private fn attr(text, key)
+    let pattern = key + '="'
+    let plen = len(pattern)
+    let n = len(text)
+    let cursor = 0
+    while cursor <= n - plen
+      let at = HeyDocsIndex.find_from(text, pattern, cursor)
+      if at < 0
+        return {found: false, value: ''}
+      end
+      let boundary_ok = at == 0 or !HeyDocsIndex.word_byte?(Text.byte_at(text, at - 1))
+      if boundary_ok
+        let val_start = at + plen
+        let close_q = HeyDocsIndex.find_from(text, '"', val_start)
+        if close_q >= 0
+          let raw_val = Text.slice(text, val_start, close_q - val_start)
+          return {found: true, value: HeyDocsIndex.unescape_html(raw_val)}
+        end
+        return {found: false, value: ''}
+      end
+      set cursor = at + 1
+    end
+    return {found: false, value: ''}
+  end
+
+  private fn meta(html, lower_html, name)
+    let n = len(html)
+    let cursor = 0
+    while cursor <= n - 6
+      let at = HeyDocsIndex.find_from(lower_html, '<meta', cursor)
+      if at < 0
+        return {found: false, value: ''}
+      end
+      let after = at + 5
+      if after < n and !HeyDocsIndex.word_byte?(Text.byte_at(lower_html, after))
+        let gt = HeyDocsIndex.find_from(lower_html, '>', after)
+        if gt < 0
+          return {found: false, value: ''}
+        end
+        let tag = Text.slice(html, at, gt - at + 1)
+        let tag_name = HeyDocsIndex.attr(tag, 'name')
+        if tag_name.found and tag_name.value == name
+          return HeyDocsIndex.attr(tag, 'content')
+        end
+        set cursor = gt + 1
+      else
+        set cursor = at + 1
+      end
+    end
+    return {found: false, value: ''}
+  end
+
+  private fn strip_tags(html)
+    if Text.find(html, '<') < 0
+      return html
+    end
+    let n = len(html)
+    let parts = []
+    let seg_start = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(html, i) == 60
+        let gt = HeyDocsIndex.find_from(html, '>', i + 1)
+        if gt >= 0
+          if i > seg_start
+            set parts = push(parts, Text.slice(html, seg_start, i - seg_start))
+          end
+          set i = gt + 1
+          set seg_start = i
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(html, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  private fn collapse_ascii_ws_and_strip(value)
+    let n = len(value)
+    let words = []
+    let start = -1
+    let i = 0
+    while i < n
+      if HeyDocsIndex.ascii_space_byte?(Text.byte_at(value, i))
+        if start >= 0
+          set words = push(words, Text.slice(value, start, i - start))
+          set start = -1
+        end
+      else
+        if start < 0
+          set start = i
+        end
+      end
+      set i = i + 1
+    end
+    if start >= 0
+      set words = push(words, Text.slice(value, start, n - start))
+    end
+    return Text.join(words, ' ')
+  end
+
+  private fn strip_heading_number_prefix(value)
+    let n = len(value)
+    let i = 0
+    while i < n and HeyDocsIndex.digit_byte?(Text.byte_at(value, i))
+      set i = i + 1
+    end
+    if i == 0
+      return value
+    end
+    while i < n and HeyDocsIndex.ascii_space_byte?(Text.byte_at(value, i))
+      set i = i + 1
+    end
+    if i >= n
+      return value
+    end
+    let sep_len = 0
+    if Text.byte_at(value, i) == 46
+      set sep_len = 1
+    elsif Text.starts_with_at?(value, '·', i)
+      set sep_len = len('·')
+    end
+    if sep_len == 0
+      return value
+    end
+    set i = i + sep_len
+    while i < n and HeyDocsIndex.ascii_space_byte?(Text.byte_at(value, i))
+      set i = i + 1
+    end
+    return Text.slice(value, i, n - i)
+  end
+
+  private fn strip_heading_status_suffix(value)
+    let wt = Text.find(value, ' Works today')
+    if wt >= 0
+      return Text.slice(value, 0, wt)
+    end
+    if Text.ends_with?(value, ' Partly works')
+      return Text.slice(value, 0, len(value) - len(' Partly works'))
+    end
+    if Text.ends_with?(value, ' Decided, coming')
+      return Text.slice(value, 0, len(value) - len(' Decided, coming'))
+    end
+    return value
+  end
+
+  fn plain(html)
+    let stripped = HeyDocsIndex.strip_tags(html)
+    let unescaped = HeyDocsIndex.unescape_html(stripped)
+    let normalized = HeyDocsIndex.collapse_ascii_ws_and_strip(unescaped)
+    let without_num = HeyDocsIndex.strip_heading_number_prefix(normalized)
+    return HeyDocsIndex.strip_heading_status_suffix(without_num)
+  end
+
+  private fn scan_sections(path_label, html, lower_html)
+    let sections = []
+    let seen_ids = {}
+    let n = len(html)
+    let cursor = 0
+    while cursor <= n - 9
+      let at = HeyDocsIndex.find_from(lower_html, '<h2', cursor)
+      if at < 0
+        return sections
+      end
+      let after = at + 3
+      if after < n and !HeyDocsIndex.word_byte?(Text.byte_at(lower_html, after))
+        let gt = HeyDocsIndex.find_from(lower_html, '>', after)
+        if gt < 0
+          return sections
+        end
+        let close_h2 = HeyDocsIndex.find_from(lower_html, '</h2>', gt + 1)
+        if close_h2 < 0
+          return sections
+        end
+        let attrs = Text.slice(html, after, gt - after)
+        let heading = Text.slice(html, gt + 1, close_h2 - gt - 1)
+        let id_attr = HeyDocsIndex.attr(attrs, 'id')
+        let purpose_attr = HeyDocsIndex.attr(attrs, 'data-doc-purpose')
+        if !id_attr.found or id_attr.value == '' or !purpose_attr.found or purpose_attr.value == ''
+          fail path_label + ': section lacks ID/purpose: ' + HeyDocsIndex.plain(heading)
+        end
+        if has?(seen_ids, id_attr.value)
+          fail path_label + ': duplicate section IDs'
+        end
+        set seen_ids = put(seen_ids, id_attr.value, true)
+        set sections = push(sections, {
+          id: id_attr.value,
+          title: HeyDocsIndex.plain(heading),
+          purpose: purpose_attr.value,
+        })
+        set cursor = close_h2 + 5
+      else
+        set cursor = at + 1
+      end
+    end
+    return sections
+  end
+
+  private fn compare_pages(left, right)
+    if left.rank < right.rank
+      return -1
+    end
+    if left.rank > right.rank
+      return 1
+    end
+    if left.file < right.file
+      return -1
+    end
+    if left.file > right.file
+      return 1
+    end
+    return 0
+  end
+
+  private fn sort_pages(items)
+    let out = []
+    for item in items
+      let placed = false
+      let merged = []
+      for existing in out
+        if !placed and HeyDocsIndex.compare_pages(item, existing) < 0
+          set merged = push(merged, item)
+          set placed = true
+        end
+        set merged = push(merged, existing)
+      end
+      if !placed
+        set merged = push(merged, item)
+      end
+      set out = merged
+    end
+    return out
+  end
+
+  private fn candidate_files(directory)
+    let out = []
+    for entry in Files.entries(directory)
+      let name = Files.basename(entry)
+      if Files.file?(entry) and Text.contains?(name, 'hey') and Text.ends_with?(name, '.html') and name != HeyDocsIndex.index_name() and !Text.starts_with?(name, 'DRAFT-')
+        set out = push(out, entry)
+      end
+    end
+    return out
+  end
+
+  fn pages(directory)
+    let loaded = []
+    for path in HeyDocsIndex.candidate_files(directory)
+      let html = Files.read_text(path)
+      let lower_html = Text.lower(html)
+      let group_meta = HeyDocsIndex.meta(html, lower_html, 'hey-docs-group')
+      if !group_meta.found or !HeyDocsIndex.known_group?(group_meta.value)
+        fail path + ': missing/unknown docs group'
+      end
+      let title_meta = HeyDocsIndex.meta(html, lower_html, 'hey-docs-title')
+      let purpose_meta = HeyDocsIndex.meta(html, lower_html, 'hey-docs-purpose')
+      if !title_meta.found or title_meta.value == '' or !purpose_meta.found or purpose_meta.value == ''
+        fail path + ': missing page title/purpose'
+      end
+      let rank_meta = HeyDocsIndex.meta(html, lower_html, 'hey-docs-rank')
+      let rank = ''
+      if rank_meta.found
+        set rank = rank_meta.value
+      end
+      let sections = HeyDocsIndex.scan_sections(path, html, lower_html)
+      set loaded = push(loaded, {
+        file: Files.basename(path),
+        group: group_meta.value,
+        title: title_meta.value,
+        purpose: purpose_meta.value,
+        rank: rank,
+        sections: sections,
+      })
+    end
+    return HeyDocsIndex.sort_pages(loaded)
+  end
+
+  private fn numbered_series_num(filename, prefix)
+    if !Text.starts_with?(filename, prefix) or !Text.ends_with?(filename, '.html')
+      return ''
+    end
+    let stem = Text.slice(filename, 0, len(filename) - 5)
+    let i = len(stem) - 1
+    while i >= 0 and HeyDocsIndex.digit_byte?(Text.byte_at(stem, i))
+      set i = i - 1
+    end
+    if i == len(stem) - 1 or i < len(prefix) or Text.byte_at(stem, i) != 45
+      return ''
+    end
+    return Text.slice(stem, i + 1, len(stem) - i - 1)
+  end
+
+  private fn badge_for(file, group)
+    if file == 'hey-guide-start-here-first-steps-1.html'
+      return '<span class="page-kind">Start here · Guide 1 of 7</span>'
+    end
+    let guide_num = HeyDocsIndex.numbered_series_num(file, 'hey-guide-')
+    if guide_num != ''
+      return '<span class="page-kind">Guide ' + guide_num + ' of 7</span>'
+    end
+    let ref_num = HeyDocsIndex.numbered_series_num(file, 'hey-reference-')
+    if ref_num != ''
+      return '<span class="page-kind">Reference ' + ref_num + ' of 11</span>'
+    end
+    let comp_num = HeyDocsIndex.numbered_series_num(file, 'hey-compiler-')
+    if comp_num != ''
+      return '<span class="page-kind">Compiler ' + comp_num + ' of 5</span>'
+    end
+    if group == 'history'
+      return '<span class="page-kind">Earlier essay</span>'
+    end
+    return ''
+  end
+
+  fn render_from_pages(all_pages)
+    let rendered_groups = []
+    for grp in HeyDocsIndex.groups()
+      let entries = []
+      for page in all_pages
+        if page.group == grp.key
+          set entries = push(entries, page)
+        end
+      end
+      if len(entries) > 0
+        let lead_id = ''
+        if grp.key == 'start'
+          set lead_id = ' id="didx-1-cap"'
+        elsif grp.key == 'reference'
+          set lead_id = ' id="didx-2-cap"'
+        end
+        let cards = []
+        for page in entries
+          let sec_lines = []
+          for section in page.sections
+            let esc_file = HeyDocsIndex.escape_html(page.file)
+            let esc_id = HeyDocsIndex.escape_html(section.id)
+            let esc_stitle = HeyDocsIndex.escape_html(section.title)
+            let esc_spurp = HeyDocsIndex.escape_html(section.purpose)
+            set sec_lines = push(sec_lines, '<li><a href="' + esc_file + '#' + esc_id + '">' + esc_stitle + '</a><p>' + esc_spurp + '</p></li>')
+          end
+          let sections_html = Text.join(sec_lines, "\n")
+          let badge = HeyDocsIndex.badge_for(page.file, grp.key)
+          let esc_file = HeyDocsIndex.escape_html(page.file)
+          let esc_title = HeyDocsIndex.escape_html(page.title)
+          let esc_purpose = HeyDocsIndex.escape_html(page.purpose)
+          let sec_count = "#{len(page.sections)}"
+          let card = Text.join([
+            '<article class="doc-card" data-doc-page="' + esc_file + '">',
+            badge + '<h3><a href="' + esc_file + '">' + esc_title + '</a></h3>',
+            '<p class="page-purpose">' + esc_purpose + '</p>',
+            '<details><summary aria-label="Sections in ' + esc_title + ' (' + sec_count + ')">Sections <span class="section-count">(' + sec_count + ')</span></summary>',
+            '<ul class="sections">' + sections_html + '</ul></details>',
+            '</article>',
+          ], "\n") + "\n"
+          set cards = push(cards, card)
+        end
+        let cards_html = Text.join(cards, "\n")
+        let count_word = 'pages'
+        if len(entries) == 1
+          set count_word = 'page'
+        end
+        let entry_count_str = "#{len(entries)}"
+        let topic_block = Text.join([
+          '<section class="topic" data-topic="' + grp.key + '" aria-labelledby="' + grp.key + '">',
+          '<h2 id="' + grp.key + '">' + HeyDocsIndex.escape_html(grp.title) + ' <span class="topic-count">' + entry_count_str + ' ' + count_word + '</span></h2>',
+          '<p' + lead_id + ' class="topic-purpose">' + HeyDocsIndex.escape_html(grp.purpose) + '</p>',
+          '<div class="doc-grid">' + cards_html + '</div>',
+          '</section>',
+        ], "\n") + "\n"
+        set rendered_groups = push(rendered_groups, topic_block)
+      end
+    end
+    return Text.join(rendered_groups, "\n")
+  end
+
+  private fn count_occurrences(haystack, needle)
+    if needle == ''
+      return 0
+    end
+    return len(Text.split(haystack, needle)) - 1
+  end
+
+  fn build_output(directory)
+    let path = Files.join(directory, HeyDocsIndex.index_name())
+    let html = Files.read_text(path)
+    let start_m = HeyDocsIndex.start_marker()
+    let finish_m = HeyDocsIndex.finish_marker()
+    if HeyDocsIndex.count_occurrences(html, start_m) != 1 or HeyDocsIndex.count_occurrences(html, finish_m) != 1
+      fail 'catalogue markers missing/ambiguous'
+    end
+    let start_at = Text.find(html, start_m)
+    let finish_at = Text.find(html, finish_m)
+    if finish_at < start_at + len(start_m)
+      fail 'catalogue markers missing/ambiguous'
+    end
+    let all_pages = HeyDocsIndex.pages(directory)
+    let rendered = HeyDocsIndex.render_from_pages(all_pages)
+    let prefix = Text.slice(html, 0, start_at)
+    let suffix_start = finish_at + len(finish_m)
+    let suffix = Text.slice(html, suffix_start, len(html) - suffix_start)
+    let generated = prefix + start_m + "\n" + rendered + finish_m + suffix
+    return {
+      path: path,
+      generated: generated,
+      page_count: len(all_pages),
+    }
+  end
+
+  fn default_articles_dir()
+    if Files.directory?('./articles')
+      return './articles'
+    end
+    let adjacent = Files.join(Env.executable_dir(), 'articles')
+    if Files.directory?(adjacent)
+      return adjacent
+    end
+    return './articles'
+  end
+end
+
+program
+  let args = Cli.args()
+  for arg in args
+    if arg == '--help' or arg == '-h'
+      says 'Usage: hey generate-hey-docs-index.hey [--check] [ARTICLES_DIR]'
+      says 'Reads page metadata and H2 purposes from the source pages; no HTML gems required.'
+      return
+    end
+  end
+
+  let check_mode = false
+  let rest = []
+  for arg in args
+    if arg == '--check'
+      set check_mode = true
+    else
+      set rest = push(rest, arg)
+    end
+  end
+
+  for arg in rest
+    if Text.starts_with?(arg, '-')
+      warn 'Expected at most one articles directory'
+      Process.exit(1)
+    end
+  end
+  if len(rest) > 1
+    warn 'Expected at most one articles directory'
+    Process.exit(1)
+  end
+
+  let directory = HeyDocsIndex.default_articles_dir()
+  if len(rest) == 1
+    set directory = rest[0]
+  end
+
+  if !Files.directory?(directory)
+    fail 'Articles directory does not exist: ' + directory
+  end
+
+  let built = HeyDocsIndex.build_output(directory)
+  if check_mode
+    if Files.read_text(built.path) != built.generated
+      warn 'Hey docs catalogue is stale; run hey generate-hey-docs-index.hey'
+      Process.exit(1)
+    end
+    says 'Hey docs catalogue is current'
+  else
+    Files.write_text(built.path, built.generated)
+    says "Generated #{built.path} from #{built.page_count} pages"
+  end
+end

@@ -1,0 +1,563 @@
+#!/usr/bin/env hey
+
+import 'stdlib:Binary'
+import 'stdlib:Bytes'
+import 'stdlib:Cli'
+import 'stdlib:Env'
+import 'stdlib:Files'
+import 'stdlib:Process'
+import 'stdlib:Text'
+
+module CheckHeyDocsIndex
+  private fn index_name()
+    return 'hey-docs-index.html'
+  end
+
+  private fn word_byte?(b)
+    return (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 95
+  end
+
+  private fn ascii_space_byte?(b)
+    return b == 32 or (b >= 9 and b <= 13)
+  end
+
+  private fn digit_byte?(b)
+    return b >= 48 and b <= 57
+  end
+
+  private fn hex_digit_value(b)
+    if b >= 48 and b <= 57
+      return b - 48
+    end
+    if b >= 65 and b <= 70
+      return b - 65 + 10
+    end
+    if b >= 97 and b <= 102
+      return b - 97 + 10
+    end
+    return -1
+  end
+
+  private fn utf8_char_count(value)
+    let n = len(value)
+    let count = 0
+    let i = 0
+    while i < n
+      let b = Text.byte_at(value, i)
+      if b < 128 or b >= 192
+        set count = count + 1
+      end
+      set i = i + 1
+    end
+    return count
+  end
+
+  private fn codepoint_to_utf8(cp)
+    if cp < 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343)
+      return ''
+    end
+    if cp <= 127
+      return Bytes.decode(Binary.from_integers([cp]), 'utf-8')
+    end
+    if cp <= 2047
+      let b0 = 192 + (cp / 64)
+      let b1 = 128 + (cp % 64)
+      return Bytes.decode(Binary.from_integers([b0, b1]), 'utf-8')
+    end
+    if cp <= 65535
+      let b0 = 224 + (cp / 4096)
+      let b1 = 128 + ((cp / 64) % 64)
+      let b2 = 128 + (cp % 64)
+      return Bytes.decode(Binary.from_integers([b0, b1, b2]), 'utf-8')
+    end
+    let b0 = 240 + (cp / 262144)
+    let b1 = 128 + ((cp / 4096) % 64)
+    let b2 = 128 + ((cp / 64) % 64)
+    let b3 = 128 + (cp % 64)
+    return Bytes.decode(Binary.from_integers([b0, b1, b2, b3]), 'utf-8')
+  end
+
+  private fn decode_entity(token)
+    if token == 'amp'
+      return {ok: true, text: '&'}
+    end
+    if token == 'lt'
+      return {ok: true, text: '<'}
+    end
+    if token == 'gt'
+      return {ok: true, text: '>'}
+    end
+    if token == 'quot'
+      return {ok: true, text: '"'}
+    end
+    if token == 'apos'
+      return {ok: true, text: "'"}
+    end
+    if len(token) >= 2 and Text.byte_at(token, 0) == 35
+      let first = Text.byte_at(token, 1)
+      if first == 120 or first == 88
+        if len(token) < 3
+          return {ok: false, text: ''}
+        end
+        let cp = 0
+        let i = 2
+        while i < len(token)
+          let hv = CheckHeyDocsIndex.hex_digit_value(Text.byte_at(token, i))
+          if hv < 0
+            return {ok: false, text: ''}
+          end
+          set cp = cp * 16 + hv
+          if cp > 1114111
+            return {ok: false, text: ''}
+          end
+          set i = i + 1
+        end
+        let encoded = CheckHeyDocsIndex.codepoint_to_utf8(cp)
+        if encoded != ''
+          return {ok: true, text: encoded}
+        end
+        return {ok: false, text: ''}
+      else
+        let cp = 0
+        let i = 1
+        while i < len(token)
+          let b = Text.byte_at(token, i)
+          if !CheckHeyDocsIndex.digit_byte?(b)
+            return {ok: false, text: ''}
+          end
+          set cp = cp * 10 + (b - 48)
+          if cp > 1114111
+            return {ok: false, text: ''}
+          end
+          set i = i + 1
+        end
+        let encoded = CheckHeyDocsIndex.codepoint_to_utf8(cp)
+        if encoded != ''
+          return {ok: true, text: encoded}
+        end
+        return {ok: false, text: ''}
+      end
+    end
+    return {ok: false, text: ''}
+  end
+
+  private fn unescape_html(value)
+    if Text.find(value, '&') < 0
+      return value
+    end
+    let n = len(value)
+    let parts = []
+    let seg_start = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(value, i) == 38
+        let semi = -1
+        let j = i + 1
+        let limit = i + 12
+        if limit > n
+          set limit = n
+        end
+        while j < limit and semi < 0
+          let jb = Text.byte_at(value, j)
+          if jb == 59
+            set semi = j
+          elsif jb == 38 or jb == 60 or CheckHeyDocsIndex.ascii_space_byte?(jb)
+            set j = limit
+          else
+            set j = j + 1
+          end
+        end
+        if semi > i + 1
+          let entity_body = Text.slice(value, i + 1, semi - i - 1)
+          let decoded = CheckHeyDocsIndex.decode_entity(entity_body)
+          if decoded.ok
+            if i > seg_start
+              set parts = push(parts, Text.slice(value, seg_start, i - seg_start))
+            end
+            set parts = push(parts, decoded.text)
+            set i = semi + 1
+            set seg_start = i
+          else
+            set i = i + 1
+          end
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+    if len(parts) == 0
+      return value
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(value, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  private fn escape_html(value)
+    let escaped = Text.replace_all(value, '&', '&amp;')
+    set escaped = Text.replace_all(escaped, '"', '&quot;')
+    set escaped = Text.replace_all(escaped, "'", '&#39;')
+    set escaped = Text.replace_all(escaped, '<', '&lt;')
+    set escaped = Text.replace_all(escaped, '>', '&gt;')
+    return escaped
+  end
+
+  private fn find_from(haystack, needle, start_pos)
+    if start_pos >= len(haystack)
+      return -1
+    end
+    if start_pos == 0
+      return Text.find(haystack, needle)
+    end
+    let rest = Text.slice(haystack, start_pos, len(haystack) - start_pos)
+    let rel = Text.find(rest, needle)
+    if rel < 0
+      return -1
+    end
+    return start_pos + rel
+  end
+
+  private fn strip_tags(html)
+    if Text.find(html, '<') < 0
+      return html
+    end
+    let n = len(html)
+    let parts = []
+    let seg_start = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(html, i) == 60
+        let gt = CheckHeyDocsIndex.find_from(html, '>', i + 1)
+        if gt >= 0
+          if i > seg_start
+            set parts = push(parts, Text.slice(html, seg_start, i - seg_start))
+          end
+          set i = gt + 1
+          set seg_start = i
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(html, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  private fn plain_text(html)
+    return Text.trim(CheckHeyDocsIndex.unescape_html(CheckHeyDocsIndex.strip_tags(html)))
+  end
+
+  private fn attribute(attrs, name)
+    let pattern = name + '="'
+    let plen = len(pattern)
+    let n = len(attrs)
+    let cursor = 0
+    while cursor <= n - plen
+      let at = CheckHeyDocsIndex.find_from(attrs, pattern, cursor)
+      if at < 0
+        return {found: false, value: ''}
+      end
+      let boundary_ok = at == 0 or !CheckHeyDocsIndex.word_byte?(Text.byte_at(attrs, at - 1))
+      if boundary_ok
+        let val_start = at + plen
+        let close_q = CheckHeyDocsIndex.find_from(attrs, '"', val_start)
+        if close_q >= 0
+          return {found: true, value: CheckHeyDocsIndex.unescape_html(Text.slice(attrs, val_start, close_q - val_start))}
+        end
+        return {found: false, value: ''}
+      end
+      set cursor = at + 1
+    end
+    return {found: false, value: ''}
+  end
+
+  private fn sort_strings(items)
+    let out = []
+    for item in items
+      let placed = false
+      let merged = []
+      for existing in out
+        if !placed and item < existing
+          set merged = push(merged, item)
+          set placed = true
+        end
+        set merged = push(merged, existing)
+      end
+      if !placed
+        set merged = push(merged, item)
+      end
+      set out = merged
+    end
+    return out
+  end
+
+  private fn string_arrays_equal?(left, right)
+    if len(left) != len(right)
+      return false
+    end
+    let i = 0
+    while i < len(left)
+      if left[i] != right[i]
+        return false
+      end
+      set i = i + 1
+    end
+    return true
+  end
+
+  private fn dated_prefix?(name)
+    if len(name) < 5
+      return false
+    end
+    return CheckHeyDocsIndex.digit_byte?(Text.byte_at(name, 0)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(name, 1)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(name, 2)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(name, 3)) and Text.byte_at(name, 4) == 45
+  end
+
+  private fn scan_catalogue_pages(index_html)
+    let out = []
+    let needle = 'data-doc-page="'
+    let nlen = len(needle)
+    let n = len(index_html)
+    let cursor = 0
+    while cursor <= n - nlen
+      let at = CheckHeyDocsIndex.find_from(index_html, needle, cursor)
+      if at < 0
+        return out
+      end
+      let val_start = at + nlen
+      let close_q = CheckHeyDocsIndex.find_from(index_html, '"', val_start)
+      if close_q <= val_start
+        set cursor = val_start
+      else
+        set out = push(out, Text.slice(index_html, val_start, close_q - val_start))
+        set cursor = close_q + 1
+      end
+    end
+    return out
+  end
+
+  private fn has_article_date_yyyy_mm?(html)
+    let n = len(html)
+    let cursor = 0
+    let prefix = '<meta'
+    while cursor <= n - 30
+      let at = CheckHeyDocsIndex.find_from(html, prefix, cursor)
+      if at < 0
+        return false
+      end
+      let i = at + 5
+      if i < n and CheckHeyDocsIndex.ascii_space_byte?(Text.byte_at(html, i))
+        while i < n and CheckHeyDocsIndex.ascii_space_byte?(Text.byte_at(html, i))
+          set i = i + 1
+        end
+        let name_tok = 'name="article-date"'
+        if Text.starts_with_at?(html, name_tok, i)
+          set i = i + len(name_tok)
+          if i < n and CheckHeyDocsIndex.ascii_space_byte?(Text.byte_at(html, i))
+            while i < n and CheckHeyDocsIndex.ascii_space_byte?(Text.byte_at(html, i))
+              set i = i + 1
+            end
+            let content_tok = 'content="'
+            if Text.starts_with_at?(html, content_tok, i)
+              set i = i + len(content_tok)
+              if i + 8 <= n
+                let ok_date = CheckHeyDocsIndex.digit_byte?(Text.byte_at(html, i)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(html, i + 1)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(html, i + 2)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(html, i + 3)) and Text.byte_at(html, i + 4) == 45 and CheckHeyDocsIndex.digit_byte?(Text.byte_at(html, i + 5)) and CheckHeyDocsIndex.digit_byte?(Text.byte_at(html, i + 6)) and Text.byte_at(html, i + 7) == 34
+                if ok_date
+                  set i = i + 8
+                  while i < n and CheckHeyDocsIndex.ascii_space_byte?(Text.byte_at(html, i))
+                    set i = i + 1
+                  end
+                  if i < n and Text.byte_at(html, i) == 62
+                    return true
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+      set cursor = at + 1
+    end
+    return false
+  end
+
+  fn resolve_articles_dir(args)
+    if len(args) > 0
+      let given = args[0]
+      let nested = Files.join(given, 'articles')
+      if Files.directory?(nested) and Files.file?(Files.join(nested, CheckHeyDocsIndex.index_name()))
+        return nested
+      end
+      return given
+    end
+    if Files.directory?('./articles')
+      return './articles'
+    end
+    if Files.directory?('../articles')
+      return '../articles'
+    end
+    let from_exec = Files.join(Files.dirname(Env.executable_dir()), 'articles')
+    if Files.directory?(from_exec)
+      return from_exec
+    end
+    return './articles'
+  end
+
+  fn run_checks(articles_dir)
+    let index_name = CheckHeyDocsIndex.index_name()
+    let pages = []
+    let dated_urls = []
+
+    for entry in Files.entries(articles_dir)
+      let bname = Files.basename(entry)
+      if CheckHeyDocsIndex.dated_prefix?(bname)
+        set dated_urls = push(dated_urls, bname)
+      end
+      if Files.file?(entry) and Text.contains?(bname, 'hey') and Text.ends_with?(bname, '.html') and !Text.starts_with?(bname, 'DRAFT-')
+        set pages = push(pages, entry)
+      end
+    end
+    set pages = CheckHeyDocsIndex.sort_strings(pages)
+
+    let index = Files.read_text(Files.join(articles_dir, index_name))
+    let failures = []
+
+    if len(pages) != 35
+      set failures = push(failures, 'expected the complete 35-page Hey inventory')
+    end
+
+    let catalogue = CheckHeyDocsIndex.scan_catalogue_pages(index)
+    let expected_catalogue = []
+    for p in pages
+      let bname = Files.basename(p)
+      if bname != index_name
+        set expected_catalogue = push(expected_catalogue, bname)
+      end
+    end
+    if !CheckHeyDocsIndex.string_arrays_equal?(CheckHeyDocsIndex.sort_strings(catalogue), CheckHeyDocsIndex.sort_strings(expected_catalogue))
+      set failures = push(failures, 'catalogue must list every other page exactly once')
+    end
+
+    for id in ['picture', 'thesis', 'start', 'reference', 'legend', 'today', 'decisions', 'organised', 'notes-h']
+      if !Text.contains?(index, 'id="' + id + '"')
+        set failures = push(failures, 'old index anchor missing: ' + id)
+      end
+    end
+
+    let section_count = 0
+    for path in pages
+      let bname = Files.basename(path)
+      let html = Files.read_text(path)
+      if !Text.contains?(html, 'class="hey-docs-nav"')
+        set failures = push(failures, bname + ': prominent docs-index navigation missing')
+      end
+      if bname != index_name
+        let lower_html = Text.lower(html)
+        let n = len(html)
+        let cursor = 0
+        while cursor <= n - 9
+          let at = CheckHeyDocsIndex.find_from(lower_html, '<h2', cursor)
+          if at < 0
+            set cursor = n
+          else
+            let after = at + 3
+            if after < n and !CheckHeyDocsIndex.word_byte?(Text.byte_at(lower_html, after))
+              let gt = CheckHeyDocsIndex.find_from(lower_html, '>', after)
+              if gt < 0
+                set cursor = n
+              else
+                let close_h2 = CheckHeyDocsIndex.find_from(lower_html, '</h2>', gt + 1)
+                if close_h2 < 0
+                  set cursor = n
+                else
+                  let attrs = Text.slice(html, after, gt - after)
+                  let heading = Text.slice(html, gt + 1, close_h2 - gt - 1)
+                  let id_attr = CheckHeyDocsIndex.attribute(attrs, 'id')
+                  let purpose_attr = CheckHeyDocsIndex.attribute(attrs, 'data-doc-purpose')
+                  let label = bname + ': ' + CheckHeyDocsIndex.plain_text(heading)
+                  if !id_attr.found or id_attr.value == ''
+                    set failures = push(failures, label + ': missing section ID')
+                  end
+                  if !purpose_attr.found or CheckHeyDocsIndex.utf8_char_count(purpose_attr.value) < 15
+                    set failures = push(failures, label + ': missing short section purpose')
+                  end
+                  if !id_attr.found or id_attr.value == '' or !Text.contains?(index, 'href="' + bname + '#' + CheckHeyDocsIndex.escape_html(id_attr.value) + '"')
+                    set failures = push(failures, label + ': section missing from catalogue')
+                  end
+                  set section_count = section_count + 1
+                  set cursor = close_h2 + 5
+                end
+              end
+            else
+              set cursor = at + 1
+            end
+          end
+        end
+      end
+    end
+
+    if len(dated_urls) > 0
+      set failures = push(failures, 'no Hey article or data directory URL may carry a date prefix: ' + Text.join(dated_urls, ', '))
+    end
+    if !Text.contains?(index, 'hey-guide-start-here-first-steps-1.html')
+      set failures = push(failures, 'Start-here First steps tutorial missing')
+    end
+    if !Text.contains?(index, 'hey-guide-functions-2.html')
+      set failures = push(failures, 'current Functions tutorial missing')
+    end
+    if !Text.contains?(index, 'hey-reference-functions-2.html')
+      set failures = push(failures, 'current Functions reference missing')
+    end
+
+    for path in pages
+      let bname = Files.basename(path)
+      let html = Files.read_text(path)
+      if !CheckHeyDocsIndex.has_article_date_yyyy_mm?(html)
+        set failures = push(failures, bname + ': missing article-date YYYY-MM metadata')
+      end
+    end
+
+    if !Text.contains?(index, '0–12 bytes') or !Text.contains?(index, '32 bytes')
+      set failures = push(failures, 'String/HeyValue size caveats missing')
+    end
+
+    if len(failures) > 0
+      let shown = []
+      let i = 0
+      while i < len(failures) and i < 12
+        set shown = push(shown, failures[i])
+        set i = i + 1
+      end
+      warn Text.join(shown, "\n")
+      warn "Hey docs index FAIL: #{len(failures)} checks"
+      Process.exit(1)
+    end
+
+    says "Hey docs index PASS: #{len(pages)} pages, #{len(catalogue)} catalogue entries, #{section_count} section links"
+  end
+end
+
+program
+  let args = Cli.args()
+  for arg in args
+    if arg == '--help' or arg == '-h'
+      says 'Usage: hey check-hey-docs-index.hey [SITE_OR_ARTICLES_DIR]'
+      return
+    end
+  end
+  if len(args) > 1
+    warn 'Expected zero or one SITE_OR_ARTICLES_DIR argument'
+    Process.exit(1)
+  end
+  let articles_dir = CheckHeyDocsIndex.resolve_articles_dir(args)
+  if !Files.directory?(articles_dir)
+    fail 'Articles directory does not exist: ' + articles_dir
+  end
+  CheckHeyDocsIndex.run_checks(articles_dir)
+end

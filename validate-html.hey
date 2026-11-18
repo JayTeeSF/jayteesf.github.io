@@ -1,0 +1,467 @@
+#!/usr/bin/env hey
+
+import 'stdlib:Cli'
+import 'stdlib:Files'
+import 'stdlib:Process'
+import 'stdlib:Text'
+
+module ValidateHtml
+  private fn min_text()
+    return 500
+  end
+
+  private fn void_tag?(name)
+    return name == 'meta' or name == 'link' or name == 'br' or name == 'hr' or name == 'img' or name == 'input' or name == 'source' or name == 'area' or name == 'base' or name == 'col' or name == 'embed' or name == 'param' or name == 'track' or name == 'wbr'
+  end
+
+  private fn tracked_tag?(name)
+    return name == 'style' or name == 'head' or name == 'body' or name == 'html' or name == 'div' or name == 'pre' or name == 'main' or name == 'footer' or name == 'script'
+  end
+
+  private fn alpha_byte?(b)
+    return (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+  end
+
+  private fn alnum_byte?(b)
+    return ValidateHtml.alpha_byte?(b) or (b >= 48 and b <= 57)
+  end
+
+  private fn word_byte?(b)
+    return ValidateHtml.alnum_byte?(b) or b == 95
+  end
+
+  private fn ascii_space_byte?(b)
+    return b == 32 or (b >= 9 and b <= 13)
+  end
+
+  private fn utf8_char_count(value)
+    let n = len(value)
+    let count = 0
+    let i = 0
+    while i < n
+      let b = Text.byte_at(value, i)
+      if b < 128 or b >= 192
+        set count = count + 1
+      end
+      set i = i + 1
+    end
+    return count
+  end
+
+  private fn find_from(haystack, needle, start_pos)
+    if start_pos >= len(haystack)
+      return -1
+    end
+    if start_pos == 0
+      return Text.find(haystack, needle)
+    end
+    let rest = Text.slice(haystack, start_pos, len(haystack) - start_pos)
+    let rel = Text.find(rest, needle)
+    if rel < 0
+      return -1
+    end
+    return start_pos + rel
+  end
+
+  private fn pop_last(items)
+    let n = len(items)
+    if n <= 1
+      return []
+    end
+    let out = []
+    let i = 0
+    while i < n - 1
+      set out = push(out, items[i])
+      set i = i + 1
+    end
+    return out
+  end
+
+  private fn count_newlines_range(src, start_idx, end_idx)
+    let count = 0
+    let i = start_idx
+    while i < end_idx
+      if Text.byte_at(src, i) == 10
+        set count = count + 1
+      end
+      set i = i + 1
+    end
+    return count
+  end
+
+  private fn check_balance_and_nesting(src)
+    let problems = []
+    let stack = []
+    let n = len(src)
+    let line = 1
+    let i = 0
+
+    while i < n
+      let b = Text.byte_at(src, i)
+      if b == 10
+        set line = line + 1
+        set i = i + 1
+      elsif b == 60
+        let tag_line = line
+        let p = i + 1
+        let closing = false
+        if p < n and Text.byte_at(src, p) == 47
+          set closing = true
+          set p = p + 1
+        end
+        if p < n and ValidateHtml.alpha_byte?(Text.byte_at(src, p))
+          let name_start = p
+          set p = p + 1
+          while p < n and ValidateHtml.alnum_byte?(Text.byte_at(src, p))
+            set p = p + 1
+          end
+          let boundary_ok = p >= n or !ValidateHtml.word_byte?(Text.byte_at(src, p))
+          let gt = -1
+          if boundary_ok
+            set gt = ValidateHtml.find_from(src, '>', p)
+          end
+          if gt >= 0
+            let selfclose = gt >= p and Text.byte_at(src, gt - 1) == 47
+            let name = Text.lower(Text.slice(src, name_start, p - name_start))
+            if ValidateHtml.tracked_tag?(name) and !ValidateHtml.void_tag?(name) and !selfclose
+              if closing
+                if len(stack) == 0
+                  set problems = push(problems, "line #{tag_line}: stray </#{name}> with nothing open")
+                else
+                  let top = stack[len(stack) - 1]
+                  if top.name != name
+                    set problems = push(problems, "line #{tag_line}: </#{name}> closes <#{top.name}> opened at line #{top.line}")
+                    set stack = ValidateHtml.pop_last(stack)
+                  else
+                    set stack = ValidateHtml.pop_last(stack)
+                  end
+                end
+              else
+                set stack = push(stack, {name: name, line: tag_line})
+              end
+            end
+            set line = line + ValidateHtml.count_newlines_range(src, i, gt + 1)
+            set i = gt + 1
+          else
+            set i = i + 1
+          end
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+
+    for item in stack
+      set problems = push(problems, "line #{item.line}: <#{item.name}> is never closed")
+    end
+    return problems
+  end
+
+  private fn find_open_tag_ci(lower_src, tag_name, start_pos)
+    let open_tok = '<' + tag_name
+    let tlen = len(open_tok)
+    let n = len(lower_src)
+    let cursor = start_pos
+    while cursor <= n - tlen
+      let at = ValidateHtml.find_from(lower_src, open_tok, cursor)
+      if at < 0
+        return -1
+      end
+      let after = at + tlen
+      if after >= n or !ValidateHtml.word_byte?(Text.byte_at(lower_src, after))
+        return at
+      end
+      set cursor = at + 1
+    end
+    return -1
+  end
+
+  private fn strip_paired_blocks(src, tag_name)
+    let lower_src = Text.lower(src)
+    let close_tok = '</' + tag_name + '>'
+    let clen = len(close_tok)
+    let first_at = ValidateHtml.find_open_tag_ci(lower_src, tag_name, 0)
+    if first_at < 0
+      return src
+    end
+    let n = len(src)
+    let parts = []
+    let seg_start = 0
+    let cursor = first_at
+    while cursor >= 0 and cursor < n
+      let at = ValidateHtml.find_open_tag_ci(lower_src, tag_name, cursor)
+      if at < 0
+        set cursor = -1
+      else
+        let close_at = ValidateHtml.find_from(lower_src, close_tok, at + 1 + len(tag_name))
+        if close_at < 0
+          set cursor = -1
+        else
+          if at > seg_start
+            set parts = push(parts, Text.slice(src, seg_start, at - seg_start))
+          end
+          set seg_start = close_at + clen
+          set cursor = seg_start
+        end
+      end
+    end
+    if len(parts) == 0 and seg_start == 0
+      return src
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(src, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  private fn strip_unclosed_tail(src, tag_name)
+    let lower_src = Text.lower(src)
+    let at = ValidateHtml.find_open_tag_ci(lower_src, tag_name, 0)
+    if at < 0
+      return src
+    end
+    return Text.slice(src, 0, at)
+  end
+
+  private fn replace_tags_with_space(src)
+    if Text.find(src, '<') < 0
+      return src
+    end
+    let n = len(src)
+    let parts = []
+    let seg_start = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(src, i) == 60
+        let gt = ValidateHtml.find_from(src, '>', i + 1)
+        if gt >= 0
+          if i > seg_start
+            set parts = push(parts, Text.slice(src, seg_start, i - seg_start))
+          end
+          set parts = push(parts, ' ')
+          set i = gt + 1
+          set seg_start = i
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(src, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  private fn replace_alpha_entities(src)
+    if Text.find(src, '&') < 0
+      return src
+    end
+    let n = len(src)
+    let parts = []
+    let seg_start = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(src, i) == 38
+        let j = i + 1
+        while j < n and ValidateHtml.alpha_byte?(Text.byte_at(src, j))
+          set j = j + 1
+        end
+        if j > i + 1 and j < n and Text.byte_at(src, j) == 59
+          if i > seg_start
+            set parts = push(parts, Text.slice(src, seg_start, i - seg_start))
+          end
+          set parts = push(parts, 'x')
+          set i = j + 1
+          set seg_start = i
+        else
+          set i = i + 1
+        end
+      else
+        set i = i + 1
+      end
+    end
+    if len(parts) == 0
+      return src
+    end
+    if seg_start < n
+      set parts = push(parts, Text.slice(src, seg_start, n - seg_start))
+    end
+    return Text.join(parts, '')
+  end
+
+  private fn collapse_ascii_ws_and_strip(value)
+    let n = len(value)
+    let words = []
+    let start = -1
+    let i = 0
+    while i < n
+      if ValidateHtml.ascii_space_byte?(Text.byte_at(value, i))
+        if start >= 0
+          set words = push(words, Text.slice(value, start, i - start))
+          set start = -1
+        end
+      else
+        if start < 0
+          set start = i
+        end
+      end
+      set i = i + 1
+    end
+    if start >= 0
+      set words = push(words, Text.slice(value, start, n - start))
+    end
+    return Text.join(words, ' ')
+  end
+
+  private fn check_text_floor(src)
+    let visible = ValidateHtml.strip_paired_blocks(src, 'style')
+    set visible = ValidateHtml.strip_paired_blocks(visible, 'script')
+    set visible = ValidateHtml.strip_unclosed_tail(visible, 'style')
+    set visible = ValidateHtml.strip_unclosed_tail(visible, 'script')
+    set visible = ValidateHtml.strip_paired_blocks(visible, 'head')
+    set visible = ValidateHtml.replace_tags_with_space(visible)
+    set visible = ValidateHtml.replace_alpha_entities(visible)
+    set visible = ValidateHtml.collapse_ascii_ws_and_strip(visible)
+    let chars = ValidateHtml.utf8_char_count(visible)
+    let scripted = ValidateHtml.find_open_tag_ci(Text.lower(src), 'script', 0) >= 0
+    if chars < ValidateHtml.min_text() and !scripted
+      let floor = ValidateHtml.min_text()
+      return ["only #{chars} characters of readable text (floor #{floor}) — the body is being swallowed by an unclosed style or head"]
+    end
+    return []
+  end
+
+  private fn count_quotes(line)
+    let n = len(line)
+    let count = 0
+    let i = 0
+    while i < n
+      if Text.byte_at(line, i) == 34
+        set count = count + 1
+      end
+      set i = i + 1
+    end
+    return count
+  end
+
+  private fn check_meta_quote_parity(src)
+    if src == ''
+      return []
+    end
+    let problems = []
+    let lines = Text.lines(src)
+    let idx = 0
+    while idx < len(lines)
+      let line = lines[idx]
+      if ValidateHtml.find_open_tag_ci(Text.lower(line), 'meta', 0) >= 0
+        if (ValidateHtml.count_quotes(line) % 2) == 1
+          let line_no = idx + 1
+          set problems = push(problems, "line #{line_no}: odd number of quotes on a <meta> line — an attribute value is not terminated, which is the signature of text pasted in from another page")
+        end
+      end
+      set idx = idx + 1
+    end
+    return problems
+  end
+
+  fn check_file(path)
+    let src = Files.read_text(path)
+    let p1 = ValidateHtml.check_balance_and_nesting(src)
+    let p2 = ValidateHtml.check_text_floor(src)
+    let p3 = ValidateHtml.check_meta_quote_parity(src)
+    return [...p1, ...p2, ...p3]
+  end
+
+  private fn walk_html_rel(dir_fs, prefix, acc)
+    let out = acc
+    for entry in Files.entries(dir_fs)
+      let name = Files.basename(entry)
+      if !Text.starts_with?(name, '.')
+        let rel = name
+        if prefix != ''
+          set rel = prefix + '/' + name
+        end
+        if Files.directory?(entry)
+          set out = ValidateHtml.walk_html_rel(entry, rel, out)
+        elsif Files.file?(entry) and Text.ends_with?(name, '.html')
+          set out = push(out, rel)
+        end
+      end
+    end
+    return out
+  end
+
+  private fn sort_strings(items)
+    let out = []
+    for item in items
+      let placed = false
+      let merged = []
+      for existing in out
+        if !placed and item < existing
+          set merged = push(merged, item)
+          set placed = true
+        end
+        set merged = push(merged, existing)
+      end
+      if !placed
+        set merged = push(merged, item)
+      end
+      set out = merged
+    end
+    return out
+  end
+
+  fn discover_html_targets()
+    return ValidateHtml.sort_strings(ValidateHtml.walk_html_rel('.', '', []))
+  end
+end
+
+program
+  let args = Cli.args()
+  for arg in args
+    if arg == '--help' or arg == '-h'
+      says 'Usage: hey validate-html.hey [HTML_FILE ...]'
+      return
+    end
+  end
+
+  let targets = args
+  if len(targets) == 0
+    set targets = ValidateHtml.discover_html_targets()
+  end
+
+  if len(targets) == 0
+    warn 'validate-html.hey: no .html files found'
+    Process.exit(1)
+  end
+
+  let failed = 0
+  for path in targets
+    let problems = ValidateHtml.check_file(path)
+    if len(problems) > 0
+      set failed = failed + 1
+      says 'FAIL ' + path
+      for p in problems
+        says '     ' + p
+      end
+    end
+  end
+
+  let total = len(targets)
+  if failed == 0
+    let noun = 'pages'
+    if total == 1
+      set noun = 'page'
+    end
+    says "ok — #{total} #{noun} well-formed and renderable"
+    return
+  end
+
+  says ''
+  says "#{failed} of #{total} pages would not render correctly. Not publishable."
+  Process.exit(1)
+end
