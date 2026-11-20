@@ -66,6 +66,7 @@
     figure { margin: 1.75rem 0 2.25rem; }
     figure svg { width: 100%; height: auto; display: block; }
     figcaption { margin-top: 0.6rem; font-size: 0.95rem; color: var(--muted); }
+    .dual-svg { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 0.9rem; }
     svg text { fill: CanvasText; font-family: system-ui, -apple-system, sans-serif; }
     svg .m { fill: var(--muted); }
     svg .ln { stroke: CanvasText; stroke-opacity: 0.55; fill: none; stroke-width: 2; }
@@ -108,7 +109,7 @@
 
   <main>
 <aside class="qa" aria-label="Bootstrap scope">
-<p><strong>Scope in 0.99.609a.</strong> Release <code>0.99.609a</code> ships the zero-bridge <code>stdlib/HeyMirC.hey</code> C emitter<sup><a href="#n4">4</a></sup> alongside <code>HeyMirLlvm.hey</code> over the unified eight-stage native compiler pipeline (<code>tools/hey_selfc_pipeline.hey</code>, <a href="hey-compiler-from-source-to-native-1.html#short">Compiler 1</a>), bootstrapping directly from the committed <code>c-portable</code> C seed with zero stage-0 compiler, zero legacy AST node bundles, and zero interpreter participation.</p>
+<p><strong>Scope in 0.99.610a.</strong> Release <code>0.99.610a</code> ships the zero-bridge <code>stdlib/HeyMirC.hey</code> C emitter<sup><a href="#n4">4</a></sup> alongside <code>HeyMirLlvm.hey</code> over the unified eight-stage native compiler pipeline (<code>tools/hey_selfc_pipeline.hey</code>, <a href="hey-compiler-from-source-to-native-1.html#short">Compiler 1</a>), bootstrapping directly from the committed <code>c-portable</code> C seed with zero stage-0 compiler, zero legacy AST node bundles, and zero C interpreter participation—while trimming the C runtime down to a cached Link-Time Optimization (<code>ThinLTO</code>) Operating System Platform Abstraction Layer (<code>PAL</code>)<sup><a href="#n5">5</a></sup>.</p>
 <p>The seed-size and refresh timings below record the initial three-unit C-seed bring-up<sup><a href="#n1">1</a>, <a href="#n2">2</a></sup> before the zero-bridge <code>HeyMirC.hey</code> backend landed<sup><a href="#n4">4</a></sup>.</p>
 </aside>
 
@@ -121,8 +122,8 @@
         <li><strong>Decided: a compressed seed (the compiler printed as C) is committed,</strong> estimated at 2&ndash;6&nbsp;MB and written only by
           an automatic update job.</li>
         <li><strong>Your programs don't change.</strong> LLVM still builds every user program and the final compiler.</li>
-        <li><strong>Active in 0.99.609a:</strong> The committed zero-bridge <code>HeyMirC.hey</code> C seed is the sole bootstrap: no stage-0
-          compiler and no interpreter takes part in building the compiler<sup><a href="#n4">4</a></sup>. In the initial three-unit seed bring-up (pipeline, resolver and driver), generations B and C
+        <li><strong>Active in 0.99.610a:</strong> The committed zero-bridge <code>HeyMirC.hey</code> C seed is the sole bootstrap: no stage-0
+          compiler and no C interpreter exist in the tree<sup><a href="#n4">4</a>, <a href="#n5">5</a></sup>. In the initial three-unit seed bring-up (pipeline, resolver and driver), generations B and C
           reached byte-identical fixed point<sup><a href="#n1">1</a></sup> at 6.4&nbsp;MB of compressed archives (about
           209&nbsp;MB of C). Release 605a bootstrapped through the retired stage-0 C compiler, now deleted from the tree.</li>
       </ul>
@@ -134,7 +135,7 @@
       written in C. It ignored the <strong>ownership decisions</strong> the real compiler
       makes: when a String is copied, when a value is freed, when a map may be updated in place. So a bug could live in
       one compiler and not the other. The fix: print the first compiler from the real
-      compiler's output. That is what 0.99.609a does through <code>stdlib/HeyMirC.hey</code>.
+      compiler's output. That's what 0.99.610a does through <code>stdlib/HeyMirC.hey</code>.
     </p>
     <p>
       <strong>What a seed refresh cost in initial bring-up (measured).</strong> On the Mac build host (Apple silicon, one build slot), one
@@ -239,20 +240,76 @@
       <figcaption>Rebuild until the output stops changing, as Lean 4 and Zig do.</figcaption>
     </figure>
 
-    <h2 id="is-the-runtime-c-yes" data-doc-purpose="Check which parts of the runtime are C.">Is the runtime C? Yes</h2>
+    <h2 id="is-the-runtime-c-yes" data-doc-purpose="Understand what moved from the retired C monolith into pure-Hey stdlib modules and what stays in the Thin OS PAL.">Is the runtime still a big C monolith? No — stdlib is pure Hey over a thin OS layer</h2>
+    <p>
+      Suppose you build a tiny Hey CLI that parses JSON and packs a <code>.tar.zst</code> archive. Earlier releases linked a sprawling C monolith—tens of thousands of lines across duplicate stdlib wrappers, <code>hey_compress.c</code>, <code>hey_package_project.inc</code>, and a 12,000-line C syntax-tree interpreter (<code>hey_repl.c</code> / <code>hey_interp.c</code>) that pinned hundreds of boxed <code>HeyValue</code> functions.
+    </p>
+    <p>
+      <strong>What would you predict happens when you delete those C codecs and stdlib wrappers and compile them as pure Hey instead?</strong> Your binary gets smaller <em>and</em> your hot loops get faster, because LLVM doesn't have to stop optimizing at an opaque C object boundary (<a href="hey-compiler-from-source-to-native-1.html#ssa-explained">Compiler 1</a>).
+    </p>
+    <figure>
+      <div class="dual-svg">
+        <svg viewBox="0 0 320 400" role="img" aria-labelledby="fpal-old-t fpal-old-d">
+          <title id="fpal-old-t">Retired C monolith and C interpreter before 0.99.610a</title>
+          <desc id="fpal-old-d">Shows the retired architecture: C interpreter hey_repl.c and hey_interp.c (~12,100 lines), C codecs hey_compress.c (~5,950 lines), C package solver hey_package_project.inc, and duplicate C stdlib facades pinned 32-byte HeyValue shims behind an opaque runtime.o boundary.</desc>
+          <rect x="4" y="4" width="312" height="392" rx="12" class="old"/>
+          <text x="16" y="28" font-size="14" font-weight="700">Retired: Monolithic C Runtime</text>
+          <text x="16" y="48" font-size="14" class="m">Deleted in 0.99.610a</text>
+
+          <rect x="14" y="64" width="292" height="72" rx="8" class="box"/>
+          <text x="24" y="88" font-size="14" font-weight="700">C AST Interpreter &amp; REPL</text>
+          <text x="24" y="110" font-size="14" class="m">hey_repl.c + 371 HeyValue shims</text>
+
+          <rect x="14" y="148" width="292" height="72" rx="8" class="box"/>
+          <text x="24" y="172" font-size="14" font-weight="700">C Codecs &amp; Package Glue</text>
+          <text x="24" y="194" font-size="14" class="m">hey_compress.c + package .inc</text>
+
+          <rect x="14" y="232" width="292" height="72" rx="8" class="box"/>
+          <text x="24" y="256" font-size="14" font-weight="700">Duplicate C Stdlib Facades</text>
+          <text x="24" y="278" font-size="14" class="m">Json, Http, Web, Text, Path, Jobs</text>
+
+          <rect x="14" y="318" width="292" height="62" rx="8" class="old"/>
+          <text x="160" y="344" font-size="14" font-weight="700" text-anchor="middle">Opaque runtime.o Boundary</text>
+          <text x="160" y="366" font-size="14" text-anchor="middle">Blocks LLVM loop inlining</text>
+        </svg>
+
+        <svg viewBox="0 0 320 400" role="img" aria-labelledby="fpal-new-t fpal-new-d">
+          <title id="fpal-new-t">0.99.610a pure-Hey standard library over cached ThinLTO OS PAL</title>
+          <desc id="fpal-new-d">Shows the 0.99.610a boundary (works today): pure-Hey stdlib/*.hey and compiled hirb REPL lower through Static Single Assignment MIR-SSA to LLVM SSA, linking against a thin C Operating System Platform Abstraction Layer (PAL) cached as ThinLTO bitcode (pal.bc).</desc>
+          <rect x="4" y="4" width="312" height="392" rx="12" class="llvm"/>
+          <text x="16" y="28" font-size="14" font-weight="700">0.99.610a: Pure Hey + Thin PAL</text>
+          <text x="16" y="48" font-size="14" class="m">Works today · -flto=thin</text>
+
+          <rect x="14" y="64" width="292" height="96" rx="8" class="mir"/>
+          <text x="24" y="88" font-size="14" font-weight="700">Pure-Hey stdlib/*.hey + hirb</text>
+          <text x="24" y="110" font-size="14">Compress, Json, Web, Http, Jobs,</text>
+          <text x="24" y="130" font-size="14">Packages, Text, Bytes, Map, Bits</text>
+          <text x="24" y="150" font-size="14" class="m">Compiles via MIR-SSA -&gt; LLVM SSA</text>
+
+          <line x1="160" y1="160" x2="160" y2="188" class="ln"/>
+
+          <rect x="14" y="188" width="292" height="116" rx="8" class="box"/>
+          <text x="24" y="212" font-size="14" font-weight="700">Thin C OS PAL (Cached pal.bc)</text>
+          <text x="24" y="234" font-size="14">Syscalls · mmap · kqueue/epoll</text>
+          <text x="24" y="254" font-size="14">M:N actor fibers · OpenSSL 3</text>
+          <text x="24" y="274" font-size="14">27-class slab · HeyStr SDS · FFI</text>
+          <text x="24" y="294" font-size="14" class="m">ThinLTO bitcode; zero codecs</text>
+
+          <rect x="14" y="318" width="292" height="62" rx="8" class="llvm"/>
+          <text x="160" y="344" font-size="14" font-weight="700" text-anchor="middle">Inlined Across OS Boundary</text>
+          <text x="160" y="366" font-size="14" text-anchor="middle">0 HeyValue C-stdlib shims</text>
+        </svg>
+      </div>
+      <figcaption>In <code>0.99.610a</code> (works today), codecs, protocols, data structures, and the session REPL compile from pure Hey; C owns only the Operating System Platform Abstraction Layer (<code>PAL</code>).</figcaption>
+    </figure>
     <div class="qa">
       <p>
-        Hey programs are compiled to LLVM, but the <dfn>runtime</dfn> they link against is C: the allocator, Strings,
-        maps, actors and the scheduler. clang compiles it and links it into every Hey binary, and the compiled Hey code
-        calls into it. On the development line <code>runtime/</code> holds 22 C files, about 62,000 lines; the part every binary links is
-        <code>hey_runtime.c</code> plus <code>hey_str.c</code>, about 39,000 lines (about 33,000 in release 605a). Most of the rest is legacy
-        bootstrap support and the REPL.
+        In <code>0.99.610a</code>, library logic lives in <strong>pure <code>stdlib/*.hey</code></strong>—compiled through Static Single Assignment (<code>MIR-SSA -&gt; LLVM SSA</code>) right alongside your code—while C is trimmed to a <strong>Thin Operating System Platform Abstraction Layer (<code>PAL</code>)</strong> linked as cached Link-Time Optimization (<code>ThinLTO</code>, <code>-flto=thin</code>) bitcode<sup><a href="#n5">5</a></sup>:
       </p>
-      <p>
-        The speedups made on the development line for the one billion row challenge (1BRC) were all in that runtime: a per-thread small-block allocator,
-        fixed-layout Result and line records, <code>read_line</code> adopting its buffer, and <code>split</code> sharing its last field.
-        They speed up every compiled Hey program. <strong>None of them touched the stage-0 compiler.</strong>
-      </p>
+      <ul>
+        <li><strong>Compiled as pure Hey (<code>stdlib/*.hey</code>, works today):</strong> <code>Deflate</code>, <code>Zlib</code>, <code>Gzip</code>, <code>Xz</code>, <code>Zstd</code>, <code>Tar</code>, <code>Compress</code>, <code>Archive</code>, <code>Packages</code>, <code>Path</code>, <code>Files</code>, <code>Text</code>, <code>Json</code>, <code>Codec</code>, <code>Web</code>, <code>Http</code>, <code>Jobs</code>, <code>Bits</code>, <code>Binary</code>, <code>Map</code>, <code>Bytes</code>, <code>Collections</code>, and the compiled session REPL host (<code>tools/hey_repl.hey</code>).</li>
+        <li><strong>Kept in the Thin C OS <code>PAL</code> (works today):</strong> OS file, process, and signal syscalls plus <code>mmap</code>/<code>pread</code> views; TCP/UDP sockets and the <code>kqueue</code>/<code>epoll</code>/<code>poll</code> readiness reactor; on-demand OpenSSL 3 TLS &amp; crypto loading; the M:N work-stealing actor scheduler, stackful fibers, and lock-free mailboxes; the 27-class small-block slab allocator plus 16-byte <code>HeyStr</code> Simple Dynamic String (<code>SDS</code>) and scope-arena substrates; and <code>Native</code> Foreign Function Interface (<code>FFI</code>, <code>dlopen</code>) loading.</li>
+      </ul>
     </div>
 
     <h2 id="the-portable-string-keeps-its-16-bytes-it-costs-one-mir-abi-family-and-some-bootstrap-speed" data-doc-purpose="Weigh what the 16-byte String costs the C seed.">The portable String keeps its 16 bytes; it costs one MIR ABI family and some bootstrap speed</h2>
@@ -408,8 +465,8 @@
         <a href="https://go.dev/blog/rebuild">Perfectly Reproducible, Verified Go Toolchains</a></li>
       <li>Reinking, Xie, de Moura and Leijen, "Perceus: Garbage Free Reference Counting with Reuse", PLDI 2021;
         <a href="https://github.com/koka-lang/koka">Koka</a>; <a href="https://github.com/roc-lang/roc">Roc</a></li>
-      <li>Hey: <code>stdlib/HeyMirPhysical.hey</code>, <code>stdlib/HeyMirOwnership.hey</code>, <code>stdlib/HeyMirVerify.hey</code>, <code>stdlib/HeyMirLlvm.hey</code>, <code>runtime/hey_str.h</code>,
-        <code>runtime/hey_runtime.c</code> and the Makefile seed targets. Companion page:
+      <li>Hey: <code>stdlib/HeyMirPhysical.hey</code>, <code>stdlib/HeyMirOwnership.hey</code>, <code>stdlib/HeyMirVerify.hey</code>, <code>stdlib/HeyMirLlvm.hey</code>, <code>stdlib/HeyMirC.hey</code>, <code>runtime/hey_str.h</code>,
+        the ThinLTO OS <code>PAL</code> bitcode targets, and the Makefile <code>seed/</code> targets. Companion page:
         <a href="hey-compiler-from-source-to-native-1.html">Compiler 1: how the Hey compiler turns source into native code</a></li>
     </ul>
 
@@ -420,6 +477,7 @@
         <li id="n2">Development-line seed size and runtime line-count baseline: 90e383.</li>
         <li id="n3">Unified eight-stage native pipeline (<code>tools/hey_selfc_pipeline.hey</code>), linear pass updates, dynamic receiver COW fusion, and verified <code>stage2 == stage3</code> self-hosting in release 607a: 835943.</li>
         <li id="n4">Zero-bridge <code>stdlib/HeyMirC.hey</code> verified MIR C emitter, regenerated C seed, and removal of legacy stage-0 / C-node bridge files in release 608a: 4d905b, c91089.</li>
+        <li id="n5">Retirement of <code>hey_compress.c</code>, <code>hey_package_project.inc</code>, the C AST interpreter (<code>hey_repl.c</code> / <code>hey_interp.c</code>), and duplicate C stdlib wrappers in favor of pure-Hey <code>stdlib/*.hey</code> over cached ThinLTO OS <code>PAL</code> bitcode in <code>0.99.610a</code>.</li>
       </ol>
     </section>
   </main>

@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="article-date" content="2026-10">
+<meta name="article-date" content="2026-11">
 <meta name="hey-docs-group" content="compiler">
 <meta name="hey-docs-title" content="Values, memory and Strings">
-<meta name="hey-docs-purpose" content="Understand String16 (the German layout), SDS backing, ownership, copy-on-write and allocation.">
+<meta name="hey-docs-purpose" content="Understand String16 (the German layout), SDS backing, 63-bit InlineInt, flat collections, ownership, copy-on-write and allocation.">
 <meta name="hey-docs-rank" content="11">
 <meta name="article-bucket" content="reference">
 <meta name="article-index-rank" content="09">
-<meta name="article-index-desc" content="If Hey values never change, why isn't every update a copy? Reference counts, copy-on-write, ownership decided by the compiler, Strings, maps, and how to watch memory yourself.">
+<meta name="article-index-desc" content="If Hey values never change, why isn't every update a copy? Reference counts, copy-on-write, Perceus ownership, 63-bit register InlineInt, 16-byte HeyStr, flat maps and shaped arrays, zero-copy Bytes, and how to watch memory yourself.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, 16-byte HeyStr atop SDS, owner-scoped zero-RC borrows, Perceus drop-guided reuse and dynamic block_scopes arenas in SSA-MIR, maps, the 27-class small-block allocator, and how to watch memory yourself.">
+<meta name="description" content="How Hey keeps immutable values fast: reference counts and copy-on-write, 63-bit register InlineInt, 16-byte HeyStr atop SDS, zero-copy Bytes scanning, flat specialized Map.update/increment and shaped arrays, Perceus reuse and block_scopes arenas in MIR-SSA, the 27-class small-block allocator, and how to watch memory yourself.">
 <meta name="article-index-title" content="Reference 9: Hey values, memory and Strings">
 <title>Hey values, memory and Strings</title>
 <style>:root{--bg:#f7f6f2;--ink:#17181c;--mid:#3a3d46;--muted:#5b5f6a;--line:#d3d0c8;--surface:#ffffff;--surface2:#efede7;
@@ -97,6 +97,8 @@ svg .dash{stroke-dasharray:5 4}
 @media (max-width:600px){body{font-size:16px}th,td{padding:.35rem .4rem}}
 figure{overflow-x:auto}
 figure svg{min-width:640px}
+.dual-svg{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:.85rem}
+.dual-svg svg,svg.svg-phone{min-width:0;max-width:380px;margin:0 auto}
 .notes{margin-top:2.5rem;border-top:1px solid var(--line,#ddd);padding-top:.6rem;font-size:.88rem;color:var(--muted,#666)}
 .notes ol{padding-left:1.4rem}
 sup>a[href^="#n"]{text-decoration:none;font-size:.75em;padding:0 .1em}
@@ -114,9 +116,9 @@ That sounds like a copy every time. Usually it isn't, and this page shows why, w
 what's decided to make it cheaper.</p>
 
 <section class="aside" aria-labelledby="string-update">
-<h2 id="string-update" data-doc-purpose="Read the scoped String16 implementation update.">Implementation scope: 16-byte <code>HeyStr</code> &amp; native MIR lifetimes in 0.99.609a</h2>
-<p><strong>Shipping in the 0.99.609a runtime and unified native compiler (<span class="badge b-works">Works today</span>):</strong> Every <code>String</code> uses the 16-byte German String layout <code>HeyStr</code> (<a href="#phases">section 5</a>, <code>runtime/hey_str.h</code><sup><a href="#n11">11</a></sup>). Strings of <code>0–12</code> UTF-8 bytes store their length and bytes inline inside two 64-bit registers with zero heap allocation and zero reference-count traffic; strings over <code>12</code> bytes store a 4-byte length, a 4-byte prefix, and an 8-byte tagged pointer (class bits <code>54..55</code>) to a 32-byte-header reference-counted <code>SDS</code> block (<a href="#strings">section 4</a>) or live borrowed bytes. Every string operation reads the explicit 32-bit byte length rather than scanning for a NUL byte, generic boxed <code>HeyValue</code> cells remain 32 bytes, and Stages 5–8 of the native compiler pass unboxed two-register <code>HeyStr</code> values across specialized <code>define linkonce_odr</code> workers (<code>HeyMirPhysical.hey</code>, <a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6</a>), track transitive owner-scoped zero-RC borrows (<code>view live =&gt; owner live</code> in <code>HeyMirLiveness.hey</code> + <code>HeyMirOwnership.hey</code>), fuse dynamic receiver copy-on-write updates (<code>own_fuse_cow_take_receivers</code>), place Perceus drop-guided <code>reuse</code> and dynamic <code>hey_region_push</code>/<code>hey_region_pop</code> arenas on lexical <code>block_scopes</code> (<a href="hey-compiler-from-source-to-native-1.html#ownership">Compiler 1 §7</a>), and verify all 8 invariants in <code>HeyMirVerify.hey</code><sup><a href="#n3">3</a></sup>.</p>
-<p><strong>Planned extensions (<span class="badge b-decided">Decided, coming</span>):</strong> Geometric <code>SDS</code> slack growth on unique string appends, unboxed register passing for flat user records of up to 4 scalar fields, and SwissTable map indexing keyed on 16-byte <code>HeyStr</code> (<a href="hey-docs-index.html#today">docs index</a>).</p>
+<h2 id="string-update" data-doc-purpose="Read the scoped String16, InlineInt, and flat-collection implementation update.">Implementation scope: 16-byte <code>HeyStr</code>, 63-bit <code>InlineInt</code> &amp; MIR-SSA lifetimes in 0.99.610a</h2>
+<p><strong>Shipping in the 0.99.610a runtime and unified native compiler (<span class="badge b-works">Works today</span>):</strong> Every <code>String</code> uses the 16-byte German String layout <code>HeyStr</code> (<a href="#phases">section 5</a>, <code>runtime/hey_str.h</code><sup><a href="#n11">11</a></sup>). Strings of <code>0–12</code> UTF-8 bytes store their length and bytes inline inside two 64-bit registers with zero heap allocation and zero reference-count traffic; strings over <code>12</code> bytes store a 4-byte length, a 4-byte prefix, and an 8-byte tagged pointer (class bits <code>54..55</code>) to a 32-byte-header reference-counted Simple Dynamic String (<code>SDS</code>) block (<a href="#strings">section 4</a>) with geometric slack growth on unique appends, or live borrowed bytes. Unbounded integers travel in a single CPU register as a 63-bit Least Significant Bit (<code>LSB</code>)-tagged <code>InlineInt</code> up to <code>&plusmn;4.61 &times; 10<sup>18</sup></code> before touching heap <code>BigInt</code> storage; homogeneous arrays pack <code>int64_t[]</code>, <code>double[]</code>, or contiguous shaped-record scalar slots (<code>HEY_ARRAY_REPR_SHAPED</code>); flat value-specialized maps update in one probe via <code>Map.increment</code> and <code>Map.update</code>; and generic dynamic <code>HeyValue</code> cells remain 32 bytes. Stages 5–8 pass unboxed registers across specialized <code>define linkonce_odr</code> workers (<code>HeyMirPhysical.hey</code>, <a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6</a>), track transitive owner-scoped zero-reference-count (<code>RC</code>) borrows, fuse dynamic receiver copy-on-write updates (<code>own_fuse_cow_take_receivers</code>), place Perceus drop-guided <code>reuse</code> and dynamic <code>hey_region_push</code>/<code>hey_region_pop</code> arenas on lexical <code>block_scopes</code>, and verify all 8 invariants in <code>HeyMirVerify.hey</code><sup><a href="#n3">3</a></sup>.</p>
+<p><strong>Planned extensions (<span class="badge b-decided">Decided, coming</span> / <span class="badge b-proposed">Proposed</span>):</strong> Unboxed register passing for standalone flat user records of up to 4 scalar fields across call boundaries (<span class="badge b-decided">Decided, coming</span>) and SwissTable string-key map probing (<span class="badge b-proposed">Proposed</span>; <a href="hey-docs-index.html#today">docs index</a>).</p>
 </section>
 
 <div class="toc"><strong>On this page</strong>
@@ -319,10 +321,10 @@ the map straight to <code>put</code> instead of holding a second reference. That
 <figcaption>Figure 2. The loop from section 1, with and without ownership at last use.</figcaption>
 </figure>
 <p><strong>Where it lives:</strong> in Stage 7 of the compiler (<code>HeyMirLiveness.hey</code> + <code>HeyMirOwnership.hey</code>), audited by Stage 8's independent <code>HeyMirVerify.hey</code> before <code>HeyMirLlvm.hey</code> emits native code (<a href="hey-compiler-from-source-to-native-1.html#ownership">Compiler 1 §7–§8</a>). The LLVM emitter obeys MIR's verified plan one-for-one and never guesses cleanup actions; nothing imported may claim ownership without an explicit signature contract.</p>
-<p>In <code>0.99.609a</code> (<span class="badge b-works">Works today</span>), <code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>, and <code>HeyMirVerify.hey</code> enforce typed <code>SSA-MIR</code> ownership end-to-end: last-use moves, transitive <code>view live =&gt; owner live</code> borrows, Perceus drop-guided cell <code>reuse</code> (measured 19&times; faster on a 40,000-step functional update prototype), dynamic receiver copy-on-write fusion (<code>own_fuse_cow_take_receivers</code> -&gt; <code>hey_llvm_json_put_value_take_receiver</code> / <code>hey_llvm_json_push_value_take_receiver</code>, preserving <code>box_refs == 0 &amp;&amp; backing-&gt;refs == 1</code> across <code>HeyValue*</code> map and array accumulators), unwind cleanup shadows, and independent credit verification across every CFG path, while runtime <code>hey_rc_count_is_unique</code> keeps dynamic sharing safe.<sup><a href="#n3">3</a></sup></p>
+<p>In <code>0.99.610a</code> (<span class="badge b-works">Works today</span>), <code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>, and <code>HeyMirVerify.hey</code> enforce typed <code>SSA-MIR</code> ownership end-to-end: last-use moves, transitive <code>view live =&gt; owner live</code> borrows, Perceus drop-guided cell <code>reuse</code> (measured 19&times; faster on a 40,000-step functional update prototype), dynamic receiver copy-on-write fusion (<code>own_fuse_cow_take_receivers</code> -&gt; <code>hey_llvm_json_put_value_take_receiver</code> / <code>hey_llvm_json_push_value_take_receiver</code>, preserving <code>box_refs == 0 &amp;&amp; backing-&gt;refs == 1</code> across <code>HeyValue*</code> map and array accumulators), unwind cleanup shadows, and independent credit verification across every control-flow path, while runtime <code>hey_rc_count_is_unique</code> keeps dynamic sharing safe.<sup><a href="#n3">3</a></sup></p>
 
 <h2 id="strings" data-doc-purpose="Understand the SDS backing used by owned and static long Strings.">4. How long Strings keep their bytes: SDS</h2>
-<p>In <code>0.99.609a</code>, only long Strings (<code>&gt; 12</code> UTF-8 bytes) allocate a backing block; short Strings (<code>&lt;= 12</code> bytes) live inline inside the 16-byte <code>HeyStr</code> value (<a href="#phases">section 5</a>). Long <code>OWNED</code> and <code>STATIC</code> Strings point to an <em>SDS</em> block ("simple dynamic string", the layout Redis popularized): a 32-byte header (<code>refs</code>, <code>base</code>, <code>length</code>, <code>capacity + flags</code>), followed immediately by the UTF-8 payload bytes, slack capacity, and a trailing NUL byte for C interoperability. An <code>OWNED</code> block is atomically reference-counted; a <code>STATIC</code> block has immortal count (<code>2^62</code>) and is never freed; a <code>BORROWED</code> view points into live foreign or interior bytes with zero reference-count overhead.</p>
+<p>In <code>0.99.610a</code>, only long Strings (<code>&gt; 12</code> UTF-8 bytes) allocate a backing block; short Strings (<code>&lt;= 12</code> bytes) live inline inside the 16-byte <code>HeyStr</code> value (<a href="#phases">section 5</a>). Long <code>OWNED</code> and <code>STATIC</code> Strings point to an <em>SDS</em> block ("simple dynamic string", the layout Redis popularized): a 32-byte header (<code>refs</code>, <code>base</code>, <code>length</code>, <code>capacity + flags</code>), followed immediately by the UTF-8 payload bytes, slack capacity, and a trailing NUL byte for C interoperability. An <code>OWNED</code> block is atomically reference-counted; a <code>STATIC</code> block has immortal count (<code>2^62</code>) and is never freed; a <code>BORROWED</code> view points into live foreign or interior bytes with zero reference-count overhead.</p>
 <figure>
 <svg viewBox="0 0 880 170" role="img" aria-labelledby="r3t r3d">
 <title id="r3t">SDS block layout</title>
@@ -378,10 +380,13 @@ end</code></pre>
 <p>Linear: each doubling roughly doubles the instructions. <code>out</code> has one owner and is dead after the <code>+</code>, so its block grows in place.<sup><a href="#n4">4</a></sup></p>
 <p class="id">Measured on an Apple M3 Pro baseline; see <a href="#n1">Note 1</a>.</p>
 
-<h3>Bytes <span class="badge b-works">Works today</span></h3>
-<p><code>Bytes</code> is immutable binary data in a block of the same shape. <code>slice</code> on Bytes is a view: it
-shares the parent's block (one count increment) instead of copying. There's no mutable buffer: build output by
-joining immutable pieces.</p>
+<h3>Zero-copy <code>Bytes</code> views &amp; in-place slice parsing <span class="badge b-works">Works today</span></h3>
+<p><code>Bytes</code> is immutable binary data backed by a reference-counted byte buffer (or an <code>mmap</code> view from <code>Files.map_readonly</code>). <code>Bytes.slice</code> shares the parent's block in <code>O(1)</code> (one reference-count increment, zero byte copies), and <code>0.99.610a</code> adds zero-copy scanning helpers so you don't allocate temporary per-line strings when streaming multi-megabyte inputs:</p>
+<ul>
+<li><code>Bytes.each_line(buf, line_fn)</code> scans newline boundaries via <code>memchr</code> and passes integer <code>[start, end_off)</code> byte offsets to a named function (or <code>bind(...)</code> callable) with zero slice allocation;</li>
+<li><code>Bytes.parse_int_slice(buf, offset, length)</code> and <code>Bytes.parse_fixed_slice(buf, offset, length, scale)</code> parse signed integers or scaled fixed-point numbers straight from byte offsets;</li>
+<li><code>Bytes.slice_equals?(buf, offset, needle_bytes)</code> compares an interior span against <code>needle_bytes</code> without allocating a slice.</li>
+</ul>
 <p class="cmd-label">bytes.hey</p>
 <pre data-example="runnable" data-file="bytes.hey"><code>import &#39;stdlib:Bytes&#39;
 
@@ -456,11 +461,12 @@ and DuckDB, Meta's Velox and Apache Arrow's StringView use the same 16-byte layo
 
 <h3>Runtime storage and native MIR pipeline status</h3>
 <div class="tablewrap"><table>
-<caption>16-byte <code>HeyStr</code> contracts in <code>0.99.609a</code> across the runtime and eight-stage compiler pipeline.</caption>
+<caption>Value, <code>InlineInt</code>, and 16-byte <code>HeyStr</code> contracts in <code>0.99.610a</code> across the runtime and eight-stage compiler pipeline.</caption>
 <thead><tr><th scope="col">Contract</th><th scope="col">State</th></tr></thead>
 <tbody>
-<tr><td>16-byte <code>HeyStr</code>, with <code>0–12</code> bytes inline and longer owned text backed by 32-byte-header <code>SDS</code></td><td><span class="badge b-works">Works today</span> in <code>0.99.609a</code></td></tr>
-<tr><td>Generic boxed <code>HeyValue</code> cell wrapping <code>HeyStr</code> and <code>Bytes</code></td><td><span class="badge b-works">Works today</span> (32 bytes; <code>Bytes</code> arm is 24 bytes)</td></tr>
+<tr><td>16-byte <code>HeyStr</code>, with <code>0–12</code> bytes inline and longer owned text backed by 32-byte-header <code>SDS</code></td><td><span class="badge b-works">Works today</span> in <code>0.99.610a</code></td></tr>
+<tr><td>63-bit Least Significant Bit (<code>LSB</code>)-tagged register <code>InlineInt</code> (<code>&plusmn;4.61 &times; 10<sup>18</sup></code> in 1 CPU register, <code>0</code> heap bytes) with cold <code>BigInt</code> promotion on overflow</td><td><span class="badge b-works">Works today</span> in <code>0.99.610a</code></td></tr>
+<tr><td>Generic boxed <code>HeyValue</code> cell wrapping dynamic values, <code>HeyStr</code>, and <code>Bytes</code></td><td><span class="badge b-works">Works today</span> (32 bytes; <code>Bytes</code> arm is 24 bytes)</td></tr>
 <tr><td>Borrowed views promoted when entering owning arrays, maps, fields, boxes, or actor messages</td><td><span class="badge b-works">Works today</span> in runtime owning-store helpers and static MIR <code>to_owned</code> placement</td></tr>
 <tr><td>Counted String literals, including embedded NUL bytes</td><td><span class="badge b-works">Works today</span> across 9,000-value normal, ASan, and UBSan suites<sup><a href="#n12">12</a></sup></td></tr>
 <tr><td>Two-register <code>HeyStr</code> carrier across <code>HeyMirPhysical.hey</code>, specialized <code>linkonce_odr</code> workers, and <code>HeyMirVerify.hey</code>, plus geometric <code>SDS</code> slack growth on unique appends</td><td><span class="badge b-works">Works today</span> (<a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6–§8</a>)</td></tr>
@@ -499,15 +505,54 @@ The hash win is mostly a better hash function (rapidhash instead of FNV-1a), whi
 SDS, equality gains only 1.25&times;, and sorting doesn't gain at all, because two thirds of that data share the prefix
 "stat". The clear win for the value form is the slice: a view instead of a copy, 7.5&times; fewer instructions.</p>
 
-<h2 id="maps" data-doc-purpose="Understand collection sharing and update costs.">6. Maps and arrays</h2>
-<h3>Map <code>put</code> and array <code>push</code> take over dead, unique accumulators <span class="badge b-works">Works today</span></h3>
-<p><code>Map.put</code>, bare <code>put</code>, and <code>push</code> update uniquely held receivers in place. When <code>HeyMirLiveness.hey</code> and <code>HeyMirOwnership.hey</code> prove the receiver is dead after the update, typed MIR moves the value directly and <code>own_fuse_cow_take_receivers</code> fuses dynamic <code>HeyValue*</code> updates to <code>hey_llvm_json_put_value_take_receiver</code> and <code>hey_llvm_json_push_value_take_receiver</code> so <code>box_refs == 0 &amp;&amp; backing-&gt;refs == 1</code> holds and accumulator loops run in <code>O(1)</code> per step<sup><a href="#n3">3</a></sup>.</p>
+<h2 id="maps" data-doc-purpose="Understand 63-bit InlineInt, flat map/array representations, and single-probe updates.">6. <code>InlineInt</code>, flat maps, and unboxed arrays</h2>
+<h3>63-bit register <code>InlineInt</code> keeps unbounded integers off the heap <span class="badge b-works">Works today</span></h3>
+<p>When <code>HeyMirFacts.hey</code> proves an integer stays inside signed 64-bit bounds, it runs in a raw <code>i64</code> register. What if a loop bound comes from a file or recursive accumulator so static bounds aren't known? In <code>0.99.610a</code>, Hey carries it in a single 64-bit CPU register using a Least Significant Bit (<code>LSB</code>) tag (<code>(word &amp; 1) == 0</code> for any integer in <code>&plusmn;4.61 &times; 10<sup>18</sup></code>), allocating a heap <code>BigInt</code> only when a hardware overflow flag fires:</p>
+<figure>
+  <div class="dual-svg">
+    <svg class="svg-phone" viewBox="0 0 320 264" role="img" aria-labelledby="r-iint-old-t r-iint-old-d">
+      <title id="r-iint-old-t">Retired 32-byte heap HeyValue box for unbounded integers</title>
+      <desc id="r-iint-old-d">Shows how an unbounded integer previously allocated a 32-byte heap HeyValue cell with atomic Reference Counting (RC) on every arithmetic step.</desc>
+      <rect x="4" y="4" width="312" height="256" rx="10" class="f-bad"/>
+      <text x="16" y="28" font-size="14" font-weight="700">Retired: Heap-Boxed Int</text>
+      <text x="16" y="48" font-size="14" class="t-muted">Unbounded loop counter / hash</text>
+      <rect x="16" y="66" width="288" height="110" rx="8" class="f-surface"/>
+      <text x="26" y="92" font-size="14" font-weight="700">HeyValue* Pointer -&gt; 32B Cell</text>
+      <text x="26" y="116" font-size="14" class="t-mono">tag + atomic RC + payload</text>
+      <text x="26" y="140" font-size="14" style="fill:var(--bad)">Alloc + free on each step</text>
+      <text x="26" y="162" font-size="14" class="t-muted">Evicts L1 data cache lines</text>
+      <rect x="16" y="190" width="288" height="54" rx="8" class="f-bad"/>
+      <text x="160" y="214" font-size="14" font-weight="700" text-anchor="middle">32B Heap per Unbounded Step</text>
+      <text x="160" y="234" font-size="14" text-anchor="middle">Slows data-driven loops</text>
+    </svg>
+    <svg class="svg-phone" viewBox="0 0 320 264" role="img" aria-labelledby="r-iint-new-t r-iint-new-d">
+      <title id="r-iint-new-t">0.99.610a 63-bit Least Significant Bit (LSB) InlineInt register carrier</title>
+      <desc id="r-iint-new-d">Shows the 0.99.610a InlineInt word (works today): bits 63..1 store the signed 63-bit integer and bit 0 = 0 marks InlineInt in 1 CPU register with 0 heap bytes; bit 0 = 1 points to a heap BigInt only on 63-bit overflow.</desc>
+      <rect x="4" y="4" width="312" height="256" rx="10" class="f-good"/>
+      <text x="16" y="28" font-size="14" font-weight="700">0.99.610a: 63b InlineInt</text>
+      <text x="16" y="48" font-size="14" class="t-muted">Works today · 1 CPU register</text>
+      <rect x="16" y="66" width="228" height="44" rx="6" class="f-acc"/>
+      <text x="130" y="93" font-size="14" font-weight="700" text-anchor="middle" class="t-mono">bits 63..1: signed 63b</text>
+      <rect x="248" y="66" width="56" height="44" rx="6" class="f-good"/>
+      <text x="276" y="93" font-size="14" font-weight="700" text-anchor="middle" class="t-mono">b0=0</text>
+      <text x="16" y="134" font-size="14">Checked reg add: <tspan class="t-mono">sadd.overflow</tspan></text>
+      <text x="16" y="156" font-size="14" class="t-muted">b0=1 -&gt; BigInt ptr if &gt; 4.61e18</text>
+      <rect x="16" y="190" width="288" height="54" rx="8" class="f-good"/>
+      <text x="160" y="214" font-size="14" font-weight="700" text-anchor="middle">0B Heap · 0 RC Traffic</text>
+      <text x="160" y="234" font-size="14" text-anchor="middle">Exact arbitrary precision kept</text>
+    </svg>
+  </div>
+  <figcaption>Figure 4b. Unbounded integers stay in one 64-bit register via a Least Significant Bit (<code>LSB</code>) tag (<code>b0=0</code>), touching the heap only if a value actually exceeds 63 signed bits.</figcaption>
+</figure>
 
-<h3>The map hash index redesign <span class="badge b-proposed">Proposed</span></h3>
-<p>A design that stored each index slot's probe position (so growing never re-hashes) was measured and set aside: on ordinary programs it lost in places (102% more instructions on one shape), and its use of the top 32 bits of the hash clustered keys into the same buckets. SwissTable-style probing, keyed by the 16-byte String value, replaces it.</p>
+<h3>Single-probe <code>Map.increment</code> &amp; <code>Map.update</code> on flat specialized maps <span class="badge b-works">Works today</span></h3>
+<p><code>Map.put</code>, bare <code>put</code>, <code>Map.increment(map, key, delta)</code>, <code>Map.update(map, key, default_val, updater)</code>, and <code>push</code> update uniquely held receivers in place. Writing <code>if counts.has?(k) ... counts.put(k, counts[k] + 1)</code> hashes and probes <code>k</code> three separate times; <code>Map.increment</code> and <code>Map.update</code> hash <code>k</code> once, probe once, and mutate flat value-specialized slots (<code>i64</code>, <code>f64</code>, or fixed-shape records) in place when <code>HeyMirOwnership.hey</code> proves sole ownership<sup><a href="#n3">3</a></sup>.</p>
 
-<h3>Homogeneous unboxed arrays, spread appends, and static-key record shapes <span class="badge b-works">Works today</span></h3>
-<p>Appending to an array you alone hold (<code>push(xs, item)</code> or <code>set xs = [...xs, item]</code>) mutates in place with geometric capacity growth, and homogeneous <code>Int</code> or <code>Float</code> arrays store raw unboxed <code>int64_t</code> / <code>double</code> elements contiguously in <code>HeyJsonArray</code> with hoisted MIR loop guards. Static-key record literals (<code>{min: a, max: b, sum: s, count: n}</code>) carry a compile-time <code>shape_id</code> and 64-bit <code>unboxed_mask</code>, lowering <code>record.field</code> reads and updates to a 1-cycle shape guard plus a direct 64-bit slot load or store (<a href="hey-reference-performance-10.html#day1-idioms">Performance §7</a>).</p>
+<h3>SwissTable string-key probing follow-up <span class="badge b-proposed">Proposed</span></h3>
+<p>A Robin-Hood design that stored each index slot's probe position was measured and set aside because it cost 102% more instructions on one lookup shape and clustered high hash bits. SIMD SwissTable control-byte probing keyed directly on 16-byte <code>HeyStr</code> remains proposed on top of today's flat value-specialized map storage.</p>
+
+<h3>Homogeneous unboxed arrays, <code>HEY_ARRAY_REPR_SHAPED</code> record arrays &amp; spread appends <span class="badge b-works">Works today</span></h3>
+<p>Appending to an array you alone hold (<code>push(xs, item)</code> or <code>set xs = [...xs, item]</code>) mutates in place with geometric capacity growth. Homogeneous <code>Int</code> and <code>Float</code> arrays store raw unboxed <code>int64_t[]</code> and <code>double[]</code> buffers (8 bytes per element instead of 32-byte boxes), while homogeneous arrays of static-key records pack scalar fields into contiguous flat slots (<code>HEY_ARRAY_REPR_SHAPED</code>) with <code>{data_ptr, len}</code> hoisted once before hot loops (<a href="hey-reference-performance-10.html#day1-idioms">Performance §7</a>).</p>
 
 <h2 id="regions" data-doc-purpose="Read the region and flat-record design.">7. Regions and flat records</h2>
 <p>Reference counting frees values one at a time. A program that builds a tree, reads it and throws it away pays one
@@ -538,16 +583,16 @@ changing what the program means.</p>
 <li><strong>F3 smallest lexical <code>block_scopes</code> region:</strong> the innermost statement, call, or single loop-iteration scope (preserved across split critical edges by <code>HeyIr.hey</code>) enclosing every use of a non-escaping fresh value—never a whole loop, so loop scratch cannot accumulate across iterations.</li>
 <li><strong>F4 unique and dead:</strong> the value has one owner, zero live borrowed views, and no later reads, enabling Perceus in-place <code>reuse</code>.</li>
 </ol>
-<p>One worklist solver computes <code>F1–F4</code> over sealed-block <code>SSA-MIR</code> with <strong>zero special cases</strong>: no rule ever inspects a function spelling, field name, file path, or benchmark (<a href="hey-reference-performance-10.html#honest">Performance §3</a>). In <code>0.99.609a</code>, <code>HeyMirOwnership.hey</code> places <code>hey_region_push</code> and <code>hey_region_pop</code> on <code>block_scopes</code><sup><a href="#n6">6</a></sup> and <code>HeyMirVerify.hey</code> checks LIFO nesting and loan non-escape before codegen<sup><a href="#n3">3</a></sup>.</p>
+<p>One worklist solver computes <code>F1–F4</code> over sealed-block <code>SSA-MIR</code> with <strong>zero special cases</strong>: no rule ever inspects a function spelling, field name, file path, or benchmark (<a href="hey-reference-performance-10.html#honest">Performance §3</a>). In <code>0.99.610a</code>, <code>HeyMirOwnership.hey</code> places <code>hey_region_push</code> and <code>hey_region_pop</code> on <code>block_scopes</code><sup><a href="#n6">6</a></sup> and <code>HeyMirVerify.hey</code> checks LIFO nesting and loan non-escape before codegen<sup><a href="#n3">3</a></sup>.</p>
 
 <h3>Flat scalar records and regions <span class="badge b-decided">Decided, coming</span></h3>
-<p>Hey combines both mechanisms: records of up to four scalar fields will unbox straight into CPU registers across specialized workers (<a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6</a>), compact shaped headers shrink heap-allocated records, and dynamic <code>block_scopes</code> arenas (<span class="badge b-works">Works today</span>) reclaim whole groups of short-lived scratch records in a single pointer reset.</p>
+<p>Hey combines both mechanisms: standalone records of up to four scalar fields will unbox straight into CPU registers across specialized workers (<a href="hey-compiler-from-source-to-native-1.html#representations">Compiler 1 §6</a>; homogeneous arrays of static-key records already pack into contiguous <code>HEY_ARRAY_REPR_SHAPED</code> slots), compact shaped headers shrink heap-allocated records, and dynamic <code>block_scopes</code> arenas (<span class="badge b-works">Works today</span>) reclaim whole groups of short-lived scratch records in a single pointer reset.</p>
 
 <h3>Actor and turn regions <span class="badge b-proposed">Proposed</span></h3>
 <p>The same arena machinery extends naturally to actor turns: reclaiming temporary allocations from a single message-handling turn (including unwinds on failed turns) in one step when the turn finishes. Actors: <a href="hey-reference-actors-and-failure-4.html">Actors and failure</a>.</p>
 
-<h2 id="allocator" data-doc-purpose="Understand the allocator mechanisms discussed by the article.">8. The small-block allocator <span class="badge b-works">Works today</span> in 0.99.609a</h2>
-<p>Record headers, array headers, 32-byte <code>HeyValue</code> boxes, and small long-String <code>SDS</code> blocks sit between 32 bytes and 1 KiB, and ordinary programs allocate and free them constantly. In <code>0.99.609a</code> they come from Hey's 27-size-class thread-local page allocator instead of general <code>malloc</code>,<sup><a href="#n7">7</a></sup> following mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019), while short Strings (<code>&lt;= 12</code> bytes) stay inline in <code>HeyStr</code> with zero backing allocations.</p>
+<h2 id="allocator" data-doc-purpose="Understand the allocator mechanisms discussed by the article.">8. The small-block allocator <span class="badge b-works">Works today</span> in 0.99.610a</h2>
+<p>Record headers, array headers, 32-byte <code>HeyValue</code> boxes, and small long-String <code>SDS</code> blocks sit between 32 bytes and 1 KiB, and ordinary programs allocate and free them constantly. In <code>0.99.610a</code> they come from Hey's 27-size-class thread-local page allocator instead of general <code>malloc</code>,<sup><a href="#n7">7</a></sup> following mimalloc's free-list sharding (Leijen, Zorn and de Moura, 2019), while short Strings (<code>&lt;= 12</code> bytes) stay inline in <code>HeyStr</code> and 63-bit <code>InlineInt</code> values stay in CPU registers with zero backing allocations.</p>
 <figure>
 <svg viewBox="0 0 880 250" role="img" aria-labelledby="r6t r6d">
 <title id="r6t">Size-class pages of the small-block allocator</title>
@@ -641,7 +686,7 @@ end</code></pre>
 alone: in place 1000, copied 0
 keeping the old map: in place 0, copied 1000
 true</code></pre>
-<p>The counters <code>json_write_inplace</code> and <code>json_write_cow_copy</code> show the difference from section 1 directly. In <code>0.99.609a</code>, <code>allocations()</code> returns 54 counters (including <code>retains</code>, <code>string_backings_made</code>, <code>string_backings_retired</code>, <code>string_backings_live</code>, <code>string_releases_owned</code>, and <code>string_releases_unowned</code>):</p>
+<p>The counters <code>json_write_inplace</code> and <code>json_write_cow_copy</code> show the difference from section 1 directly. In <code>0.99.610a</code>, <code>allocations()</code> returns 54 counters (including <code>retains</code>, <code>string_backings_made</code>, <code>string_backings_retired</code>, <code>string_backings_live</code>, <code>string_releases_owned</code>, and <code>string_releases_unowned</code>):</p>
 <p class="cmd-label">stats.hey</p>
 <pre data-example="runnable" data-file="stats.hey"><code>program
   let ignored = reset_allocations()
@@ -662,7 +707,7 @@ true</code></pre>
 
 <h2 id="sources" data-doc-purpose="Inspect the source references and background reading for this page.">Sources</h2>
 <ul>
-<li>Every runnable sample on this page is run by the documentation test on <code>0.99.609a</code>; the timing tables record the Apple M3 Pro baseline identified in <a href="#n1">Note 1</a>.</li>
+<li>Every runnable sample on this page is run by the documentation test on <code>0.99.610a</code>; the timing tables record the Apple M3 Pro baseline identified in <a href="#n1">Note 1</a>.</li>
 <li>Reinking, Xie, de Moura, Leijen, <em>Perceus: Garbage Free Reference Counting with Reuse</em>, PLDI 2021. Tofte and Talpin, <em>Region-Based Memory Management</em>, 1997. Leijen, Zorn, de Moura, <em>Mimalloc: Free List Sharding in Action</em>, MSR-TR-2019-18. The 16-byte "German string": cedardb.com/blog/german_strings, as cited by the research brief above.</li>
 <li>Rulings, one line each above: one String form and Phase S; ownership decisions belong in MIR; no special cases. Full cards: <a href="hey-decisions.html">decision ledger</a>.</li>
 </ul>

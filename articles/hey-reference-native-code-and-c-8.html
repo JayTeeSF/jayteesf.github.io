@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="article-date" content="2026-10">
+<meta name="article-date" content="2026-11">
 <meta name="hey-docs-group" content="build">
 <meta name="hey-docs-title" content="Native packages and C">
 <meta name="hey-docs-purpose" content="Understand native-call interfaces, ownership rules, costs and the typed ABI plan.">
@@ -126,9 +126,9 @@ Package-facing C APIs never receive Hey's internal <code>HeyValue</code>. Each c
 time, estimated 40 to 90 instructions, after the String calling-convention migration is qualified. The way to C for your code is native packages,
 and that is ruled.</div>
 
-<p class="aside"><strong>Implementation scope in 0.99.609a:</strong> the runtime and compiled worker pipeline use the 16-byte German <code>HeyStr</code> value (in <code>HeyValue</code> and across two-register compiled worker calls). Native ABI v2 (statically bound direct C calls via <code>native:</code> imports) remains <span class="badge b-decided">Decided, coming</span>; the call-cost measurements below reflect the current <code>Native.call</code> descriptor bridge. See <a href="hey-reference-values-memory-and-strings-9.html#string-update">Values, memory and Strings</a>.</p>
+<p class="aside"><strong>Implementation scope in 0.99.610a:</strong> the runtime and compiled worker pipeline use the 16-byte German <code>HeyStr</code> value and 63-bit <code>InlineInt</code> registers, and Hey's own <code>stdlib/*.hey</code> modules compile straight to native SSA without C <code>HeyValue</code> shims (crossing only into cached ThinLTO OS <code>PAL</code> bitcode for syscalls and OpenSSL). External C libraries use <code>hey_native_abi.h</code> native packages: Native ABI v2 (statically bound direct C calls via <code>native:</code> imports) remains <span class="badge b-decided">Decided, coming</span>, and the call-cost measurements below reflect the current <code>Native.call</code> descriptor bridge. See <a href="hey-reference-values-memory-and-strings-9.html#string-update">Values, memory and Strings</a>.</p>
 
-<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test on 0.99.609a. <span class="badge b-decided">Decided, coming</span> ruled, not in a released build yet. <span class="badge b-proposed">Proposed</span> not ruled.</p>
+<p class="legend">Badges: <span class="badge b-works">Works today</span> compiled and run by the documentation test on 0.99.610a. <span class="badge b-decided">Decided, coming</span> ruled, not in a released build yet. <span class="badge b-proposed">Proposed</span> not ruled.</p>
 
 <nav class="toc" aria-label="Contents"><ol>
 <li><a href="#why">Why native packages, and the one rule</a></li>
@@ -142,7 +142,7 @@ and that is ruled.</div>
 </ol></nav>
 
 <h2 id="why" data-doc-purpose="Understand the purpose and ownership boundary of native packages.">1. Why native packages exist, and the one rule</h2>
-<p>In 0.99.609a the runtime's <code>HeyValue</code> layout contains the 16-byte String; in release 605a it held a String as a pointer. Exposing that internal layout could break native packages when the representation changes. <strong>Package-facing C APIs never receive <code>HeyValue</code>.</strong> The runtime itself is written in C and does use that type internally. A package sees only booleans, fixed-size integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec fails the build if the package-facing header mentions <code>HeyValue</code>.
+<p>In 0.99.610a the runtime's dynamic <code>HeyValue</code> layout holds the 16-byte String (where release 605a held a String as a pointer), while specialized compiled workers pass unboxed scalars, <code>HeyStr</code>, and 63-bit <code>InlineInt</code> in registers. Exposing internal compiler or runtime layouts would break external C extensions whenever representations evolve. <strong>Package-facing C APIs never receive <code>HeyValue</code>.</strong> Internal OS Platform Abstraction Layer (<code>PAL</code>) helpers inside the toolchain use internal-only bindings, whereas external native packages include only <code>hey_native_abi.h</code> and see booleans, fixed-size integers, <code>double</code>, borrowed UTF-8 text, borrowed or owned bytes, nullable values and opaque handles. A spec fails the build if the package-facing header mentions <code>HeyValue</code>.
 <span class="badge b-works">Works today</span></p>
 
 <h2 id="today" data-doc-purpose="Read the existing native-call workflow.">2. Calling C today</h2>
@@ -399,7 +399,7 @@ and 4n calls and take the difference, so start-up cost cancels out).</td><td><sp
 <tr><td>Pointer-and-length borrowed views at the C boundary</td><td>Text and bytes passed as <code>(data, length)</code> pointing at Hey's own storage, valid only during the call. Flat C wrappers with scalar parameters keep the platform's struct-passing rules clang's job.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 <tr><td>Callback and native-effect summaries</td><td>Each native function's effects (what it keeps, what it calls back) declared and checked, so ownership and regions stay correct across the call; unknown fails closed.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 <tr><td>Manifest and hash authority</td><td>The compiler reads only the generated, hash-checked lock file; a stale lock is refused.</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
-<tr><td>After cross-platform ABI v2 qualification</td><td>In 0.99.609a the runtime and compiled Hey workers carry the 16-byte String directly; generating and hash-checking static C wrappers across every target platform remains part of the ABI v2 rollout (see <a href="hey-reference-values-memory-and-strings-9.html">Values, memory and Strings</a>).</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
+<tr><td>After cross-platform ABI v2 qualification</td><td>In 0.99.610a the runtime and compiled Hey workers carry the 16-byte String directly; generating and hash-checking static C wrappers across every target platform remains part of the ABI v2 rollout (see <a href="hey-reference-values-memory-and-strings-9.html">Values, memory and Strings</a>).</td><td><span class="badge b-decided">Decided, coming</span></td></tr>
 </tbody></table></div>
 
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="article-date" content="2026-10">
+<meta name="article-date" content="2026-11">
 <meta name="hey-docs-group" content="reference">
 <meta name="hey-docs-title" content="Standard library">
 <meta name="hey-docs-purpose" content="Find modules and builtins by the job they perform.">
@@ -136,26 +136,28 @@ function a call reaches. <code>hey doc --reserved</code> prints the full list, s
 <li><strong>Secrets.</strong> A Secret value prints and logs as <code>[secret]</code>, refuses to become JSON, compares with <code>==</code> in constant time, refuses <code>&lt;</code>, and gives up its contents only through an explicit <code>reveal</code>. <span class="badge b-decided">Decided, coming</span></li>
 </ul>
 
-<h2 id="layers" data-doc-purpose="Distinguish runtime builtins, stdlib modules and packages.">Three layers: builtin, stdlib module, package</h2>
+<h2 id="layers" data-doc-purpose="Distinguish Thin OS PAL primitives, pure-Hey stdlib modules and packages.">Three layers: OS PAL primitives, pure-Hey stdlib, and packages</h2>
 <figure class="fig" aria-labelledby="layers-cap">
-<svg viewBox="0 0 900 260" role="img" aria-label="Three layers: builtins written in the C runtime, stdlib modules written in Hey that call builtins, and packages fetched and locked per project">
+<svg viewBox="0 0 900 260" role="img" aria-labelledby="layers-svg-t">
+<title id="layers-svg-t">Three layers: packages, pure-Hey standard library modules compiled via MIR-SSA, and the Thin C OS Platform Abstraction Layer (PAL)</title>
 <rect x="20" y="20" width="860" height="62" rx="10" class="vio"/>
 <text x="40" y="46" class="b">Packages</text><text x="40" y="68" class="sm">import 'pkg:hey_web/…' · fetched, locked and hash-checked per project (Guide 3) · hey_web, hey_sqlite3, hey_cli …</text>
 <rect x="20" y="98" width="860" height="62" rx="10" class="acc"/>
-<text x="40" y="124" class="b">Standard library modules (this page)</text><text x="40" y="146" class="sm">Text.upper(s) out of the box (import 'stdlib:Text' only for exposing:, as, or forms:) · written in Hey, compiled into each program that reaches it</text>
+<text x="40" y="124" class="b">Pure-Hey standard library modules (this page)</text><text x="40" y="146" class="sm">Text, Json, Compress, Archive, Packages, Web, Http, Jobs, Bytes, Bits, Map … · written in pure Hey, compiled via MIR-SSA -&gt; LLVM SSA</text>
 <rect x="20" y="176" width="860" height="62" rx="10" class="good"/>
-<text x="40" y="202" class="b">Builtins</text><text x="40" y="224" class="sm">len, split, put, net_listen … · no import · implemented in the runtime (C) · bound to the runtime inside the toolchain</text>
+<text x="40" y="202" class="b">Core built-ins &amp; Thin OS PAL (cached ThinLTO bitcode)</text><text x="40" y="224" class="sm">len, put, syscalls, mmap, sockets/reactors, OpenSSL 3, M:N actor scheduler, 27-class slab + HeyStr SDS · declared in HeyPrelude.hey</text>
 <path d="M450 82 V98" class="ln"/><path d="M450 160 V176" class="ln"/>
 </svg>
-<figcaption id="layers-cap">Figure 1. Most stdlib functions are thin Hey wrappers over a builtin (<code>Files.temp_dir</code> calls <code>path_temp_dir</code>). Packages build on both.</figcaption>
+<figcaption id="layers-cap">Figure 1. Codecs, data formats, HTTP/Web routing, and data structures live in pure <code>stdlib/*.hey</code>; C is trimmed to a thin Operating System Platform Abstraction Layer (<code>PAL</code>) linked as cached Link-Time Optimization (<code>ThinLTO</code>) bitcode.</figcaption>
 </figure>
-<p>Hey's built-in functions are bound to the runtime inside the toolchain; your code calls them like any other Hey function: <code>len(xs)</code> is just <code>len(xs)</code>. The mechanism is in the <a href="hey-compiler-from-source-to-native-1.html">compiler article</a>.</p>
-<p><strong>How a program gets its stdlib code (0.99.609a).</strong> An ordinary <code>hey</code> or <code>hey build</code> compiles the stdlib modules your program reaches, from their Hey source, together with your code, and links the result into your program. Nothing compiled is shared between programs: a second program that imports the same modules compiles them again. A rerun of the <em>same</em> program reuses that program's own cached compile, and the C runtime object is cached once for all programs, but that is runtime C, not stdlib code.<sup><a href="#n6">6</a></sup></p>
+<p>Hey's core built-in primitives are declared with typed borrow marks inside <code>HeyPrelude.hey</code>; your code calls them like any other Hey function: <code>len(xs)</code> is just <code>len(xs)</code>. The mechanism is in the <a href="hey-compiler-from-source-to-native-1.html#builtins">compiler article</a>.</p>
+<p><strong>How a program gets its stdlib code (0.99.610a).</strong> An ordinary <code>hey</code> or <code>hey build</code> compiles only the pure-Hey <code>stdlib/*.hey</code> modules your program reaches, together with your code, through <code>MIR-SSA -&gt; LLVM SSA</code>—so stdlib loops inline straight into caller registers—and links them against the cached ThinLTO OS <code>PAL</code> bitcode. A rerun of an unchanged program reuses its cached native binary in <code>2&ndash;3 ms</code>.<sup><a href="#n6">6</a></sup></p>
 <p><strong>Ambient namespaces and where <code>stdlib:</code> comes from.</strong> Public stdlib modules (<code>Text</code>, <code>Files</code>, <code>Cli</code>, <code>Collections</code>, <code>Json</code> and the rest on this page, excluding internal <code>Hey*</code> compiler modules) are reachable as <code>Module.fn(...)</code> with no <code>import</code> line. When you do write <code>import 'stdlib:...'</code> (for <code>exposing:</code>, <code>as</code>, or <code>forms: [:dotted]</code>), it resolves strictly from the toolchain's own stdlib folder (<code>HEY_STDLIB_PATH</code> if set, otherwise <code>HEY_ROOT/stdlib</code>; the <code>hey</code> command sets both), never from a <code>stdlib/</code> folder in the directory you run from. Before, a <code>stdlib/Text.hey</code> in the current folder silently replaced the real one. Import names are also case-exact: <code>import 'stdlib:reflection'</code> is refused with <code>import_casing_mismatch</code> instead of quietly opening <code>Reflection.hey</code> on a case-insensitive disk.</p>
 
 <h2 id="map" data-doc-purpose="Choose a library area by the work you need to do.">The map</h2>
 <figure class="fig" aria-labelledby="map-cap">
-<svg viewBox="0 0 900 400" role="img" aria-label="Families of the standard library as islands; arrows show which modules import which">
+<svg viewBox="0 0 900 400" role="img" aria-labelledby="map-svg-t">
+<title id="map-svg-t">Map of the twelve Hey standard library families and how their modules import one another</title>
 <rect x="10" y="10" width="200" height="110" rx="12" class="box"/><text x="22" y="34" class="b">Text</text><text x="22" y="56" class="xs">Text Re StringAlgorithms</text><text x="22" y="74" class="xs">Markdown</text>
 <rect x="230" y="10" width="200" height="110" rx="12" class="box"/><text x="242" y="34" class="b">Bytes and archives</text><text x="242" y="56" class="xs">Bytes Binary Bits Codec</text><text x="242" y="74" class="xs">Deflate Zlib Gzip Xz Zstd</text><text x="242" y="92" class="xs">Compress Tar Archive</text>
 <rect x="450" y="10" width="200" height="110" rx="12" class="box"/><text x="462" y="34" class="b">Data formats</text><text x="462" y="56" class="xs">Json Jsonl Schema Ehy</text>
@@ -234,12 +236,12 @@ true
 <details><summary><code>Markdown</code>: all 4 public names</summary><ul class="names"><li>check</li><li>files</li><li>link_issues</li><li>links</li></ul></details>
 
 
-<h2 id="bytes" data-doc-purpose="Find byte and binary-data operations.">Bytes and binary <span class="badge b-works">Works today</span></h2>
+<h2 id="bytes" data-doc-purpose="Find byte, 64-bit word, and bit-manipulation operations.">Bytes and binary <span class="badge b-works">Works today</span></h2>
 <ul>
-<li><code>Bytes</code>: immutable byte strings; <code>slice</code> returns a view that shares memory instead of copying.<sup><a href="#n1">1</a></sup> How Bytes and Strings share a layout is in <a href="hey-reference-values-memory-and-strings-9.html">Values, memory and Strings</a>.</li>
-<li><code>Binary</code>: write and read u8/u16/u32 in little or big endian.</li>
-<li><code>Bits</code>: test, set, clear, rotate and extract bit fields of whole numbers.</li>
-<li><code>Codec</code>: versioned binary encoding of Hey values with size limits (used by distributed Hey).</li>
+<li><code>Bytes</code>: immutable byte buffers; <code>slice</code> returns a shared view instead of copying,<sup><a href="#n1">1</a></sup> while <code>each_line</code>, <code>parse_int_slice</code>, <code>parse_fixed_slice</code>, and <code>slice_equals?</code> scan mapped or streamed buffers at integer offsets without allocating per-line strings (<a href="hey-reference-performance-10.html#day1-idioms">Performance §7</a>).</li>
+<li><code>Binary</code>: write u8/u16/u32 and read u8/u16/u32/i64/u64 in little or big endian (<code>read_u64_le</code>, <code>read_i64_le</code>, <code>read_u32_le</code> compile to single bounds-checked register loads).</li>
+<li><code>Bits</code>: test, set, clear, rotate, and extract bit fields, plus 64-bit hardware intrinsics (<code>ctz64</code>, <code>clz64</code>, <code>popcount64</code>, <code>bswap64</code>) and wrapping 64-bit word arithmetic (<code>u64_add</code>, <code>u64_sub</code>, <code>u64_mul</code>, <code>u64_shr</code>).</li>
+<li><code>Codec</code>: versioned pure-Hey binary encoding of Hey values with size limits (used by distributed Hey).</li>
 <li>Compression and archive containers (<code>Deflate</code>, <code>Zlib</code>, <code>Gzip</code>, <code>Xz</code>, <code>Zstd</code>, <code>Compress</code>, <code>Tar</code>, and <code>Archive</code>) are right below in <a href="#compression">Compression and archives</a>.</li>
 </ul>
 <div class="run"><div class="fname">bytes.hey</div><pre data-example="runnable" data-file="bytes.hey" class="src"><code>program
@@ -261,14 +263,14 @@ Hey
 8
 2
 </code></pre></div>
-<details><summary><code>Bytes</code>: all 6 public names</summary><ul class="names"><li>at</li><li>decode</li><li>find_byte</li><li>find_sequence</li><li>from_text</li><li>slice</li></ul></details>
-<details><summary><code>Binary</code>: all 15 public names</summary><ul class="names"><li>concat</li><li>empty</li><li>from_integers</li><li>read_u16_be</li><li>read_u16_le</li><li>read_u32_be</li><li>read_u32_le</li><li>read_u8</li><li>slice</li><li>to_integers</li><li>u16_be</li><li>u16_le</li><li>u32_be</li><li>u32_le</li><li>u8</li></ul></details>
-<details><summary><code>Bits</code>: all 16 public names</summary><ul class="names"><li>bit_and</li><li>bit_at</li><li>bit_or</li><li>bit_xor</li><li>clear</li><li>extract</li><li>insert</li><li>mask</li><li>normalize</li><li>power_of_two</li><li>rotate_left</li><li>rotate_right</li><li>set</li><li>shift_left</li><li>shift_right</li><li>toggle</li></ul></details>
+<details><summary><code>Bytes</code>: all 10 public names</summary><ul class="names"><li>at</li><li>decode</li><li>each_line</li><li>find_byte</li><li>find_sequence</li><li>from_text</li><li>parse_fixed_slice</li><li>parse_int_slice</li><li>slice</li><li>slice_equals?</li></ul></details>
+<details><summary><code>Binary</code>: all 19 public names</summary><ul class="names"><li>concat</li><li>empty</li><li>from_integers</li><li>read_i64_be</li><li>read_i64_le</li><li>read_u16_be</li><li>read_u16_le</li><li>read_u32_be</li><li>read_u32_le</li><li>read_u64_be</li><li>read_u64_le</li><li>read_u8</li><li>slice</li><li>to_integers</li><li>u16_be</li><li>u16_le</li><li>u32_be</li><li>u32_le</li><li>u8</li></ul></details>
+<details><summary><code>Bits</code>: all 24 public names</summary><ul class="names"><li>bit_and</li><li>bit_at</li><li>bit_or</li><li>bit_xor</li><li>bswap64</li><li>clear</li><li>clz64</li><li>ctz64</li><li>extract</li><li>insert</li><li>mask</li><li>normalize</li><li>popcount64</li><li>power_of_two</li><li>rotate_left</li><li>rotate_right</li><li>set</li><li>shift_left</li><li>shift_right</li><li>toggle</li><li>u64_add</li><li>u64_mul</li><li>u64_shr</li><li>u64_sub</li></ul></details>
 <details><summary><code>Codec</code>: all 7 public names</summary><ul class="names"><li>decode</li><li>decode_default</li><li>default_limits</li><li>encode</li><li>format_version</li><li>header</li><li>with_limit</li></ul></details>
 
 
-<h2 id="compression" data-doc-purpose="Compress, decompress and pack archives with zero external C libraries.">Compression and archives <span class="badge b-works">Works today</span></h2>
-<p>Every codec and container format below is built into the Hey runtime in portable C with <strong>zero external C library dependencies</strong> (no system <code>zlib</code>, <code>liblzma</code>, <code>libzstd</code>, or <code>libarchive</code>). Every compressor accepts either a <code>String</code> or <code>Bytes</code> and returns a <code>Result</code> wrapping <code>Bytes</code> (or the output path for <code>*_file</code>); decompressors verify each format's wire checksum and enforce a 512&nbsp;MiB default output cap against decompression bombs.</p>
+<h2 id="compression" data-doc-purpose="Compress, decompress and pack archives in pure Hey with zero external C libraries.">Compression and archives <span class="badge b-works">Works today</span></h2>
+<p>Every codec and container format below is written in <strong>pure Hey (<code>stdlib/*.hey</code>)</strong> and compiled directly through <code>MIR-SSA -&gt; LLVM SSA</code> with <strong>zero external C library dependencies</strong> (no system <code>zlib</code>, <code>liblzma</code>, <code>libzstd</code>, or <code>libarchive</code>, and zero C codec shims). Every compressor accepts either a <code>String</code> or <code>Bytes</code> and returns a <code>Result</code> wrapping <code>Bytes</code> (or the output path for <code>*_file</code>); decompressors verify each format's wire checksum and enforce a 512&nbsp;MiB default output cap against decompression bombs.</p>
 <div class="scroll"><table>
 <tr><th>Module</th><th>Wire format &amp; integrity check</th><th>Key operations</th></tr>
 <tr><td><code>Deflate</code></td><td>Raw DEFLATE (RFC 1951); levels <code>0..9</code> (default <code>6</code>)</td><td><code>compress(data)</code>, <code>compress_level(data, level)</code>, <code>decompress(data)</code></td></tr>
@@ -385,7 +387,7 @@ end
 
 
 <h2 id="collections" data-doc-purpose="Find sequence, map and collection utilities.">Collections <span class="badge b-works">Works today</span></h2>
-<p>Arrays and objects are built in, and builtins like <code>put</code>, <code>push</code>, <code>keys</code> and <code>len</code> work on them directly. <code>Collections</code> adds the everyday toolkit: map, filter, reduce, sort, uniq, group, chunk, frequencies. The other modules are named data structures, each an immutable value: <code>Set</code>, <code>Dictionary</code>, <code>OrderedMap</code>, <code>OrderedDictionary</code>, <code>List</code>, <code>Queue</code>, <code>Deque</code>, <code>Stack</code>, <code>Heap</code>, <code>PriorityQueue</code>, <code>Ranges</code>. <code>Map.put</code> is the <code>put</code> the compiler can recognize as one operation so it can update a uniquely owned map in place (<a href="hey-reference-values-memory-and-strings-9.html">Values, memory and Strings</a>). <code>Iteration.times(n, f)</code> calls <code>f(i)</code> for <code>i</code> from 0 to <code>n - 1</code>.</p>
+<p>Arrays and objects are built in, and builtins like <code>put</code>, <code>push</code>, <code>keys</code> and <code>len</code> work on them directly. <code>Collections</code> adds the everyday toolkit: map, filter, reduce, sort, uniq, group, chunk, frequencies. The other modules are named data structures, each an immutable value: <code>Set</code>, <code>Dictionary</code>, <code>OrderedMap</code>, <code>OrderedDictionary</code>, <code>List</code>, <code>Queue</code>, <code>Deque</code>, <code>Stack</code>, <code>Heap</code>, <code>PriorityQueue</code>, <code>Ranges</code>. <code>Map.put</code>, single-probe <code>Map.increment(map, key, delta)</code>, and single-probe <code>Map.update(map, key, default_value, updater)</code> update flat specialized slots in place when a map has one owner (<a href="hey-reference-values-memory-and-strings-9.html#maps">Values, memory and Strings</a>). <code>Iteration.times(n, f)</code> calls <code>f(i)</code> for <code>i</code> from 0 to <code>n - 1</code>.</p>
 <div class="run"><div class="fname">collections.hey</div><pre data-example="runnable" data-file="collections.hey" class="src"><code>fn double(x)
   return x * 2
 end
@@ -445,7 +447,7 @@ first
 012
 </code></pre></div>
 <details><summary><code>Collections</code>: all 53 public names</summary><ul class="names"><li>all?</li><li>any?</li><li>chunk</li><li>compact</li><li>compare</li><li>compare_chain</li><li>compare_desc</li><li>count</li><li>count_by_key</li><li>deep_merge</li><li>dig</li><li>drop</li><li>each</li><li>each_with_index</li><li>empty?</li><li>enumerate</li><li>filter</li><li>find</li><li>first</li><li>flatten_once</li><li>frequencies</li><li>group_by_key</li><li>includes?</li><li>index_by</li><li>index_of</li><li>last</li><li>map</li><li>max_int</li><li>min_int</li><li>natural_sort</li><li>natural_sort_desc</li><li>partition_present</li><li>pluck</li><li>range</li><li>reduce</li><li>reduce_until</li><li>reverse</li><li>sort</li><li>sort_ascending</li><li>sort_by</li><li>sort_by_desc</li><li>sort_by_order</li><li>sort_descending</li><li>sort_ints</li><li>sort_order</li><li>sort_strings</li><li>sum_ints</li><li>take</li><li>uniq</li><li>uniq?</li><li>window</li><li>without</li><li>zip</li></ul></details>
-<details><summary><code>Map</code>: all 1 public names</summary><ul class="names"><li>put</li></ul></details>
+<details><summary><code>Map</code>: all 3 public names</summary><ul class="names"><li>increment</li><li>put</li><li>update</li></ul></details>
 <details><summary><code>List</code>: all 16 public names</summary><ul class="names"><li>append</li><li>concat</li><li>each</li><li>empty</li><li>empty?</li><li>filter</li><li>find</li><li>first</li><li>from_array</li><li>length</li><li>map</li><li>prepend</li><li>reduce</li><li>rest</li><li>reverse</li><li>to_array</li></ul></details>
 <details><summary><code>Set</code>: all 14 public names</summary><ul class="names"><li>add</li><li>delete</li><li>difference</li><li>each</li><li>empty</li><li>empty?</li><li>from_array</li><li>includes?</li><li>intersection</li><li>length</li><li>map</li><li>reduce</li><li>to_array</li><li>union</li></ul></details>
 <details><summary><code>Dictionary</code>: all 15 public names</summary><ul class="names"><li>delete</li><li>each</li><li>empty</li><li>empty?</li><li>entries</li><li>from_entries</li><li>get</li><li>includes?</li><li>keys</li><li>length</li><li>map_values</li><li>merge</li><li>put</li><li>reduce</li><li>values</li></ul></details>
@@ -550,7 +552,7 @@ end
 3.0
 12
 </code></pre></div>
-<p><code>Matrix.from_rows</code> and immutable dense matrix transforms compile directly through the 0.99.609a pipeline. <span class="badge b-works">Works today</span></p>
+<p><code>Matrix.from_rows</code> and immutable dense matrix transforms compile directly through the 0.99.610a pipeline. <span class="badge b-works">Works today</span></p>
 <div class="run"><div class="fname">matrix.hey</div><pre data-example="runnable" data-file="matrix.hey" class="src"><code>program
   let m = Matrix.from_rows([[1, 2], [3, 4]])
   says Matrix.transpose(m).rows.to_json
@@ -769,14 +771,14 @@ end
 add
 false
 </code></pre></div>
-<p><code>Eval.available?()</code> is <code>false</code> in a compiled program: the evaluator lives in the REPL and in the source-checkout interpreter (<code>hey-interp --interpret FILE.hey</code>), not in native executables.</p>
+<p><code>Eval.available?()</code> is <code>false</code> in a standalone compiled executable and <code>true</code> inside an interactive <code>hirb</code> session (where the compiled session host <code>tools/hey_repl.hey</code> compiles each prompt entry through <code>hey-selfc --session</code> and loads it via <code>Native.open</code>).</p>
 <details><summary><code>Reflection</code>: all 6 public names</summary><ul class="names"><li>arity</li><li>function</li><li>function_name</li><li>module</li><li>source</li><li>source_location</li></ul></details>
 <details><summary><code>Eval</code>: all 4 public names</summary><ul class="names"><li>available?</li><li>callable</li><li>expression</li><li>into_session</li></ul></details>
 
 
 <h2 id="concurrency" data-doc-purpose="Find concurrency and synchronization primitives.">Concurrency and sync <span class="badge b-works">Works today</span></h2>
 <p>The modules are listed here; what they mean is in their own pages: <code>Actor</code> (call and reply, <a href="hey-reference-actors-and-failure-4.html">Actors and failure</a>), <code>Workers</code> and <code>Jobs</code> (<a href="hey-reference-workers-jobs-streams-5.html">Workers, Jobs and streams</a>), <code>JobsRemote</code>, <code>DistNode</code>, <code>DistRemote</code>, <code>DistTransport</code> (<a href="hey-reference-distributed-and-clusters-6.html">Distributed Hey</a>).</p>
-<p><code>Sync</code> merges edits to the same field made on different devices: every edit carries a clock (time, counter, device) and its ancestors, and <code>merge_field</code> picks the same winner on every device no matter which order the edits arrive in. A later edit that descends from an earlier one simply wins; two concurrent edits are a reported <code>conflict</code> resolved by clock. Below, the phone and laptop edit the same title at nearly the same time; both merge orders choose the laptop's (later clock).</p>
+<p><code>Sync</code> merges edits to the same field made on different devices: every edit carries a clock (time, counter, device) and its ancestors, and <code>merge_field</code> picks the same winner on every device no matter which order the edits arrive in. A later edit that descends from an earlier one wins; two concurrent edits are a reported <code>conflict</code> resolved by clock. Below, the phone and laptop edit the same title at nearly the same time; both merge orders choose the laptop's (later clock).</p>
 <div class="run"><div class="fname">sync.hey</div><pre data-example="runnable" data-file="sync.hey" class="src"><code>program
   let phone = Sync.clock(1000, 0, &#39;phone&#39;)
   let laptop = Sync.clock(1000, 0, &#39;laptop&#39;)
@@ -834,7 +836,7 @@ end
 <h2 id="builtins" data-doc-purpose="Browse the builtin catalogue and signatures.">All 266 builtins <span class="badge b-works">Works today</span></h2>
 <div class="note warn"><strong>These are reserved names. Do not reuse them.</strong> Every built-in below is available in every file without an import, so its name is <em>reserved</em>. If you define your own function, parameter or <code>let</code> with one of these names, your program still compiles and uses your definition, but it hides the built-in for everyone reading your code. The compiler will warn you when that happens:<pre data-example="fragment" data-needs="diagnostic output example, not a shell command" class="out"><code>warning: `len` is a reserved built-in name (Hey prelude); your definition at app.hey:12 hides it.
 Rename it; future releases may make this an error.</code></pre>Pick a different name (<code>word_count</code>, not <code>len</code>). It starts as a warning; a later release may turn it into an error. The list below is generated from the toolchain itself, so it is always the exact set of reserved names. <span class="badge b-decided">Warning coming in the consolidation release</span></div>
-<p>These names work in every file with no import. They come from the runtime's dispatch table (<code>runtime/hey_repl.c</code>) and are listed in <code>stdlib/module_exposure_catalog.json</code> under <code>stdlib:BuiltIns</code>. You can hide any of them with <code>import 'stdlib:BuiltIns' conceals: [name]</code> (<a href="hey-reference-modules-imports-exports-3.html">Modules and imports</a>). The groups are this page's; the catalog has no groups. A number after the slash is the arity (how many arguments it takes) recorded in the catalog; names without one accept more than one arity.</p>
+<p>These names work in every file with no import. They come from the compiler's built-in exposure declarations (<code>HeyPrelude.hey</code> and <code>HeyModuleExposures.hey</code>) and are listed in <code>stdlib/module_exposure_catalog.json</code> under <code>stdlib:BuiltIns</code>. You can hide any of them with <code>import 'stdlib:BuiltIns' conceals: [name]</code> (<a href="hey-reference-modules-imports-exports-3.html">Modules and imports</a>). The groups are this page's; the catalog has no groups. A number after the slash is the arity (how many arguments it takes) recorded in the catalog; names without one accept more than one arity.</p>
 <div class="run"><div class="fname">builtins.hey</div><pre data-example="runnable" data-file="builtins.hey" class="src"><code>program
   let words = split(&#39;a b c&#39;, &#39; &#39;)
   says len(words)
@@ -885,7 +887,7 @@ true
 <footer>
 <ul>
 <li>The name lists come from the toolchain's own catalog of public names, which is what the compiler accepts.</li>
-<li>Every <em>Works today</em> sample is run by the documentation test on 0.99.609a with <code>hey FILE.hey</code>.</li>
+<li>Every <em>Works today</em> sample is run by the documentation test on 0.99.610a with <code>hey FILE.hey</code>.</li>
 </ul>
 <h3>Read next</h3>
 <ul>

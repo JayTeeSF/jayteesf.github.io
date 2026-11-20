@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="article-date" content="2026-10">
+<meta name="article-date" content="2026-11">
 <meta name="hey-docs-group" content="compiler">
 <meta name="hey-docs-title" content="The compiler: source to native">
-<meta name="hey-docs-purpose" content="Follow Hey's eight-stage native compiler from tokens and Koka-style desugaring through HIR call-instance typing, sealed-block SSA-MIR, carrier/borrow worker specialization, 16-byte HeyStr, Perceus + arena lifetimes, and verified LLVM emission.">
+<meta name="hey-docs-purpose" content="Follow Hey's eight-stage native compiler from tokens and Core AST desugaring through HIR call-instance typing, MIR-SSA, 63-bit InlineInt, ThinLTO OS PAL bitcode, Perceus + arena lifetimes, and verified LLVM SSA emission.">
 <meta name="hey-docs-rank" content="10">
 <meta name="article-bucket" content="compiler">
 <meta name="article-index-rank" content="01">
-<meta name="article-index-desc" content="Hey's eight-stage compiler architecture: post-parse Core AST desugaring, HIR worklist and call-instance typing, Braun sealed-block SSA-MIR, two-layer carrier/borrow worker specialization, 16-byte HeyStr atop SDS, Perceus + region lifetimes, and verified LLVM native code.">
+<meta name="article-index-desc" content="Hey's eight-stage compiler architecture: Core AST desugaring, HIR call-instance typing, MIR-SSA to LLVM SSA, 63-bit InlineInt, pure-Hey stdlib + ThinLTO OS PAL, Perceus + region lifetimes, and verified native code.">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="How the Hey compiler turns unannotated source code into fast native binaries across eight structured stages: lexing/parsing, post-parse Core AST desugaring, HIR call-instance typing, sealed-block SSA-MIR facts, carrier/borrow worker specialization, physical carriers (16-byte HeyStr atop SDS), Perceus + arena lifetimes, and verified LLVM emission.">
+<meta name="description" content="How the Hey compiler turns unannotated source code into fast native binaries across eight structured stages: lexing/parsing, Core AST desugaring, HIR call-instance typing, MIR-SSA range/escape facts, 63-bit InlineInt, pure-Hey stdlib + ThinLTO OS PAL, Perceus + arena lifetimes, and verified LLVM SSA emission.">
 <meta name="article-index-title" content="Compiler 1: How the Hey compiler turns source into native code">
 <title>How the Hey compiler turns source into native code</title>
 <style>
@@ -169,16 +169,18 @@ end</code></pre>
 </section>
 
 <section class="note good" aria-labelledby="implementation-scope">
-<h2 id="implementation-scope" data-doc-purpose="Separate tested native compiler passes from the remaining consolidation work.">Implementation scope: what runs in 0.99.609a vs what comes next</h2>
-<p><strong>Shipping in the unified <code>0.99.609a</code> native compiler pipeline (<span class="chip chip-ok">works today</span>):</strong> All eight stages run end-to-end as structured Hey passes in <code>tools/hey_selfc_pipeline.hey</code> (<code>resolve-source -&gt; emit-hir -&gt; lower-mir -&gt; analyze-mir -&gt; plan-mir -&gt; own-mir -&gt; verify-mir -&gt; emit-llvm</code>): lossless lexing and single-pass parsing (<code>HeyTokens.hey -&gt; HeySyntaxTree.hey</code>), post-parse subtree normalization and numeric <code>(unit_id, node_id)</code> resolution across modules and all 13 import/refusal cases (<code>HeyFinalSyntaxNodes.hey</code>, <code>HeyNames.hey</code>, <code>HeyProgramResolution.hey</code>), Tree <code>HIR</code> with monotone worklists and Layer 1 <code>#TypeTuple</code> call-instance typing (<code>HeyHir.hey</code>, <code>HeyHirInference.hey</code>), Braun sealed-block <code>SSA-MIR</code> with split-edge <code>block_scopes</code>, <code>[lo..hi]</code> integer ranges, and <code>F1–F4</code> escape/uniqueness facts (<code>HeyMirLowering.hey</code>, <code>HeyMirSsa.hey</code>, <code>HeyMirFacts.hey</code>), Layer 2 carrier/borrow worker specialization and target-aware 16-byte <code>HeyStr</code> physical planning across six <code>--target</code> profiles (<code>HeyMirPhysical.hey</code>), linear transitive <code>view &lt;= owner</code> liveness, zero-<code>RC</code> borrows, Perceus <code>reuse</code>, dynamic receiver copy-on-write fusion (<code>own_fuse_cow_take_receivers</code>), and <code>hey_region_push</code>/<code>pop</code> arenas (<code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>), mandatory 8-invariant verification (<code>HeyMirVerify.hey</code>), native <code>LLVM</code> emission (<code>HeyMirLlvm.hey</code>) plus the zero-bridge <code>stdlib/HeyMirC.hey</code> C bootstrap emitter (<a href="hey-bootstrap-from-c-1.html">Bootstrap 1</a>), and a verified <code>stage2 == stage3</code> self-hosting fixed point. Read the <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">stage output walkthrough</a> for concrete IR artifacts.</p>
-<p><strong>Planned extensions on the same seam (<span class="chip chip-next">decided, coming</span>):</strong> Unboxed register passing for flat user records of up to 4 scalar fields (countable <code>Range</code> and 16-byte <code>HeyStr</code> already pass unboxed in registers while user records share the <code>HeyValue*</code> pointer carrier) and geometric <code>SDS</code> slack growth on unique string appends.</p>
+<h2 id="implementation-scope" data-doc-purpose="Separate tested native compiler passes from the remaining consolidation work.">Implementation scope: what runs in 0.99.610a vs what comes next</h2>
+<p><strong>Shipping in the unified <code>0.99.610a</code> native compiler pipeline (<span class="chip chip-ok">works today</span>):</strong> Every execution path—<code>hey FILE.hey</code>, <code>hey build</code>, <code>hey test</code>, and interactive <code>hirb</code> sessions—runs through one eight-stage pipeline in <code>tools/hey_selfc_pipeline.hey</code> (<code>resolve-source -&gt; emit-hir -&gt; lower-mir -&gt; analyze-mir -&gt; plan-mir -&gt; own-mir -&gt; verify-mir -&gt; emit-llvm</code>), with zero C syntax-tree interpreter: lossless lexing and single-pass parsing (<code>HeyTokens.hey -&gt; HeySyntaxTree.hey</code>), post-parse subtree normalization and numeric <code>(unit_id, node_id)</code> resolution across modules and all 13 import/refusal cases (<code>HeyFinalSyntaxNodes.hey</code>, <code>HeyNames.hey</code>, <code>HeyProgramResolution.hey</code>), Tree High-Level Intermediate Representation (<code>HIR</code>) with monotone worklists and Layer 1 <code>#TypeTuple</code> call-instance typing (<code>HeyHir.hey</code>, <code>HeyHirInference.hey</code>), Braun sealed-block Static Single Assignment Mid-Level Intermediate Representation (<code>MIR-SSA</code>) with split-edge <code>block_scopes</code>, <code>[lo..hi]</code> 64-bit integer intervals, 63-bit Least Significant Bit (<code>LSB</code>)-tagged register <code>InlineInt</code>, native <code>i64</code> bitwise operations (<code>&amp; | ^ &lt;&lt; &gt;&gt;</code>), and <code>F1–F4</code> escape/uniqueness facts (<code>HeyMirLowering.hey</code>, <code>HeyMirSsa.hey</code>, <code>HeyMirFacts.hey</code>), Layer 2 carrier/borrow worker specialization, loop-invariant <code>{data_ptr, len}</code> hoisting, bounds-check elimination, contiguous shaped-record arrays (<code>HEY_ARRAY_REPR_SHAPED</code>), flat value-specialized <code>Map</code> slots, and target-aware 16-byte <code>HeyStr</code> physical planning across six <code>--target</code> profiles (<code>HeyMirPhysical.hey</code>), linear transitive <code>view &lt;= owner</code> liveness, zero-reference-count (<code>RC</code>) borrows, Perceus <code>reuse</code>, dynamic receiver copy-on-write fusion (<code>own_fuse_cow_take_receivers</code>), and <code>hey_region_push</code>/<code>pop</code> arenas (<code>HeyMirLiveness.hey</code>, <code>HeyMirOwnership.hey</code>), mandatory 8-invariant verification (<code>HeyMirVerify.hey</code>), native <code>LLVM</code> emission with <code>!range</code>/<code>!tbaa</code> metadata and cached Link-Time Optimization (<code>ThinLTO</code>) Operating System Platform Abstraction Layer (<code>PAL</code>) bitcode (<code>HeyMirLlvm.hey</code>), the zero-bridge <code>stdlib/HeyMirC.hey</code> C bootstrap emitter (<a href="hey-bootstrap-from-c-1.html">Bootstrap 1</a>), and a verified <code>stage2 == stage3</code> self-hosting fixed point. Read the <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">stage output walkthrough</a> for concrete IR artifacts.</p>
+<p><strong>Planned extensions on the same seam (<span class="chip chip-next">decided, coming</span>):</strong> Unboxed register passing for standalone flat user records of up to 4 scalar fields across call boundaries (homogeneous arrays of static-key records already pack into contiguous <code>HEY_ARRAY_REPR_SHAPED</code> scalar slots, and 16-byte <code>HeyStr</code> plus countable <code>Range</code> already travel in registers).</p>
 </section>
 
 <nav class="toc" aria-label="Contents"><strong>Contents</strong>
 <ol>
+<li><a href="#ssa-explained">Why MIR-SSA to LLVM SSA replaces boxed C shims</a></li>
+<li><a href="#changed-610a">What changed for returning readers</a></li>
 <li><a href="#chain">1 · Overview of the eight-stage pipeline</a></li>
 <li><a href="#desugar">2 · Stages 1 &amp; 2: Parse once, desugar post-parse, resolve IDs</a></li>
-<li><a href="#builtins">3 · Internal typed declarations for runtime builtins</a></li>
+<li><a href="#builtins">3 · Pure-Hey stdlib &amp; ThinLTO OS PAL declarations</a></li>
 <li><a href="#types">4 · Stage 3: Tree HIR, worklists &amp; call-instance typing</a></li>
 <li><a href="#control-flow">5 · Stage 4: Sealed-block SSA-MIR &amp; interval/escape facts</a></li>
 <li><a href="#representations">6 · Stages 5 &amp; 6: Two-layer workers &amp; physical carriers</a></li>
@@ -188,6 +190,139 @@ end</code></pre>
 <li><a href="#learn-from-mlir">10 · Learning from MLIR without an MLIR dependency</a></li>
 <li><a href="#rulings">11 · Architectural rulings, glossary &amp; primary evidence</a></li>
 </ol></nav>
+
+<section aria-labelledby="ssa-explained">
+<h2 id="ssa-explained" data-doc-purpose="Understand what Static Single Assignment (SSA) is and why MIR-SSA to LLVM SSA beats boxed C runtime calls.">Write a plain loop, get register SSA: why MIR-SSA beats boxed C shims</h2>
+<p>You write a seven-line loop to sum every byte in a buffer. You don't write a single type annotation, lifetime parameter, or <code>unsafe</code> block:</p>
+<div class="code-block">
+  <div class="code-label">Hey · Summing every byte in a buffer</div>
+<pre data-example="runnable" data-file="ssa_sum_bytes.hey"><code>import 'stdlib:Bytes'
+
+fn sum_bytes(data)
+  let sum = 0
+  let i = 0
+  let n = len(data)
+  while i &lt; n
+    set sum = sum + Bytes.at(data, i)
+    set i = i + 1
+  end
+  return sum
+end
+
+program
+  says sum_bytes(Bytes.from_text('Hey!', 'utf-8'))
+end</code></pre>
+</div>
+<p>What happens inside the CPU on each byte? If Hey handed <code>Bytes.at</code> and <code>+</code> across an opaque C object file (<code>runtime.o</code>) using 32-byte heap-boxed <code>HeyValue</code> structs, each byte would cost 40 to 90 instructions of tag checks, reference-count traffic, and pointer reloads. Instead, Hey lowers both your loop and <code>stdlib/Bytes.hey</code> into <strong>Static Single Assignment (<code>SSA</code>)</strong> form—where no virtual register is ever mutated twice. Every step defines a fresh numbered value (<code>%sum_0</code>, <code>%sum_1</code>, <code>%i_1</code>), and the loop header becomes a parameterized block (a <code>phi</code> join) that receives incoming register values from the entry edge and the loop back-edge.</p>
+<p><strong>What would you predict?</strong> If you move a standard library function <em>out</em> of C and rewrite it in pure Hey, does a tight caller loop get slower or faster? Check the two paths side by side—because an opaque C shim hides memory aliasing from LLVM, moving stdlib code into <code>MIR-SSA -&gt; LLVM SSA</code> lets LLVM inline it straight into caller registers.</p>
+
+<figure>
+  <div class="dual-svg">
+    <svg role="img" viewBox="0 0 320 456" aria-labelledby="svg-oldc-title svg-oldc-desc">
+      <title id="svg-oldc-title">Retired boxed C-shim loop across an opaque runtime.o boundary</title>
+      <desc id="svg-oldc-desc">Before 0.99.610a: 1. Heap-boxes 32-byte HeyValue cells with Reference Counting (RC) per step; 2. Crosses an opaque runtime.o C call wall, forcing LLVM to reload buffer pointer and length every byte; 3. Repeats tag and bounds checks in C, blocking Loop-Invariant Code Motion (LICM), Bounds-Check Elimination (BCE), and Single Instruction Multiple Data (SIMD) vectorization.</desc>
+      <rect x="4" y="4" width="312" height="448" rx="12" fill="var(--surface-alt)" stroke="var(--bad-border)" stroke-width="1.6"/>
+      <text x="16" y="28" fill="var(--bad-ink)" font-size="14" font-weight="700">Retired: Boxed C Shims (.o)</text>
+      <text x="16" y="48" fill="var(--ink-muted)" font-size="14">Opaque C calls blindfold LLVM</text>
+
+      <rect x="14" y="62" width="292" height="86" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+      <text x="24" y="84" fill="var(--ink)" font-size="14" font-weight="700">1. 32B Heap Boxes + RC</text>
+      <text x="24" y="106" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="13">call @hey_llvm_byte_at_value</text>
+      <text x="24" y="128" fill="var(--bad-ink)" font-size="14">Alloc &amp; Reference Count (RC)</text>
+
+      <rect x="14" y="160" width="292" height="92" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+      <text x="24" y="182" fill="var(--ink)" font-size="14" font-weight="700">2. Opaque runtime.o Wall</text>
+      <text x="24" y="204" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="13">call @hey_llvm_add_value</text>
+      <text x="24" y="225" fill="var(--ink-muted)" font-size="14">C call might alias memory:</text>
+      <text x="24" y="244" fill="var(--bad-ink)" font-size="14">reloads ptr &amp; len every byte</text>
+
+      <rect x="14" y="264" width="292" height="92" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+      <text x="24" y="286" fill="var(--ink)" font-size="14" font-weight="700">3. Repeated Tag &amp; Bounds</text>
+      <text x="24" y="308" fill="var(--ink-muted)" font-size="14">Checks tag &amp; 0 &lt;= i &lt; len</text>
+      <text x="24" y="328" fill="var(--ink-muted)" font-size="14">inside C on every iteration</text>
+      <text x="24" y="348" fill="var(--bad-ink)" font-size="14">Blocks hoisting &amp; vector SIMD</text>
+
+      <rect x="14" y="368" width="292" height="72" rx="8" fill="var(--bad-bg)" stroke="var(--bad-border)"/>
+      <text x="160" y="394" text-anchor="middle" fill="var(--bad-ink)" font-size="14" font-weight="700">~40–90 ops per byte</text>
+      <text x="160" y="416" text-anchor="middle" fill="var(--bad-ink)" font-size="14">Heap churn · C won't inline</text>
+    </svg>
+
+    <svg role="img" viewBox="0 0 320 456" aria-labelledby="svg-mirssa-title svg-mirssa-desc">
+      <title id="svg-mirssa-title">0.99.610a MIR-SSA to LLVM SSA with ThinLTO OS PAL</title>
+      <desc id="svg-mirssa-desc">In 0.99.610a: 1. Loop-Invariant Code Motion (LICM) hoists data_ptr and len once before the loop; 2. Sealed Static Single Assignment (SSA) phi registers and Bounds-Check Elimination (BCE) load each byte with zero bounds branch; 3. Register i64 or 63-bit Least Significant Bit (LSB) InlineInt keeps math in CPU registers and unlocks Single Instruction Multiple Data (SIMD) plus ThinLTO OS Platform Abstraction Layer (PAL) inlining.</desc>
+      <rect x="4" y="4" width="312" height="448" rx="12" fill="var(--surface-alt)" stroke="var(--ok-border)" stroke-width="1.8"/>
+      <text x="16" y="28" fill="var(--ok-ink)" font-size="14" font-weight="700">0.99.610a: MIR-SSA -&gt; LLVM</text>
+      <text x="16" y="48" fill="var(--ink-muted)" font-size="14">Registers + ThinLTO OS PAL</text>
+
+      <rect x="14" y="62" width="292" height="86" rx="8" fill="var(--surface)" stroke="var(--ok-border)"/>
+      <text x="24" y="84" fill="var(--ink)" font-size="14" font-weight="700">1. Hoist View Once (LICM)</text>
+      <text x="24" y="106" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="13">%ptr = load ptr, %data</text>
+      <text x="24" y="128" fill="var(--ok-ink)" font-size="14">Ptr &amp; len read 1x pre-loop</text>
+
+      <rect x="14" y="160" width="292" height="92" rx="8" fill="var(--surface)" stroke="var(--ok-border)"/>
+      <text x="24" y="182" fill="var(--ink)" font-size="14" font-weight="700">2. SSA Phis &amp; Proven Bounds</text>
+      <text x="24" y="204" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="13">loop(%i: i64, %sum: i64):</text>
+      <text x="24" y="225" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="13">%b = load i8 ; !range 0..256</text>
+      <text x="24" y="244" fill="var(--ok-ink)" font-size="14">i &lt; n proven: 0 bounds branch</text>
+
+      <rect x="14" y="264" width="292" height="92" rx="8" fill="var(--surface)" stroke="var(--ok-border)"/>
+      <text x="24" y="286" fill="var(--ink)" font-size="14" font-weight="700">3. Register i64 &amp; InlineInt</text>
+      <text x="24" y="308" fill="var(--ink)" font-family="ui-monospace, Menlo, monospace" font-size="13">%s1 = add i64 %sum, zext(%b)</text>
+      <text x="24" y="328" fill="var(--ink-muted)" font-size="14">Unbounded? 63b LSB InlineInt</text>
+      <text x="24" y="348" fill="var(--ok-ink)" font-size="14">BigInt heap only on overflow</text>
+
+      <rect x="14" y="368" width="292" height="72" rx="8" fill="var(--ok-bg)" stroke="var(--ok-border)"/>
+      <text x="160" y="394" text-anchor="middle" fill="var(--ok-ink)" font-size="14" font-weight="700">CPU Regs + Vector SIMD</text>
+      <text x="160" y="416" text-anchor="middle" fill="var(--ok-ink)" font-size="14">0B heap · 0 RC · pal.bc LTO</text>
+    </svg>
+  </div>
+  <figcaption><strong>Figure · Why pure-Hey <code>MIR-SSA -&gt; LLVM SSA</code> beats boxed C shims (<span class="chip chip-ok">works today</span>):</strong> C code behind an opaque <code>HeyValue</code> ABI forces heap boxing and blocks loop optimization; pure-Hey stdlib code compiled through Static Single Assignment (<code>SSA</code>) inlines straight into caller registers alongside cached Link-Time Optimization (<code>ThinLTO</code>) Operating System Platform Abstraction Layer (<code>PAL</code>) bitcode.</figcaption>
+</figure>
+
+<table class="glance-table" aria-label="Compiler optimizations unlocked by MIR-SSA and ThinLTO OS PAL">
+  <thead>
+    <tr>
+      <th>SSA / ThinLTO Capability</th>
+      <th>What MIR-SSA Proves</th>
+      <th>What LLVM Emits (<span class="chip chip-ok">works today</span>)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td data-label="Capability"><strong>Register <code>i64</code> &amp; 63-bit Least Significant Bit (<code>LSB</code>) <code>InlineInt</code></strong></td>
+      <td data-label="What MIR-SSA Proves"><code>HeyMirFacts</code> proves exact <code>[lo..hi]</code> intervals (including <code>[0..255]</code> on <code>Bytes.at</code>) for raw <code>i64</code>; unbounded <code>Int</code>s carry a 63-bit <code>LSB</code>-tagged word in one register (<code>(w &amp; 1) == 0</code>)</td>
+      <td data-label="What LLVM Emits">1-cycle <code>add i64</code> when bounded, or 3-instruction <code>@llvm.sadd.with.overflow.i64</code> in registers—allocating a heap <code>BigInt</code> only if a result exceeds <code>&plusmn;4.61 &times; 10<sup>18</sup></code></td>
+    </tr>
+    <tr>
+      <td data-label="Capability"><strong>Loop-Invariant Code Motion (<code>LICM</code>) &amp; Bounds-Check Elimination (<code>BCE</code>)</strong></td>
+      <td data-label="What MIR-SSA Proves">Buffer and array SSA pointers don't change across iterations, and index <code>%i</code> satisfies <code>0 &lt;= %i &lt; %len</code> (or <code>idx &amp; (cap - 1)</code>)</td>
+      <td data-label="What LLVM Emits">Loads <code>{ data_ptr, len }</code> once in the loop preheader, drops per-element bounds branches, and auto-vectorizes with Single Instruction, Multiple Data (<code>SIMD</code>: ARM64 NEON / x86-64 AVX2)</td>
+    </tr>
+    <tr>
+      <td data-label="Capability"><strong>Perceus in-place flat <code>Array</code> &amp; <code>Map</code> updates</strong></td>
+      <td data-label="What MIR-SSA Proves"><code>HeyMirLiveness</code> + <code>HeyMirOwnership</code> prove the previous SSA value is dead after <code>put</code>, <code>push</code>, <code>Map.increment</code>, or <code>Map.update</code> (sole owner, Reference Count <code>RC == 1</code>)</td>
+      <td data-label="What LLVM Emits">Mutates contiguous <code>int64_t[]</code>, <code>double[]</code>, shaped-record <code>HEY_ARRAY_REPR_SHAPED</code> slots, and flat value-specialized <code>Map</code> tables in place at <code>1x</code> RAM</td>
+    </tr>
+    <tr>
+      <td data-label="Capability"><strong>Pure-Hey <code>stdlib/*.hey</code> + ThinLTO OS Platform Abstraction Layer (<code>PAL</code>)</strong></td>
+      <td data-label="What MIR-SSA Proves">Standard library modules compile as ordinary <code>MIR-SSA</code> graphs; OS primitives carry <code>memory(...)</code>, <code>nocapture</code>, <code>!range</code>, and Type-Based Alias Analysis (<code>!tbaa</code>) metadata + cached <code>-flto=thin</code> bitcode</td>
+      <td data-label="What LLVM Emits">Inlines <code>Bits</code>, <code>Binary</code>, <code>Bytes</code>, <code>Map</code>, <code>Text</code>, <code>Json</code>, <code>Compress</code>, and <code>Web</code> straight into caller loops with zero <code>HeyValue</code> marshalling</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<section class="note" aria-labelledby="changed-610a">
+<h2 id="changed-610a" data-doc-purpose="See what was retired between releases 608a-609a and 0.99.610a for returning readers.">What changed in 0.99.610a (for readers returning from releases 608a–609a)</h2>
+<p>If you read earlier editions of these docs, five transitional pieces have been retired so there's only one execution model left to keep in your head:</p>
+<ul>
+  <li><strong>C AST interpreter &amp; <code>hey-interp</code> retired:</strong> <code>runtime/hey_repl.c</code>, <code>hey_interp.c</code>, and <code>bin/hey-interp</code> (plus 371 interpreter-only <code>HeyValue</code> C wrappers and <code>.inc</code> dispatch tables) are gone. <code>hey test</code>, <code>hey -e</code>, and interactive <code>hirb</code> prompts (<code>tools/hey_repl.hey</code> via <code>hey-selfc --session</code> + <code>Native.open</code>) all compile through <code>MIR-SSA -&gt; LLVM SSA</code>.</li>
+  <li><strong><code>hey_compress.c</code> &amp; <code>hey_package_project.inc</code> retired:</strong> <code>Deflate</code>, <code>Zlib</code>, <code>Gzip</code>, <code>Xz</code>, <code>Zstd</code>, <code>Tar</code>, <code>Compress</code>, <code>Archive</code>, and <code>Packages</code> now live in pure <code>stdlib/*.hey</code> with zero external C codec libraries.</li>
+  <li><strong>Duplicate C stdlib facades &amp; <code>.tsv</code> callable rows retired:</strong> Duplicate C implementations of <code>Path</code>, <code>Files</code>, <code>Text</code>, <code>Json</code>, <code>Codec</code>, <code>Web</code>, <code>Http</code>, and <code>Jobs</code> in <code>hey_runtime.c</code>—along with their <code>.tsv</code> facade/ABI rows—were deleted; C is trimmed to a cached ThinLTO OS Platform Abstraction Layer (<code>PAL</code>).</li>
+  <li><strong>63-bit register <code>InlineInt</code> &amp; native bitwise lowering:</strong> Unbounded integers stay in a single CPU register up to <code>&plusmn;4.61 &times; 10<sup>18</sup></code> before touching heap <code>BigInt</code> storage, and <code>&amp; | ^ &lt;&lt; &gt;&gt;</code>, <code>Bits.*64</code>, and <code>Binary.read_u64_le</code> compile directly to hardware instructions.</li>
+  <li><strong>Single-probe flat <code>Map</code>, zero-copy <code>Bytes</code>, and richer <code>--warn-boxed</code>:</strong> <code>Map.increment</code> and <code>Map.update</code> hash and probe once on flat specialized slots, <code>Bytes.each_line</code> and <code>Bytes.parse_fixed_slice</code> scan mapped files without copying strings, and <code>hey check --warn-boxed</code> flags multi-probe map loops and array boxing at exact <code>file:line:col</code> spans (<a href="hey-reference-performance-10.html#day1-idioms">Performance §7</a>).</li>
+</ul>
+</section>
 
 <section id="chain" aria-labelledby="h-chain">
 <h2 id="h-chain" data-doc-purpose="Follow a program across all eight compiler stages and their data structures.">1 · Overview of the eight-stage pipeline</h2>
@@ -398,23 +533,23 @@ end</code></pre>
 </section>
 
 <section id="builtins" aria-labelledby="h-builtins">
-<h2 id="h-builtins" data-doc-purpose="See how standard library and C runtime builtins are typed and borrow-checked via internal declarations.">3 · Internal typed declarations for runtime builtins</h2>
-<p>User-written Hey has no type annotations and no <code>extern</code> keyword: users write plain functions like <code>fn score_line(line, prefix, weights)</code>, and the parser and resolver reject <code>extern</code> anywhere outside Hey's own built-in binding module (<a href="#n3">Note 3</a>). Inside the toolchain, however, the compiler needs exact parameter types, return types, and borrow contracts for C runtime operations such as <code>Text.trim</code> or <code>Text.starts_with?</code>.</p>
+<h2 id="h-builtins" data-doc-purpose="See how pure-Hey stdlib modules and ThinLTO OS PAL primitives are typed and inlined.">3 · Pure-Hey standard library &amp; ThinLTO OS PAL declarations</h2>
+<p>User-written Hey has no type annotations and no <code>extern</code> keyword: you write plain functions like <code>fn score_line(line, prefix, weights)</code>, and the parser and resolver refuse <code>extern</code> anywhere outside Hey's internal built-in binding module (<a href="#n3">Note 3</a>). In <code>0.99.610a</code>, application and library logic—including <code>Text</code>, <code>Bytes</code>, <code>Bits</code>, <code>Binary</code>, <code>Map</code>, <code>Json</code>, <code>Codec</code>, <code>Compress</code>, <code>Archive</code>, <code>Packages</code>, <code>Files</code>, <code>Path</code>, <code>Http</code>, <code>Web</code>, and <code>Jobs</code>—is written in pure <code>stdlib/*.hey</code>, while C is trimmed to a thin Operating System Platform Abstraction Layer (<code>PAL</code>) linked as cached Link-Time Optimization (<code>ThinLTO</code>, <code>-flto=thin</code>) bitcode.</p>
 <div class="correction-grid">
   <div class="correction-card">
-    <h3>1 · Standard library in Hey</h3>
-    <p>Public modules (<code>Text</code>, <code>Files</code>, <code>Cli</code>, <code>Collections</code>, <code>Json</code>) are ordinary Hey source files analyzed by the same parser, resolver, <code>HIR</code>, and <code>MIR</code> passes as user code.</p>
+    <h3>1 · Pure-Hey <code>stdlib/*.hey</code></h3>
+    <p>Codecs, formats, HTTP/Web routing, and collection operations compile through the exact same parser, resolver, <code>HIR</code>, and <code>MIR-SSA</code> passes as your own code—inlining straight into caller registers.</p>
   </div>
   <div class="correction-card">
-    <h3>2 · Internal <code>extern</code> bindings</h3>
-    <p>Each C runtime entry point has one internal declaration stating semantic types (<code>String</code>, <code>Int</code>, <code>Bool</code>), per-parameter borrow marks, and its runtime provider ID—verified at build time against the C ABI table.</p>
+    <h3>2 · Typed OS <code>PAL</code> declarations</h3>
+    <p>Each thin OS <code>PAL</code> entry point carries one internal declaration stating semantic types (<code>String</code>, <code>Int</code>, <code>Bool</code>, <code>Bytes</code>), per-parameter borrow marks, and LLVM purity/range metadata (<code>memory(...)</code>, <code>nocapture</code>, <code>!range</code>, <code>!tbaa</code>).</p>
   </div>
   <div class="correction-card">
     <h3>3 · Tiny compiler universe</h3>
     <p>Only operations polymorphic across unrelated containers (<code>len</code>, <code>slice</code>, <code>get</code>, <code>Ranges.until</code>) use built-in typing rules keyed by resolved numeric identity, never by function spelling.</p>
   </div>
 </div>
-<p><strong>Architectural benefit:</strong> Because <code>Text.starts_with?(line, prefix)</code> and <code>Text.byte_length(line)</code> carry verified semantic return types (<code>Bool</code>, <code>Int</code>) and <code>borrowed</code> parameter marks on their resolved declarations, Stage 3 knows their return types immediately and Stage 7 passes <code>line</code> and <code>prefix</code> in registers with <strong>zero reference-count increments or decrements</strong>.</p>
+<p><strong>Architectural benefit:</strong> Because <code>Text.starts_with?(line, prefix)</code> and <code>Text.byte_length(line)</code> compile with verified semantic return types (<code>Bool</code>, <code>Int</code>) and <code>borrowed</code> parameter marks, Stage 3 knows their return types immediately, Stage 7 passes <code>line</code> and <code>prefix</code> in registers with <strong>zero reference-count increments or decrements</strong>, and LLVM ThinLTO inlines across the OS <code>PAL</code> boundary without an opaque <code>runtime.o</code> wall.</p>
 </section>
 
 <section id="types" aria-labelledby="h-types">
@@ -422,7 +557,7 @@ end</code></pre>
 <p><code>HeyHir.hey</code> (<span class="chip chip-ok">works today</span>) lowers the Resolved Core <code>AST</code> into structured Tree <code>HIR</code> records carrying explicit lexical <code>scope_id</code>s and def-use links. <code>HeyHirInference.hey</code> then infers unannotated types over that dependency graph:</p>
 <ol class="fact-path">
   <li><strong>Seed definitions once:</strong> Literals, constructors, and verified builtin declarations seed known language types (<code>Int</code>, <code>Float</code>, <code>Bool</code>, <code>String</code>, shaped records) onto their SSA/HIR definitions.</li>
-  <li><strong>Separate <code>bottom</code> from <code>dynamic</code>:</strong> An unvisited edge starts at <code>bottom</code> ("no path has contributed yet"), so joining <code>bottom</code> with <code>Int</code> yields <code>Int</code>. A genuinely unrestricted runtime input carries <code>dynamic</code> (<code>Value</code>), so joining <code>dynamic</code> with <code>Int</code> widens safely to <code>Value</code> without miscompiling polymorphic programs.</li>
+  <li><strong>Separate <code>bottom</code> from <code>dynamic</code>:</strong> An unvisited edge starts at <code>bottom</code> ("no path has contributed yet"), so joining <code>bottom</code> with <code>Int</code> yields <code>Int</code>. An unrestricted runtime input carries <code>dynamic</code> (<code>Value</code>), so joining <code>dynamic</code> with <code>Int</code> widens safely to <code>Value</code> without miscompiling polymorphic programs.</li>
   <li><strong>Wake only affected consumers:</strong> When an operation's output type changes, a monotone worklist queues only direct def-use readers—eliminating whole-function map cloning and solving mutually recursive strongly connected components (<code>SCC</code>s) to a fixed point.</li>
   <li><strong>Layer 1 demand-driven call-instance typing (<span class="chip chip-ok">works today</span>):</strong> When a call site supplies concrete argument types—such as <code>add(1, 2)</code>, <code>add(0.5, 1.5)</code>, or <code>add(1, 0.5)</code>—<code>HeyHirInference.hey</code> records a typed call instance <code>@t&lt;unit&gt;.&lt;fn&gt;#&lt;TypeTuple&gt;</code> (<code>add#Int,Int</code>, <code>add#Float,Float</code>, <code>add#Int,Float</code>) without cloning <code>AST</code> or <code>HIR</code> trees.</li>
 </ol>
@@ -512,7 +647,7 @@ end</code></pre>
 
 <ul>
 <li><strong>Braun sealed-block <code>SSA</code> without dominance frontiers:</strong> <code>HeyMirLowering.hey</code> and <code>HeyMirSsa.hey</code> implement <a href="https://pp.ipd.kit.edu/uploads/publikationen/braun13cc.pdf">Braun et al.'s algorithm</a> directly over basic-block parameters and edge arguments. Unsealed loop headers install an incomplete join parameter to break cycles immediately, then seal once every predecessor edge is wired, folding trivial single-value joins in place. Whenever critical-edge splitting inserts a synthetic block, <code>HeyIr.hey</code> propagates the enclosing <code>block_scopes</code> chain so Stage 7's scope arenas never lose a lexical boundary.</li>
-<li><strong>Arbitrary-precision <code>Int</code> semantics at 64-bit hardware speed:</strong> Knowing a variable has language type <code>Int</code> does not by itself make <code>9223372036854775807 + 1</code> legal as an unchecked 64-bit add—Hey integers are exact at arbitrary precision. <code>HeyMirFacts.hey</code> and <code>HeyIntRanges.hey</code> propagate exact <code>[lo..hi]</code> bounds with monotone cyclic widening. Every operation whose inputs and result fit signed 64 bits (<code>fits_i64?</code>, such as <code>clamp(..., 0, 1000)</code> in <code>score_line</code>) compiles to plain 1-cycle <code>i64</code> registers; an overflowing intermediate (<code>9223372036854775808</code>) promotes cleanly to managed <code>BigInt</code> even when a later subtraction brings the final answer back into 64-bit range (<a href="hey-compiler-output-walkthrough-2.html#native-ir">walkthrough receipt</a>).</li>
+<li><strong>Arbitrary-precision <code>Int</code> semantics at 64-bit hardware speed (<code>i64</code> + 63-bit <code>InlineInt</code>):</strong> Knowing a variable has language type <code>Int</code> doesn't by itself make <code>9223372036854775807 + 1</code> legal as an unchecked 64-bit add—Hey integers are exact at arbitrary precision. <code>HeyMirFacts.hey</code> and <code>HeyIntRanges.hey</code> propagate exact <code>[lo..hi]</code> bounds (including <code>[0..255]</code> on <code>Bytes.at</code> and multi-branch joins) with monotone cyclic widening. Every operation whose inputs and result fit signed 64 bits (<code>fits_i64?</code>, such as <code>clamp(..., 0, 1000)</code> in <code>score_line</code> or native bitwise <code>&amp; | ^ &lt;&lt; &gt;&gt;</code>) compiles to plain 1-cycle <code>i64</code> registers. When static bounds aren't proven, Hey carries a 63-bit Least Significant Bit (<code>LSB</code>)-tagged <code>InlineInt</code> directly in a CPU register up to <code>&plusmn;4.61 &times; 10<sup>18</sup></code> with zero heap allocation, promoting to heap <code>BigInt</code> only when a hardware overflow flag fires (<a href="hey-compiler-output-walkthrough-2.html#native-ir">walkthrough receipt</a>).</li>
 <li><strong>Unified borrow and escape facts (<code>F1–F4</code>, <span class="chip chip-ok">works today</span>):</strong> On the same <code>SSA-MIR</code> graph, <code>HeyMirFacts.hey</code> computes fresh return results (<code>F1</code>), whether a value escapes its lexical scope via return, heap store, closure capture, or actor <code>send</code> (<code>F2</code>), the innermost non-escaping statement/iteration/call region (<code>F3</code>), and dead-after-use uniqueness for in-place reuse (<code>F4</code>).</li>
 </ul>
 </section>
@@ -716,11 +851,11 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
   <figcaption><strong>Figure 4 · Zero-throwaway seam and worker funnel:</strong> Every base carrier and lifetime pass feeds directly into worker instances; collapsing heap pointers N-to-1 prevents template bloat.</figcaption>
 </figure>
 
-<h3>Stage 6: Physical carriers &amp; 16-byte <code>HeyStr</code> atop <code>SDS</code></h3>
-<p><code>HeyMirPhysical.hey</code> (<span class="chip chip-ok">works today</span>) assigns every SSA value, block parameter, and call operand to one of Hey's physical carriers (<code>i64</code>, <code>f64</code>, <code>i1</code>, countable <code>range_i64</code>, two-register <code>string16</code>, or <code>HeyValue*</code>) and inserts explicit boundary conversions where a value enters a dynamic <code>HeyValue*</code> slot. For strings, Hey pairs an Umbra-style <strong>16-byte German String (<code>HeyStr</code>)</strong> in registers with a <strong>32-byte-header reference-counted <code>SDS</code> buffer</strong> for long owned text (<a href="hey-reference-values-memory-and-strings-9.html#phases">Values, memory and Strings</a>):</p>
+<h3>Stage 6: Physical carriers, 63-bit <code>InlineInt</code>, flat collections &amp; 16-byte <code>HeyStr</code> atop <code>SDS</code></h3>
+<p><code>HeyMirPhysical.hey</code> (<span class="chip chip-ok">works today</span>) assigns every SSA value, block parameter, and call operand to one of Hey's physical carriers—raw <code>i64</code>, 63-bit register <code>InlineInt</code> (<code>managed_int</code>), <code>f64</code>, <code>i1</code>, countable <code>range_i64</code>, two-register <code>string16</code>, flat homogeneous arrays (<code>int64_t[]</code>, <code>double[]</code>, or contiguous static-key record slots <code>HEY_ARRAY_REPR_SHAPED</code>) with hoisted <code>{data_ptr, len}</code> loop preheaders, flat value-specialized <code>Map</code>s, or dynamic <code>HeyValue*</code>—inserting explicit boundary conversions only where a value enters a dynamic <code>HeyValue*</code> slot. For strings, Hey pairs an Umbra-style <strong>16-byte German String (<code>HeyStr</code>)</strong> in registers with a <strong>32-byte-header reference-counted Simple Dynamic String (<code>SDS</code>) buffer</strong> for long owned text (<a href="hey-reference-values-memory-and-strings-9.html#phases">Values, memory and Strings</a>):</p>
 <ul>
 <li><strong>Short strings (<code>0–12</code> UTF-8 bytes) stay 100% inline in two 64-bit registers:</strong> A 4-byte length plus 12 zero-padded bytes need <strong><code>0</code> heap bytes, <code>0</code> pointer dereferences, and <code>0</code> atomic <code>RC</code> operations</strong>—so loop tags like <code>"ERR:"</code> never touch the allocator.</li>
-<li><strong>Long strings (<code>&gt; 12</code> bytes) cache a 4-byte prefix + tagged <code>SDS</code> word:</strong> Bytes <code>4..7</code> copy the first 4 bytes of text; bytes <code>8..15</code> pack the storage class (<code>OWNED</code>, <code>STATIC</code>, <code>BORROWED</code>) into bits <code>54..55</code>—leaving bits <code>56..63</code> untouched for ARM memory tagging—pointing to an <code>SDS</code> block whose slack capacity supports in-place unique append (with geometric slack growth <span class="chip chip-next">decided, coming</span>). Comparing <code>len + pfx[4]</code> rejects unequal strings or checks a 4-byte prefix in <strong>one 64-bit register compare with zero RAM reads</strong>.</li>
+<li><strong>Long strings (<code>&gt; 12</code> bytes) cache a 4-byte prefix + tagged <code>SDS</code> word:</strong> Bytes <code>4..7</code> copy the first 4 bytes of text; bytes <code>8..15</code> pack the storage class (<code>OWNED</code>, <code>STATIC</code>, <code>BORROWED</code>) into bits <code>54..55</code>—leaving bits <code>56..63</code> untouched for ARM memory tagging—pointing to an <code>SDS</code> block whose geometric slack capacity supports in-place unique append (<span class="chip chip-ok">works today</span>). Comparing <code>len + pfx[4]</code> rejects unequal strings or checks a 4-byte prefix in <strong>one 64-bit register compare with zero RAM reads</strong>.</li>
 </ul>
 </section>
 
@@ -864,7 +999,9 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <dt>Layer 1 &amp; Layer 2 specialization</dt><dd>Layer 1 (<code>HeyHirInference.hey</code>) types static call tuples (<code>#Int,Float</code>) to resolve operators and fields; Layer 2 (<code>HeyMirPhysical.hey</code>) deduplicates <code>linkonce_odr</code> machine workers by physical carrier, <code>fits_i64?</code>, and borrow/consume mode while sharing 1 pointer worker across heap aggregates.</dd>
 <dt><code>HeyStr</code> &amp; <code>SDS</code></dt><dd>Hey's 16-byte German String carrier (<code>0–12</code> bytes inline in two 64-bit registers; <code>&gt; 12</code> bytes storing a 4-byte length, 4-byte prefix, and tagged pointer to a 32-byte-header reference-counted Simple Dynamic String buffer with slack capacity).</dd>
 <dt>Perceus, borrow &amp; scope arena</dt><dd>Precise compiler-placed memory management: zero-<code>RC</code> owner-scoped reads (<code>borrow</code>), last-use ownership transfer (<code>move</code>) plus unique-cell in-place <code>reuse</code> and <code>_take_receiver</code> accumulator fusion, and bulk pointer-bump scratch regions (<code>hey_region_push</code>/<code>pop</code>) tied to lexical <code>block_scopes</code>.</dd>
-<dt><code>bottom</code> vs <code>dynamic</code> (<code>Value</code>)</dt><dd><code>bottom</code> means dataflow has not visited an edge yet; <code>dynamic</code> means the runtime value is genuinely unrestricted and travels in a 32-byte <code>HeyValue</code> cell.</dd>
+<dt><code>bottom</code> vs <code>dynamic</code> (<code>Value</code>)</dt><dd><code>bottom</code> means dataflow hasn't visited an edge yet; <code>dynamic</code> means the runtime value is unrestricted and travels in a 32-byte <code>HeyValue</code> cell.</dd>
+<dt><code>InlineInt</code></dt><dd>Hey's 63-bit Least Significant Bit (<code>LSB</code>)-tagged register integer carrier (<code>(word &amp; 1) == 0</code>), holding integers in <code>&plusmn;4.61 &times; 10<sup>18</sup></code> with zero heap allocation and promoting to a heap <code>BigInt</code> only when hardware overflow fires.</dd>
+<dt>ThinLTO OS <code>PAL</code></dt><dd>The thin C Operating System Platform Abstraction Layer (syscalls, <code>mmap</code>/<code>pread</code>, sockets/reactors, OpenSSL 3, M:N actor scheduler, 27-class allocator, <code>HeyStr</code> <code>SDS</code>, <code>dlopen</code>) compiled as cached Link-Time Optimization (<code>-flto=thin</code>) bitcode so LLVM optimizes across the OS boundary.</dd>
 <dt>Negative control</dt><dd>A verification test that deliberately injects a broken invariant (such as an escaping borrow or mismatched carrier) and asserts that <code>HeyMirVerify.hey</code> refuses the plan.</dd>
 </dl>
 </details>
@@ -872,8 +1009,8 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <div id="correction-evidence">
 <h3 id="h-correction-evidence">Measured snapshots &amp; primary literature</h3>
 <ul>
-<li><strong>Native compiler &amp; parser receipts:</strong> Unified eight-stage <code>0.99.609a</code> pipeline (<code>tools/hey_selfc_pipeline.hey</code>, <a href="#n5">Note 5</a>) verified across all 8 negative-control mutations in <code>HeyMirVerify.hey</code>, all 13 module/import resolution cases, and byte-identical <code>stage2 == stage3</code> self-hosting; direct HIR/MIR/physical-planning check suite (<a href="#n6">Note 6</a>: 19/19 HIR, 19/19 MIR with scope checks, 19/19 source facts, 18/18 synthetic facts, 24/24 physical-planning cases; <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">walkthrough receipts</a>); parser verification (10/10 precedence and header assertions, 97/97 valid doc snippets parsed and 5/5 invalid syntax examples rejected).</li>
-<li><strong>Runtime &amp; memory measurements:</strong> <code>runtime/hey_str.h</code> (16-byte <code>HeyStr</code> atop 32-byte <code>SDS</code> header), <code>runtime/hey_runtime.h</code> (32-byte <code>HeyValue</code>, 27-class small-block allocator, <code>hey_region_push</code>/<code>pop</code>), dynamic <code>_take_receiver</code> accumulator fusion eliminating quadratic copy-on-write cloning on self-compile workloads (<a href="#n5">Note 5</a>), and the 19x Perceus in-place reuse benchmark prototype (<code>0.219 s</code> vs <code>4.239 s</code> across 40,000 functional updates).</li>
+<li><strong>Native compiler &amp; parser receipts:</strong> Unified eight-stage <code>0.99.610a</code> pipeline (<code>tools/hey_selfc_pipeline.hey</code>, <a href="#n5">Note 5</a>) verified across all 8 negative-control mutations in <code>HeyMirVerify.hey</code>, all 13 module/import resolution cases, and byte-identical <code>stage2 == stage3</code> self-hosting; direct HIR/MIR/physical-planning check suite (<a href="#n6">Note 6</a>: 19/19 HIR, 19/19 MIR with scope checks, 19/19 source facts, 18/18 synthetic facts, 24/24 physical-planning cases; <a href="hey-compiler-output-walkthrough-2.html#native-hir-capture">walkthrough receipts</a>); parser verification (10/10 precedence and header assertions, 97/97 valid doc snippets parsed and 5/5 invalid syntax examples rejected).</li>
+<li><strong>Runtime &amp; memory measurements:</strong> <code>runtime/hey_str.h</code> (16-byte <code>HeyStr</code> atop 32-byte <code>SDS</code> header), <code>runtime/hey_runtime.h</code> (63-bit register <code>InlineInt</code>, 32-byte dynamic <code>HeyValue</code>, 27-class small-block allocator, <code>hey_region_push</code>/<code>pop</code>, cached ThinLTO OS <code>PAL</code> bitcode), dynamic <code>_take_receiver</code> accumulator fusion eliminating quadratic copy-on-write cloning on self-compile workloads (<a href="#n5">Note 5</a>), and the 19x Perceus in-place reuse benchmark prototype (<code>0.219 s</code> vs <code>4.239 s</code> across 40,000 functional updates).</li>
 <li><strong>Reference literature:</strong> Braun et al., <a href="https://pp.ipd.kit.edu/uploads/publikationen/braun13cc.pdf"><em>Simple and Efficient Construction of Static Single Assignment Form</em></a> (CC 2013); Reinking et al., <a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2021/06/perceus-pldi21.pdf"><em>Perceus: Garbage Free Reference Counting with Reuse</em></a> (PLDI 2021); Neumann &amp; Freitag, <em>Umbra: A Disk-Based System with In-Memory Performance</em> (CIDR 2020, 16-byte German Strings); Bezanson et al., <em>Julia: A Fresh Approach to Numerical Computing</em> (SIAM Review 2017, call-tuple specialization and method caps); <a href="https://github.com/golang/proposal/blob/master/design/generics-implementation-gcshape.md">Go GC-shape stenciling</a>; <a href="https://rustc-dev-guide.rust-lang.org/backend/monomorph.html">Rust <code>linkonce_odr</code> monomorphization &amp; intrinsic checks</a>; Tofte &amp; Talpin, <em>Region-Based Memory Management</em> (1997).</li>
 </ul>
 </div>
@@ -883,10 +1020,10 @@ define linkonce_odr i64    @"hey_fn_score_line#str_b,str_b,i64"(
 <h2 id="notes-h" data-doc-purpose="Follow the commit notes and qualifications attached to this page.">Notes</h2>
 <ol>
 <li id="n1">Consolidation retirement ledger and construct inventory establishing the single-pipeline cutover: <code>bb419e</code>, <code>a366c0</code>.</li>
-<li id="n2">Split-edge <code>block_scopes</code> preservation in <code>HeyIr.hey</code> and retirement of legacy runtime constructor TSV tables: <code>6a6576</code>.</li>
+<li id="n2">Split-edge <code>block_scopes</code> preservation in <code>HeyIr.hey</code> and retirement of legacy runtime constructor tables: <code>6a6576</code>.</li>
 <li id="n3">Internal-only <code>extern</code> declarations reserved for Hey's built-in library and refused in user/package/REPL source at admission, paired with resolved runtime provider identities: <code>4dd3d5</code>, <code>d877d3</code>.</li>
 <li id="n4">Post-parse structural lowering of <code>if</code>/<code>elsif</code>, <code>case</code>/<code>when</code>, and digit-separated <code>Int</code> literals: <code>dfb7f9</code>, <code>2c3614</code>, <code>f5f96d</code>.</li>
-<li id="n5">Unified eight-stage native pipeline (<code>tools/hey_selfc_pipeline.hey</code>), Contender B two-layer specialization, Perceus + dynamic <code>_take_receiver</code> COW fusion + <code>hey_region_push</code>/<code>pop</code> arenas, 8-invariant <code>HeyMirVerify.hey</code>, <code>HeyMirLlvm.hey</code>, and verified <code>stage2 == stage3</code> self-hosting in release 607a: <code>835943</code>; zero-bridge <code>HeyMirC.hey</code> C bootstrap seed and six-target cross-compilation in <code>0.99.609a</code>: <code>2f12d0</code>, <code>4d905b</code>, <code>c91089</code>.</li>
+<li id="n5">Unified eight-stage native pipeline (<code>tools/hey_selfc_pipeline.hey</code>), Contender B two-layer specialization, Perceus + dynamic <code>_take_receiver</code> COW fusion + <code>hey_region_push</code>/<code>pop</code> arenas, 8-invariant <code>HeyMirVerify.hey</code>, <code>HeyMirLlvm.hey</code>, and verified <code>stage2 == stage3</code> self-hosting in release 607a: <code>835943</code>; zero-bridge <code>HeyMirC.hey</code> C bootstrap seed and six-target cross-compilation in release 608a: <code>2f12d0</code>, <code>4d905b</code>, <code>c91089</code>; pure-Hey stdlib codecs/facades, ThinLTO OS <code>PAL</code>, C-interpreter retirement, 63-bit <code>InlineInt</code>, and native bitwise lowering in <code>0.99.610a</code>.</li>
 <li id="n6">Captured HIR/MIR/physical-planning check suite snapshot: <code>1ec3b3</code>.</li>
 </ol>
 </section>
